@@ -502,7 +502,7 @@ public actor WriteQueue {
                               gatewayRoot: URL) async throws -> CompletedFiling {
         guard !api.config.authorization.isEmpty else {
             throw PattadarAPI.APIError.graphQL(
-                ["Photos need the storage gateway — this stack has none."])
+                ["Photos cannot be uploaded right now. They will stay on this phone until they can."])
         }
         let bytes = documentURL(for: entry)
 
@@ -515,7 +515,7 @@ public actor WriteQueue {
             }
         }
         guard let fileRef = nodeID, !fileRef.isEmpty else {
-            throw PattadarAPI.APIError.graphQL(["storage answered without a node id"])
+            throw PattadarAPI.APIError.graphQL(["Pattadar could not accept this. Try again in a moment."])
         }
 
         var variables: [String: any Sendable] = [
@@ -592,7 +592,7 @@ public actor WriteQueue {
         }
         let json = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
         guard let id = json?["id"] as? String, !id.isEmpty else {
-            throw PattadarAPI.APIError.graphQL(["storage answered without a node id"])
+            throw PattadarAPI.APIError.graphQL(["Pattadar could not accept this. Try again in a moment."])
         }
         return id
     }
@@ -611,7 +611,7 @@ public actor WriteQueue {
         case PattadarAPI.APIError.http(let code, _):
             switch code {
             case 401, 403, 404, 408, 409, 425, 429: return .retry(after: wait)
-            case 400..<500: return .park("The server refused this (\(code)).")
+            case 400..<500: return .park("Pattadar could not accept this (code \(code)).")
             default: return .retry(after: wait)
             }
         case PattadarAPI.APIError.graphQL(let messages):

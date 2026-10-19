@@ -26,7 +26,7 @@ the seal, the session, the basemap stubs and the two guards.
 
 ## What arrives already done
 
-- **Signed in.** `/app` is behind `RequireAuth` and the dev server runs a real
+- **Signed in.** Every signed-in page (`/home`, `/properties`, …) is behind `RequireAuth` and the dev server runs a real
   Cognito pool, so the harness writes a session into localStorage before the
   first render. `test.use({ signedIn: false })` for the signed-out doors.
 - **Sealed.** Every `/api` call is answered from `fixtures/seed.ts`.

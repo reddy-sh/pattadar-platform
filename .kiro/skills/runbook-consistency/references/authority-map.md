@@ -1,12 +1,28 @@
 # Documentation Authority Map
 
-## Default precedence
+## Facts and rules
+
+- **Facts** (paths, commands, ports, flags, counts, current behavior): current
+  executable behavior wins; fix the doc.
+- **Rules** (`SECURITY.md` policy, `design.md` locked rules, the README and
+  `.kiro/steering/pattadar-standards.md` invariants, recorded Reddy decisions):
+  code that disagrees is a defect or a decision for Reddy. Report it; never
+  edit a rule to match code.
+
+## Levels (precedence for facts)
 
 1. Current executable behavior: source, scripts, workflows, Terraform.
-2. Root `README.md`, `SECURITY.md`, active design and steering invariants.
-3. Current operational runbooks and service READMEs.
-4. Active specs/contracts.
-5. Historical plans, repair reports, examples, and illustrative payloads.
+2. Root `README.md`, `SECURITY.md`, `design.md`, then the always-on steering
+   (`.kiro/steering/*.md`). Where a steering file and
+   README/design disagree, prefer README/design and flag the drift.
+3. Current operational docs: `docs/runbooks/`, service/app READMEs,
+   `docs/architecture.md` and current `docs/architecture/` files,
+   `docs/compliance/`, `docs/qa/`.
+4. Active specs/contracts (`docs/specs/`, `docs/superpowers/specs/`); check
+   each status against source.
+5. Historical: dated reviews, plans (`docs/plans/`,
+   `docs/superpowers/plans/`), repair reports (`docs/parity/`), examples, and
+   illustrative payloads.
 
 When sources at the same level conflict, report the conflict and ask rather than
 inventing a winner.

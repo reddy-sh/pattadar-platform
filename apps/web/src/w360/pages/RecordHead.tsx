@@ -14,22 +14,27 @@
  */
 import { useEffect, useId, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router';
-import type { ReactNode } from 'react';
+import type { ReactNode, Ref } from 'react';
 import ExpandMoreOutlined from '@mui/icons-material/ExpandMoreOutlined';
 import HandshakeOutlined from '@mui/icons-material/HandshakeOutlined';
 import IosShareOutlined from '@mui/icons-material/IosShareOutlined';
 
 import {
-  EMPTY_FILTER, useArchiveRecords, useCreateShareLink, useDeleteRecords, useNotes, usePapers,
+  EMPTY_FILTER, OWN_NAME, useArchiveRecords, useCreateShareLink, useDeleteRecords, useNotes, usePapers,
   useProperties,
 } from '../api';
 import type { RecordDetail } from '../api';
-import { Crumbs, HOLDING_WORD, Icon, InfoTip, Menu, Pill, num, statusWord } from '../ui';
+import { HOLDING_WORD, HeadActionsRow, Icon, InfoTip, Menu, PageHead, Pill, num, statusWord } from '../ui';
+import type { CrumbStep, DetailActions, HeadActions } from '../ui';
 import { Dialog } from '../Dialog';
 import ShareResult from '../components/ShareResult';
 import { RecordDrawer } from './PropertyActions';
+import { HoldingsGoToo } from './HoldingActions';
+import { ConvertKindDialog } from '../ConvertKindDialog';
 import { SecureShareGuidance } from '../GovernanceGuidance';
 import { displayDetail } from '../paperFiling';
+import { orderHref } from '../orderFlow';
+import { propertyTabTitle } from '../propertyTitle';
 
 /** The nine hangers, in the order the strip draws them.
  *
@@ -58,37 +63,44 @@ export const TABS: {
    *  with no tab strip to get back. A hanger that leaves the frame is a hanger
    *  that stops being one. */
   frame?: boolean;
+  /** An ICONS name drawn before the label, the same one its Overview tile uses. */
+  icon?: string;
 }[] = [
-  { to: '', label: 'Documents', end: true, count: (r) => r.paperCount },
-  { to: 'features', label: 'Site features', count: (r) => r.featureCount },
-  { to: 'people', label: 'People', count: (r) => r.peopleCount },
+  // The master record (docs/specs/2026-10-11-property-overview.md): how the
+  // land is held, its identity and the summary of every other tab.
+  { to: '', label: 'Overview', icon: 'overview', end: true, count: () => null },
+  { to: 'documents', label: 'Documents', icon: 'paper', count: (r) => r.paperCount },
+  { to: 'site-features', label: 'Site features', icon: 'fence', count: (r) => r.featureCount },
+  { to: 'people', label: 'People', icon: 'person', count: (r) => r.peopleCount },
   // What the record knows about where it is: a pin someone stood on, and a
   // boundary somebody drew. Both, one, or — as here, usually — neither.
   {
-    to: 'map',
+    to: 'location',
     label: 'Location',
+    icon: 'place',
     count: (r) => (r.lat || r.lon ? 1 : 0) + (r.ring.length >= 6 ? 1 : 0),
   },
-  { to: 'photos', label: 'Media', count: (r) => r.photoCount },
+  { to: 'media', label: 'Media', icon: 'photos', count: (r) => r.mediaCount },
   // Overridden in RecordTabs by the real list once it lands: RecordDetail
   // carries only the newest note, so this alone could never say more than 1.
-  { to: 'notes', label: 'Notes', count: (r) => (r.noteBody ? 1 : 0) },
-  { to: 'services', label: 'Services', count: (r) => r.serviceCount },
-  { to: 'money', label: 'Money', count: () => null, also: [{ path: 'expenses', label: 'Expenses' }] },
-  { to: 'history', label: 'Activity', count: () => null },
+  { to: 'notes', label: 'Notes', icon: 'note', count: (r) => (r.noteBody ? 1 : 0) },
+  { to: 'services', label: 'Services', icon: 'service', count: (r) => r.serviceCount },
+  { to: 'money', label: 'Money', icon: 'rupee', count: () => null, also: [{ path: 'expenses', label: 'Expenses' }] },
+  { to: 'activity', label: 'Activity', icon: 'activity', count: () => null },
 ];
 
-/** The part of a record URL after the record's id: '' for Documents,
- *  'money', 'expenses', 'order'… */
+/** The part of a record URL after the record's id: '' for Overview,
+ *  'documents', 'money', 'expenses', 'request'… */
 export function tabTail(pathname: string): string {
-  return pathname.replace(/\/+$/, '').split('/app/records/')[1]?.split('/')[1] ?? '';
+  // Anchored on /properties/<id>/, so the /properties list itself is ''.
+  return /^\/properties\/[^/?#]+\/([^/?#]*)/.exec(pathname)?.[1] ?? '';
 }
 
 /** Which hanger a URL is on, so the shell can name it in the breadcrumb and
  *  know whether to draw the frame around it at all.
  *
- *  Undefined means "this screen owns the page": the flows that also live under
- *  `records/:id` — ordering a service and requesting work. The expense ledger
+ *  Undefined means "this screen owns the page": the flow that also lives under
+ *  `properties/:id` — requesting work. The expense ledger
  *  is not one of them any more: it is Money's (`also`), drawn in the frame. */
 export function tabFor(pathname: string) {
   const tail = tabTail(pathname);
@@ -119,7 +131,8 @@ export function RecordTabs({ rec }: { rec: RecordDetail }) {
         const n = t.to === 'notes' && notes ? notes.length : t.count(rec);
         return (
           <Link key={t.label} aria-current={current === t ? 'page' : undefined}
-                to={t.to ? `/app/records/${rec.id}/${t.to}` : `/app/records/${rec.id}`}>
+                to={t.to ? `/properties/${rec.id}/${t.to}` : `/properties/${rec.id}`}>
+            {t.icon && <Icon name={t.icon} size={16} className="tab-icon" />}
             {t.label}
             {/* Zero is printed, dimmed. The strip used to hide a count of
                 nought, so an empty hanger and a hanger whose count had not
@@ -150,28 +163,49 @@ export function RecordTabs({ rec }: { rec: RecordDetail }) {
  * a shared link and a bookmark, and it holds on all nine tabs without every
  * in-record link having to forward a parameter, which is where the cheap version
  * of this goes half-right.
+ *
+ * Data, for a head's `crumbs` slot.
  */
-export function RecordCrumbs({ rec, here, hereTo, leaf }: {
-  rec: RecordDetail; here?: string;
-  /** The hanger's own address, when a screen below it is showing (`leaf`). */
-  hereTo?: string;
-  /** A screen a hanger owns — "Expenses" under Money. */
-  leaf?: string;
-}) {
-  return (
-    <Crumbs
-      trail={[
+export function recordTrail(rec: RecordDetail, here?: string, hereTo?: string, leaf?: string): CrumbStep[] {
+  return [
         ...(rec.combinedId
           ? [
-            { label: HOLDING_WORD.many, to: '/app/holdings' },
-            { label: rec.combinedName || HOLDING_WORD.one, to: `/app/holdings/${rec.combinedId}` },
+            { label: HOLDING_WORD.many, to: '/holdings' },
+            { label: rec.combinedName || HOLDING_WORD.one, to: `/holdings/${rec.combinedId}` },
           ]
-          : [{ label: 'Properties', to: '/app/properties' }]),
-        { label: rec.title, to: here ? `/app/records/${rec.id}` : undefined },
+          : [{ label: 'Properties', to: '/properties' }]),
+        { label: rec.title, to: here ? `/properties/${rec.id}` : undefined },
         ...(here ? [{ label: here, to: leaf ? hereTo : undefined }] : []),
         ...(here && leaf ? [{ label: leaf }] : []),
-      ]}
-    />
+  ];
+}
+
+/**
+ * WHO holds this property and WHICH holding it is part of, in one line:
+ * "Held by Reddy Family · Part of Thota farm".
+ *
+ * Two different facts, kept in two different words (memo 06/10/2026): a
+ * family or group HOLDS land, a holding is a set of properties that make one
+ * piece of ground, so the holding is never said to hold anything. Each name
+ * opens its own page. Land in nobody's group says "In your own name" — never
+ * "Held by In your own name". The holding is also in the breadcrumb, but the
+ * crumb is navigation; this is the property's own statement of where it sits.
+ */
+function HolderLine({ rec }: { rec: RecordDetail }) {
+  const holder = rec.groupId
+    ? <>Held by <Link className="accent" to={`/groups/${rec.groupId}`}>
+        {rec.holderLabel || rec.groupName || 'a family or group'}
+      </Link></>
+    : <>{OWN_NAME}</>;
+  return (
+    <span className="rechead-held">
+      {holder}
+      {rec.combinedId && (
+        <> · Part of <Link className="accent" to={`/holdings/${rec.combinedId}`}>
+          {rec.combinedName || `this ${HOLDING_WORD.one.toLowerCase()}`}
+        </Link></>
+      )}
+    </span>
   );
 }
 
@@ -184,8 +218,12 @@ export function RecordCrumbs({ rec, here, hereTo, leaf }: {
  * tab used to print its own `.pagehead` with an <h1> in it and no two of them
  * agreed on where the actions went.
  */
-export function SectionHead({ title, sub, info, actions }: {
+export function SectionHead({ title, sub, info, actions, controls, id, headRef }: {
   title: ReactNode;
+  /** The h2's id, for a section that is `aria-labelledby` it. */
+  id?: string;
+  /** Where focus lands when a flow moves on to this section (the order steps). */
+  headRef?: Ref<HTMLHeadingElement>;
   /** The one line under the heading: "5 documents · showing 2", "6 open ·
    *  5 assigned". Counts, not marketing — and a fact another part of the tab
    *  already states (a rail card, a filter's own counts) is not repeated. */
@@ -194,20 +232,36 @@ export function SectionHead({ title, sub, info, actions }: {
    *  behind an ⓘ beside the heading, the way PageHead's `info` does for a page,
    *  instead of a permanent sentence under it. */
   info?: ReactNode;
-  actions?: ReactNode;
+  /** The section's commands, as the same data PageHead takes: outlined
+   *  secondaries, the one filled primary, then the ⋮ last ("More actions for
+   *  {title}" unless named), in one centred row (ui.tsx HeadActionsRow). */
+  actions?: HeadActions;
+  /** Deprecated: a head holds commands only. Search, year, view, scope and
+   *  any segmented choice go in the tab's band under the head (FacetFilter or
+   *  ToolbarBand with BandSearch, ViewToggle, SortCycle; design.md § Page head
+   *  slot 5), and SC-H6 fails a section head that draws one here. Kept only
+   *  until the last tab moves its controls out. */
+  controls?: ReactNode;
 }) {
+  const h2 = (
+    <h2 id={id} ref={headRef} tabIndex={headRef ? -1 : undefined}
+        style={headRef ? { outline: 'none' } : undefined}>{title}</h2>
+  );
   return (
     <header className="sechead">
       <div className="grow">
         {info ? (
           <div className="pagehead-title">
-            <h2>{title}</h2>
+            {h2}
             <InfoTip label={typeof title === 'string' ? title : 'this section'}>{info}</InfoTip>
           </div>
-        ) : <h2>{title}</h2>}
+        ) : h2}
         {sub && <p className="note" style={{ margin: '0.25rem 0 0' }}>{sub}</p>}
       </div>
-      {actions && <div className="actions">{actions}</div>}
+      {(actions || controls) && (
+        <HeadActionsRow actions={actions ?? {}} lead={controls}
+                        title={typeof title === 'string' ? title : ''} />
+      )}
     </header>
   );
 }
@@ -231,7 +285,8 @@ export function RecordHead({ rec, here, hereTo, leaf }: {
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [archiveErr, setArchiveErr] = useState('');
   const [editing, setEditing] = useState(false);
-  const shareTrigger = useRef<HTMLButtonElement>(null);
+  const [converting, setConverting] = useState(false);
+  const shareTrigger = useRef<HTMLButtonElement & HTMLAnchorElement>(null);
   const [params, setParams] = useSearchParams();
 
   // The same portfolio query the Properties list runs, so switching records is
@@ -277,108 +332,104 @@ export function RecordHead({ rec, here, hereTo, leaf }: {
       : !shareDocs.length ? 'Choose at least one document.'
         : !audience.trim() ? 'Say who the link is for.' : '';
 
+  // Detail page: two outlined commands and the ⋮, no filled primary (each
+  // tab's own add is the one filled button its viewport gets).
+  const headActions: DetailActions = {
+    secondaries: [
+      { label: 'Order a service', to: orderHref(rec.id),
+        icon: <HandshakeOutlined sx={{ fontSize: 16 }} /> },
+      { label: 'Share securely', ref: shareTrigger, expanded: panel === 'share',
+        icon: <IosShareOutlined sx={{ fontSize: 16 }} />,
+        onClick: () => {
+          if (panel === 'share') closeShare();
+          else { setShareErr(''); setPanel('share'); }
+        } },
+    ],
+    overflow: [
+      // Anything on a record can be corrected — the trail is what makes
+      // that safe, not a locked field.
+      { label: 'Edit details', onClick: () => setEditing(true) },
+      // The survey is the catalogue order the Location tab's "Order a
+      // survey" places.
+      { label: 'Ask a surveyor', onClick: () => nav(orderHref(rec.id, { service: 'survey' })) },
+      // A plot that is really farmland moves to the acres register (D1). Land
+      // in sq.yd only: a building reads in sq.ft, and the server refuses it.
+      ...(rec.kind !== 'parcel' && rec.extentUnit === 'sq.yd'
+        ? [{ label: 'Change to agricultural land', onClick: () => setConverting(true) }] : []),
+      // Archiving pulls the record out of every list, total and map, so
+      // it asks first; the rule sets the two that take the property away
+      // apart from the ones that work on it.
+      { label: 'Archive this property', rule: true, onClick: () => setConfirmArchive(true) },
+      { label: 'Delete this property', danger: true, onClick: () => setConfirmDel(true) },
+    ],
+    overflowLabel: `Actions for ${rec.title}`,
+  };
+
   return (
     <>
-      <RecordCrumbs rec={rec} here={here} hereTo={hereTo} leaf={leaf} />
-
-      <header className="pagehead">
-        {/* Redesigned identity block. The name is the line the eye lands on, so
-            it leads — with a kind glyph before it, the record-switcher chevron
-            after it, and the extent as a bordered pill at the end of the same
-            line. The classifying eyebrow ("LAND PARCEL · KHATA 2 · AGRI") moved
-            BELOW the name: it is what-kind-of-thing, a caption to the title
-            rather than a label above it, which is what let the extent stop
-            competing with the survey number for the top line. The place sits
-            last. `.rechead` carries the new three-row layout; see w360.css. */}
-        <div className="grow rechead">
-          <div className="rechead-name">
-            <Icon name={rec.kind === 'parcel' ? 'parcel' : (rec.classification || rec.kind)}
-                  size={26} className="rechead-glyph" />
-            <h1>{rec.title}</h1>
-            {siblings.length > 0 && (
-              <Menu
-                label="Go to another property"
-                header="Your other properties"
-                triggerClassName="iconbtn"
-                trigger={<ExpandMoreOutlined sx={{ fontSize: 20 }} aria-hidden />}
-                items={[
-                  ...siblings.slice(0, 8).map((c) => ({
-                    label: c.title,
-                    onClick: () => nav(`/app/records/${c.id}`),
-                  })),
-                  {
-                    label: 'See all properties',
-                    rule: true,
-                    onClick: () => nav('/app/properties'),
-                  },
-                ]}
-              />
-            )}
-            {/* The extent is a fact about the parcel, not part of its name, so
-                it is a bordered pill set apart from the title rather than a
-                chip crowding it. The long form — "3 Acres 9.6 Guntas · 324
-                Cents · 15,682 Sq.yd" — rides along as the pill's title and its
-                accessible name, so the reading in the units a village actually
-                argues in is not lost. */}
-            {rec.extent > 0 && (
-              <span className="chip static num rechead-extent" title={rec.extentDetail || undefined}
-                    aria-label={rec.extentDetail
-                      ? `Extent ${rec.extentDetail}`
-                      : `Extent ${rec.extent} ${rec.extentUnit}`}>
-                {rec.extentUnit === 'ac' ? num(rec.extent, 2) : num(rec.extent)}
-                <small style={{ opacity: 0.7 }}> {rec.extentUnit}</small>
-              </span>
-            )}
-            {rec.status !== 'owned' && statusWord(rec.status)
-              && <Pill kind={rec.status}>{statusWord(rec.status)}</Pill>}
-            {rec.stake !== 'owned' && statusWord(rec.stake)
-              && <Pill kind={rec.stake}>{statusWord(rec.stake)}</Pill>}
-          </div>
-          <p className="eyebrow rechead-kind">{rec.eyebrow}</p>
-          {/* One line on a phone (w360.css clamps it at 640px); the whole
-              place stays in the title and in the text a screen reader hears. */}
-          <p className="lede rechead-place"
-             title={`${rec.placeLine} — ${rec.state}${rec.placeLineTe ? ` · ${rec.placeLineTe}` : ''}`}>
+      {/* The record's identity, on the shared head (design.md § Page head,
+          detail page). The name leads, with its kind glyph before it, the
+          record switcher after it and the extent as a bordered pill at the
+          end of the line. Kind, place and holder are the meta row under it.
+          No filled button: this head sits on all nine tabs, and each tab's
+          own add is the one filled button its viewport gets. */}
+      <PageHead
+        crumbs={recordTrail(rec, here, hereTo, leaf)}
+        title={rec.title}
+        docTitle={propertyTabTitle(rec)}
+        glyph={<Icon name={rec.kind === 'parcel' ? 'parcel' : (rec.classification || rec.kind)}
+                     size={26} className="rechead-glyph" />}
+        switcher={siblings.length > 0 ? (
+          // Every other record you hold, so the title is a way across the
+          // portfolio rather than a dead end.
+          <Menu
+            label="Go to another property"
+            header="Your other properties"
+            triggerClassName="iconbtn"
+            trigger={<ExpandMoreOutlined sx={{ fontSize: 20 }} aria-hidden />}
+            items={[
+              ...siblings.slice(0, 8).map((c) => ({
+                label: c.title,
+                onClick: () => nav(`/properties/${c.id}`),
+              })),
+              { label: 'See all properties', rule: true, onClick: () => nav('/properties') },
+            ]}
+          />
+        ) : undefined}
+        pill={<>
+          {/* The extent is a fact about the parcel, not part of its name. The
+              long form ("3 Acres 9.6 Guntas · 324 Cents · 15,682 Sq.yd") rides
+              along as its title and accessible name. */}
+          {rec.extent > 0 && (
+            <span className="chip static num rechead-extent" title={rec.extentDetail || undefined}
+                  aria-label={rec.extentDetail
+                    ? `Extent ${rec.extentDetail}`
+                    : `Extent ${rec.extent} ${rec.extentUnit}`}>
+              {rec.extentUnit === 'ac' ? num(rec.extent, 2) : num(rec.extent)}
+              <small style={{ opacity: 0.7 }}> {rec.extentUnit}</small>
+            </span>
+          )}
+          {rec.status !== 'owned' && statusWord(rec.status)
+            && <Pill kind={rec.status}>{statusWord(rec.status)}</Pill>}
+          {rec.stake !== 'owned' && statusWord(rec.stake)
+            && <Pill kind={rec.stake}>{statusWord(rec.stake)}</Pill>}
+        </>}
+        meta={<>
+          <span className="eyebrow rechead-kind">{rec.eyebrow}</span>
+          <span aria-hidden>·</span>
+          {/* One line on a phone (w360.css clamps it); the whole place stays
+              in the title and in the text a screen reader hears. */}
+          <span className="rechead-place"
+                title={`${rec.placeLine} — ${rec.state}${rec.placeLineTe ? ` · ${rec.placeLineTe}` : ''}`}>
             {rec.placeLine} — {rec.state}
             {rec.placeLineTe && <> · <span className="accent">{rec.placeLineTe}</span></>}
-          </p>
-        </div>
-        <div className="actions">
-          <Link className="btn" to={`/app/records/${rec.id}/order`}>
-            <HandshakeOutlined sx={{ fontSize: 16 }} /> Order a service
-          </Link>
-          {/* Outlined, not filled. This header sits on all nine tabs, and each
-              tab's own add action is the one filled button its viewport gets
-              (design.md § App-surface rules, "fill means act"). */}
-          <button ref={shareTrigger} type="button" className="btn" aria-expanded={panel === 'share'}
-                  onClick={() => {
-                    if (panel === 'share') closeShare();
-                    else { setShareErr(''); setPanel('share'); }
-                  }}>
-            <IosShareOutlined sx={{ fontSize: 16 }} /> Share securely
-          </button>
-          <Menu label={`Actions for ${rec.title}`} items={[
-            // Anything on a record can be corrected — the trail is what makes
-            // that safe, not a locked field.
-            { label: 'Edit details', onClick: () => setEditing(true) },
-            // "See what changed" and "Open location & boundary" left: both are
-            // tabs in the strip under this header, one click away on every tab.
-            // The survey is the catalogue order the Location tab's "Order a
-            // survey" places — the free-text /request form it used to open was
-            // retired (RecordBoundary.tsx, the note on that button).
-            { label: 'Ask a surveyor', onClick: () => nav(`/app/records/${rec.id}/order?service=survey&step=pick`) },
-            // Archiving pulls the record out of every list, total and map, and
-            // it used to happen on one stray menu click with nothing on screen
-            // saying it had — this page cannot show it, because `record` reads
-            // archived rows too. So it asks first, in the same dialog the
-            // delete path uses, and lands you where the change is visible. The
-            // rule above it sets the two that take the property away apart
-            // from the ones that work on it.
-            { label: 'Archive this property', rule: true, onClick: () => setConfirmArchive(true) },
-            { label: 'Delete this property', danger: true, onClick: () => setConfirmDel(true) },
-          ]} />
-        </div>
-      </header>
+          </span>
+          <span aria-hidden>·</span>
+          <HolderLine rec={rec} />
+        </>}
+        actions={headActions}
+        tabs={<RecordTabs rec={rec} />}
+      />
 
       {/* Opens under the button that asked for it. A record's header is not the
           place for a modal — the thing you are sharing has to stay on screen
@@ -402,7 +453,7 @@ export function RecordHead({ rec, here, hereTo, leaf }: {
                 documentIds: shareDocs,
               })).web.createShareLink;
               if (!id) {
-                setShareErr(`No link was made for ${who}. This record may no longer be yours to share.`);
+                setShareErr(`No link was made for ${who}. This property may no longer be yours to share.`);
                 return;
               }
               // No toast: the panel does not close, it turns into the link
@@ -487,10 +538,19 @@ export function RecordHead({ rec, here, hereTo, leaf }: {
             // them. A value here would be a value the form could not save.
             extentDetail: '', paperCount: 0, photoCount: 0, featureCount: 0,
             deedLine: '', litigation: false, paperFileRef: '',
+            groupName: '', holderLabel: '', holdingId: '', holdingName: '',
+            // The deed IS the drawer's to edit, so it carries the real values.
+            surveyNo: rec.surveyNo, docNo: rec.docNo, sro: rec.sro, regDate: rec.regDate,
+            // The register's facts are the list's, not the drawer's.
+            parentage: '', coOwnerCount: 0, managerLine: '', managerCount: 0,
+            purchasePrice: 0, purchaseDate: '', mutationStatus: '', ecStatus: '',
+            createdAt: '', lastActivityAt: '', lastActivityBy: '', lastActivityAction: '',
           }}
           onClose={() => setEditing(false)}
         />
       )}
+
+      {converting && <ConvertKindDialog rec={rec} onClose={() => setConverting(false)} />}
 
       {/* Deleting a record takes everything filed under it, so it asks in a
           dialog over the page rather than a second tap on a menu row. */}
@@ -514,12 +574,12 @@ export function RecordHead({ rec, here, hereTo, leaf }: {
                             setDelErr('That property could not be deleted. Reload the page.');
                             return;
                           }
-                          nav('/app/properties');
+                          nav('/properties');
                         } catch {
                           // The rejection used to go nowhere: the dialog stayed
                           // open over a record that was still there, saying
                           // nothing about why.
-                          setDelErr('That property could not be deleted. Nothing was removed.');
+                          setDelErr('That property could not be deleted. Nothing was deleted.');
                         }
                       }}>
                 {delRecords.isPending ? 'Deleting…' : 'Delete'}
@@ -528,8 +588,9 @@ export function RecordHead({ rec, here, hereTo, leaf }: {
           )}
         >
           <p className="note" style={{ margin: 0 }}>
-            Everything filed under it is deleted too. There is no undo.
+            Everything saved under it is deleted too. There is no undo.
           </p>
+          <HoldingsGoToo ids={[rec.id]} />
           {delErr && (
             <p className="note" role="alert" style={{ margin: 0, color: 'var(--w-danger)' }}>{delErr}</p>
           )}
@@ -561,7 +622,7 @@ export function RecordHead({ rec, here, hereTo, leaf }: {
                             setArchiveErr('That property could not be archived. Reload the page.');
                             return;
                           }
-                          nav('/app/properties');
+                          nav('/properties');
                         } catch {
                           setArchiveErr('That property could not be archived. Nothing was changed.');
                         }
@@ -580,7 +641,6 @@ export function RecordHead({ rec, here, hereTo, leaf }: {
         </Dialog>
       )}
 
-      <RecordTabs rec={rec} />
     </>
   );
 }

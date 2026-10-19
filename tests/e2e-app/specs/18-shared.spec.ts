@@ -3,7 +3,7 @@
  *
  * Three screens, two of them behind no account at all:
  *
- *   /app/shared        W09 — the kits other people have shared WITH this
+ *   /shared        W09 — the kits other people have shared WITH this
  *                      account. Read-only by construction: `web360.py` exposes
  *                      `sharedKits` and `sharedKit` as reads and has no kit
  *                      mutation whatever, so every control on this screen is
@@ -89,7 +89,7 @@ import { KIT, PAPER } from '../fixtures/ids';
 
 // ── the inbox ──────────────────────────────────────────────────────────
 
-const SHARED = '/app/shared';
+const SHARED = '/shared';
 
 /** Every field `KIT` (api.ts:384) selects. A partial object reaches the screen
  *  as `undefined` and draws as the word "undefined", so start from here. */
@@ -162,14 +162,20 @@ function inbox(world: World, kits: Array<Record<string, unknown>>): void {
 const railRow = (page: Page, title: string | RegExp) =>
   page.getByRole('button', { name: title });
 
+/** The open share's name: an h2 under the page's h1 "Shared with me"
+ *  (design.md § Page head, "Shared with me"). */
+const opened = (page: Page) =>
+  page.locator('.withrail > section').getByRole('heading', { level: 2 }).first();
+
 test.describe('W09 · the kits other people sent me', () => {
   test('the shared inbox lists every kit somebody sent me, with who sent it, what is in it and how long it has left', async ({ page, world }) => {
     inbox(world, [kit(), lapsed()]);
     await page.goto(SHARED);
 
-    // The rail says what the section is before a single kit is opened.
-    const rail = page.locator('aside[aria-label="Shared with me"]');
-    await expect(rail.getByRole('heading', { name: 'Shared with me' })).toBeVisible();
+    // The head says what the section is before a single kit is opened: its
+    // h1 is the rail label, and so is the tab (V1).
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Shared with me');
+    await expect(page).toHaveTitle('Shared with me · Pattadar');
 
     const live = railRow(page, /Sy 96\/3/);
     await expect(live).toBeVisible();
@@ -207,7 +213,7 @@ test.describe('W09 · the kits other people sent me', () => {
     inbox(world, [lapsed(), kit()]);
     await page.goto(SHARED);
 
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sy 96/3, Samalkot');
+    await expect(opened(page)).toHaveText('Sy 96/3, Samalkot');
     expect(world.lastVars('sharedKit')).toMatchObject({ id: KIT.wholeRecord });
   });
 
@@ -215,7 +221,7 @@ test.describe('W09 · the kits other people sent me', () => {
     inbox(world, [lapsed(), lapsed({ id: 'w-kit-older', title: 'Sy 12, Peddapuram' })]);
     await page.goto(SHARED);
 
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sy 88, Konakalamitla');
+    await expect(opened(page)).toHaveText('Sy 88, Konakalamitla');
     // Anchored: the eyebrow reads "Share expired", the paragraph below it
     // reads "This share expired on …", and a bare substring matches both.
     await expect(page.getByText(/^Share expired/)).toBeVisible();
@@ -224,18 +230,18 @@ test.describe('W09 · the kits other people sent me', () => {
   test('picking another kit in the rail opens it, and asks the server for that one', async ({ page, world }) => {
     inbox(world, [kit(), lapsed()]);
     await page.goto(SHARED);
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sy 96/3, Samalkot');
+    await expect(opened(page)).toHaveText('Sy 96/3, Samalkot');
 
     await railRow(page, /Sy 88/).click();
 
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sy 88, Konakalamitla');
+    await expect(opened(page)).toHaveText('Sy 88, Konakalamitla');
     await expect.poll(() => world.lastVars('sharedKit').id).toBe(KIT.expired);
   });
 
   test('the rail marks which kit I am reading, so two kits from one sender are not the same row twice', async ({ page, world }) => {
     inbox(world, [kit(), lapsed()]);
     await page.goto(SHARED);
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sy 96/3, Samalkot');
+    await expect(opened(page)).toHaveText('Sy 96/3, Samalkot');
 
     // Every row carries the same 2px left border and only the open one is
     // given a colour (Shared.tsx:107). Transparent-or-not is the one reading
@@ -250,22 +256,24 @@ test.describe('W09 · the kits other people sent me', () => {
     await expect(railRow(page, /Sy 96\/3/)).toHaveCSS('border-left-color', clear);
   });
 
-  test('the rail says what opening a kit costs me before I open one', async ({ page, world }) => {
+  test('the head says what opening a kit costs me before I open one', async ({ page, world }) => {
     inbox(world, [kit()]);
     await page.goto(SHARED);
 
-    // The whole bargain of this screen, under the list rather than buried in
-    // the kit: it is counted, and nothing goes back the other way.
-    await expect(page.locator('aside[aria-label="Shared with me"]')
-      .getByText('The sender can see when you open this.'))
-      .toBeVisible();
+    // The whole bargain of this screen, said once for the page rather than
+    // buried in the kit: it is counted, and nothing goes back the other way.
+    // Standing guidance, so it is the ⓘ after the h1 (design.md § Page head).
+    await expect(page.getByRole('main').getByRole('button', { name: 'About Shared with me' }))
+      .toHaveAccessibleDescription('The sender can see when you open this.');
   });
 
   test('a kit says on its face that it is read-only and not one of my records', async ({ page, world }) => {
     inbox(world, [kit()]);
     await page.goto(SHARED);
 
-    await expect(page.getByText('For sale', { exact: true })).toBeVisible();
+    // The eyebrow is one line: the kit's state word, then the read-only pill.
+    await expect(page.getByRole('main').getByRole('paragraph')
+      .filter({ hasText: /^For sale\s*Read-only · Not your property$/ })).toBeVisible();
     await expect(page.getByText('Read-only · Not your property')).toBeVisible();
     await expect(page.getByText('Gopal Reddy is selling 4 acres 2 guntas of wet land at Samalkot')).toBeVisible();
   });
@@ -319,7 +327,7 @@ test.describe('W09 · the kits other people sent me', () => {
     inbox(world, [kit({ senderName: '', senderInitials: '', senderNote: '' })]);
     await page.goto(SHARED);
 
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sy 96/3, Samalkot');
+    await expect(opened(page)).toHaveText('Sy 96/3, Samalkot');
     await expect(page.getByText(/^Sent by/)).toHaveCount(0);
     await expect(page.getByText('A kit carries no reply channel')).toHaveCount(0);
   });
@@ -435,7 +443,7 @@ test.describe('W09 · the kits other people sent me', () => {
     await page.goto(SHARED);
 
     const own = page.getByRole('link', { name: 'Order a check on your own land' });
-    await expect(own).toHaveAttribute('href', '/app/order');
+    await expect(own).toHaveAttribute('href', '/order');
 
     // And followed, it arrives on the screen that asks WHICH land — the kit
     // being somebody else's is the whole reason the button above is dead, so
@@ -443,7 +451,7 @@ test.describe('W09 · the kits other people sent me', () => {
     // composed against a record id (OrderLand.tsx), and there is no road from
     // here to one except by choosing it.
     await own.click();
-    await expect(page).toHaveURL(/\/app\/order$/);
+    await expect(page).toHaveURL(/\/order$/);
     await expect(page.getByRole('heading', { level: 1, name: 'Choose the property' }))
       .toBeVisible({ timeout: 20_000 });
   });
@@ -523,7 +531,7 @@ test.describe('W09 · the kits other people sent me', () => {
     await page.goto(SHARED);
 
     const calc = page.getByRole('link', { name: 'Work out stamp duty' });
-    await expect(calc).toHaveAttribute('href', '/app/tools?tab=stamp-duty');
+    await expect(calc).toHaveAttribute('href', '/tools?tab=stamp-duty');
     await expect(calc).toHaveAttribute('target', '_blank');
     await expect(calc).toHaveAttribute('rel', /noopener/);
     await expect(page.getByText('Asked at ₹92,00,000.')).toBeVisible();
@@ -633,10 +641,10 @@ test.describe('W09 · the kits other people sent me', () => {
     world.set('sharedKits', World.never());
     await page.goto(SHARED);
 
-    await expect(page.getByText('Loading what has been shared with you…')).toBeVisible();
-    // A live region with real words in it — an empty one announces nothing.
+    await expect(page.getByRole('status', { name: 'Loading what has been shared with you' })).toBeVisible();
+    // A live region with a real name — an unnamed one announces nothing.
     await expect(page.locator('[role="status"][aria-busy="true"]'))
-      .toContainText('Loading what has been shared with you…');
+      .toHaveAttribute('aria-label', 'Loading what has been shared with you');
     // And it never claims the inbox is empty while it is still asking.
     await expect(page.getByText('Nothing has been shared with you')).toHaveCount(0);
   });
@@ -646,7 +654,7 @@ test.describe('W09 · the kits other people sent me', () => {
     world.set('sharedKit', World.never());
     await page.goto(SHARED);
 
-    await expect(page.getByText('Loading this share…')).toBeVisible();
+    await expect(page.getByRole('status', { name: 'Loading this share' })).toBeVisible();
     await expect(railRow(page, /Sy 88/)).toBeVisible();
     await expect(page.getByText('This share is no longer available')).toHaveCount(0);
   });
@@ -659,7 +667,7 @@ test.describe('W09 · the kits other people sent me', () => {
     await expect(page.getByText('Nothing has been shared with you')).toBeVisible();
     // The 18rem column of filters over nothing is gone, and so is the kit read
     // that could never resolve because there was no id to enable it with.
-    await expect(page.locator('aside[aria-label="Shared with me"]')).toHaveCount(0);
+    await expect(page.locator('aside[aria-label="Shares"]')).toHaveCount(0);
     expect(world.calls('sharedKit')).toHaveLength(0);
   });
 
@@ -670,7 +678,7 @@ test.describe('W09 · the kits other people sent me', () => {
     await page.goto(SHARED);
 
     await expect(page.getByText('This share is no longer available')).toBeVisible();
-    await expect(page.getByText('Whoever sent it has withdrawn it.')).toBeVisible();
+    await expect(page.getByText('The person who sent it has revoked it.')).toBeVisible();
     await expect(railRow(page, /Sy 96\/3/)).toBeVisible();
     await expect(railRow(page, /Sy 88/)).toBeVisible();
   });
@@ -707,7 +715,7 @@ test.describe('W09 · when the reads fail', () => {
     await page.getByRole('button', { name: 'Try again' }).click();
 
     await expect(railRow(page, /Sy 96\/3/)).toBeVisible();
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sy 96/3, Samalkot');
+    await expect(opened(page)).toHaveText('Sy 96/3, Samalkot');
     await expect(page.getByText('Shared with me did not load')).toHaveCount(0);
     // A refused GraphQL read is a 200: this test needs no part of the
     // describe's allowConsole, and says so rather than sheltering under it.
@@ -748,7 +756,7 @@ test.describe('W09 · when the reads fail', () => {
     world.set('sharedKit', kit());
     await page.getByRole('button', { name: 'Try again' }).click();
 
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sy 96/3, Samalkot');
+    await expect(opened(page)).toHaveText('Sy 96/3, Samalkot');
     await expect(page.getByText('This share did not load')).toHaveCount(0);
   });
 
@@ -761,7 +769,7 @@ test.describe('W09 · when the reads fail', () => {
     // that refetch, not the first read, that is refused here.
     await page.clock.install();
     await page.goto(SHARED);
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sy 96/3, Samalkot');
+    await expect(opened(page)).toHaveText('Sy 96/3, Samalkot');
 
     world.set('sharedKits', World.gqlError('the share store went away'));
     await page.clock.fastForward('00:35');
@@ -775,7 +783,7 @@ test.describe('W09 · when the reads fail', () => {
     await expect(page.locator('[role="status"]').filter({ hasText: 'The list could not refresh' }))
       .toHaveCount(1);
     // And nothing was taken away: the kit and the rail are both still here.
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sy 96/3, Samalkot');
+    await expect(opened(page)).toHaveText('Sy 96/3, Samalkot');
     await expect(railRow(page, /Sy 88/)).toBeVisible();
     // This one does not need the describe's allowConsole — a refused GraphQL
     // read is a 200 and Chrome says nothing about it. Asserted rather than
@@ -789,23 +797,17 @@ test.describe('W09 · on a phone', () => {
   // proved by whichever project actually runs on this machine.
   test.use({ viewport: { width: 390, height: 844 } });
 
-  // ── DEFECT ────────────────────────────────────────────────────────────
-  // Shared.tsx:87 — `style={{ gridTemplateColumns: '18rem minmax(0,1fr)' }}`.
-  // w360.css:847 drops the rail to one column below 900px, and an inline
-  // style outranks any stylesheet rule, so the phone keeps a 288px rail and
-  // hands the kit itself whatever is left — about 100px, into which the
-  // papers, the priced checks and the asked price are all crushed. Measured
-  // at 390px with the marker off: the rail is beside the main column, not
-  // above it, and runs 7,208px down the page. Every other rail screen in
-  // W360 stacks here. The owner is owed the same: the width belongs in the
-  // stylesheet beside the breakpoint that has to override it, not inline.
-  test.fail('the shared inbox stacks on a phone instead of squeezing the kit into a strip @phone', async ({ page, world }) => {
+  // Was a DEFECT: an inline `gridTemplateColumns: '18rem …'` outranked the
+  // 900px stacking rule, so the phone kept a 288px rail and crushed the kit
+  // into ~100px. The width is now `.withrail.wide` in w360.css, beside the
+  // breakpoint that overrides it (content-header audit F18).
+  test('the shared inbox stacks on a phone instead of squeezing the kit into a strip @phone', async ({ page, world }) => {
     inbox(world, [kit(), lapsed()]);
     await page.goto(SHARED);
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sy 96/3, Samalkot');
+    await expect(opened(page)).toHaveText('Sy 96/3, Samalkot');
 
-    const rail = await page.locator('aside[aria-label="Shared with me"]').boundingBox();
-    const main = await page.locator('.withrail > main').boundingBox();
+    const rail = await page.locator('aside[aria-label="Shares"]').boundingBox();
+    const main = await page.locator('.withrail > section').boundingBox();
     expect(rail).not.toBeNull();
     expect(main).not.toBeNull();
     expect(main!.y).toBeGreaterThanOrEqual(rail!.y + rail!.height - 1);
@@ -1082,7 +1084,7 @@ test.describe('the door a recipient is given · /share/:token', () => {
 
     await expect(page.getByRole('button', { name: 'Open', exact: true })).toHaveCount(4);
     await expect(page.getByText('Adangal 2026.pdf')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Download boundary GeoJSON' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Download boundary (map file, GeoJSON)' })).toBeVisible();
   });
 
   test('a paper link carries exactly that one paper, and no boundary', async ({ page, world }) => {
@@ -1096,7 +1098,7 @@ test.describe('the door a recipient is given · /share/:token', () => {
 
     await expect(page.getByRole('button', { name: 'Open', exact: true })).toHaveCount(1);
     await expect(page.getByRole('link', { name: 'Download', exact: true })).toHaveCount(1);
-    await expect(page.getByRole('button', { name: 'Download boundary GeoJSON' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Download boundary (map file, GeoJSON)' })).toHaveCount(0);
     await expect(page.getByText('No files were shared with this link.')).toHaveCount(0);
   });
 
@@ -1110,7 +1112,7 @@ test.describe('the door a recipient is given · /share/:token', () => {
     await expect(page.getByText('No files were shared with this link.')).toHaveCount(0);
 
     const started = page.waitForEvent('download');
-    await page.getByRole('button', { name: 'Download boundary GeoJSON' }).click();
+    await page.getByRole('button', { name: 'Download boundary (map file, GeoJSON)' }).click();
     expect((await started).suggestedFilename()).toBe('shared-boundary.geojson');
   });
 
@@ -1329,6 +1331,24 @@ test.describe('the door a worker is given · /work/:token', () => {
     await expect(page.getByRole('button', { name: 'Send to owner' })).toBeDisabled();
   });
 
+  test('the conversation says who wrote each line in the provider\'s words, dated DD/MM/YYYY', async ({ page, world }) => {
+    // capabilities.py provider_label: the stored "You" is the owner's word for
+    // themselves, so the work view relabels by actor_kind.
+    door(world, 'work', TOKEN.work, () => ({
+      json: job({ messages: [
+        { id: 'm1', actor_kind: 'owner', actor_label: 'The owner', detail: 'Where are you on this?', at: '2026-09-09T06:30:00+05:30' },
+        { id: 'm2', actor_kind: 'system', actor_label: 'Pattadar desk', detail: 'Ravi is on his way.', at: '2026-09-10T06:30:00+05:30' },
+      ] }),
+    }));
+    await page.goto(`/work/${TOKEN.work}`);
+
+    const log = page.getByRole('log', { name: 'Service conversation' });
+    await expect(log).toContainText('The owner · 09/09/2026');
+    await expect(log).toContainText('Pattadar desk · 10/09/2026');
+    await expect(log).not.toContainText('You ·');
+    await expect(log).not.toContainText('2026-09');
+  });
+
   test('the door never offers a worker the owner’s own buttons', async ({ page, world }) => {
     // The server sends every action the job has; only the two a worker can
     // actually take are drawn (RecipientAccess.tsx:96).
@@ -1465,6 +1485,26 @@ test.describe('the door a worker is given · /work/:token', () => {
 
     await expect(page.getByRole('status')).toHaveText('Your update was recorded for the owner.');
     expect(world.restCalls(/\/deliverables$/)).toHaveLength(1);
+  });
+
+  test('the reply and the work form each have their own button, and only the one sent says Sending…', async ({ page, world }) => {
+    door(world, 'work', TOKEN.work, () => ({ json: job() }));
+    world.route(new RegExp(`${doorBase('work', TOKEN.work)}/deliverables$`), () => ({
+      json: { ok: true, id: 'w-dlv-4' }, delayMs: 1_500,
+    }));
+    await page.goto(`/work/${TOKEN.work}`);
+
+    // Two forms, two names: a screen reader can tell a reply from work.
+    await expect(page.getByRole('button', { name: 'Send reply' })).toHaveCount(1);
+    await expect(page.getByRole('button', { name: 'Send to owner' })).toHaveCount(1);
+
+    await page.getByLabel('Reply', { exact: true }).fill('Coming on Thursday');
+    await page.getByRole('button', { name: 'Send reply' }).click();
+
+    await expect(page.getByRole('button', { name: 'Sending…' })).toHaveCount(1);
+    // The work form is not the one sending, and still says what it does.
+    await expect(page.getByRole('button', { name: 'Send to owner' })).toHaveCount(1);
+    await expect(page.getByRole('status')).toHaveText('Your message was added to the service conversation.');
   });
 
   test('a worker who only has news to report sends it without a file, and is told it went to the job history', async ({ page, world }) => {

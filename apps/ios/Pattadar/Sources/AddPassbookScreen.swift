@@ -53,7 +53,7 @@ struct AddPassbookScreen: View {
                 Section {
                     ScanFirstCard(
                         title: "Read it from the passbook",
-                        body_: "Photograph the pattadar passbook — the owner, village and every parcel on it are read for you.",
+                        body_: "Take a photo of the pattadar passbook — the owner, village and every parcel on it are read for you.",
                         endpoint: .passbook,
                         manualOpen: $manualOpen,
                         result: $scanned,

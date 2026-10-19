@@ -22,6 +22,9 @@ export const filedToday = (): string => {
  *  before the reading wrote DD/MM/YYYY reads as DD/MM/YYYY (India). Anything
  *  else, including an already-DD/MM/YYYY date, passes through unchanged. */
 export function displayDetail(detail: string): string {
+  // One name for one thing: FMBs uploaded before 07/10/2026 were stored as
+  // "FMB / survey sheet".
+  if ((detail || '').trim() === 'FMB / survey sheet') return 'FMB sheet';
   return (detail || '').replace(/\bRegistered (\d{4})-(\d{2})-(\d{2})\b/g,
     (_, y: string, m: string, d: string) => `Registered ${d}/${m}/${y}`);
 }

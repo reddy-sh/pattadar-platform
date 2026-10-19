@@ -11,7 +11,7 @@ import { useMemo } from 'react';
 import { Link, Navigate, useParams } from 'react-router';
 import { PageMeta } from '../components/PageMeta';
 import { stateLearningGuideByCode } from '../data/stateGuideContent';
-import { recordGuidePath, recordGuides } from '../data/recordGuides';
+import { hasRecordVideo, recordGuidePath, recordGuides } from '../data/recordGuides';
 import {
   indiaLandRecordSources,
   landRecordAvailabilityLabels,
@@ -81,7 +81,7 @@ export function StateGuidePage() {
     [guide, profile],
   );
   const courseParams = new URLSearchParams({ state: profile.code });
-  const videos = recordGuides.filter((record) => record.stateCode === profile.code);
+  const videos = recordGuides.filter((record) => record.stateCode === profile.code && hasRecordVideo(record));
 
   return (
     <main className="page-shell state-guide-page">

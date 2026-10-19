@@ -95,13 +95,13 @@ def _owner(request: Request) -> str:
     # The gateway strips client trust headers and sets this from verified JWT.
     uid = request.headers.get('x-user-id', '').strip()
     if not uid or uid == 'system':
-        raise HTTPException(401, 'Sign in to manage service payments')
+        raise HTTPException(401, 'Your session has ended. Sign in again.')
     return uid
 
 
 def _ready():
     if _config.mode == 'off' or _provider is None:
-        raise HTTPException(503, 'Online payments are not configured; no payment was taken')
+        raise HTTPException(503, 'Paying online is not switched on yet. No money was taken.')
 
 
 async def _row(conn, sql: str, args=()):
@@ -135,20 +135,20 @@ async def checkout(ticket_id: str, request: Request):
             ticket = await _row(conn, 'SELECT * FROM work_requests WHERE id=%s AND owner_user_id=%s FOR UPDATE',
                                 (ticket_id, uid))
             if not ticket:
-                raise HTTPException(404, 'Service not found')
+                raise HTTPException(404, 'This service order is no longer in your account.')
             if ticket.get('closed'):
-                raise HTTPException(409, 'This job is closed')
+                raise HTTPException(409, 'This order is closed.')
             current = await _intent(conn, uid, ticket_id, lock=True)
             if current and current['mode'] != _config.mode:
-                raise HTTPException(409, 'This job belongs to a different payment mode; order the service again')
+                raise HTTPException(409, 'This order cannot be paid this way. Order the service again.')
             if not current:
                 previous = await _row(conn, 'SELECT id FROM service_payments WHERE owner_user_id=%s AND ticket_id=%s LIMIT 1',
                                       (uid, ticket_id))
                 if previous:
-                    raise HTTPException(409, 'This job already has accounting entries; reconcile them before checkout')
+                    raise HTTPException(409, 'This order already has payments against it. Contact Pattadar before paying again.')
                 amount = paise(ticket.get('quoted') or ticket.get('cost') or 0)
                 if amount <= 0:
-                    raise HTTPException(409, 'Agree a price before funding this job')
+                    raise HTTPException(409, 'Agree a price before paying for this order.')
                 intent_id = 'pi_' + uuid.uuid4().hex
                 await conn.execute('INSERT INTO payment_intents(id,owner_user_id,ticket_id,mode,amount) VALUES(%s,%s,%s,%s,%s)',
                                    (intent_id, uid, ticket_id, _config.mode, amount))
@@ -166,7 +166,7 @@ async def _view(uid: str, ticket_id: str) -> dict:
             ticket = await _row(conn, 'SELECT id,title,quoted,cost,closed FROM work_requests WHERE id=%s AND owner_user_id=%s',
                                 (ticket_id, uid))
             if not ticket:
-                raise HTTPException(404, 'Service not found')
+                raise HTTPException(404, 'This service order is no longer in your account.')
             return {'status': 'not_started', 'title': ticket['title'], 'amount': paise(ticket.get('quoted') or ticket.get('cost') or 0),
                     'currency': 'INR', 'mode': _config.mode, 'enabled': _config.mode != 'off', 'operations': []}
         operations = await (await conn.execute('SELECT kind,status,error FROM payment_operations WHERE intent_id=%s ORDER BY created_at',
@@ -193,12 +193,12 @@ async def verify_checkout(ticket_id: str, request: Request, body: dict = Body(..
         async with conn.transaction():
             intent = await _intent(conn, uid, ticket_id, lock=True)
             if not intent or intent['mode'] != _config.mode or not intent['order_id']:
-                raise HTTPException(404, 'Payment order not found')
+                raise HTTPException(404, 'This payment could not be found. Start the payment again.')
             payment_id = str(body.get('razorpay_payment_id') or '')
             message = f"{intent['order_id']}|{payment_id}".encode()
             if (body.get('razorpay_order_id') != intent['order_id']
                     or not verify_hmac(_config.key_secret, message, str(body.get('razorpay_signature') or ''))):
-                raise HTTPException(400, 'Payment verification failed')
+                raise HTTPException(400, 'This payment could not be confirmed. Try again.')
             await _request_verification(conn, intent, payment_id)
     await process_one(intent_id=intent['id'], kinds=['capture'])
     return await _view(uid, ticket_id)
@@ -207,7 +207,7 @@ async def verify_checkout(ticket_id: str, request: Request, body: dict = Body(..
 async def _request_verification(conn, intent: dict, payment_id: str):
     if intent['payment_id']:
         if intent['payment_id'] != payment_id:
-            raise HTTPException(409, 'A different payment already funded this job')
+            raise HTTPException(409, 'This order has already been paid with a different payment.')
         return
     await _enqueue(conn, intent['id'], 'capture', {'payment_id': payment_id})
     current = await _row(conn, 'SELECT * FROM payment_operations WHERE intent_id=%s AND kind=%s FOR UPDATE', (intent['id'], 'capture'))
@@ -215,7 +215,7 @@ async def _request_verification(conn, intent: dict, payment_id: str):
         # A failed/abandoned checkout attempt may be followed by a successful
         # one. Only replace when no capture has ever been confirmed or started.
         if current['status'] not in {'attention', 'done'}:
-            raise HTTPException(409, 'Another payment is being verified; wait for reconciliation')
+            raise HTTPException(409, 'Another payment for this order is being confirmed. Wait a few minutes and check again.')
         await conn.execute("UPDATE payment_operations SET payload=%s,status='pending',error='',next_at=now() WHERE id=%s",
                            (Jsonb({'payment_id': payment_id}), current['id']))
 
@@ -276,24 +276,24 @@ async def route_ledger_plan(conn, uid, ticket_id, plan):
     if not intent:
         return None
     if intent['mode'] != _config.mode or _provider is None:
-        raise PaymentError('This payment needs its original provider mode to settle')
+        raise PaymentError('This payment was made another way and cannot be paid out here. Contact Pattadar.')
     if not plan:
         return 0
     if not intent['payment_id'] or intent['status'] not in {'captured', 'settlement_pending', 'settled'}:
-        raise PaymentError('Wait for the payment to be captured before settling this job')
+        raise PaymentError('The payment company has not confirmed the payment yet. Wait a few minutes and try again.')
     if any(row.get('entry') not in {'release', 'fee', 'return'} for row in plan):
-        raise PaymentError('Fund this job through checkout')
+        raise PaymentError('Pay for this order at checkout first.')
     if intent['settlement_plan'] is not None:
         if intent['settlement_plan'] != plan:
-            raise PaymentError('A different settlement is already reserved for this job')
+            raise PaymentError('This order is already being paid out differently. Contact Pattadar.')
         return len(plan)
     prior = await _row(conn, "SELECT id FROM service_payments WHERE owner_user_id=%s AND ticket_id=%s AND provider='stub' LIMIT 1",
                        (uid, ticket_id))
     if prior:
-        raise PaymentError('Simulated and provider funds cannot be settled together')
+        raise PaymentError('This order has test and real payments mixed. Contact Pattadar.')
     total = sum(paise(row['amount']) for row in plan)
     if total != intent['amount']:
-        raise PaymentError('Settlement does not match the captured amount')
+        raise PaymentError('The amounts do not match what was paid. Contact Pattadar.')
     release = next((r for r in plan if r['entry'] == 'release'), None)
     fee = next((r for r in plan if r['entry'] == 'fee'), None)
     refund = next((r for r in plan if r['entry'] == 'return'), None)
@@ -393,7 +393,7 @@ async def process_one(*, intent_id=None, kinds=None) -> bool:
                 _provider.validate_payment(observed, intent)
                 expected_refunded = sum(paise(row['amount']) for row in returns)
                 if observed.get('captured') is not True or int(observed.get('amount_refunded') or 0) != expected_refunded:
-                    raise PaymentError('The provider payment changed outside this job; reconcile it before paying the worker')
+                    raise PaymentError('The payment changed at the payment company; reconcile it before releasing money to the provider')
             result = await _provider.operation(operation, intent)
             if result.get('status') == 'failed':
                 raise PaymentError('Provider operation failed; operator reconciliation is required')
@@ -424,7 +424,7 @@ async def process_one(*, intent_id=None, kinds=None) -> bool:
                                        (result['id'], intent['id']))
                 elif kind == 'capture':
                     if current['payment_id'] and current['payment_id'] != result['id']:
-                        raise PaymentError('A different capture already funded this job')
+                        raise PaymentError('A different payment already paid for this order')
                     if not current['payment_id']:
                         # Both this note and the refund note below are stored
                         # text: the Wallet screen prints whatever the row was

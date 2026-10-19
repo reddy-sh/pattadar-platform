@@ -71,13 +71,13 @@ struct FeaturesView: View {
                 Task { await load() }
             }
         }
-        .confirmationDialog("Remove this?", isPresented: Binding(
+        .confirmationDialog(confirmDelete.map { "Remove \($0.label)?" } ?? "Remove this feature?", isPresented: Binding(
             get: { confirmDelete != nil },
             set: { if !$0 { confirmDelete = nil } }), titleVisibility: .visible) {
             Button("Remove", role: .destructive) {
                 if let f = confirmDelete { Task { await remove(f) } }
             }
-            Button("Keep it", role: .cancel) { confirmDelete = nil }
+            Button("Cancel", role: .cancel) { confirmDelete = nil }
         } message: {
             Text(confirmDelete.map { "\($0.label) \($0.amount)" } ?? "")
         }

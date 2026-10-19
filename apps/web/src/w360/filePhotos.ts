@@ -78,7 +78,10 @@ export function useFilePhotos(recordId: string | undefined) {
    *  orders and this record once per file — N-1 answers nobody reads, racing
    *  the uploads still in flight. The refresh is owed once, when the pick is
    *  done, and the `finally` below pays it. */
-  const add = useAddPhoto(false);
+  /* Neither refresh nor toast per file: the pick reports once, in `err`, with
+     how many of its files landed — a per-file toast said "Nothing has changed"
+     after the earlier files of the same pick had been filed. */
+  const add = useAddPhoto(false, false);
   const refresh = useRefreshW360();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -88,9 +91,12 @@ export function useFilePhotos(recordId: string | undefined) {
    *  the pick — the drawer asks for it once, because a batch is almost always
    *  one visit, and correcting an individual one afterwards is the gallery's own
    *  caption box. It used to be hard-coded empty, so every photo filed from the
-   *  web arrived unlabelled and had to be captioned one at a time later. */
-  async function file(files: File[], caption = '') {
-    if (!files.length || !recordId) return;
+   *  web arrived unlabelled and had to be captioned one at a time later.
+   *  Resolves to the files that were filed, so a pick that stops partway can
+   *  drop them and a second press does not file them twice. */
+  async function file(files: File[], caption = ''): Promise<File[]> {
+    const filed: File[] = [];
+    if (!files.length || !recordId) return filed;
     // The WHOLE pick is sized before a single byte of any of it is sent. This
     // check used to sit inside the loop and break out of it, so picking five
     // photos with an oversize third one filed the first two and then said
@@ -108,11 +114,12 @@ export function useFilePhotos(recordId: string | undefined) {
         `${names} ${tooBig.length > 1 ? 'are' : 'is'} over the size limit`
         + ` — nothing was uploaded. Shrink or drop ${tooBig.length > 1 ? 'them' : 'it'}`
         + ' and pick again.');
-      return;
+      return filed;
     }
     setBusy(true);
     setErr('');
     let last = '';
+    let stop = '';
     try {
       for (const f of files) {
         const { w, h } = await probe(f);
@@ -132,7 +139,7 @@ export function useFilePhotos(recordId: string | undefined) {
            *  sentence rather than the thrown one: a StorageUploadError often
            *  carries the gateway's own words, which belong in a toast's small
            *  detail line and not in the sentence a person is asked to act on. */
-          setErr(STORAGE_OFFLINE_MSG);
+          stop = STORAGE_OFFLINE_MSG;
           break;
         }
         try {
@@ -145,24 +152,25 @@ export function useFilePhotos(recordId: string | undefined) {
             mediaKind: mediaKindOf(f),
             width: w, height: h, sha256: '', capturedAt: stampOf(f.lastModified),
           });
-          if (!res.web.addPhoto) {
-            setErr('The photo was uploaded but could not be filed against this record.');
-            break;
-          }
+          if (!res.web.addPhoto) throw new Error('not added');
           last = res.web.addPhoto;
+          filed.push(f);
         } catch {
-          // useAddPhoto owns the mutation failure toast. Storage succeeded, so
-          // do not overwrite that truthful message with a gateway outage.
+          stop = 'The photo was uploaded but could not be added to this property.';
           break;
         }
       }
     } finally {
+      // Says how far the pick got when it stopped partway, because the files
+      // before the failure are on the property now and the rest are not.
+      if (stop) setErr(filed.length ? `${filed.length} of ${files.length} files were added. ${stop}` : stop);
       setBusy(false);
       // `last` is the id of the last file that was filed, so it is also the
       // answer to "did anything land": a pick that filed nothing has nothing
       // to refresh for.
       if (last) { setLastAdded(last); refresh(); }
     }
+    return filed;
   }
 
   return {

@@ -27,14 +27,17 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
-import ArrowBackOutlined from '@mui/icons-material/ArrowBackOutlined';
 import SendOutlined from '@mui/icons-material/SendOutlined';
 
-import { useAddPaper, useBoundary, useCreateRequest, useOrders, usePapers, usePhotos, useRecord } from '../api';
+import {
+  useAddPaper, useBoundary, useCreateRequest, useOrders, usePapers, usePhotos, useRecord, useServicesOffered,
+} from '../api';
 import { openSameJob } from '../orderFlow';
 import { MAX_UPLOAD_BYTES, mb } from '../filePhotos';
 import { STORAGE_OFFLINE_MSG, uploadToDrive } from '../../pages/documents/storage';
-import { Card, Chip, Failed, Loading, pairs } from '../ui';
+import { Card, Chip, Failed, PageHead, pairs } from '../ui';
+import { Sk } from '../skeletons';
+import { recordTrail } from './RecordHead';
 
 /** What each kind of request opens with. The words are the ones an owner
  *  would actually send, not a template someone has to rewrite. */
@@ -42,7 +45,7 @@ const OPENERS: Record<string, { title: string; message: string; noGeo?: string }
   survey: {
     title: 'Ask a surveyor',
     message: 'Hey dear surveyor, please do the survey for this location. '
-      + 'The boundary is attached as a GeoJSON file.',
+      + 'The boundary is attached as a map file.',
     // A record with no ring is the common way into this screen — the "Order a
     // survey" button on the boundary tab is shown precisely when there is no
     // boundary — and the surveyed wording promises an attachment that cannot
@@ -56,7 +59,7 @@ const OPENERS: Record<string, { title: string; message: string; noGeo?: string }
     message: 'Please read these documents and tell me whether the title is clean.',
   },
   visit: {
-    title: 'Ask someone to visit',
+    title: 'Ask a provider to visit',
     message: 'Please visit this land and send me photos of what you find.',
   },
 };
@@ -69,12 +72,12 @@ const OPENERS: Record<string, { title: string; message: string; noGeo?: string }
  *  API committed — leaves the job created, which is exactly the case where a
  *  blind retry files it twice. So the owner is sent to look before retrying. */
 const RAISE_FAILED =
-  'That request did not go through. Check your connection, then look under '
-  + 'Services before trying again — if the job is already there, it was filed.';
-const RAISE_REJECTED = 'That request was not accepted. A message is required.';
+  'That order did not go through. Check your connection, then look under '
+  + 'Services before trying again. If the order is already there, it was placed.';
+const RAISE_REJECTED = 'That order was not accepted. A message is required.';
 const PAPER_FAILED =
-  'That file was stored but could not be filed against this property, so no '
-  + 'request was raised. Try again, or file it under Documents first.';
+  'That file was stored but could not be saved on this property, so no '
+  + 'order was placed. Try again, or add it under Documents first.';
 
 export function RequestWork() {
   const { id } = useParams();
@@ -89,7 +92,9 @@ export function RequestWork() {
   const { data: papers } = usePapers(id);
   const { data: orders, isLoading: ordersLoading, error: ordersError } =
     useOrders(id, false, true);
-  const duplicate = openSameJob(orders, kind);
+  // The catalogue's aliases say a `visit` asked for here is a `site_visit` ordered there.
+  const { data: offers } = useServicesOffered('', '', true, id ?? '');
+  const duplicate = openSameJob(orders, kind, offers);
 
   const [asOwner, setAsOwner] = useState(true);
   const [who, setWho] = useState('');
@@ -137,7 +142,7 @@ export function RequestWork() {
     if (!id || duplicate || ordersError || !orders) return;
     setSent('');
     const named = [
-      ...(sendGeo && surveyed ? ['the boundary as GeoJSON'] : []),
+      ...(sendGeo && surveyed ? ['the boundary as a map file'] : []),
       ...(photos?.photos ?? []).filter((x) => pickedPhotos.includes(x.id))
         .map((x) => x.caption || x.fileName || 'a photo'),
       ...(papers ?? []).filter((d) => pickedPapers.includes(d.id)).map((d) => d.title),
@@ -165,14 +170,14 @@ export function RequestWork() {
         // that the owner is told first.
         if (f.size > MAX_UPLOAD_BYTES) {
           stop(`${f.name} is ${mb(f.size)}. The limit is ${mb(MAX_UPLOAD_BYTES)} — `
-            + 'it was not uploaded and no request was raised.');
+            + 'it was not uploaded and no order was placed.');
           return;
         }
         const node = await uploadToDrive(f);
         if (!node) { stop(STORAGE_OFFLINE_MSG); return; }
         const title = f.name || 'Document';
         const filed = await addPaper.mutateAsync({
-          recordId: id, fileRef: node.id, name: title, subtitle: 'Added for this request',
+          recordId: id, fileRef: node.id, name: title, subtitle: 'Added for this order',
           shelf: 'unsorted', pageCount: 0, mimeType: node.mimeType, sizeBytes: node.sizeBytes,
         });
         if (!filed.web.addPaper) { stop(PAPER_FAILED); return; }
@@ -212,43 +217,76 @@ export function RequestWork() {
     }
   }
 
-  if (recLoading) return <main><Loading h="60vh" /></main>;
+  // The head is drawn before the property arrives too (design.md § Page head).
+  const waiting = (
+    <PageHead crumbs={[{ label: 'Properties', to: '/properties' }, { label: opener.title }]} title={opener.title} />
+  );
+  // First read: the form's own cards, titled, with grey lines where the
+  // fields and pickers will be, so nothing moves when the property lands
+  // (design.md § Loading).
+  const pill = { w: '9rem', h: '2.375rem', r: 'var(--radius-pill)' } as const;
+  if (recLoading) return (
+    <main>
+      {waiting}
+      <div role="status" aria-busy="true" aria-label="Loading this property for your order"
+           className="split" style={{ marginTop: 'var(--space-md)', minWidth: 0 }}>
+        <div className="stack" aria-hidden style={{ minWidth: 0 }}>
+          <Card title="Your details">
+            <div className="row tight"><Sk {...pill} /><Sk {...pill} w="14rem" /></div>
+          </Card>
+          <Card title="Your message"><Sk h="7.5rem" r="var(--radius-sm)" /></Card>
+          <Card title="Your order">
+            <div className="row tight"><Sk {...pill} /><Sk {...pill} w="6rem" /></div>
+            <Sk w="7rem" style={{ marginTop: 'var(--space-xs)' }} />
+          </Card>
+        </div>
+        <aside className="stack" aria-hidden style={{ minWidth: 0 }}>
+          {['Attachments', 'Photos', 'Documents', 'Other'].map((t, i) => (
+            <Card key={t} title={t}>
+              <Sk w={['16rem', '12rem', '14rem', '6rem'][i]} />
+              <Sk w="9rem" style={{ marginTop: 'var(--space-xs)' }} />
+            </Card>
+          ))}
+        </aside>
+      </div>
+    </main>
+  );
   // A read that settled with nothing is not a read still running. `retry: 1`
   // means a failed record read ends here for good, and drawing the skeleton
   // for it rendered the outage as an eternity.
-  if (!rec) return <main><Failed what="This property" error={recError} h="60vh" /></main>;
+  if (!rec) return <main>{waiting}<Failed what="This property" error={recError} h="60vh" /></main>;
 
   return (
     <main>
-      <header className="pagehead">
-        <div className="grow">
-          <button type="button" className="link accent"
-                  style={{ border: 0, background: 'none', padding: 0, cursor: 'pointer' }}
-                  onClick={() => nav(`/app/records/${id}/map`)}>
-            <ArrowBackOutlined sx={{ fontSize: 14 }} /> Back to {rec.title}
-          </button>
-          <h1>{opener.title}</h1>
-        </div>
-      </header>
+      {/* The property is the crumb back (design.md § Page head, detail), to
+          its boundary, which is where an ask comes from. */}
+      <PageHead
+        crumbs={[
+          ...recordTrail(rec).slice(0, -1),
+          { label: rec.title, to: `/properties/${rec.id}/location` },
+          { label: opener.title },
+        ]}
+        title={opener.title}
+      />
 
       {duplicate && (
-        <Card className="alert" title="This request already exists">
+        <Card className="alert" title="This service is already ordered for this property">
           <p className="note" style={{ marginTop: 0 }}>
             {duplicate.title} is already running on {rec.title}.
           </p>
           <div className="row tight">
-            <Link className="btn primary" to={`/app/services/${duplicate.id}`}>Open request</Link>
-            <Link className="btn danger" to={`/app/services/${duplicate.id}?action=cancel`}>
-              Cancel request
+            <Link className="btn primary" to={`/services/${duplicate.id}`}>Open order</Link>
+            <Link className="btn danger" to={`/services/${duplicate.id}?action=cancel`}>
+              Cancel order
             </Link>
           </div>
         </Card>
       )}
 
       {!duplicate && ordersError && (
-        <Card className="alert" title="Existing requests could not be checked">
+        <Card className="alert" title="Existing orders could not be checked">
           <p className="note" style={{ margin: 0 }}>
-            Nothing can be raised until they are checked.
+            Nothing can be ordered until they are checked.
           </p>
         </Card>
       )}
@@ -280,7 +318,7 @@ export function RequestWork() {
                       onChange={(e) => { setTouched(true); setMessage(e.target.value); }} />
           </Card>
 
-          <Card title="Send the request">
+          <Card title="Your order">
             {/* The confirmation used to redirect itself two seconds later. It asks
                 the owner to do something — open the job and put somebody on it —
                 and then took the screen away mid-sentence, with the link they were
@@ -288,12 +326,12 @@ export function RequestWork() {
             {madeId ? (
               <div className="row tight">
                 <p className="note grow">
-                  Request sent. Not assigned yet.
+                  Order placed. Not assigned yet.
                 </p>
-                <Link className="btn sm" to={`/app/services/${madeId}`}>Open the job</Link>
+                <Link className="btn sm" to={`/services/${madeId}`}>Open the order</Link>
                 <button type="button" className="btn sm"
-                        onClick={() => nav(`/app/records/${id}/services`)}>
-                  Back to Services
+                        onClick={() => nav(`/properties/${id}/services`)}>
+                  Back to this property’s services
                 </button>
               </div>
             ) : (
@@ -303,9 +341,9 @@ export function RequestWork() {
                           disabled={!message.trim() || busy}
                           onClick={() => void raiseIt()}>
                     <SendOutlined sx={{ fontSize: 16 }} />
-                    {busy ? 'Sending…' : 'Send request'}
+                    {busy ? 'Placing…' : 'Place the order'}
                   </button>
-                  <button type="button" className="btn" onClick={() => nav(`/app/records/${id}`)}>
+                  <button type="button" className="btn" onClick={() => nav(`/properties/${id}`)}>
                     Cancel
                   </button>
                 </div>
@@ -344,7 +382,7 @@ export function RequestWork() {
               <input type="checkbox" checked={sendGeo && surveyed} disabled={!surveyed}
                      onChange={(e) => setSendGeo(e.target.checked)} />
               <span className="grow">
-                <strong style={{ fontSize: '0.9375rem' }}>The boundary, as GeoJSON</strong>
+                <strong style={{ fontSize: '0.9375rem' }}>The boundary, as a map file (GeoJSON)</strong>
                 <span className="note" style={{ display: 'block' }}>
                   {surveyed
                     ? `${ring.length} corners. Geometry only.`
@@ -378,7 +416,7 @@ export function RequestWork() {
 
           <Card title="Documents" aside={<Chip>{pickedPapers.length}</Chip>}>
             {(papers ?? []).length === 0 ? (
-              <p className="note">Nothing is filed against this property.</p>
+              <p className="note">No documents on this property.</p>
             ) : (
               <div className="rows boxed">
                 {(papers ?? []).map((d) => (
@@ -410,7 +448,7 @@ export function RequestWork() {
             <input
               ref={pickExtra}
               type="file" hidden multiple
-              aria-label="Add a file to this request"
+              aria-label="Add a file to this order"
               onChange={(e) => {
                 const picked = Array.from(e.target.files ?? []);
                 setExtra((prev) => [

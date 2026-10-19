@@ -1,0 +1,870 @@
+
+Running 157 tests using 7 workers
+
+[1/157] [app] › specs/07-record-people.spec.ts:184:7 › the hanger, drawn › a badge the server has verified is drawn with the tick, and the plain ones are not
+[2/157] [app] › specs/07-record-people.spec.ts:172:7 › the hanger, drawn › a tenant with no badge wears his role instead
+[3/157] [app] › specs/07-record-people.spec.ts:147:7 › the hanger, drawn › one person is one person, not "1 people"
+[4/157] [app] › specs/07-record-people.spec.ts:135:7 › the hanger, drawn › the line under the heading counts the people, and the rail states the money moving through them
+[5/157] [app] › specs/07-record-people.spec.ts:209:7 › the hanger, drawn › a half-recorded arrangement draws only the cells that have both a word and a figure
+[6/157] [app] › specs/07-record-people.spec.ts:108:7 › the hanger, drawn › the people hanger asks for the record it was routed to and heads itself with the question it answers
+[7/157] [app] › specs/07-record-people.spec.ts:153:7 › the hanger, drawn › the watchman is drawn with his initials, his badge and the whole arrangement
+[8/157] [app] › specs/07-record-people.spec.ts:235:7 › the hanger, drawn › what each person can see is on their own card, not in a settings screen
+[9/157] [app] › specs/07-record-people.spec.ts:243:7 › the hanger, drawn › the initials on a card come from the name beside them, not from what was stored
+[10/157] [app] › specs/07-record-people.spec.ts:256:7 › the hanger, drawn › somebody remembered from a closed job gets one line and one control
+[11/157] [app] › specs/07-record-people.spec.ts:269:7 › the hanger, drawn › a record whose only people came off closed jobs is not a record with nobody on it
+[12/157] [app] › specs/07-record-people.spec.ts:288:7 › the hanger, drawn › somebody remembered from a closed job says what they did here
+[13/157] [app] › specs/07-record-people.spec.ts:318:7 › the hanger, drawn › a one-line person keeps the labels that go somewhere, and loses the rest the same way
+[14/157] [app] › specs/07-record-people.spec.ts:338:7 › the hanger, drawn › a person filed with nothing but a name says so instead of drawing an empty grid
+[15/157] [app] › specs/07-record-people.spec.ts:354:7 › the hanger, drawn › only the labels that go somewhere are drawn, and the footnote says where the rest happens
+[16/157] [app] › specs/07-record-people.spec.ts:385:7 › the hanger, drawn › the People tab is the one you are standing on, and it carries the record own count
+[17/157] [app] › specs/07-record-people.spec.ts:400:7 › the owners side › the tab opens on the owners, and says how many and who holds it now
+[18/157] [app] › specs/07-record-people.spec.ts:407:7 › the owners side › an owner on the chain opens their own drawer from a pointer click
+[19/157] [app] › specs/07-record-people.spec.ts:422:7 › the owners side › a property with no owner on file offers the first transfer, and it opens the transfer drawer
+[20/157] [app] › specs/07-record-people.spec.ts:442:7 › the money on people › the money card says the two figures once, out first and in second, to the rupee
+[21/157] [app] › specs/07-record-people.spec.ts:458:7 › the money on people › the wallet balance is printed to the rupee, the way the wallet itself prints it
+  1) [app] › specs/07-record-people.spec.ts:108:7 › the hanger, drawn › the people hanger asks for the record it was routed to and heads itself with the question it answers 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByText('Sy 214/2 · Katragunta')
+    Expected: visible
+    Timeout: 10000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 10000ms
+      - waiting for getByText('Sy 214/2 · Katragunta')
+
+
+      121 |     await expect(page.getByRole('button', { name: 'Caretakers & staff', exact: true }))
+      122 |       .toHaveAttribute('aria-pressed', 'true');
+    > 123 |     await expect(page.getByText('Sy 214/2 · Katragunta')).toBeVisible();
+          |                                                           ^
+      124 |
+      125 |     const crumbs = page.getByRole('navigation', { name: 'Breadcrumb' });
+      126 |     await expect(crumbs.getByRole('link', { name: 'Properties' }))
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/07-record-people.spec.ts:123:59
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/07-record-people-the-hange-f6410-ith-the-question-it-answers-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/07-record-people-the-hange-f6410-ith-the-question-it-answers-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/07-record-people-the-hange-f6410-ith-the-question-it-answers-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/07-record-people-the-hange-f6410-ith-the-question-it-answers-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[22/157] [app] › specs/07-record-people.spec.ts:483:7 › the money on people › when the wallet goes live the card says the pay comes out of it
+[23/157] [app] › specs/07-record-people.spec.ts:496:7 › the money on people › nobody with pay on file means no money column, rather than one full of zeroes
+  2) [app] › specs/07-record-people.spec.ts:318:7 › the hanger, drawn › a one-line person keeps the labels that go somewhere, and loses the rest the same way 
+
+    Error: expect(locator).toHaveAttribute(expected) failed
+
+    Locator: getByRole('link', { name: 'Lease agreement' })
+    Expected: "/app/records/w-sy-214-2"
+    Timeout: 10000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toHaveAttribute" with timeout 10000ms
+      - waiting for getByRole('link', { name: 'Lease agreement' })
+
+
+      330 |
+      331 |     await expect(page.getByRole('link', { name: 'Lease agreement' }))
+    > 332 |       .toHaveAttribute('href', `/app/records/${ID.parcel}`);
+          |        ^
+      333 |     await expect(page.getByText('Permissions')).toHaveCount(0);
+      334 |     // Still one line: a label never promotes the row to a card.
+      335 |     await expect(page.getByRole('article')).toHaveCount(0);
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/07-record-people.spec.ts:332:8
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/07-record-people-the-hange-7a1eb-loses-the-rest-the-same-way-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/07-record-people-the-hange-7a1eb-loses-the-rest-the-same-way-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/07-record-people-the-hange-7a1eb-loses-the-rest-the-same-way-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/07-record-people-the-hange-7a1eb-loses-the-rest-the-same-way-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  3) [app] › specs/07-record-people.spec.ts:256:7 › the hanger, drawn › somebody remembered from a closed job gets one line and one control 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('button', { name: 'Remove Venkat Reddy' })
+    Expected: visible
+    Timeout: 10000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 10000ms
+      - waiting for getByRole('button', { name: 'Remove Venkat Reddy' })
+
+
+      263 |     // `exact` because the assistant panel's placeholder also says "family records".
+      264 |     await expect(page.getByText('Family', { exact: true })).toBeVisible();
+    > 265 |     await expect(page.getByRole('button', { name: 'Remove Venkat Reddy' })).toBeVisible();
+          |                                                                             ^
+      266 |     await expect(page.getByRole('button', { name: 'Rename Venkat Reddy' })).toHaveCount(0);
+      267 |   });
+      268 |
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/07-record-people.spec.ts:265:77
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/07-record-people-the-hange-73a44-ts-one-line-and-one-control-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/07-record-people-the-hange-73a44-ts-one-line-and-one-control-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/07-record-people-the-hange-73a44-ts-one-line-and-one-control-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/07-record-people-the-hange-73a44-ts-one-line-and-one-control-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[24/157] [app] › specs/07-record-people.spec.ts:470:7 › the money on people › the wallet card does not say anything was paid from it while paying out is not switched on
+[25/157] [app] › specs/07-record-people.spec.ts:568:7 › the money on people › a payment says how the money moved and when
+[26/157] [app] › specs/07-record-people.spec.ts:508:7 › the money on people › the last payments say which way the money went, and money still held says neither
+[27/157] [app] › specs/07-record-people.spec.ts:588:7 › the money on people › a payment row says which way the money went to somebody who cannot see the arrow
+[28/157] [app] › specs/07-record-people.spec.ts:546:7 › the money on people › money still held reads as held even when it is money coming in
+[29/157] [app] › specs/07-record-people.spec.ts:615:7 › the money on people › money still held says Held, whichever way it is going
+  4) [app] › specs/07-record-people.spec.ts:354:7 › the hanger, drawn › only the labels that go somewhere are drawn, and the footnote says where the rest happens 
+
+    Error: expect(locator).toHaveAttribute(expected) failed
+
+    Locator: getByRole('article').filter({ has: getByRole('heading', { name: 'Sai Kumar', exact: true }) }).getByRole('link', { name: 'Lease agreement' })
+    Expected: "/app/records/w-sy-214-2"
+    Timeout: 10000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toHaveAttribute" with timeout 10000ms
+      - waiting for getByRole('article').filter({ has: getByRole('heading', { name: 'Sai Kumar', exact: true }) }).getByRole('link', { name: 'Lease agreement' })
+
+
+      365 |     const acts = card(page, 'Sai Kumar');
+      366 |     await expect(acts.getByRole('link', { name: 'Lease agreement' }))
+    > 367 |       .toHaveAttribute('href', `/app/records/${ID.parcel}`);
+          |        ^
+      368 |     await expect(acts.getByRole('link', { name: 'Track' }))
+      369 |       .toHaveAttribute('href', `/app/records/${ID.parcel}/services`);
+      370 |     await expect(acts.getByRole('link', { name: 'Invite to the app' }))
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/07-record-people.spec.ts:367:8
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/07-record-people-the-hange-915ee-says-where-the-rest-happens-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/07-record-people-the-hange-915ee-says-where-the-rest-happens-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/07-record-people-the-hange-915ee-says-where-the-rest-happens-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/07-record-people-the-hange-915ee-says-where-the-rest-happens-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[30/157] [app] › specs/07-record-people.spec.ts:630:7 › the money on people › pay on file with no payment recorded says so rather than drawing an empty card
+[31/157] [app] › specs/07-record-people.spec.ts:666:7 › assigning someone › assigning someone opens a drawer, focuses the name, and refuses to file a blank one
+[32/157] [app] › specs/07-record-people.spec.ts:684:7 › assigning someone › the drawer says which record and which hanger it is filing against
+[33/157] [app] › specs/07-record-people.spec.ts:694:7 › assigning someone › filing somebody sends exactly what was typed, trimmed, against this record
+[34/157] [app] › specs/07-record-people.spec.ts:714:7 › assigning someone › a name on its own files a person with no role, because that is what was said
+[35/157] [app] › specs/07-record-people.spec.ts:729:7 › assigning someone › pressing the chosen role again clears it rather than leaving it stuck on
+[36/157] [app] › specs/07-record-people.spec.ts:745:7 › assigning someone › what they are owed is written in the shape the record reads it back in
+[37/157] [app] › specs/07-record-people.spec.ts:763:7 › assigning someone › a season instead of a month changes both the label and the value
+[38/157] [app] › specs/07-record-people.spec.ts:777:7 › assigning someone › pressing Enter in the name box files the person, the way a form should
+[39/157] [app] › specs/07-record-people.spec.ts:792:7 › assigning someone › a filed person closes the drawer, empties it and hands focus back to the button that opened it
+[40/157] [app] › specs/07-record-people.spec.ts:812:7 › assigning someone › while the server is thinking the primary says so and will not fire twice
+[41/157] [app] › specs/07-record-people.spec.ts:828:7 › assigning someone › a person the server refuses keeps the typed name on screen and says the record may not be yours
+  5) [app] › specs/07-record-people.spec.ts:694:7 › assigning someone › filing somebody sends exactly what was typed, trimmed, against this record 
+
+    Error: locator.click: Error: strict mode violation: getByRole('button', { name: 'Caretaker' }) resolved to 2 elements:
+        1) <button type="button" aria-pressed="true">Caretakers & staff</button> aka getByRole('button', { name: 'Caretakers & staff' })
+        2) <button type="button" class="chip wash" aria-pressed="false">Caretaker</button> aka getByRole('button', { name: 'Caretaker', exact: true })
+
+    Call log:
+      - waiting for getByRole('button', { name: 'Caretaker' })
+
+
+      696 |     await page.getByRole('button', { name: 'Assign someone' }).click();
+      697 |     await nameBox(page).fill('  Lakshmi Devi  ');
+    > 698 |     await page.getByRole('button', { name: 'Caretaker' }).click();
+          |                                                           ^
+      699 |     await page.getByLabel('Anything worth knowing').fill('  Holds the key  ');
+      700 |     await assign(page).click();
+      701 |
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/07-record-people.spec.ts:698:59
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/07-record-people-assigning-88a21-trimmed-against-this-record-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/07-record-people-assigning-88a21-trimmed-against-this-record-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/07-record-people-assigning-88a21-trimmed-against-this-record-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/07-record-people-assigning-88a21-trimmed-against-this-record-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[42/157] [app] › specs/07-record-people.spec.ts:868:7 › assigning someone › a person the server never hears about keeps the typed name and says to try again
+[43/157] [app] › specs/07-record-people.spec.ts:884:7 › assigning someone › a second try after a refusal sends the same person again, without the old message under it
+  6) [app] › specs/07-record-people.spec.ts:729:7 › assigning someone › pressing the chosen role again clears it rather than leaving it stuck on 
+
+    Error: locator.click: Error: strict mode violation: getByRole('button', { name: 'Caretaker' }) resolved to 2 elements:
+        1) <button type="button" aria-pressed="true">Caretakers & staff</button> aka getByRole('button', { name: 'Caretakers & staff' })
+        2) <button type="button" class="chip wash" aria-pressed="false">Caretaker</button> aka getByRole('button', { name: 'Caretaker', exact: true })
+
+    Call log:
+      - waiting for getByRole('button', { name: 'Caretaker' })
+
+
+      733 |
+      734 |     const caretaker = page.getByRole('button', { name: 'Caretaker' });
+    > 735 |     await caretaker.click();
+          |                     ^
+      736 |     await expect(caretaker).toHaveAttribute('aria-pressed', 'true');
+      737 |     await caretaker.click();
+      738 |     await expect(caretaker).toHaveAttribute('aria-pressed', 'false');
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/07-record-people.spec.ts:735:21
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/07-record-people-assigning-c4d47-er-than-leaving-it-stuck-on-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/07-record-people-assigning-c4d47-er-than-leaving-it-stuck-on-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/07-record-people-assigning-c4d47-er-than-leaving-it-stuck-on-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/07-record-people-assigning-c4d47-er-than-leaving-it-stuck-on-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[44/157] [app] › specs/07-record-people.spec.ts:848:7 › assigning someone › cancelling after a refusal takes the refusal away with the draft
+[45/157] [app] › specs/07-record-people.spec.ts:915:7 › assigning someone › Escape on an untouched drawer closes it, and on a half-typed one asks first
+[46/157] [app] › specs/07-record-people.spec.ts:901:7 › assigning someone › cancelling throws the draft away and gives the button its focus back
+[47/157] [app] › specs/07-record-people.spec.ts:942:7 › renaming somebody › renaming opens an editor with the name already in it, and Save refuses an emptied one
+[48/157] [app] › specs/07-record-people.spec.ts:956:7 › renaming somebody › saving a new name calls updatePerson for that person and nobody else
+[49/157] [app] › specs/07-record-people.spec.ts:976:7 › renaming somebody › a rename the server refuses keeps the editor open with what was typed in it
+[50/157] [app] › specs/07-record-people.spec.ts:989:7 › renaming somebody › a rename that cannot be sent keeps what was typed
+  7) [app] › specs/07-record-people.spec.ts:828:7 › assigning someone › a person the server refuses keeps the typed name on screen and says the record may not be yours 
+
+    Error: locator.click: Error: strict mode violation: getByRole('button', { name: 'Caretaker' }) resolved to 2 elements:
+        1) <button type="button" aria-pressed="true">Caretakers & staff</button> aka getByRole('button', { name: 'Caretakers & staff' })
+        2) <button type="button" class="chip wash" aria-pressed="false">Caretaker</button> aka getByRole('button', { name: 'Caretaker', exact: true })
+
+    Call log:
+      - waiting for getByRole('button', { name: 'Caretaker' })
+
+
+      834 |     await page.getByRole('button', { name: 'Assign someone' }).click();
+      835 |     await nameBox(page).fill('Lakshmi Devi');
+    > 836 |     await page.getByRole('button', { name: 'Caretaker' }).click();
+          |                                                           ^
+      837 |     await assign(page).click();
+      838 |
+      839 |     // Scoped to the alert: a refusal that is only drawn in red says nothing to
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/07-record-people.spec.ts:836:59
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/07-record-people-assigning-47803-the-record-may-not-be-yours-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/07-record-people-assigning-47803-the-record-may-not-be-yours-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/07-record-people-assigning-47803-the-record-may-not-be-yours-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/07-record-people-assigning-47803-the-record-may-not-be-yours-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[51/157] [app] › specs/07-record-people.spec.ts:1026:7 › renaming somebody › while a rename is in flight Save says so and refuses a second press
+[52/157] [app] › specs/07-record-people.spec.ts:1042:7 › renaming somebody › cancelling a rename changes nothing and gives the pencil its focus back
+[53/157] [app] › specs/07-record-people.spec.ts:1002:7 › renaming somebody › a rename that cannot be sent says why it could not be sent
+  8) [app] › specs/07-record-people.spec.ts:976:7 › renaming somebody › a rename the server refuses keeps the editor open with what was typed in it 
+
+    TimeoutError: locator.click: Timeout 10000ms exceeded.
+    Call log:
+      - waiting for getByRole('button', { name: 'Rename Ramana Rao' })
+
+
+      978 |     await gotoStaff(page, PARCEL);
+      979 |
+    > 980 |     await page.getByRole('button', { name: 'Rename Ramana Rao' }).click();
+          |                                                                   ^
+      981 |     await page.getByRole('textbox', { name: 'Rename Ramana Rao' }).fill('Ramana Rao Naidu');
+      982 |     await page.getByRole('button', { name: 'Save' }).click();
+      983 |
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/07-record-people.spec.ts:980:67
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/07-record-people-renaming--91e62-n-with-what-was-typed-in-it-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/07-record-people-renaming--91e62-n-with-what-was-typed-in-it-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/07-record-people-renaming--91e62-n-with-what-was-typed-in-it-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/07-record-people-renaming--91e62-n-with-what-was-typed-in-it-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  9) [app] › specs/07-record-people.spec.ts:942:7 › renaming somebody › renaming opens an editor with the name already in it, and Save refuses an emptied one 
+
+    TimeoutError: locator.click: Timeout 10000ms exceeded.
+    Call log:
+      - waiting for getByRole('button', { name: 'Rename Ramana Rao' })
+
+
+      942 |   test('renaming opens an editor with the name already in it, and Save refuses an emptied one', async ({ page }) => {
+      943 |     await gotoStaff(page, PARCEL);
+    > 944 |     await page.getByRole('button', { name: 'Rename Ramana Rao' }).click();
+          |                                                                   ^
+      945 |
+      946 |     const box = page.getByRole('textbox', { name: 'Rename Ramana Rao' });
+      947 |     await expect(box).toHaveValue('Ramana Rao');
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/07-record-people.spec.ts:944:67
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/07-record-people-renaming--d38cd-Save-refuses-an-emptied-one-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/07-record-people-renaming--d38cd-Save-refuses-an-emptied-one-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/07-record-people-renaming--d38cd-Save-refuses-an-emptied-one-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/07-record-people-renaming--d38cd-Save-refuses-an-emptied-one-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  10) [app] › specs/07-record-people.spec.ts:956:7 › renaming somebody › saving a new name calls updatePerson for that person and nobody else 
+
+    TimeoutError: locator.click: Timeout 10000ms exceeded.
+    Call log:
+      - waiting for getByRole('button', { name: 'Rename Ramana Rao' })
+
+
+      956 |   test('saving a new name calls updatePerson for that person and nobody else', async ({ page, world }) => {
+      957 |     await gotoStaff(page, PARCEL);
+    > 958 |     await page.getByRole('button', { name: 'Rename Ramana Rao' }).click();
+          |                                                                   ^
+      959 |     await page.getByRole('textbox', { name: 'Rename Ramana Rao' }).fill('  Ramana Rao Naidu  ');
+      960 |     await page.getByRole('button', { name: 'Save' }).click();
+      961 |
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/07-record-people.spec.ts:958:67
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/07-record-people-renaming--1dd73-that-person-and-nobody-else-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/07-record-people-renaming--1dd73-that-person-and-nobody-else-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/07-record-people-renaming--1dd73-that-person-and-nobody-else-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/07-record-people-renaming--1dd73-that-person-and-nobody-else-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  11) [app] › specs/07-record-people.spec.ts:989:7 › renaming somebody › a rename that cannot be sent keeps what was typed 
+
+    TimeoutError: locator.click: Timeout 10000ms exceeded.
+    Call log:
+      - waiting for getByRole('button', { name: 'Rename Ramana Rao' })
+
+
+      991 |     await gotoStaff(page, PARCEL);
+      992 |
+    > 993 |     await page.getByRole('button', { name: 'Rename Ramana Rao' }).click();
+          |                                                                   ^
+      994 |     await page.getByRole('textbox', { name: 'Rename Ramana Rao' }).fill('Ramana Rao Naidu');
+      995 |     await page.getByRole('button', { name: 'Save' }).click();
+      996 |
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/07-record-people.spec.ts:993:67
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/07-record-people-renaming--a1dd1-e-sent-keeps-what-was-typed-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/07-record-people-renaming--a1dd1-e-sent-keeps-what-was-typed-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/07-record-people-renaming--a1dd1-e-sent-keeps-what-was-typed-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/07-record-people-renaming--a1dd1-e-sent-keeps-what-was-typed-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[54/157] [app] › specs/07-record-people.spec.ts:1118:7 › taking somebody off › Cancel on the question calls nothing and leaves their drawer as it was
+[55/157] [app] › specs/07-record-people.spec.ts:1054:7 › renaming somebody › only the person whose pencil was pressed gets an editor
+[56/157] [app] › specs/07-record-people.spec.ts:1106:7 › taking somebody off › taking somebody off asks before it does anything, and says what goes
+[57/157] [app] › specs/07-record-people.spec.ts:1067:7 › renaming somebody › pressing a second pencil moves the editor rather than opening another one
+[58/157] [app] › specs/07-record-people.spec.ts:1129:7 › taking somebody off › confirming calls deletePerson for that person, closes the drawer and reads the list again
+  12) [app] › specs/07-record-people.spec.ts:1026:7 › renaming somebody › while a rename is in flight Save says so and refuses a second press 
+
+    TimeoutError: locator.click: Timeout 10000ms exceeded.
+    Call log:
+      - waiting for getByRole('button', { name: 'Rename Ramana Rao' })
+
+
+      1028 |     await gotoStaff(page, PARCEL);
+      1029 |
+    > 1030 |     await page.getByRole('button', { name: 'Rename Ramana Rao' }).click();
+           |                                                                   ^
+      1031 |     await page.getByRole('textbox', { name: 'Rename Ramana Rao' }).fill('Ramana Rao Naidu');
+      1032 |     await page.getByRole('button', { name: 'Save' }).click();
+      1033 |
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/07-record-people.spec.ts:1030:67
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/07-record-people-renaming--4e434--and-refuses-a-second-press-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/07-record-people-renaming--4e434--and-refuses-a-second-press-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/07-record-people-renaming--4e434--and-refuses-a-second-press-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/07-record-people-renaming--4e434--and-refuses-a-second-press-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  13) [app] › specs/07-record-people.spec.ts:1042:7 › renaming somebody › cancelling a rename changes nothing and gives the pencil its focus back 
+
+    TimeoutError: locator.click: Timeout 10000ms exceeded.
+    Call log:
+      - waiting for getByRole('button', { name: 'Rename Ramana Rao' })
+
+
+      1042 |   test('cancelling a rename changes nothing and gives the pencil its focus back', async ({ page, world }) => {
+      1043 |     await gotoStaff(page, PARCEL);
+    > 1044 |     await page.getByRole('button', { name: 'Rename Ramana Rao' }).click();
+           |                                                                   ^
+      1045 |     await page.getByRole('textbox', { name: 'Rename Ramana Rao' }).fill('Somebody Else');
+      1046 |     await page.getByRole('button', { name: 'Cancel' }).click();
+      1047 |
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/07-record-people.spec.ts:1044:67
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/07-record-people-renaming--1d4c6-s-the-pencil-its-focus-back-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/07-record-people-renaming--1d4c6-s-the-pencil-its-focus-back-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/07-record-people-renaming--1d4c6-s-the-pencil-its-focus-back-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/07-record-people-renaming--1d4c6-s-the-pencil-its-focus-back-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[59/157] [app] › specs/07-record-people.spec.ts:1141:7 › taking somebody off › once somebody is off, the focus lands on the button that files the next one
+[60/157] [app] › specs/07-record-people.spec.ts:1164:7 › taking somebody off › a removal the server refuses leaves the person and the question standing
+[61/157] [app] › specs/07-record-people.spec.ts:1176:7 › taking somebody off › a removal that cannot be sent says they are still filed here
+[62/157] [app] › specs/07-record-people.spec.ts:1187:7 › taking somebody off › while a removal is in flight the question says so and refuses a second press
+[63/157] [app] › specs/07-record-people.spec.ts:1203:7 › taking somebody off › somebody on the one-line list can be taken off from there too
+[64/157] [app] › specs/07-record-people.spec.ts:1212:7 › taking somebody off › the question is about one person, raised over their drawer, and the page behind cannot be reached
+[65/157] [app] › specs/07-record-people.spec.ts:1229:7 › nobody, still coming, failed › a record with nobody on it says so and offers the one thing there is to do
+[66/157] [app] › specs/07-record-people.spec.ts:1245:7 › nobody, still coming, failed › an empty record offers one way to assign somebody, the head’s, and it opens the drawer
+[67/157] [app] › specs/07-record-people.spec.ts:1259:7 › nobody, still coming, failed › filing on an empty record hands focus back to the button that asked
+[68/157] [app] › specs/07-record-people.spec.ts:1283:7 › nobody, still coming, failed › an empty record draws no money column at all
+  14) [app] › specs/07-record-people.spec.ts:1054:7 › renaming somebody › only the person whose pencil was pressed gets an editor 
+
+    TimeoutError: locator.click: Timeout 10000ms exceeded.
+    Call log:
+      - waiting for getByRole('button', { name: 'Rename Ramana Rao' })
+
+
+      1054 |   test('only the person whose pencil was pressed gets an editor', async ({ page }) => {
+      1055 |     await gotoStaff(page, PARCEL);
+    > 1056 |     await page.getByRole('button', { name: 'Rename Ramana Rao' }).click();
+           |                                                                   ^
+      1057 |
+      1058 |     await expect(page.getByRole('textbox', { name: 'Rename Ramana Rao' })).toBeVisible();
+      1059 |     await expect(page.getByRole('textbox', { name: 'Rename Sai Kumar' })).toHaveCount(0);
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/07-record-people.spec.ts:1056:67
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/07-record-people-renaming--ed4ed--was-pressed-gets-an-editor-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/07-record-people-renaming--ed4ed--was-pressed-gets-an-editor-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/07-record-people-renaming--ed4ed--was-pressed-gets-an-editor-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/07-record-people-renaming--ed4ed--was-pressed-gets-an-editor-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[69/157] [app] › specs/07-record-people.spec.ts:1317:7 › nobody, still coming, failed › a people read that fails says so in the server own words, with a way to try again
+[70/157] [app] › specs/07-record-people.spec.ts:1337:9 › nobody, still coming, failed › when the gateway itself answers › a people read the gateway refuses fails the same way, with the transport reason
+  15) [app] › specs/07-record-people.spec.ts:1067:7 › renaming somebody › pressing a second pencil moves the editor rather than opening another one 
+
+    TimeoutError: locator.click: Timeout 10000ms exceeded.
+    Call log:
+      - waiting for getByRole('button', { name: 'Rename Ramana Rao' })
+
+
+      1070 |     // against the next.
+      1071 |     await gotoStaff(page, PARCEL);
+    > 1072 |     await page.getByRole('button', { name: 'Rename Ramana Rao' }).click();
+           |                                                                   ^
+      1073 |     await page.getByRole('textbox', { name: 'Rename Ramana Rao' }).fill('Somebody Else');
+      1074 |
+      1075 |     await page.getByRole('button', { name: 'Rename Sai Kumar' }).click();
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/07-record-people.spec.ts:1072:67
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/07-record-people-renaming--bf879-er-than-opening-another-one-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/07-record-people-renaming--bf879-er-than-opening-another-one-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/07-record-people-renaming--bf879-er-than-opening-another-one-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/07-record-people-renaming--bf879-er-than-opening-another-one-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[71/157] [app] › specs/07-record-people.spec.ts:1295:7 › nobody, still coming, failed › while the people are still coming the screen holds its shape and claims nothing
+[72/157] [app] › specs/07-record-people.spec.ts:1362:7 › nobody, still coming, failed › a try again that fails again says so rather than going quiet
+[73/157] [app] › specs/07-record-people.spec.ts:1380:7 › nobody, still coming, failed › a refresh that fails does not take the people already on screen away
+[74/157] [app] › specs/07-record-people.spec.ts:1396:7 › nobody, still coming, failed › a record that is not in your portfolio is never asked who looks after it
+[75/157] [app] › specs/07-record-people.spec.ts:1348:7 › nobody, still coming, failed › trying again once the server is back draws the people
+[76/157] [app] › specs/07-record-people.spec.ts:1404:7 › nobody, still coming, failed › a record that cannot be read says the record failed, not that nobody looks after it
+[77/157] [app] › specs/07-record-people.spec.ts:1413:7 › nobody, still coming, failed › the hanger stacks on a narrow screen without losing the money column @phone
+[78/157] [app] › specs/07-record-people.spec.ts:1567:7 › the other person editor, on the previous interface › the group screen the redesign has not reached still opens its member table
+[79/157] [app] › specs/07-record-people.spec.ts:1586:7 › the other person editor, on the previous interface › a person with no name is not filed, and the field says which one is missing
+[80/157] [app] › specs/07-record-people.spec.ts:1597:7 › the other person editor, on the previous interface › a person with a name and a relationship is filed with exactly what was typed
+[81/157] [app] › specs/07-record-people.spec.ts:1624:7 › the other person editor, on the previous interface › a partnership asks what somebody does, not how they are related
+[82/157] [app] › specs/07-record-people.spec.ts:1651:7 › the other person editor, on the previous interface › a person who lives where I live is filed with my address, not a blank one
+  16) [app] › specs/07-record-people.spec.ts:1362:7 › nobody, still coming, failed › a try again that fails again says so rather than going quiet 
+
+    TimeoutError: locator.click: Timeout 10000ms exceeded.
+    Call log:
+      - waiting for getByRole('button', { name: 'Caretakers & staff', exact: true })
+        - locator resolved to <button type="button" aria-pressed="false">Caretakers & staff</button>
+      - attempting click action
+        - waiting for element to be visible, enabled and stable
+        - element is visible, enabled and stable
+        - scrolling into view if needed
+        - done scrolling
+
+
+      58 | async function gotoStaff(page: Page, url: string) {
+      59 |   await page.goto(url);
+    > 60 |   await page.getByRole('button', { name: 'Caretakers & staff', exact: true }).click();
+         |                                                                               ^
+      61 | }
+      62 |
+      63 | type Row = Record<string, unknown>;
+        at gotoStaff (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/07-record-people.spec.ts:60:79)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/07-record-people.spec.ts:1367:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/07-record-people-nobody-st-76ec7--so-rather-than-going-quiet-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/07-record-people-nobody-st-76ec7--so-rather-than-going-quiet-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/07-record-people-nobody-st-76ec7--so-rather-than-going-quiet-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/07-record-people-nobody-st-76ec7--so-rather-than-going-quiet-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[83/157] [app] › specs/07-record-people.spec.ts:1689:7 › the other person editor, on the previous interface › a full Aadhaar is filed as twelve bare digits, however it was typed
+[84/157] [app] › specs/07-record-people.spec.ts:1705:7 › the other person editor, on the previous interface › a person the server refuses stays on screen with the server own reason over the form
+[85/157] [app] › specs/07-record-people.spec.ts:1727:7 › the other person editor, on the previous interface › while the server is thinking the dialog says so and will not file twice
+[86/157] [app] › specs/07-record-people.spec.ts:1669:7 › the other person editor, on the previous interface › an heir reachable only by phone is filed with the dial code on the front of it
+[87/157] [app] › specs/07-record-people.spec.ts:1744:7 › the other person editor, on the previous interface › Aadhaar scanning returns only a mask and uploads the card only after opt-in
+[88/157] [app] › specs/07-record-people.spec.ts:1814:7 › the other person editor, on the previous interface › a kept Aadhaar card that cannot be linked is not kept, and its upload goes to Trash
+[89/157] [app] › specs/07-record-people.spec.ts:1842:7 › the other person editor, on the previous interface › a ticked Aadhaar card the storage refuses says so and files nothing
+[90/157] [app] › specs/07-record-people.spec.ts:1865:7 › the other person editor, on the previous interface › a file that is not a card is refused before anything is stored
+[91/157] [app] › specs/07-record-people.spec.ts:1884:7 › the other person editor, on the previous interface › a ticked Aadhaar scan that read no number keeps no card
+  17) [app] › specs/07-record-people.spec.ts:1380:7 › nobody, still coming, failed › a refresh that fails does not take the people already on screen away 
+
+    TimeoutError: locator.click: Timeout 10000ms exceeded.
+    Call log:
+      - waiting for getByRole('button', { name: 'Rename Ramana Rao' })
+
+
+      1384 |     // The refetch after a successful write is the one that lands here.
+      1385 |     world.set('people', World.gqlError('the people store went down mid-edit'));
+    > 1386 |     await page.getByRole('button', { name: 'Rename Ramana Rao' }).click();
+           |                                                                   ^
+      1387 |     await page.getByRole('textbox', { name: 'Rename Ramana Rao' }).fill('Ramana Rao Naidu');
+      1388 |     await page.getByRole('button', { name: 'Save' }).click();
+      1389 |
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/07-record-people.spec.ts:1386:67
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/07-record-people-nobody-st-f60c6-ople-already-on-screen-away-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/07-record-people-nobody-st-f60c6-ople-already-on-screen-away-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/07-record-people-nobody-st-f60c6-ople-already-on-screen-away-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/07-record-people-nobody-st-f60c6-ople-already-on-screen-away-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[92/157] [app] › specs/07-record-people.spec.ts:1922:7 › the other person editor, on the previous interface › an email that is not an email is refused before anybody is filed
+[93/157] [app] › specs/07-record-people.spec.ts:1934:7 › the other person editor, on the previous interface › an heir with no way of reaching them cannot be filed at all
+[94/157] [app] › specs/07-record-people.spec.ts:1947:7 › the other person editor, on the previous interface › an Aadhaar that is not twelve digits is refused
+[95/157] [app] › specs/07-record-people.spec.ts:1904:7 › the other person editor, on the previous interface › an Aadhaar that cannot be read says so and leaves what was typed alone
+[96/157] [app] › specs/07-record-people.spec.ts:1961:7 › the other person editor, on the previous interface › the Aadhaar field says what really happens to the number
+  18) [app] › specs/07-record-people.spec.ts:1865:7 › the other person editor, on the previous interface › a file that is not a card is refused before anything is stored 
+
+    Error: The screen logged errors. If provoking one is the point of this test, set test.use({ allowConsole: true }).
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 3
+
+    - Array []
+    + Array [
+    +   "console.error: Failed to load resource: the server responded with a status of 415 (Unsupported Media Type)",
+    + ]
+
+       at ../fixtures/harness.ts:161
+
+      159 |           consoleErrors,
+      160 |           'The screen logged errors. If provoking one is the point of this test, set test.use({ allowConsole: true }).',
+    > 161 |         ).toEqual([]);
+          |           ^
+      162 |       }
+      163 |       if (sealed && !allowEscapes) {
+      164 |         expect(
+        at Object.exports.test._test.test.extend.guards.auto (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/harness.ts:161:11)
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/07-record-people-the-other-48199-d-before-anything-is-stored-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/07-record-people-the-other-48199-d-before-anything-is-stored-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/07-record-people-the-other-48199-d-before-anything-is-stored-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/07-record-people-the-other-48199-d-before-anything-is-stored-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  19) [app] › specs/07-record-people.spec.ts:1842:7 › the other person editor, on the previous interface › a ticked Aadhaar card the storage refuses says so and files nothing 
+
+    Error: The screen logged errors. If provoking one is the point of this test, set test.use({ allowConsole: true }).
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 3
+
+    - Array []
+    + Array [
+    +   "console.error: Failed to load resource: the server responded with a status of 413 (Payload Too Large)",
+    + ]
+
+       at ../fixtures/harness.ts:161
+
+      159 |           consoleErrors,
+      160 |           'The screen logged errors. If provoking one is the point of this test, set test.use({ allowConsole: true }).',
+    > 161 |         ).toEqual([]);
+          |           ^
+      162 |       }
+      163 |       if (sealed && !allowEscapes) {
+      164 |         expect(
+        at Object.exports.test._test.test.extend.guards.auto (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/harness.ts:161:11)
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/07-record-people-the-other-ff79e-s-says-so-and-files-nothing-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/07-record-people-the-other-ff79e-s-says-so-and-files-nothing-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/07-record-people-the-other-ff79e-s-says-so-and-files-nothing-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/07-record-people-the-other-ff79e-s-says-so-and-files-nothing-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[97/157] [app] › specs/07-record-people.spec.ts:1995:7 › the other person editor, on the previous interface › a married heir has to name the spouse who would inherit beside them
+[98/157] [app] › specs/07-record-people.spec.ts:2012:7 › the other person editor, on the previous interface › editing somebody opens on their own details and saves against their id
+[99/157] [app] › specs/07-record-people.spec.ts:2042:7 › the other person editor, on the previous interface › cancelling the editor files nobody
+[100/157] [app] › specs/07-record-people.spec.ts:1970:7 › the other person editor, on the previous interface › a date of birth under eighteen warns before the heir switch is even touched
+[101/157] [app] › specs/07-record-people.spec.ts:1978:7 › the other person editor, on the previous interface › a minor heir cannot be filed without a guardian and a way to reach them
+[102/157] [app] › specs/11c-documents-files.spec.ts:60:7 › what a file is › every row names its kind with a glyph, and says its size when it is known
+[103/157] [app] › specs/11c-documents-files.spec.ts:72:7 › what a file is › the grid shows a tile per file, and the choice survives a reload
+[104/157] [app] › specs/11c-documents-files.spec.ts:86:7 › folders › the top level lists folders first, then only the files kept there
+[105/157] [app] › specs/11c-documents-files.spec.ts:96:7 › folders › opening a folder puts it in the URL and the path, and the path leads back
+[106/157] [app] › specs/11c-documents-files.spec.ts:110:7 › folders › an empty folder says so and how to fill it
+[107/157] [app] › specs/11c-documents-files.spec.ts:117:7 › folders › a folder id that is not the owner’s is the top level, not a blank page
+[108/157] [app] › specs/11c-documents-files.spec.ts:123:7 › folders › a new folder is made inside the open one
+[109/157] [app] › specs/11c-documents-files.spec.ts:136:7 › folders › a refused folder name is said in the dialog, which stays open with what was typed
+[110/157] [app] › specs/11c-documents-files.spec.ts:147:7 › folders › renaming a folder sends the new name
+[111/157] [app] › specs/11c-documents-files.spec.ts:159:7 › folders › removing a folder asks first and promises no file is deleted
+[112/157] [app] › specs/11c-documents-files.spec.ts:172:7 › folders › a folder the server will not remove keeps the dialog open and says why
+[113/157] [app] › specs/11c-documents-files.spec.ts:182:7 › folders › a folder cannot be offered a place inside itself
+[114/157] [app] › specs/11c-documents-files.spec.ts:195:7 › moving files › Move to folder from a row files it where the owner picks
+[115/157] [app] › specs/11c-documents-files.spec.ts:208:7 › moving files › a selection moves together, and a refused move leaves the dialog saying so
+[116/157] [app] › specs/11c-documents-files.spec.ts:224:7 › moving files › a file dragged onto a folder is moved into it
+[117/157] [app] › specs/11c-documents-files.spec.ts:237:7 › filters, tags and links › + Filter offers what the files actually carry, each with its count
+[118/157] [app] › specs/11c-documents-files.spec.ts:252:7 › filters, tags and links › choices widen within a group and narrow across groups, and each leaves a removable chip
+[119/157] [app] › specs/11c-documents-files.spec.ts:271:7 › filters, tags and links › a property filter finds its files across every folder, and says where each is
+[120/157] [app] › specs/11c-documents-files.spec.ts:282:7 › filters, tags and links › a holding finds the files of every property in it, and files linked to the holding itself
+[121/157] [app] › specs/11c-documents-files.spec.ts:305:7 › filters, tags and links › Linked to names the property but never leads away from the file
+[122/157] [app] › specs/11c-documents-files.spec.ts:318:7 › filters, tags and links › a tag under a name filters to it
+[123/157] [app] › specs/11c-documents-files.spec.ts:326:7 › filters, tags and links › Sort cycles through its orders in one press each
+[124/157] [app] › specs/11c-documents-files.spec.ts:339:7 › filters, tags and links › Tag… puts one tag on every selected file
+[125/157] [app] › specs/11c-documents-files.spec.ts:355:7 › filters, tags and links › one file’s tags can be taken off one at a time
+[126/157] [app] › specs/11c-documents-files.spec.ts:366:7 › filters, tags and links › a search spans every folder, says where each hit lives, and shows as a chip
+[127/157] [app] › specs/11c-documents-files.spec.ts:397:7 › a kept Aadhaar card, filed under its person › it is found under Ravi › Aadhaar, masked, and opens its stored bytes
+[128/157] [app] › specs/11c-documents-files.spec.ts:420:7 › a kept Aadhaar card, filed under its person › a search finds it, and its Folder says whose Aadhaar folder it is
+[129/157] [app] › specs/11c-documents-files.spec.ts:428:7 › a kept Aadhaar card, filed under its person › it offers no link to a property, which the server refuses too
+[130/157] [app] › specs/11c-documents-files.spec.ts:437:7 › on a phone @phone › folders still open, and a file still moves, in one column @phone
+[131/157] [app] › specs/30-groups.spec.ts:68:7 › the inactivity safeguard › a family's safeguard is its own tab, and while a member has no verified email it says it needs action
+[132/157] [app] › specs/30-groups.spec.ts:96:7 › the inactivity safeguard › with every contact verified and the stage active, the tab reads set and no warning is drawn
+[133/157] [app] › specs/30-groups.spec.ts:107:7 › the inactivity safeguard › a reminder stage reads as a warning, not a danger
+[134/157] [app] › specs/30-groups.spec.ts:117:7 › the inactivity safeguard › a partnership has no Safeguard tab, and a deep link to one lands on Members
+[135/157] [app] › specs/30-groups.spec.ts:124:7 › the inactivity safeguard › a link to the Safeguard tab opens on it, and choosing another group lands on Members
+[136/157] [app] › specs/30-groups.spec.ts:134:7 › the inactivity safeguard › @phone the Safeguard tab fits a phone and the page never scrolls sideways
+[137/157] [app] › specs/30-groups.spec.ts:145:7 › the inactivity safeguard › Arrow, Home and End move between the four tabs
+[138/157] [app] › specs/30-groups.spec.ts:188:7 › the inactivity notifications editor › opens in the shared drawer with its subject, Save first, and focus on the checked option
+[139/157] [app] › specs/30-groups.spec.ts:222:7 › the inactivity notifications editor › with nobody to contact, Save is disabled and the line pinned above the footer says why
+[140/157] [app] › specs/30-groups.spec.ts:243:7 › the inactivity notifications editor › together lists the recipients read-only; in order needs one before it can save
+[141/157] [app] › specs/30-groups.spec.ts:267:7 › the inactivity notifications editor › a configured order opens on "in order", focused, with its numbered row
+[142/157] [app] › specs/30-groups.spec.ts:287:7 › the inactivity notifications editor › the gap links to the Members tab, which takes focus
+[143/157] [app] › specs/30-groups.spec.ts:299:7 › the inactivity notifications editor › saves everyone together, or an order, and hands focus back to Configure notifiers
+[144/157] [app] › specs/30-groups.spec.ts:322:7 › the inactivity notifications editor › Escape and Cancel close without saving and return focus to Configure notifiers
+[145/157] [app] › specs/30-groups.spec.ts:341:7 › the inactivity notifications editor › @phone each option keeps its radio on its line and the drawer never scrolls sideways
+[146/157] [app] › specs/30-groups.spec.ts:365:7 › the Members table › the member filter narrows by relationship and status, says how many are shown, and Clear all brings everyone back
+[147/157] [app] › specs/30-groups.spec.ts:397:7 › the Members table › a group of one draws no filter, because there is nothing to narrow
+[148/157] [app] › specs/30-groups.spec.ts:405:7 › the Members table › Add a person opens the member form and Cancel closes it
+[149/157] [app] › specs/30-groups.spec.ts:415:7 › the Members table › removing a member from a filtered table removes that member
+[150/157] [app] › specs/30-groups.spec.ts:430:7 › the Members table › removing a member sends their kept Aadhaar card to Trash, and nothing else
+[151/157] [app] › specs/30-groups.spec.ts:462:7 › the page head › Print hands the page to the browser, and the Aadhaar stays masked on paper
+[152/157] [app] › specs/30-groups.spec.ts:487:7 › the page head › New group is outlined, so the open tab's own action is the one filled button in view
+[153/157] [app] › specs/30-groups.spec.ts:508:7 › the page head › the group's own Edit and Delete still work from the header kebab
+[154/157] [app] › specs/30-groups.spec.ts:550:7 › a refused write keeps its dialog › a notifier save the server refuses keeps the drawer, keeps focus on Save, and words the toast for the mode
+[155/157] [app] › specs/30-groups.spec.ts:580:7 › a refused write keeps its dialog › a group the server refuses to create keeps the typed name in the dialog
+[156/157] [app] › specs/30-groups.spec.ts:592:7 › a refused write keeps its dialog › a rename or delete the server refuses keeps its dialog on screen
+[157/157] [app] › specs/30-groups.spec.ts:613:7 › a refused write keeps its dialog › a removal the server refuses keeps the dialog naming who it was about
+  20) [app] › specs/30-groups.spec.ts:430:7 › the Members table › removing a member sends their kept Aadhaar card to Trash, and nothing else 
+
+    Error: expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 3
+    + Received  + 1
+
+    - Array [
+    -   "/api/gateway/storage/nodes/node-card",
+    - ]
+    + Array []
+
+      453 |     await expect(page.getByText('Lakshmi removed')).toBeVisible();
+      454 |     const trashed = world.restCalls(/storage\/nodes\//).filter((c) => c.method === 'DELETE');
+    > 455 |     expect(trashed.map((c) => c.path)).toEqual(['/api/gateway/storage/nodes/node-card']);
+          |                                        ^
+      456 |     // Trash only after the server removed the person and the card's row.
+      457 |     expect(trashed[0].at).toBeGreaterThan(world.calls('root.removeMember')[0].at);
+      458 |   });
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/30-groups.spec.ts:455:40
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/30-groups-the-Members-tabl-e7133-d-to-Trash-and-nothing-else-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/30-groups-the-Members-tabl-e7133-d-to-Trash-and-nothing-else-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/30-groups-the-Members-tabl-e7133-d-to-Trash-and-nothing-else-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/30-groups-the-Members-tabl-e7133-d-to-Trash-and-nothing-else-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  20 failed
+    [app] › specs/07-record-people.spec.ts:108:7 › the hanger, drawn › the people hanger asks for the record it was routed to and heads itself with the question it answers 
+    [app] › specs/07-record-people.spec.ts:256:7 › the hanger, drawn › somebody remembered from a closed job gets one line and one control 
+    [app] › specs/07-record-people.spec.ts:318:7 › the hanger, drawn › a one-line person keeps the labels that go somewhere, and loses the rest the same way 
+    [app] › specs/07-record-people.spec.ts:354:7 › the hanger, drawn › only the labels that go somewhere are drawn, and the footnote says where the rest happens 
+    [app] › specs/07-record-people.spec.ts:694:7 › assigning someone › filing somebody sends exactly what was typed, trimmed, against this record 
+    [app] › specs/07-record-people.spec.ts:729:7 › assigning someone › pressing the chosen role again clears it rather than leaving it stuck on 
+    [app] › specs/07-record-people.spec.ts:828:7 › assigning someone › a person the server refuses keeps the typed name on screen and says the record may not be yours 
+    [app] › specs/07-record-people.spec.ts:942:7 › renaming somebody › renaming opens an editor with the name already in it, and Save refuses an emptied one 
+    [app] › specs/07-record-people.spec.ts:956:7 › renaming somebody › saving a new name calls updatePerson for that person and nobody else 
+    [app] › specs/07-record-people.spec.ts:976:7 › renaming somebody › a rename the server refuses keeps the editor open with what was typed in it 
+    [app] › specs/07-record-people.spec.ts:989:7 › renaming somebody › a rename that cannot be sent keeps what was typed 
+    [app] › specs/07-record-people.spec.ts:1026:7 › renaming somebody › while a rename is in flight Save says so and refuses a second press 
+    [app] › specs/07-record-people.spec.ts:1042:7 › renaming somebody › cancelling a rename changes nothing and gives the pencil its focus back 
+    [app] › specs/07-record-people.spec.ts:1054:7 › renaming somebody › only the person whose pencil was pressed gets an editor 
+    [app] › specs/07-record-people.spec.ts:1067:7 › renaming somebody › pressing a second pencil moves the editor rather than opening another one 
+    [app] › specs/07-record-people.spec.ts:1362:7 › nobody, still coming, failed › a try again that fails again says so rather than going quiet 
+    [app] › specs/07-record-people.spec.ts:1380:7 › nobody, still coming, failed › a refresh that fails does not take the people already on screen away 
+    [app] › specs/07-record-people.spec.ts:1842:7 › the other person editor, on the previous interface › a ticked Aadhaar card the storage refuses says so and files nothing 
+    [app] › specs/07-record-people.spec.ts:1865:7 › the other person editor, on the previous interface › a file that is not a card is refused before anything is stored 
+    [app] › specs/30-groups.spec.ts:430:7 › the Members table › removing a member sends their kept Aadhaar card to Trash, and nothing else 
+  137 passed (3.7m)
+exit=1

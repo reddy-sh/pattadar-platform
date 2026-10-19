@@ -26,6 +26,7 @@ import 'leaflet/dist/leaflet.css';
 
 import { centreOf, hasBoundaryRing, isLocated } from './portfolioGeo';
 import { drawSurveyBoundaryLayer, sharedCornerOffsets } from './surveyBoundaryLayer';
+import { removeMap } from './mapTeardown';
 
 const OSM = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 const ESRI =
@@ -116,6 +117,20 @@ export interface PortfolioCanvasProps {
  *  recognisable rather than in the Atlantic. */
 const AP_TG: L.LatLngTuple = [16.9, 79.4];
 
+/** Run a move once any zoom animation in flight has ended.
+ *
+ *  Leaflet's animated zoom drops a setView/fitBounds issued while it is still
+ *  animating (`_tryAnimatedZoom` returns early on `_animatingZoom`), so picking
+ *  a property during the opening frame's zoom silently left the map where it
+ *  was. Waiting for that zoom to end makes the pick always land. */
+function whenZoomSettles(map: L.Map, move: () => void) {
+  if ((map as unknown as { _animatingZoom?: boolean })._animatingZoom) {
+    map.once('zoomend', move);
+  } else {
+    move();
+  }
+}
+
 export function PortfolioCanvas({
   records, satellite = false, appearance = 'portfolio', selected = null, hovered = null,
   onHover, onSelect, onOpen, label = 'Map of your properties', ref,
@@ -160,11 +175,13 @@ export function PortfolioCanvas({
       const rec = live.current.records.find((r) => r.id === id);
       if (!map || !rec || !isLocated(rec)) return false;
       map.invalidateSize({ pan: false });
-      if (hasBoundaryRing(rec.ring)) {
-        map.fitBounds(L.latLngBounds(rec.ring as L.LatLngTuple[]), { padding: [60, 60], maxZoom: 19 });
-      } else {
-        map.setView(centreOf(rec) as L.LatLngTuple, Math.max(map.getZoom(), 15));
-      }
+      whenZoomSettles(map, () => {
+        if (hasBoundaryRing(rec.ring)) {
+          map.fitBounds(L.latLngBounds(rec.ring as L.LatLngTuple[]), { padding: [60, 60], maxZoom: 19 });
+        } else {
+          map.setView(centreOf(rec) as L.LatLngTuple, Math.max(map.getZoom(), 15));
+        }
+      });
       return true;
     },
   }));
@@ -258,7 +275,7 @@ export function PortfolioCanvas({
       watcher.current = null;
       labelBox.current?.remove();
       labelBox.current = null;
-      mapRef.current?.remove();
+      removeMap(mapRef.current);
       mapRef.current = null;
       shapeLayer.current = null;
       rulerLayer.current = null;
@@ -283,13 +300,16 @@ export function PortfolioCanvas({
     const b = L.latLngBounds(pts);
     if (!b.isValid()) return;
     fittedFor.current = key;
-    // A single pin has no extent, so fitBounds would zoom to the tile server's
-    // maximum and show one roof. A portfolio of one is still a portfolio.
-    if (drawn.length === 1 && !hasBoundaryRing(drawn[0].ring)) {
-      map.setView(pts[0], 15);
-      return;
-    }
-    map.fitBounds(b, { padding: [36, 36], maxZoom: 17 });
+    whenZoomSettles(map, () => {
+      // A single pin has no extent, so fitBounds would zoom to the tile
+      // server's maximum and show one roof. A portfolio of one is still a
+      // portfolio.
+      if (drawn.length === 1 && !hasBoundaryRing(drawn[0].ring)) {
+        map.setView(pts[0], 15);
+        return;
+      }
+      map.fitBounds(b, { padding: [36, 36], maxZoom: 17 });
+    });
   };
 
   /** Names on the map, and the reason this is an overlay rather than N Leaflet

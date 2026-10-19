@@ -8,6 +8,25 @@ checked by `scripts/ai-boundary-guard.py`.
 This describes **implemented** architecture, not applied AWS state. Terraform in
 this repository is a declaration; it is not evidence that anything is deployed.
 
+## Document reading provider selection
+
+The super-admin Intelligence page (`apps/web/src/w360/pages/IntelligenceAdmin.tsx`)
+reads and writes `intelligence.*` rows of `platform_settings` through the api's
+GraphQL (`intelligenceSettings`, `setIntelligenceReader`,
+`saveIntelligenceProvider`, `saveIntelligenceOcr`, `checkIntelligenceProvider`
+in `web360.py`, logic in
+`services/api/src/ai_reading/admin.py`), gated by `_is_super_admin`. Claude is
+the default reader. Passbook, registered-document and property reads switch to
+Google Document AI OCR followed by Gemini only while Gemini is chosen AND its
+key (and, with OCR on, its processor and service account) are present;
+otherwise Claude reads (`ai_reading/settings.py`). Aadhaar KYC and photo
+screening always use Claude. All three provider credentials (Claude key,
+Gemini key, Document AI service account) can be typed on the page; they are
+Fernet-encrypted under `PLATFORM_SECRETS_KEY` (never the Aadhaar vault) and
+never returned, and env vars are the fallback. Gemini and Document AI calls are
+dispatched once, with no automatic retry. The gateway is not involved. See
+docs/runbooks/pattadar-intelligence.md.
+
 ## The one-paragraph version
 
 Pattadar uses a model in exactly two ways. Interactive chat is an **agent**: it
@@ -85,7 +104,7 @@ one `inbox_items` row and, if browser push is configured, sends an **empty**
 Web Push (VAPID, RFC 8292; no payload, so nothing about the document reaches
 the push service and no message encryption is needed). The web polls
 `GET /inbox` every 5 s only while such a reading is running, and on focus
-otherwise; the bell, a toast with Review, and `/app/notifications` read it.
+otherwise; the bell, a toast with Review, and `/notifications` read it.
 Review opens Add property filled from `GET /import-status/{job}` (kept one
 day). The server never keeps the source bytes after a reading, so a reading
 reopened after a reload cannot file the document itself and the drawer says

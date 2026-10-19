@@ -7,13 +7,27 @@
  */
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import SearchOutlined from '@mui/icons-material/SearchOutlined';
+import FileDownloadOutlined from '@mui/icons-material/FileDownloadOutlined';
+import PersonAddOutlined from '@mui/icons-material/PersonAddOutlined';
 
 import { useAssociates } from '../api';
 import type { Associate } from '../api';
-import { Chip, Empty, FacetFilter, Failed, Loading, PageHead, State, Tag, plural } from '../ui';
+import {
+  BandSearch, Card, Chip, Empty, FacetFilter, Failed, PageHead, SelectAllBox, SelectCell, SelectionBar,
+  State, TablePager, Tag, Th, ViewToggle,
+  ddmmyyyy, downloadCsv, num, plural, sortBy, usePaged, useRowSelection,
+} from '../ui';
+import type { HeadActions, SortState } from '../ui';
+import { Sk, SkRowItems, SkTable } from '../skeletons';
 
 type MemberView = 'list' | 'grid' | 'table';
+
+/** The head's one command (design.md § Page head). Left off a first-run empty
+ *  roster, whose Empty state carries the same add as its one button. */
+const HEAD_ACTIONS: HeadActions = {
+  primary: { label: 'Add a member', to: '/admin/members/enrol',
+             icon: <PersonAddOutlined sx={{ fontSize: 17 }} aria-hidden /> },
+};
 
 const STATE_CHIPS: { key: string; word: string }[] = [
   { key: 'active', word: 'Taking work' },
@@ -22,15 +36,11 @@ const STATE_CHIPS: { key: string; word: string }[] = [
   { key: 'invited', word: 'Waiting on us' },
 ];
 
-const DATE = new Intl.DateTimeFormat('en-IN', {
-  day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC',
-});
-
 function dateLabel(value: string, empty: string) {
   const raw = (value || '').slice(0, 10);
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
   if (!match) return empty;
-  return DATE.format(new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))));
+  return ddmmyyyy(raw);
 }
 
 const haystack = (a: Associate): string => [
@@ -125,7 +135,7 @@ function MemberList({ members }: { members: Associate[] }) {
                 <State state={certification.state}>{certification.label}</State>
                 <span className="note">{ratingLabel(a)}</span>
               </span>
-              <Link className="btn sm" to={`/app/admin/members/${a.id}`}>Open</Link>
+              <Link className="btn sm" to={`/admin/members/${a.id}`}>Open</Link>
             </div>
           );
         })}
@@ -150,7 +160,7 @@ function MemberGrid({ members }: { members: Associate[] }) {
                 </span>
                 <span className="note member-line">{a.firm || 'Independent'}</span>
               </span>
-              <Link className="btn sm" to={`/app/admin/members/${a.id}`}>Open</Link>
+              <Link className="btn sm" to={`/admin/members/${a.id}`}>Open</Link>
             </header>
 
             <MemberTags member={a} />
@@ -176,35 +186,138 @@ function MemberGrid({ members }: { members: Associate[] }) {
   );
 }
 
-function MemberTable({ members }: { members: Associate[] }) {
+type MemberSort = 'name' | 'open' | 'done' | 'rating';
+
+/** MemberTable's headings, for its skeleton (the action column is unlabelled). */
+const MEMBER_COLS = [
+  { head: 'Member' }, { head: 'Status' }, { head: 'Roles' }, { head: 'Coverage' },
+  { head: 'Certification' }, { head: 'Joined' }, { head: 'Last completion' },
+  { head: 'In progress', right: true, w: '2rem' }, { head: 'Completed', right: true, w: '2rem' },
+  { head: 'Rating', w: '3rem' }, { head: '', w: '3rem' },
+];
+const STAT_LABELS = ['Members', 'Ready now', 'Jobs in progress', 'Jobs completed', 'Certified'];
+
+/** The roster's first read (design.md § Loading): the stat strip with its real
+ *  labels, then the chosen view's own shape, so nothing moves when it lands. */
+function RosterSkeleton({ view }: { view: MemberView }) {
+  const label = 'Loading the company members';
+  const strip = (
+    <>
+      <section className="member-stats" aria-hidden>
+        {STAT_LABELS.map((s) => <div key={s}><span>{s}</span><Sk w="2.5rem" h="1.5rem" /></div>)}
+      </section>
+      {/* The FacetFilter band's height: its facets come from the server, so
+          only the band is held, not its chips. */}
+      <div className="filterbar band" aria-hidden>
+        <Sk w="4.5rem" h="1.75rem" r="var(--radius-pill)" style={{ flex: 'none' }} />
+        <Sk w="15rem" h="2rem" style={{ flex: 'none', marginLeft: 'auto' }} />
+        <Sk w="6.5rem" h="2rem" style={{ flex: 'none' }} />
+      </div>
+    </>
+  );
+  // .member-table's own margin and min-width (w360.css), so the table lands in place.
+  if (view === 'table') return (
+    <>{strip}<div style={{ marginTop: 'var(--space-md)' }}>
+      <SkTable label={label} cols={MEMBER_COLS} minWidth="88rem" />
+    </div></>
+  );
   return (
-    <div className="card scroll-x member-table">
-      <table className="rectable">
+    <div role="status" aria-busy="true" aria-label={label}>
+      {strip}
+      {view === 'grid' ? (
+        <div className="member-grid" aria-hidden>
+          {Array.from({ length: 6 }, (_, i) => (
+            <article className="member-card" key={i}>
+              <header>
+                <Sk w="2.25rem" h="2.25rem" r="var(--radius-pill)" style={{ flex: 'none' }} />
+                <span className="grow"><Sk w="60%" h="1rem" /><Sk w="40%" style={{ marginTop: '0.375rem' }} /></span>
+              </header>
+              <Sk w="70%" /><Sk w="55%" />
+              <div className="member-card-metrics">
+                {['In progress', 'Completed', 'Joined', 'Last completion'].map((m) => (
+                  <div key={m}><span>{m}</span><Sk w="3rem" /></div>
+                ))}
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div aria-hidden>
+          <Card className="member-list"><div className="rows boxed"><SkRowItems rows={6} /></div></Card>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const MEMBER_SORT: Record<MemberSort, (a: Associate) => string | number> = {
+  name: (a) => a.name.toLowerCase(),
+  open: (a) => a.jobsOpen,
+  done: (a) => a.jobsDone,
+  rating: (a) => a.ratingAverage,
+};
+
+const MEMBER_NOUN = ['member', 'members'] as const;
+const memberId = (a: Associate) => a.id;
+
+/** The table's columns as a CSV, for the members the reader ticked. */
+function exportMembers(members: Associate[]) {
+  downloadCsv('company-members.csv', [
+    ['Member', 'Firm', 'Status', 'Roles', 'Coverage', 'Certification', 'Joined', 'Last completion',
+     'In progress', 'Completed', 'Rating'],
+    ...members.map((a) => [
+      a.name, a.firm || 'Independent', a.stateWord,
+      a.disciplines.map((d) => d.label).join(', ') || 'No role assigned', areaLabel(a),
+      certificationOf(a).label, dateLabel(a.createdAt, 'Not recorded'), dateLabel(a.lastCompletedAt, 'None yet'),
+      a.jobsOpen, a.jobsDone, ratingLabel(a),
+    ]),
+  ]);
+}
+
+function MemberTable({ members, resetKey }: { members: Associate[]; resetKey: string }) {
+  const [sort, setSort] = useState<SortState<MemberSort>>(null);
+  const rows = useMemo(() => sortBy(members, sort, MEMBER_SORT), [members, sort]);
+  const paged = usePaged(rows, {
+    resetKey: `${sort?.key ?? ''}${sort?.dir ?? ''}|${resetKey}`, storeKey: 'pattadar.table.members',
+  });
+  // Ticks cover every member the filter lets through; a new filter drops them.
+  const sel = useRowSelection(rows, memberId, resetKey);
+  const counted = sel.picked.length > 0 ? sel.picked : rows;
+  return (
+    <>
+    <Card flush className="scroll-x edgefade member-table">
+      <table className="rectable" aria-label="Company members">
         <thead>
           <tr>
-            <th>Member</th>
+            <th className="selcol">
+              <SelectAllBox total={rows.length} picked={sel.picked.length} noun={MEMBER_NOUN}
+                            onToggle={sel.toggleAll} />
+            </th>
+            <Th k="name" label="Member" sort={sort} setSort={setSort} />
             <th>Status</th>
             <th>Roles</th>
             <th>Coverage</th>
             <th>Certification</th>
             <th>Joined</th>
             <th>Last completion</th>
-            <th className="right">In progress</th>
-            <th className="right">Completed</th>
-            <th>Rating</th>
+            <Th k="open" label="In progress" right sort={sort} setSort={setSort} />
+            <Th k="done" label="Completed" right sort={sort} setSort={setSort} />
+            <Th k="rating" label="Rating" sort={sort} setSort={setSort} />
             <th aria-label="Actions" />
           </tr>
         </thead>
         <tbody>
-          {members.map((a) => {
+          {paged.shown.map((a) => {
             const certification = certificationOf(a);
             return (
-              <tr key={a.id}>
+              <tr key={a.id} className={sel.selected.has(a.id) ? 'selected' : undefined}>
+                <SelectCell checked={sel.selected.has(a.id)} label={`Select ${a.name}`}
+                            onToggle={() => sel.toggle(a.id)} />
                 <td>
                   <span className="member-table-person">
                     <span className="avatarlg">{a.initials}</span>
                     <span>
-                      <Link to={`/app/admin/members/${a.id}`}>{a.name}</Link>
+                      <Link to={`/admin/members/${a.id}`}>{a.name}</Link>
                       <small>{a.firm || 'Independent'}</small>
                     </span>
                   </span>
@@ -218,13 +331,37 @@ function MemberTable({ members }: { members: Associate[] }) {
                 <td className="right num"><strong>{a.jobsOpen}</strong></td>
                 <td className="right num"><strong>{a.jobsDone}</strong></td>
                 <td>{ratingLabel(a)}</td>
-                <td><Link className="btn sm" to={`/app/admin/members/${a.id}`}>Open</Link></td>
+                <td><Link className="btn sm" to={`/admin/members/${a.id}`}>Open</Link></td>
               </tr>
             );
           })}
         </tbody>
+        <tfoot>
+          <tr>
+            {/* Sums cover the ticked members, else every member the filter
+                lets through — never just this page. */}
+            <td className="selcol" />
+            <th scope="row" colSpan={7}>
+              {sel.picked.length > 0
+                ? `${plural(sel.picked.length, 'member')} selected`
+                : `Total · ${plural(rows.length, 'member')}`}
+            </th>
+            <td className="right num"><strong>{num(counted.reduce((n, a) => n + a.jobsOpen, 0))}</strong></td>
+            <td className="right num"><strong>{num(counted.reduce((n, a) => n + a.jobsDone, 0))}</strong></td>
+            <td />
+            <td />
+          </tr>
+        </tfoot>
       </table>
-    </div>
+    </Card>
+    <TablePager {...paged} onSize={paged.setSize} label="Company members pages" />
+    <SelectionBar count={sel.picked.length} noun={MEMBER_NOUN} label="Act on the selected members"
+                  onClear={sel.clear}>
+      <button type="button" className="btn sm" onClick={() => exportMembers(sel.picked)}>
+        <FileDownloadOutlined sx={{ fontSize: 15 }} /> Export
+      </button>
+    </SelectionBar>
+    </>
   );
 }
 
@@ -330,28 +467,23 @@ export function DeskAssociates() {
   return (
     <main>
       <PageHead
-        eyebrow="Administration"
         title="Company members"
-        actions={(
-          <>
-            {all.length > 0 && (
-              <div className="segmented" role="group" aria-label="Member view">
-                <button type="button" aria-pressed={view === 'list'} onClick={() => setView('list')}>List</button>
-                <button type="button" aria-pressed={view === 'grid'} onClick={() => setView('grid')}>Grid</button>
-                <button type="button" aria-pressed={view === 'table'} onClick={() => setView('table')}>Table</button>
-              </div>
-            )}
-            <Link className="btn primary" to="/app/admin/members/enrol">Add a member</Link>
-          </>
-        )}
+        actions={all.length > 0 ? HEAD_ACTIONS : undefined}
+        // Whole-roster totals with the status split (the four states sum to it);
+        // stateChips already drops a zero state.
+        summary={isLoading ? <Sk w="18rem" h="1rem" r="var(--radius-xs)" />
+          : all.length > 0 ? [
+            plural(all.length, 'member'),
+            ...stateChips.map((s) => `${num(s.count)} ${s.word.toLowerCase()}`),
+          ].join(' · ') : undefined}
       />
 
-      {isLoading ? <Loading h="18rem" what="the roster" />
+      {isLoading ? <RosterSkeleton view={view} />
         : !data ? <Failed what="The roster" error={error} boxed h="18rem" />
         : all.length === 0 ? (
           <Empty
             boxed h="18rem" icon="person" title="No company members yet"
-
+            action={<Link className="btn primary" to="/admin/members/enrol">Add a member</Link>}
           />
         ) : (
           <>
@@ -378,12 +510,13 @@ export function DeskAssociates() {
                 id: 'q', group: 'Search', label: q.trim(), removeLabel: 'Clear roster search',
                 onRemove: () => setQ(''),
               }] : []}
-              trailing={(
-                <span className="search member-search">
-                  <SearchOutlined sx={{ fontSize: 16 }} aria-hidden />
-                  <input value={q} onChange={(event) => setQ(event.target.value)}
-                         placeholder="Name, firm or full address" aria-label="Search the roster" />
-                </span>
+              search={(
+                <BandSearch value={q} onChange={setQ}
+                            placeholder="Name, firm or full address" label="Search the roster" />
+              )}
+              view={(
+                <ViewToggle label="Member view" views={['list', 'grid', 'table']}
+                            value={view} onChange={setView} />
               )}
               ariaLabel="Filter company members"
             />
@@ -394,7 +527,7 @@ export function DeskAssociates() {
                 action={<button type="button" className="btn" onClick={clear}>Clear</button>}
               />
             ) : view === 'grid' ? <MemberGrid members={rows} />
-              : view === 'table' ? <MemberTable members={rows} />
+              : view === 'table' ? <MemberTable members={rows} resetKey={[q.trim(), discipline, state, readiness, location].join('|')} />
                 : <MemberList members={rows} />}
           </>
         )}

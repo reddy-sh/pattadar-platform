@@ -46,7 +46,7 @@ struct PassbooksScreen: View {
                 Button("Delete", role: .destructive) {
                     if let k = confirming { Task { await delete(k) } }
                 }
-                Button("Keep it", role: .cancel) { confirming = nil }
+                Button("Cancel", role: .cancel) { confirming = nil }
             } message: {
                 Text(confirming.map { "\($0.pattadarNo) and every parcel filed under it will be removed. This cannot be undone." } ?? "")
             }

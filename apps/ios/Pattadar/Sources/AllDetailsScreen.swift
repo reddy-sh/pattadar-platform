@@ -84,11 +84,11 @@ struct DocumentAllDetailsScreen: View {
             .init(label: "Extent", value: doc.extent, field: "extent"),
         ].filter { !$0.value.isEmpty }
         let money: [DocDetailRow] = [
-            .init(label: "Consideration", value: doc.consideration > 0 ? rupees(doc.consideration) : "",
+            .init(label: "Amount in the deed", value: doc.consideration > 0 ? rupees(doc.consideration) : "",
                   field: "consideration"),
         ].filter { !$0.value.isEmpty }
         let registration: [DocDetailRow] = [
-            .init(label: "Document no.", value: doc.documentNo, field: "document_no"),
+            .init(label: "Document number", value: doc.documentNo, field: "document_no"),
             .init(label: "Registered on", value: humanDate(doc.registrationDate), field: "registration_date"),
             .init(label: "Sub-registrar", value: doc.sro, field: "sro"),
         ].filter { !$0.value.isEmpty }

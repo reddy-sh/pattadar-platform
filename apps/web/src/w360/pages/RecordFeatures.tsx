@@ -11,7 +11,7 @@
  *  Before it existed, every feature added through this page stayed a name with
  *  a green dot beside it — an empty card claiming everything was fine. */
 import { useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import AddOutlined from '@mui/icons-material/AddOutlined';
 import EditOutlined from '@mui/icons-material/EditOutlined';
 import DeleteOutlineOutlined from '@mui/icons-material/DeleteOutlineOutlined';
@@ -28,13 +28,15 @@ import {
 } from '../api';
 import type { FacetFilterGroup } from '../ui';
 import {
-  Card, Chip, Empty, FacetFilter, Failed, Icon, KV, Loading, State, ddmmyyyy, inr, plural,
+  Card, Chip, Empty, FacetFilter, Failed, Icon, KV, State, ddmmyyyy, inr, plural,
 } from '../ui';
 import { Drawer, DrawerAction, drawerEyebrow } from '../Drawer';
+import { Sk } from '../skeletons';
 import { useRecordCtx } from './Record';
 import { SectionHead } from './RecordHead';
 import { ConfirmDialog } from './PropertyActions';
 import { MAX_UPLOAD_BYTES, mb } from '../filePhotos';
+import { openSameJob, orderHref } from '../orderFlow';
 import { uploadToDrive } from '../../pages/documents/storage';
 
 /** The four things a feature's condition can be, in the owner's words rather
@@ -113,20 +115,20 @@ function destOf(label: string, recordId: string, f: Feature): string | null {
   // count exactly as the photo line above it is: ungated, this was the control
   // whose only outcome was a grid filtered down to nothing.
   if (/^photos\b/i.test(label)) {
-    return f.photoCount > 0 ? `/app/records/${recordId}/photos?feature=${f.id}` : null;
+    return f.photoCount > 0 ? `/properties/${recordId}/media?feature=${f.id}` : null;
   }
   // "Bills", "Income", "Service log" — a power bill, the lease income off the
   // coconut trees, a starter panel replaced. Every one of those is a row in
   // this record's ledger, where a row can hang off the feature it was spent
   // on, which is the whole reason the bore's true cost is knowable.
   if (label === 'Bills' || label === 'Income' || label === 'Service log') {
-    return `/app/records/${recordId}/expenses`;
+    return `/properties/${recordId}/expenses`;
   }
   // "Papers 1", "Lease", "Deed clause" — a subsidy sanction, the tenant's
   // agreement, the right of way. Each is a document filed on this record, and
-  // Documents is the record's own index tab.
+  // Documents is the record's own tab for them.
   if (/^papers\b/i.test(label) || label === 'Lease' || label === 'Deed clause') {
-    return `/app/records/${recordId}`;
+    return `/properties/${recordId}/documents`;
   }
   // "Update" and "Update count" are the pencil on this card. "Fix it", "Order
   // fencing" and "Order clearing" are work Pattadar does not book — the
@@ -620,7 +622,8 @@ export function RecordFeatures() {
   const editTriggers = useRef(new Map<string, HTMLButtonElement>());
   const editReturnFocus = useRef<HTMLButtonElement>(null);
   const removeTriggers = useRef(new Map<string, HTMLButtonElement>());
-  const addTrigger = useRef<HTMLButtonElement>(null);
+  const addTrigger = useRef<HTMLButtonElement & HTMLAnchorElement>(null);
+  const nav = useNavigate();
   // One highlight, addressed by a feature's id: the card the drawer just filed.
   const [flash, setFlash] = useState('');
   // A refused write does not throw — this API answers a refusal with a falsy
@@ -670,14 +673,14 @@ export function RecordFeatures() {
       // one control on this screen that is always there.
       requestAnimationFrame(() => addTrigger.current?.focus());
     } catch {
-      setDelErr('That feature could not be removed. It is still filed here.');
+      setDelErr('That feature could not be removed. It is still on this property.');
     }
   };
 
   /** Where "Ask for a site visit" goes: into the order flow, at its first
    *  step, carrying the two things this screen already knows.
    *
-   *  This page used to file the ₹1,200 site visit itself, from a confirm
+   *  This page used to file the site visit itself, from a confirm
    *  dialog — one tap, no review of what was being bought, no receipt to come
    *  back to, no idempotency key, and nothing checking that the record can even
    *  say where the land is. A visit ordered against a parcel with no pin and no
@@ -695,14 +698,13 @@ export function RecordFeatures() {
    *  word and `noteFor` in orderFlow.ts turns it back into that same sentence
    *  when the order is actually placed, so the words live in one file instead
    *  of being retyped on every hanger that orders a visit. */
-  const orderCheck = `/app/records/${rec.id}/order`
-    + '?service=site_visit&step=pick&a.check=General+condition&why=features';
+  const orderCheck = orderHref(rec.id, { service: 'site_visit', 'a.check': 'General condition', why: 'features' });
 
   // A failed read is not an empty record. Keeping `!data` means a background
   // refetch that fails leaves the cached features on screen rather than
   // replacing a working page with an error panel.
   const failed = !!error && !data;
-  const existingCheck = orders?.find((o) => o.kind === 'site_visit');
+  const existingCheck = openSameJob(orders, 'site_visit', offers.data);
   const checkOrdered = !!existingCheck;
   // Nothing about this record's orders is known yet, or the attempt to find
   // out failed. Either way the duplicate guard below cannot be trusted, so the
@@ -747,7 +749,6 @@ export function RecordFeatures() {
     category: sel.category.filter((k) => offered('category', k)),
     condition: sel.condition.filter((k) => offered('condition', k)),
   };
-  const narrowed = active.category.length > 0 || active.condition.length > 0;
   const toggle = (group: string, key: string) => {
     const g = group as keyof FeatureFilters;
     setSel((have) => ({
@@ -781,59 +782,41 @@ export function RecordFeatures() {
       <SectionHead
         title="Site features"
         sub={featuresSub}
-        actions={(
-          <>
-          {/* Three shapes, and only the third is a link.
+        actions={{
+          /* The site visit lives in the More menu (Reddy, 13/10/2026), still
+             in three shapes. A visit costs money, so once an order has been
+             filed the item opens that order instead of starting a second.
+             While the orders read is in flight, or came back failed, there is
+             no answer to "do you already have one of these", so the item is
+             disabled rather than live; while the read runs its label says so,
+             and once it has failed the sentence under this header does. Named
+             for the catalogue's service, with its price once loaded: "check"
+             on this tab is the look somebody takes at a feature. */
+          overflowHeader: rec.title,
+          overflow: [checkOrdered ? {
+            label: 'Open the site visit order',
+            icon: <ChecklistOutlined sx={{ fontSize: 17 }} />,
+            onClick: () => nav(`/properties/${rec.id}/services`),
+          } : {
+            label: ordersPending ? 'Looking up your orders…'
+              : `Ask for a site visit${visitPrice > 0 ? ` · ${inr(visitPrice)}` : ''}`,
+            icon: <ChecklistOutlined sx={{ fontSize: 17 }} />,
+            disabled: ordersUnknown,
+            onClick: () => { if (!ordersUnknown) nav(orderCheck); },
+          }],
+          /* Opens the drawer, like every other "add a thing" on this record.
+             It used to scroll the page to a dashed card at the end of the grid
+             and flash a ring at it, which is the one add affordance in the app
+             that never opened anything.
 
-              A visit costs money, so the control still refuses to start a
-              second one once an order has actually been filed — it used to
-              stay live under a label saying the check was already ordered,
-              which bought two.
-
-              The middle branch is why this is not a link in every state. While
-              the orders read is in flight, or came back failed, there is no
-              answer to "do you already have one of these", and a <Link> has no
-              `disabled` — a class that greys it out still navigates on click,
-              on Enter, and on a middle-click into a new tab. So the inert state
-              is a real disabled <button>, which the browser refuses for us.
-              While the read is still running the label says so itself; once it
-              has failed, the sentence under this header says so.
-
-              Named for the catalogue's service, a site visit, with the
-              catalogue's price once it has loaded: "check" on this tab is the
-              look somebody takes at a feature, not a thing you buy. */}
-          {checkOrdered ? (
-            <Link className="btn" to={`/app/records/${rec.id}/services`}>
-              <ChecklistOutlined sx={{ fontSize: 16 }} /> Open the site visit order
-            </Link>
-          ) : ordersUnknown ? (
-            <button type="button" className="btn" disabled>
-              <ChecklistOutlined sx={{ fontSize: 16 }} />
-              {ordersPending ? 'Looking up your orders…'
-                : `Ask for a site visit${visitPrice ? ` · ${inr(visitPrice)}` : ''}`}
-            </button>
-          ) : (
-            <Link className="btn" to={orderCheck}>
-              <ChecklistOutlined sx={{ fontSize: 16 }} /> Ask for a site visit
-              {visitPrice > 0 && <> · {inr(visitPrice)}</>}
-            </Link>
-          )}
-          {/* Opens the drawer, like every other "add a thing" on this record.
-              It used to scroll the page to a dashed card at the end of the grid
-              and flash a ring at it, which is the one add affordance in the app
-              that never opened anything.
-
-              Still hidden while the read is failed: filing against a record
-              that would not load is not a safe offer. */}
-          {!failed && (
-            <button ref={addTrigger} type="button" className="btn primary" disabled={isLoading}
-                    aria-haspopup="dialog" aria-expanded={adding}
-                    onClick={() => setAdding(true)}>
-              <AddOutlined sx={{ fontSize: 17 }} /> Add a feature
-            </button>
-          )}
-          </>
-        )}
+             Still hidden while the read is failed: filing against a record
+             that would not load is not a safe offer. */
+          primary: failed ? undefined : {
+            label: 'Add a feature', icon: <AddOutlined sx={{ fontSize: 17 }} />,
+            ref: addTrigger, disabled: isLoading, haspopup: 'dialog', expanded: adding,
+            onClick: () => setAdding(true),
+          },
+        }}
       />
 
       {adding && (
@@ -893,14 +876,14 @@ export function RecordFeatures() {
 
           {/* The one filter surface list pages share, with the categories and
               the conditions as two groups that combine, washed rather than
-              filled, and a tally only while it is narrowing. */}
+              filled, and the tally always (design.md § Page head slot 3). */}
           {data && features.length > 0 && (
             <FacetFilter
               groups={groups}
               selected={active}
               onToggle={toggle}
               onClear={() => setSel(noFilters())}
-              tally={narrowed ? `${shown.length} of ${features.length} shown` : undefined}
+              tally={`${shown.length} of ${features.length} shown`}
               ariaLabel="Filter site features"
             />
           )}
@@ -910,7 +893,36 @@ export function RecordFeatures() {
               in; and a record with nothing on it says so in a sentence, with
               no second "Add a feature" (the header's is the one flow). */}
           {isLoading ? (
-            <Loading h="20rem" what="site features" />
+            /* The grid's own shape: same track, same card, icon and name,
+               spec, condition chip, pin line, actions — so nothing moves
+               when the features land (design.md § Loading). */
+            <div role="status" aria-busy="true" aria-label="Loading site features" className="cards"
+                 style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 21rem), 1fr))' }}>
+              {Array.from({ length: 4 }, (_, i) => {
+                const wave = { animationDelay: `${(i % 6) * 90}ms` };
+                return (
+                  // The real card is a bare .card, so pad-lg's padding is put back to its own.
+                  <Card key={i}
+                        style={{ padding: 'var(--space-md)', display: 'grid', gap: '0.5rem', alignContent: 'start' }}>
+                    <div className="row tight" style={{ flexWrap: 'nowrap', alignItems: 'flex-start' }}>
+                      <Sk w="1.1875rem" h="1.1875rem" r="var(--radius-xs)" style={{ flex: 'none', ...wave }} />
+                      <span className="grow">
+                        <Sk w={`${7 + (i * 3) % 5}rem`} h="1rem" style={wave} />
+                        <Sk w={`${5 + (i * 5) % 6}rem`} h="0.75rem" style={{ marginTop: '0.375rem', ...wave }} />
+                      </span>
+                    </div>
+                    <Sk w="5rem" h="1.25rem" r="var(--radius-pill)" style={wave} />
+                    <Sk w="60%" h="0.75rem" style={wave} />
+                    <div className="row tight">
+                      <Sk w="5.5rem" h="1.75rem" r="var(--radius-sm)" style={{ flex: 'none', ...wave }} />
+                      <span className="grow" />
+                      <Sk w="1.75rem" h="1.75rem" r="var(--radius-sm)" style={{ flex: 'none', ...wave }} />
+                      <Sk w="1.75rem" h="1.75rem" r="var(--radius-sm)" style={{ flex: 'none', ...wave }} />
+                    </div>
+                  </Card>
+                );
+              })}
+            </div>
           ) : failed ? (
             <Failed what="Site features" error={error} boxed h="20rem"
                     onRetry={() => void refetch()} />
@@ -973,7 +985,7 @@ export function RecordFeatures() {
                         )}
                       </span>
                       {f.photoCount > 0 && (
-                        <Link to={`/app/records/${rec.id}/photos?feature=${f.id}`}
+                        <Link to={`/properties/${rec.id}/media?feature=${f.id}`}
                               className="note row tight accent" style={{ textDecoration: 'none' }}>
                           <VisibilityOutlined sx={{ fontSize: 14 }} aria-hidden />{' '}
                           {f.photoCount} photo{f.photoCount === 1 ? '' : 's'}
@@ -982,7 +994,7 @@ export function RecordFeatures() {
                     </div>
 
                     {f.costCount > 0 && (
-                      <Link to={`/app/records/${rec.id}/expenses`}
+                      <Link to={`/properties/${rec.id}/expenses`}
                             className="note row tight accent" style={{ textDecoration: 'none' }}>
                         <ReceiptLongOutlined sx={{ fontSize: 14 }} aria-hidden />
                         {inr(f.costTotal)} · {plural(f.costCount, 'cost')}

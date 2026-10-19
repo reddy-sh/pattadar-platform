@@ -63,6 +63,8 @@ class AssistantConfig:
     public_records_embed_model: str = "BAAI/bge-m3"
     public_records_embed_dimensions: int = 1024
     public_records_embed_device: str = "auto"
+    # Registration years the corpus covers, shown beside "Public records ready".
+    public_records_coverage: str = "1975–2029"
     public_records_embeddings_enabled: bool = False
 
     # File storage
@@ -118,6 +120,7 @@ class AssistantConfig:
             embed_model=self.public_records_embed_model,
             embed_dimensions=self.public_records_embed_dimensions,
             embed_device=self.public_records_embed_device,
+            coverage=self.public_records_coverage,
             embeddings_enabled=self.public_records_embeddings_enabled,
         )
 
@@ -152,6 +155,7 @@ class AssistantConfig:
             public_records_embed_model=os.getenv("PUBLIC_RECORDS_EMBED_MODEL", "BAAI/bge-m3"),
             public_records_embed_dimensions=_env_int("PUBLIC_RECORDS_EMBED_DIM", 1024),
             public_records_embed_device=os.getenv("PUBLIC_RECORDS_EMBED_DEVICE", "auto"),
+            public_records_coverage=os.getenv("PUBLIC_RECORDS_COVERAGE", "1975–2029"),
             public_records_embeddings_enabled=_env_bool(
                 "PUBLIC_RECORDS_EMBEDDINGS_ENABLED", False
             ),

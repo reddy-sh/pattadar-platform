@@ -42,7 +42,7 @@ export function LoginPage() {
   const location = useLocation();
   const { isAuthenticated, signInWithPassword, signInSocial } = useAuth();
   const state = (location.state as LoginLocationState | null) ?? {};
-  const returnTo = state.returnTo ?? '/app';
+  const returnTo = state.returnTo ?? '/home';
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

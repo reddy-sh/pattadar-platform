@@ -255,31 +255,31 @@ export function attentionItems(
   const prLabel = (p: DashProperty) => [p.label || p.type, p.city].filter(Boolean).join(', ');
 
   for (const p of input.parcels) {
-    if (p.litigation) red.push({ severity: 'red', text: `${pLabel(p)} — litigation flagged`, path: '/app/parcels' });
+    if (p.litigation) red.push({ severity: 'red', text: `${pLabel(p)} — litigation flagged`, path: '/properties?kind=parcel' });
     const d = daysUntil(p.taxPaidUpto, today);
-    if (d !== null && d < 0) red.push({ severity: 'red', text: `Land tax overdue — ${pLabel(p)}`, path: '/app/parcels' });
-    else if (d !== null && d <= 60) amber.push({ severity: 'amber', text: `Tax due in ${d} days — ${pLabel(p)}`, path: '/app/parcels' });
+    if (d !== null && d < 0) red.push({ severity: 'red', text: `Land tax overdue — ${pLabel(p)}`, path: '/properties?kind=parcel' });
+    else if (d !== null && d <= 60) amber.push({ severity: 'amber', text: `Tax due in ${d} days — ${pLabel(p)}`, path: '/properties?kind=parcel' });
     const ec = daysUntil(p.ecDate, today);
     if (p.ecDate && ec !== null && ec < -365)
-      amber.push({ severity: 'amber', text: `EC check older than a year — ${pLabel(p)}`, path: '/app/parcels' });
+      amber.push({ severity: 'amber', text: `EC check older than a year — ${pLabel(p)}`, path: '/properties?kind=parcel' });
   }
   for (const p of input.properties) {
-    if (p.litigation) red.push({ severity: 'red', text: `${prLabel(p)} — litigation flagged`, path: '/app/properties' });
+    if (p.litigation) red.push({ severity: 'red', text: `${prLabel(p)} — litigation flagged`, path: '/properties' });
     const d = daysUntil(p.taxPaidUpto, today);
-    if (d !== null && d < 0) red.push({ severity: 'red', text: `Property tax overdue — ${prLabel(p)}`, path: '/app/properties' });
-    else if (d !== null && d <= 60) amber.push({ severity: 'amber', text: `Tax due in ${d} days — ${prLabel(p)}`, path: '/app/properties' });
+    if (d !== null && d < 0) red.push({ severity: 'red', text: `Property tax overdue — ${prLabel(p)}`, path: '/properties' });
+    else if (d !== null && d <= 60) amber.push({ severity: 'amber', text: `Tax due in ${d} days — ${prLabel(p)}`, path: '/properties' });
   }
   if (input.pendingInvites > 0)
     amber.unshift({
       severity: 'amber',
       text: `${input.pendingInvites} invitation${input.pendingInvites > 1 ? 's' : ''} awaiting a response`,
-      path: '/app/invitations',
+      path: '/invitations',
     });
   if (input.membersPending > 0)
     amber.push({
       severity: 'amber',
       text: `${input.membersPending} family member${input.membersPending > 1 ? 's' : ''} not yet verified`,
-      path: '/app/groups',
+      path: '/groups',
     });
   if (
     !input.parcels.some((p) => p.litigation) &&
@@ -301,6 +301,7 @@ const ACTION_LABELS: Record<string, string> = {
   update_parcel_geo: "Set a parcel's location",
   add_note: 'Added a note',
   delete_note: 'Deleted a note',
+  edit_note: 'Edited a note',
   create_document: 'Added a document',
   upload_document: 'Uploaded a document',
   delete_document: 'Deleted a document',

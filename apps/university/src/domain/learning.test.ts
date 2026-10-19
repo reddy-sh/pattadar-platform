@@ -12,7 +12,7 @@ import {
   workforceComplianceKeys,
 } from '../data/complianceCoverage';
 import { isGovernmentReferenceUrl, officialReferenceById, officialReferences } from '../data/officialReferences';
-import { recordGuidePath, recordGuides, recordGuidesForState } from '../data/recordGuides';
+import { hasRecordVideo, recordGuidePath, recordGuides, recordGuidesForState } from '../data/recordGuides';
 import { stateLearningGuides } from '../data/stateGuideContent';
 import { indiaLandRecordSources, publishedStateLandRecordProfiles, stateLandRecordProfiles } from '../data/stateLandRecords';
 import { buildStateGuideStructuredData } from '../seo/stateSeo';
@@ -270,8 +270,8 @@ describe('learning domain', () => {
   });
 
   test('keeps record videos, field guides, sources, and state lessons together', () => {
-    expect(recordGuidesForState('AP')).toHaveLength(6);
-    expect(recordGuidesForState('TS')).toHaveLength(5);
+    expect(recordGuidesForState('AP')).toHaveLength(7);
+    expect(recordGuidesForState('TS')).toHaveLength(6);
     expect(new Set(recordGuides.map(recordGuidePath)).size).toBe(recordGuides.length);
 
     for (const guide of recordGuides) {
@@ -286,7 +286,7 @@ describe('learning domain', () => {
         expect(source).toBeDefined();
         expect(isGovernmentReferenceUrl(source!.url)).toBe(true);
       }
-      for (const extension of ['mp4', 'jpg', 'vtt', 'txt']) {
+      for (const extension of hasRecordVideo(guide) ? ['mp4', 'jpg', 'vtt', 'txt'] : []) {
         const asset = fileURLToPath(new URL(`../../public/record-videos/${guide.stateCode}/${guide.slug}.${extension}`, import.meta.url));
         expect(existsSync(asset)).toBe(true);
         if (extension === 'vtt') expect(readFileSync(asset, 'utf8').startsWith('WEBVTT')).toBe(true);

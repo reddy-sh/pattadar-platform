@@ -1,7 +1,7 @@
 /**
  * W01 · the dashboard — the first screen of the app, in every state it has.
  *
- * The landing screen at `/app` (Home) reads the portfolio (`web.portfolio`),
+ * The landing screen at `/home` (Home) reads the portfolio (`web.portfolio`),
  * the orders the rail already counts and the property list, and draws, in
  * order: the greeting with its one summary line and four shortcuts; For you —
  * the orders waiting on the owner, the reminders, and Missing details as one
@@ -51,9 +51,9 @@
  *     beforeEach below, the same answer 19-sections-legacy gives). Recent
  *     activity therefore stays hidden in this file.
  *
- * One `test.fail()` is left here: a village worth nothing still gets a bar.
- * "A portfolio nobody has priced is not told it was free" was the second; the
- * 26/09 Home fixed it and it is now an ordinary test.
+ * No `test.fail()` is left here: "a village worth nothing still gets a bar"
+ * and "a portfolio nobody has priced is not told it was free" were both fixed
+ * by the 26/09–02/10 Home and are ordinary tests now.
  */
 import type { Locator } from '@playwright/test';
 import { test, expect, World } from '../fixtures/harness';
@@ -236,38 +236,46 @@ async function contrastOf(fg: Locator, surface: Locator): Promise<number> {
 // ── the head: who you are and what you hold ────────────────────────────
 
 test('the dashboard greets me by name and says what my whole portfolio is', async ({ page, world }) => {
-  await page.goto('/app');
+  await page.goto('/home');
 
   const head = page.locator('.pagehead');
-  await expect(head.getByText('Your portfolio')).toBeVisible();
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(/^Good (morning|afternoon|evening), Shankar Reddy$/);
 
-  // Every clause agrees with its count, and a kind the portfolio does not hold
-  // is not mentioned at all — this account holds no open plots.
-  await expect(head).toContainText('Land — 3 farm parcels (7.50 ac)');
-  await expect(head).toContainText('Built — 1 flat + 1 shop (1,770 sq.ft)');
-  await expect(head).not.toContainText('open plot');
+  // The Home summary line (Dashboard.tsx `meta`): only the facts that exist —
+  // every property the account holds, then the extents. Managed and watched
+  // are stakes on those same rows (web360.py `portfolio`), so 3 parcels + a
+  // flat + a shop is 5, not 10; and no document count, because `paperCount`
+  // adds parcel photos to the vault's documents. The old "Your portfolio"
+  // eyebrow, the Land/Built clauses, the "Owned only" stake line and the two
+  // clocks were retired with it.
+  await expect(head.locator('p.note')).toHaveText('5 properties · 7.50 ac');
 
-  // What is owned is what the figures above count; the rest is named and
-  // linked into Properties rather than silently folded in.
-  await expect(head).toContainText('Owned only · 4 managed and 1 watched are in Properties');
-  await expect(head.getByRole('link', { name: '4 managed' })).toHaveAttribute('href', '/app/properties?stake=managed');
-  await expect(head.getByRole('link', { name: '1 watched' })).toHaveAttribute('href', '/app/properties?stake=watch');
+  // The tab is "Home", not the greeting (V1).
+  await expect(page).toHaveTitle('Home · Pattadar');
 
-  // Both clocks: the one this owner is sitting in, and the one the land is in,
-  // named after the village holding most of the value (the first value bar).
-  await expect(head.locator('p.note')).toHaveText(/^3 things waiting on you · .+ \d{2}:\d{2}, Land \d{2}:\d{2} IST$/);
-
-  // The one action on the head, and it goes to the add drawer on Properties.
-  await expect(head.getByRole('link', { name: 'Add', exact: true })).toHaveAttribute('href', '/app/properties?new=1');
+  // The four things an owner comes to Home to start, each landing with its
+  // dialog already open, on the title row (design.md § Page head, Home
+  // option A): two outlined, then "Add a property" filled, then the ⋮
+  // holding "Share a property" last — and only once on the page.
+  const actions = head.locator('.actions');
+  await expect(actions.locator('.btn')).toHaveText(['Add a document', 'Order a service', 'Add a property']);
+  await expect(actions.locator('.btn.primary')).toHaveText('Add a property');
+  await expect(actions.getByRole('link', { name: 'Add a property' })).toHaveAttribute('href', '/properties?new=1');
+  await expect(actions.getByRole('link', { name: 'Add a document' })).toHaveAttribute('href', '/papers?do=add');
+  await expect(actions.getByRole('link', { name: 'Order a service' })).toHaveAttribute('href', '/order');
+  await expect(page.locator('a[href="/properties?new=1"]')).toHaveCount(1);
 
   expect(world.calls('portfolio').length).toBeGreaterThan(0);
+
+  await actions.getByRole('button', { name: 'More shortcuts' }).click();
+  await page.getByRole('menuitem', { name: 'Share a property' }).click();
+  await expect(page).toHaveURL(/\/papers\?do=share$/);
 });
 
 test('an account with no name on it is still greeted', async ({ page, world }) => {
   // web360.py:2462 blanks the display name when all it has is a login handle.
   world.set('portfolio', { ...world.seedOf<Portfolio>('portfolio'), displayName: '' });
-  await page.goto('/app');
+  await page.goto('/home');
 
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(GREETING);
   await expect(page.getByRole('heading', { level: 1 })).not.toContainText(',');
@@ -282,15 +290,12 @@ test('the greeting follows the clock, and turns over at noon and at five', async
   const h1 = page.getByRole('heading', { level: 1 });
   const openAt = async (hour: number, minute: number) => {
     await page.clock.setFixedTime(lastIstMoment(hour, minute));
-    await page.goto('/app');
+    await page.goto('/home');
     await expect(h1).toBeVisible();
   };
 
   await openAt(11, 59);
   await expect(h1).toHaveText('Good morning, Shankar Reddy');
-  // The same pinned clock is the one the head prints, so this is also the
-  // proof that the page is reading the time the test set.
-  await expect(page.locator('.pagehead p.note')).toContainText('Land 11:59 IST');
 
   await openAt(12, 0);
   await expect(h1).toHaveText('Good afternoon, Shankar Reddy');
@@ -303,7 +308,7 @@ test('the greeting follows the clock, and turns over at noon and at five', async
 });
 
 test('the dashboard and the frame around it read my portfolio once between them', async ({ page, world }) => {
-  await page.goto('/app');
+  await page.goto('/home');
 
   await expect(page.getByRole('heading', { level: 1 })).toContainText('Shankar Reddy');
   await expect(overview(page)).toBeVisible();
@@ -319,12 +324,12 @@ test('the dashboard and the frame around it read my portfolio once between them'
 test('the portfolio line names only the kinds I actually hold', async ({ page, world }) => {
   const base = world.seedOf<Portfolio>('portfolio');
   world.set('portfolio', { ...base, builtExtent: 0, builtFlats: 0, builtShops: 0 });
-  await page.goto('/app');
+  await page.goto('/home');
 
   const head = page.locator('.pagehead');
   // The head's one summary line (Dashboard.tsx `meta`), and the Properties
   // card's note under Overview, which says which kinds the count is made of.
-  await expect(head.locator('p.note')).toHaveText('8 properties · 7.50 ac · 27 documents');
+  await expect(head.locator('p.note')).toHaveText('3 properties · 7.50 ac');
   const kinds = overview(page).getByRole('link', { name: /^Properties/ });
   await expect(kinds).toContainText('3 land parcels');
   await expect(kinds).not.toContainText('building');
@@ -337,42 +342,42 @@ test('the portfolio line counts in the singular when I hold one of something', a
   const base = world.seedOf<Portfolio>('portfolio');
   world.set('portfolio', {
     ...base,
-    farmCount: 1, farmExtent: 2, plotCount: 1, plotExtent: 300,
-    builtFlats: 1, builtShops: 0, builtExtent: 1450, waitingCount: 1,
+    farmCount: 1, farmExtent: 2, plotCount: 0, plotExtent: 0,
+    builtFlats: 0, builtShops: 0, builtExtent: 0,
+    managedCount: 0, watchedCount: 0, paperCount: 1,
   });
-  await page.goto('/app');
+  await page.goto('/home');
 
-  const head = page.locator('.pagehead');
-  await expect(head).toContainText('Land — 1 farm parcel (2.00 ac) and 1 open plot (300 sq.yd)');
-  await expect(head).toContainText('Built — 1 flat (1,450 sq.ft)');
-  await expect(head.locator('p.note')).toContainText('1 thing waiting on you');
+  await expect(page.locator('.pagehead p.note')).toHaveText('1 property · 2.00 ac');
+  await expect(overview(page).getByRole('link', { name: /^Properties/ })).toContainText('1 land parcel');
+  await expect(overview(page).getByRole('link', { name: /^Properties/ })).not.toContainText('parcels');
 });
 
 test('a portfolio of open plots and shops is named in its own words', async ({ page, world }) => {
-  // The other half of both clauses. `land` joins farm AND plots, `built` joins
-  // flats AND shops (Dashboard.tsx:190-197), and each half is dropped on its
-  // own — so a portfolio holding only the SECOND of each is the arrangement
-  // where a stray ' and ' or ' + ' would be left hanging in the sentence.
+  // The other half of each kind: plots without farm land, shops without
+  // flats. The summary line carries plots' own unit (sq.yd) and no acres,
+  // and the Properties card's note names the kinds held and only those.
   const base = world.seedOf<Portfolio>('portfolio');
   world.set('portfolio', {
     ...base,
     farmCount: 0, farmExtent: 0, plotCount: 2, plotExtent: 900,
     builtFlats: 0, builtShops: 2, builtExtent: 640,
+    managedCount: 0, watchedCount: 0,
   });
-  await page.goto('/app');
+  await page.goto('/home');
 
-  const head = page.locator('.pagehead');
-  await expect(head.locator('p.lede').first())
-    .toHaveText('Land — 2 open plots (900 sq.yd) · Built — 2 shops (640 sq.ft)');
-  // And neither clause borrows the other's noun for a kind nobody holds.
-  await expect(head).not.toContainText('farm parcel');
-  await expect(head).not.toContainText('flat');
+  await expect(page.locator('.pagehead p.note')).toHaveText('4 properties · 900 sq.yd');
+  const kinds = overview(page).getByRole('link', { name: /^Properties/ });
+  await expect(kinds).toContainText('2 plots · 2 buildings');
+  // And neither borrows the other's noun for a kind nobody holds.
+  await expect(kinds).not.toContainText('land parcel');
+  await expect(page.locator('.pagehead p.note')).not.toContainText(' ac');
 });
 
 test('a portfolio that is all mine says nothing about managed or watched', async ({ page, world }) => {
   const base = world.seedOf<Portfolio>('portfolio');
   world.set('portfolio', { ...base, managedCount: 0, watchedCount: 0 });
-  await page.goto('/app');
+  await page.goto('/home');
 
   // The positive assertion first: an absence asserted against a screen that
   // has not drawn yet is an absence that proves nothing.
@@ -382,125 +387,48 @@ test('a portfolio that is all mine says nothing about managed or watched', async
 });
 
 test('an account that only watches somebody else’s land still gets a dashboard', async ({ page, world }) => {
-  // holdings counts managed and watched too (Dashboard.tsx:218-219), so this
-  // account is NOT a first run — there is something to look at, it just is not
-  // owned. The summary line has nothing to say and is therefore not said at
-  // all: "Land — ()" is the shape this branch exists to prevent.
+  // A watched parcel is still a parcel row: web360.py `portfolio` counts
+  // farm, plots and built over every active row whatever its stake, so two
+  // watched parcels arrive as farmCount 2 with their extent, and watchedCount
+  // 2 says only how they are held. This account is NOT a first run — there
+  // is something to look at, it just is not owned.
   const base = world.seedOf<Portfolio>('portfolio');
   world.set('portfolio', {
     ...base,
-    farmExtent: 0, farmCount: 0, plotExtent: 0, plotCount: 0,
+    farmExtent: 4.3, farmCount: 2, plotExtent: 0, plotCount: 0,
     builtExtent: 0, builtFlats: 0, builtShops: 0,
     managedCount: 0, watchedCount: 2,
   });
-  await page.goto('/app');
+  await page.goto('/home');
 
-  const head = page.locator('.pagehead');
-  // Exactly one lede, and it is the stake line — one clause, so no stray
-  // "and" left over from the two-clause case.
-  await expect(head.locator('p.lede')).toHaveCount(1);
-  await expect(head.locator('p.lede')).toHaveText('Owned only · 2 watched are in Properties');
-  await expect(head.getByRole('link', { name: '2 watched' }))
-    .toHaveAttribute('href', '/app/properties?stake=watch');
+  await expect(page.locator('.pagehead p.note')).toHaveText('2 properties · 4.30 ac');
 
   // And not the first-run screen, which would tell someone with two records on
   // their dashboard that they have none.
   await expect(page.getByText('No properties yet')).toHaveCount(0);
-  await expect(page.locator('.strip > *')).toHaveCount(base.tiles.length);
+  await expect(overview(page).getByRole('link')).toHaveCount(4);
+  await expect(overview(page).getByRole('link', { name: /^Properties/ }).locator('.ov-value')).toHaveText('2');
 });
 
 // ── the tiles ──────────────────────────────────────────────────────────
 
-test('every tile the server sends is drawn, in order, with its label, value, unit and note', async ({ page, world }) => {
-  const seeded = world.seedOf<Portfolio>('portfolio');
-  await page.goto('/app');
-
-  const cells = page.locator('.strip > *');
-  await expect(cells).toHaveCount(seeded.tiles.length);
-
-  // Slot by slot rather than "the words are in there somewhere": a Cell draws
-  // the label, the figure, its unit and the note into four different spans
-  // (ui.tsx:397-410), and a figure that lands in the label's slot is a tile
-  // nobody can read — which a whole-cell containText would not notice.
-  for (const [i, t] of seeded.tiles.entries()) {
-    const cell = cells.nth(i);
-    await expect(cell.locator('.k'), `tile ${t.key} label`).toHaveText(t.label);
-    await expect(cell.locator('.v'), `tile ${t.key} figure`).toContainText(t.value);
-    await expect(cell.locator('.s'), `tile ${t.key} note`).toHaveText(t.note);
-    if (t.unit) await expect(cell.locator('.v small'), `tile ${t.key} unit`).toHaveText(t.unit);
-  }
-});
-
-test('a tile with no unit does not grow a stray one', async ({ page, world }) => {
-  const seeded = world.seedOf<Portfolio>('portfolio');
-  const papers = seeded.tiles.find((t) => t.key === 'papers');
-  expect(papers?.unit, 'the seeded papers tile is the one with no unit').toBe('');
-
-  await page.goto('/app');
-  const cell = page.locator('.strip > *').filter({ hasText: 'Papers filed' });
-  await expect(cell).toContainText('27');
-  // Cell() only draws the <small> when a unit exists (ui.tsx:405).
-  await expect(cell.locator('small')).toHaveCount(0);
-});
-
-test('a tile with nothing to say under it draws no empty line', async ({ page, world }) => {
-  // The four money tiles web360.py:2504-2512 appends to EVERY portfolio carry
-  // a label and a figure and nothing else — no unit, and on three of the four
-  // no note. They are the tiles most owners see, and none of the seeded ones
-  // is shaped like them.
-  const base = world.seedOf<Portfolio>('portfolio');
-  world.set('portfolio', {
-    ...base,
-    tiles: [
-      { key: 'invested', label: 'Invested', value: '₹94.0 L', unit: '', note: '', tone: '' },
-      { key: 'loans', label: 'Loans', value: '₹12.0 L', unit: '', note: 'outstanding', tone: 'plain' },
-    ],
-  });
-  await page.goto('/app');
-
-  const cells = page.locator('.strip > *');
-  await expect(cells).toHaveCount(2);
-  await expect(cells.nth(0).locator('.v')).toHaveText('₹94.0 L');
-  // Cell draws the note span only when there is a note (ui.tsx:407). Drawn
-  // empty it is a grey gap under one tile of a strip and not under the next,
-  // which reads as a figure that failed to arrive.
-  await expect(cells.nth(0).locator('.s')).toHaveCount(0);
-  await expect(cells.nth(1).locator('.s')).toHaveText('outstanding');
-});
-
-test('a tile the server marks up or down is drawn in that tone', async ({ page, world }) => {
-  // The server's own tone vocabulary — web360.py:2507-2511 sends up / down /
-  // plain, and nothing else.
-  const base = world.seedOf<Portfolio>('portfolio');
-  world.set('portfolio', {
-    ...base,
-    tiles: [
-      { key: 'gain', label: 'Gain', value: '+₹1.44 Cr', unit: '', note: '', tone: 'up' },
-      { key: 'loans', label: 'Loans', value: '₹12.0 L', unit: '', note: 'outstanding', tone: 'down' },
-      { key: 'worth', label: 'Worth now', value: '₹2.39 Cr', unit: '', note: '', tone: 'plain' },
-    ],
-  });
-  await page.goto('/app');
-
-  // A tone is only ever a colour, so the class is the only handle it has —
-  // there is no text and no role that says "this figure is bad news".
-  const figure = (label: string) => page.locator('.strip > *').filter({ hasText: label }).locator('span.v');
-  await expect(figure('Gain')).toHaveClass(/\bup\b/);
-  await expect(figure('Loans')).toHaveClass(/\bdown\b/);
-  await expect(figure('Worth now')).not.toHaveClass(/\b(up|down)\b/);
-});
+// The server's `tiles` strip is no longer drawn: the 26/09 Home (founder
+// decision, Dashboard.tsx header) replaced it with the four Overview cards,
+// which are also ways in. The strip's four tests (every tile drawn in order,
+// no stray unit, no empty note line, up/down tone) went with it; the Overview
+// is covered below.
 
 // ── the overview ───────────────────────────────────────────────────────
 
-test('Estimated value with nothing valued is a dash, and a screen reader hears not set', async ({ page, world }) => {
+test('Market estimate with nothing valued is a dash, and a screen reader hears not set', async ({ page, world }) => {
   // web360.py sums market value, and 0 is what land nobody has priced sums
   // to: an unknown figure, which is "—" (design.md § Property tabs), and
   // "not set" for a value that is not held, read out in its place.
   const base = world.seedOf<Portfolio>('portfolio');
   world.set('portfolio', { ...base, worthNow: 0 });
-  await page.goto('/app');
+  await page.goto('/home');
 
-  const worth = overview(page).getByRole('link', { name: /^Estimated value\s*not set/ });
+  const worth = overview(page).getByRole('link', { name: /^Market estimate\s*not set/ });
   await expect(worth).toBeVisible();
   await expect(worth).toContainText('—');
   // What was paid is still a fact on file, so it stays.
@@ -510,15 +438,16 @@ test('Estimated value with nothing valued is a dash, and a screen reader hears n
 });
 
 test('the four overview cards share one row at 1512 with no empty track', async ({ page }) => {
-  await page.goto('/app');
+  await page.goto('/home');
 
   const cards = overview(page).getByRole('link');
   await expect(cards).toHaveCount(4);
   // The grid and the figure have no role of their own; their classes are the
   // only handles on the grid's edge and on the figure's lines.
   const grid = overview(page).locator('.overview');
-  const worth = overview(page).getByRole('link', { name: /^Estimated value/ }).locator('.ov-value');
-  await expect(worth).toHaveText('₹2.38 Cr');
+  const worth = overview(page).getByRole('link', { name: /^Market estimate/ }).locator('.ov-value');
+  // 238.5 lakh rounds half-up to ₹2.39 Cr (ui.tsx inr rounds crores from whole lakhs).
+  await expect(worth).toHaveText('₹2.39 Cr');
 
   const boxes = await boxesOf(cards, 4);
   const [edge] = await boxesOf(grid, 1);
@@ -535,7 +464,7 @@ test('the four overview cards share one row at 1512 with no empty track', async 
   // The narrowest window that still has the rail (the rail turns into a
   // drawer at 900px and below). The rail and the page's padding leave the
   // Overview 581px, and four cards in that left each figure 83px, so
-  // "₹2.38 Cr" broke into "₹2.38" over "Cr". The cards go two by two instead:
+  // "₹2.39 Cr" broke into "₹2.39" over "Cr". The cards go two by two instead:
   // still even, both rows full, the figure on one line, nothing sideways.
   await page.setViewportSize({ width: 901, height: 844 });
   const [a, b, c, d] = await boxesOf(cards, 4);
@@ -565,11 +494,11 @@ test('an estimate in tens or hundreds of crores stays on one line at every windo
   const base = world.seedOf<Portfolio>('portfolio');
   const cards = overview(page).getByRole('link');
   // The figure has no role of its own; its class is the only handle on it.
-  const worth = overview(page).getByRole('link', { name: /^Estimated value/ }).locator('.ov-value');
+  const worth = overview(page).getByRole('link', { name: /^Market estimate/ }).locator('.ov-value');
   for (const [worthNow, figure] of [[124_000_000, '₹12.40 Cr'], [1_234_500_000, '₹123.45 Cr']] as const) {
     world.set('portfolio', { ...base, worthNow });
     await page.setViewportSize({ width: 1512, height: 950 });
-    await page.goto('/app');
+    await page.goto('/home');
     await expect(worth).toHaveText(figure);
 
     for (const width of [390, 840, 900, 901, 960, 1000, 1087, 1088, 1280, 1512]) {
@@ -597,12 +526,12 @@ test('an estimate in tens or hundreds of crores stays on one line at every windo
 // ── where the value sits ───────────────────────────────────────────────
 
 test('where the value sits draws one bar per village, in proportion', async ({ page }) => {
-  await page.goto('/app');
+  await page.goto('/home');
 
   const panel = valuePanel(page);
-  // The figure the bars divide is the Overview's Estimated value card, and a
+  // The figure the bars divide is the Overview's Market estimate card, and a
   // valued figure is read as itself: nothing extra for a screen reader.
-  const worth = overview(page).getByRole('link', { name: /^Estimated value/ });
+  const worth = overview(page).getByRole('link', { name: /^Market estimate/ });
   await expect(worth).toBeVisible();
   await expect(worth).not.toContainText('not set');
   await expect(worth).not.toContainText('—');
@@ -624,9 +553,10 @@ test('where the value sits draws one bar per village, in proportion', async ({ p
   expect(await width(1)).toBeGreaterThan(await width(2));
 
   await expect(worth).toContainText('Bought for ₹94.0 L');
-  await expect(panel).toContainText('Running costs this year');
+  await expect(panel).toContainText('Expenses this year');
   await expect(panel).toContainText('₹86,400');
-  await expect(page.locator('.pagehead p.note')).toContainText('27 documents');
+  // The document count is the Overview's, not the summary line's.
+  await expect(overview(page).getByRole('link', { name: /^Documents/ }).locator('.ov-value')).toHaveText('27');
 });
 
 test('the smallest village still gets a bar I can see', async ({ page, world }) => {
@@ -638,7 +568,7 @@ test('the smallest village still gets a bar I can see', async ({ page, world }) 
       { label: 'Markapur', value: 40_000, share: 0.0027 },
     ],
   });
-  await page.goto('/app');
+  await page.goto('/home');
 
   const small = valuePanel(page).locator('.bar').nth(1);
   await expect(small).toContainText('Markapur');
@@ -651,36 +581,27 @@ test('the smallest village still gets a bar I can see', async ({ page, world }) 
   expect(fill / track).toBeGreaterThan(0.03);
 });
 
-test('a portfolio nobody has valued says why, instead of drawing an empty chart', async ({ page, world }) => {
+test('a portfolio nobody has valued draws no chart at all, rather than an empty one', async ({ page, world }) => {
+  // Since 02/10/2026 Value by village appears only when something has been
+  // valued (Dashboard.tsx header) — the "No village holds any value yet"
+  // sentence went with the empty panel.
   const base = world.seedOf<Portfolio>('portfolio');
   world.set('portfolio', { ...base, valueBars: [] });
-  await page.goto('/app');
+  await page.goto('/home');
 
-  const panel = valuePanel(page);
-  await expect(panel).toContainText('No village holds any value yet');
-  await expect(panel.locator('.bar')).toHaveCount(0);
-  // And the paid-in-total caption under the bars is not printed over nothing.
-  await expect(panel).not.toContainText('in total.');
-  // The rest of the panel is still true and still there.
-  await expect(panel).toContainText('Running costs this year');
-  // The head's second clock is named after the village holding most of the
-  // value, and there is no such village — so it names the country rather than
-  // printing a blank where a place should be (Dashboard.tsx:295 → ui clocks()).
-  await expect(page.locator('.pagehead p.note')).toHaveText(/, India \d{2}:\d{2} IST$/);
+  // Drawn first, so the absence below is asserted against a finished page.
+  await expect(overview(page)).toBeVisible();
+  await expect(valuePanel(page)).toHaveCount(0);
+  await expect(page.locator('.bars')).toHaveCount(0);
+  await expect(page.getByText('Value by village')).toHaveCount(0);
 });
 
 test('a village worth nothing is not "where the value sits"', async ({ page, world }) => {
-  // DEFECT. Dashboard.tsx:309 asks whether there are any BARS, not whether any
-  // bar holds value, and web360.py:2414-2419 groups EVERY record by village
-  // with no market-value filter — a village whose records are all unvalued
-  // comes back as a bar worth 0. With share 0 the fill is still floored at 4%
-  // (Dashboard.tsx:320), so the owner gets a chart titled "Where the value
-  // sits" with a drawn bar reading ₹0 against it: exactly the "app that failed
-  // to load its data" reading the first-run branch was written to kill.
-  // Owed: bars worth nothing are not bars, and the panel falls through to the
-  // sentence it already has — "No village holds any value yet".
-  test.fail();
-
+  // Was a DEFECT: web360.py groups EVERY record by village with no
+  // market-value filter, so a village whose records are all unvalued comes
+  // back as a bar worth 0, and the 4% floor drew it. The 02/10 Home keeps only
+  // bars that hold value (`valueBars.filter((b) => b.value > 0)`), so a
+  // portfolio of such villages draws no chart at all. A test.fail() until then.
   const base = world.seedOf<Portfolio>('portfolio');
   world.set('portfolio', {
     ...base,
@@ -690,13 +611,11 @@ test('a village worth nothing is not "where the value sits"', async ({ page, wor
       { label: 'Markapur', value: 0, share: 0 },
     ],
   });
-  await page.goto('/app');
+  await page.goto('/home');
 
-  // The sentence first — the bar count is also 0 while the screen is loading,
-  // so on its own it would go green for the wrong reason.
-  const panel = valuePanel(page);
-  await expect(panel).toContainText('No village holds any value yet');
-  await expect(panel.locator('.bar')).toHaveCount(0);
+  await expect(overview(page)).toBeVisible();
+  await expect(valuePanel(page)).toHaveCount(0);
+  await expect(page.locator('.bar')).toHaveCount(0);
 });
 
 test('a portfolio nobody has priced is not told it was free', async ({ page, world }) => {
@@ -705,49 +624,53 @@ test('a portfolio nobody has priced is not told it was free', async ({ page, wor
   // family, or bought long before there was a receipt anyone could type in —
   // and the old panel printed it straight, as "₹0 paid in total" under a chart
   // of what the land is worth. Value by village no longer carries a paid-in
-  // clause at all, and the Estimated value card's "Bought for" note is drawn
+  // clause at all, and the Market estimate card's "Bought for" note is drawn
   // only when a price is on file. This was a `test.fail()` until then.
   const base = world.seedOf<Portfolio>('portfolio');
   world.set('portfolio', { ...base, invested: 0 });
-  await page.goto('/app');
+  await page.goto('/home');
 
   const panel = valuePanel(page);
   // The panel is drawn first, so what is asserted absent below is asserted
   // against a sentence that is actually on the screen.
   await expect(panel.locator('.bar')).toHaveCount(3);
-  await expect(panel).toContainText('Running costs this year');
+  await expect(panel).toContainText('Expenses this year');
   await expect(panel).not.toContainText('Paid ₹0 in total');
   // Nor does the Overview figure grow a "Bought for ₹0" note.
-  const worth = overview(page).getByRole('link', { name: /^Estimated value/ });
+  const worth = overview(page).getByRole('link', { name: /^Market estimate/ });
   await expect(worth).toContainText('₹');
   await expect(worth).not.toContainText('Bought for');
 });
 
-test('no papers filed says so rather than printing a zero', async ({ page, world }) => {
+test('no documents on file leaves them out of the summary line rather than printing a zero', async ({ page, world }) => {
+  // The summary line holds "only facts that exist" (Dashboard.tsx `meta`) and
+  // never a document count, so nothing filed cannot print "0 documents". The
+  // Documents card still counts them — 0 is a true count there, and the card
+  // is a way in.
   const base = world.seedOf<Portfolio>('portfolio');
   world.set('portfolio', { ...base, paperCount: 0 });
-  await page.goto('/app');
+  await page.goto('/home');
 
-  const panel = valuePanel(page);
-  await expect(panel).toContainText('No documents filed against your properties yet.');
-  await expect(panel).not.toContainText('0 documents filed');
+  await expect(page.locator('.pagehead p.note')).toHaveText('5 properties · 7.50 ac');
+  await expect(page.locator('.pagehead')).not.toContainText('0 documents');
+  await expect(overview(page).getByRole('link', { name: /^Documents/ }).locator('.ov-value')).toHaveText('0');
 });
 
 // ── recently opened ────────────────────────────────────────────────────
 
 test('the recently opened strip shows what I last opened, and each card opens it', async ({ page, world }) => {
   const seeded = world.seedOf<Portfolio>('portfolio');
-  await page.goto('/app');
+  await page.goto('/home');
 
   await expect(page.getByText('Recently opened')).toBeVisible();
   await expect(recent(page).getByRole('link', { name: 'All properties', exact: true }))
-    .toHaveAttribute('href', '/app/properties');
+    .toHaveAttribute('href', '/properties');
 
   const cards = page.locator('.cards .rec');
   await expect(cards).toHaveCount(seeded.recent.length);
   for (const [i, r] of seeded.recent.entries()) {
     await expect(cards.nth(i)).toContainText(String(r.title));
-    await expect(cards.nth(i)).toHaveAttribute('href', `/app/records/${String(r.id)}`);
+    await expect(cards.nth(i)).toHaveAttribute('href', `/properties/${String(r.id)}`);
   }
 
   // Extent and village, in the card's own words. The seeded cards carry
@@ -758,7 +681,7 @@ test('the recently opened strip shows what I last opened, and each card opens it
   await expect(cards.nth(2)).toContainText('1,450 sft · Kukatpally');
 
   await cards.nth(0).click();
-  await expect(page).toHaveURL(new RegExp(`/app/records/${ID.parcel}$`));
+  await expect(page).toHaveURL(new RegExp(`/properties/${ID.parcel}$`));
 });
 
 test('a card measured in acres keeps the fraction of an acre', async ({ page, world }) => {
@@ -766,7 +689,7 @@ test('a card measured in acres keeps the fraction of an acre', async ({ page, wo
   const parcel = { ...base.recent[0], extent: 4.3, extentUnit: 'ac' };
   const flat = { ...base.recent[2], classification: 'flat' };
   world.set('portfolio', { ...base, recent: [parcel, flat] });
-  await page.goto('/app');
+  await page.goto('/home');
 
   const cards = page.locator('.cards .rec');
   // 4.3 acres is 4 acres 12 guntas. Rounded to "4 acres" it is a different
@@ -793,7 +716,7 @@ test('a recent card is drawn as the kind of thing it actually is', async ({ page
       { ...from, id: ID.plot, title: 'Plot 19, Phase II', classification: 'open_plot', village: 'Konakalamitla', extent: 300, extentUnit: 'sq.yd' },
     ],
   });
-  await page.goto('/app');
+  await page.goto('/home');
 
   const cards = page.locator('.cards .rec');
   await expect(cards).toHaveCount(3);
@@ -816,7 +739,7 @@ test('a card the server cannot place still says how big it is', async ({ page, w
     ...base,
     recent: [{ ...base.recent[0], village: '', extent: 4.3, extentUnit: 'ac' }],
   });
-  await page.goto('/app');
+  await page.goto('/home');
 
   // The separator is printed only when there is a village to put after it
   // (Dashboard.tsx:48). A card reading "4.30 ac ·" is a card whose last word
@@ -827,7 +750,7 @@ test('a card the server cannot place still says how big it is', async ({ page, w
 test('nothing opened yet is not worth a section', async ({ page, world }) => {
   const base = world.seedOf<Portfolio>('portfolio');
   world.set('portfolio', { ...base, recent: [] });
-  await page.goto('/app');
+  await page.goto('/home');
 
   // Wait for the dashboard to be drawn BEFORE asserting what is not on it —
   // every one of these counts is also 0 for the half-second the screen is
@@ -846,7 +769,7 @@ test('recently opened tiles carry no placeholder band, and four share a row at 1
   // icon instead. The server sends at most four (web360.py rows[:4]).
   const base = world.seedOf<Portfolio>('portfolio');
   world.set('portfolio', { ...base, recent: [...base.recent, structuredClone(CARDS[3])] });
-  await page.goto('/app');
+  await page.goto('/home');
 
   const tiles = page.locator('.cards .rec');
   await expect(tiles).toHaveCount(4);
@@ -865,7 +788,7 @@ test('recently opened tiles carry no placeholder band, and four share a row at 1
 test('three recently opened tiles fill the row at 1512, with no empty fourth track', async ({ page, world }) => {
   const seeded = world.seedOf<Portfolio>('portfolio');
   expect(seeded.recent).toHaveLength(3);
-  await page.goto('/app');
+  await page.goto('/home');
 
   const tiles = page.locator('.cards .rec');
   await expect(tiles).toHaveCount(3);
@@ -895,7 +818,7 @@ test('the kind icon on a recent tile can be told from its card in every theme', 
       { ...from, id: ID.shop, title: 'Shop 7, Market Road', classification: 'shop', extent: 320, extentUnit: 'sq.ft' },
     ],
   });
-  await page.goto('/app');
+  await page.goto('/home');
 
   const tiles = page.locator('.cards .rec');
   await expect(tiles).toHaveCount(3);
@@ -919,12 +842,12 @@ test('the kind icon on a recent tile can be told from its card in every theme', 
 
 test('every thing waiting on me says what it is, why, and where to go', async ({ page, world }) => {
   const seeded = world.seedOf<Portfolio>('portfolio');
-  await page.goto('/app');
+  await page.goto('/home');
 
   const panel = forYou(page);
   // The way to the full list is the topbar's Notifications link; the 26/09
   // Home dropped the panel's own "Notifications ›".
-  await expect(page.getByRole('link', { name: /^Notifications/ })).toHaveAttribute('href', '/app/notifications');
+  await expect(page.getByRole('link', { name: /^Notifications/ })).toHaveAttribute('href', '/notifications');
 
   const rows = reminderRows(page);
   await expect(rows).toHaveCount(3);
@@ -935,13 +858,13 @@ test('every thing waiting on me says what it is, why, and where to go', async ({
     await expect(row).toContainText(w.detail);
     // Every seeded row carries a recordId, and a record is where its papers,
     // its people and its service tickets hang (whereTo, Dashboard.tsx). The
-    // action is named for its row: three rows say "Open record", and three
+    // action is named for its row: three rows say "Open property", and three
     // identical names in a screen reader's list of links are no use.
-    await expect(row.getByRole('link', { name: `Open record: ${w.title}`, exact: true }))
-      .toHaveAttribute('href', `/app/records/${w.recordId}`);
+    await expect(row.getByRole('link', { name: `Open property: ${w.title}`, exact: true }))
+      .toHaveAttribute('href', `/properties/${w.recordId}`);
     // The title is the same door as the action.
     await expect(row.getByRole('link', { name: w.title, exact: true }))
-      .toHaveAttribute('href', `/app/records/${w.recordId}`);
+      .toHaveAttribute('href', `/properties/${w.recordId}`);
     await expect(row.getByRole('button', { name: `Dismiss: ${w.title}`, exact: true })).toBeVisible();
   }
 
@@ -952,18 +875,18 @@ test('every thing waiting on me says what it is, why, and where to go', async ({
 
 test('a waiting row opens the record it is about', async ({ page, world }) => {
   const seeded = world.seedOf<Portfolio>('portfolio');
-  await page.goto('/app');
+  await page.goto('/home');
 
-  await reminderRows(page).nth(1).getByRole('link', { name: /^Open record: / }).click();
+  await reminderRows(page).nth(1).getByRole('link', { name: /^Open property: / }).click();
   expect(seeded.waiting[1].recordId).toBe(ID.plot);
-  await expect(page).toHaveURL(new RegExp(`/app/records/${ID.plot}$`));
+  await expect(page).toHaveURL(new RegExp(`/properties/${ID.plot}$`));
   await expect(page.getByRole('heading', { level: 1, name: 'Sy 88' })).toBeVisible();
 });
 
 test('For you counts orders, reminders and properties missing details, and says Missing details once', async ({ page }) => {
-  await page.goto('/app');
+  await page.goto('/home');
 
-  // One order waiting on the owner (W-2105 came back for review), three
+  // One order waiting on the owner (PT-2105 came back for review), three
   // reminders, and one property missing details: Sy 88, never pinned.
   await expect(forYouCount(page)).toHaveText('5');
   const row = missingRow(page);
@@ -987,7 +910,7 @@ test('nothing waiting but a property off the map is not all caught up', async ({
   const base = world.seedOf<Portfolio>('portfolio');
   world.set('portfolio', { ...base, waiting: [], waitingCount: 0 });
   world.set('orders', []);
-  await page.goto('/app');
+  await page.goto('/home');
 
   // Sy 88 is still not on the map, so For you has one thing in it.
   await expect(forYouCount(page)).toHaveText('1');
@@ -1005,9 +928,9 @@ test('nothing waiting but a property off the map is not all caught up', async ({
 
   // The fix is a text action named for the property, and it goes to the map.
   const fix = sy88.getByRole('link', { name: 'Set location: Sy 88', exact: true });
-  await expect(fix).toHaveAttribute('href', `/app/records/${ID.plot}/map`);
+  await expect(fix).toHaveAttribute('href', `/properties/${ID.plot}/location`);
   await fix.click();
-  await expect(page).toHaveURL(new RegExp(`/app/records/${ID.plot}/map$`));
+  await expect(page).toHaveURL(new RegExp(`/properties/${ID.plot}/location$`));
   await expect(page.getByRole('heading', { level: 1, name: 'Sy 88' })).toBeVisible();
 });
 
@@ -1018,7 +941,7 @@ test('For you says nothing while the property list is still coming', async ({ pa
   world.set('portfolio', World.slow(800, { ...base, waiting: [], waitingCount: 0 }));
   world.set('orders', []);
   world.set('properties', World.never());
-  await page.goto('/app');
+  await page.goto('/home');
 
   // The page has drawn and the list has been asked for…
   await expect(overview(page)).toBeVisible();
@@ -1037,7 +960,7 @@ test('For you says nothing while the orders are still coming', async ({ page, wo
   world.set('portfolio', World.slow(800, { ...base, waiting: [], waitingCount: 0 }));
   world.set('properties', listOf(only(ID.parcel, ID.flat)));
   world.set('orders', World.never());
-  await page.goto('/app');
+  await page.goto('/home');
 
   await expect(overview(page)).toBeVisible();
   await expect.poll(() => world.asked('orders')).toBe(true);
@@ -1047,7 +970,7 @@ test('For you says nothing while the orders are still coming', async ({ page, wo
 
 test('a property list that does not load drops Missing details and keeps the rest of For you', async ({ page, world }) => {
   world.set('properties', World.gqlError('the property list is not answering'));
-  await page.goto('/app');
+  await page.goto('/home');
 
   // Asked, retried once (main.tsx retry: 1), and failed both times.
   await expect.poll(() => world.calls('properties').length).toBeGreaterThanOrEqual(2);
@@ -1068,7 +991,7 @@ test('Show all says whether it is open and what it opens, and shows three at mos
   world.set('properties', listOf(Array.from({ length: 5 }, (_, i) => ({
     ...structuredClone(plot), id: `w-gap-${i}`, title: `Sy ${500 + i}`,
   }))));
-  await page.goto('/app');
+  await page.goto('/home');
 
   const row = missingRow(page);
   await expect(row).toContainText('0 of 5 complete');
@@ -1090,7 +1013,7 @@ test('Show all says whether it is open and what it opens, and shows three at mos
   await expect(panel.getByRole('heading', { level: 4 })).toHaveText(['Sy 500', 'Sy 501', 'Sy 502']);
   await expect(panel).toContainText('2 more properties');
   await expect(panel.getByRole('link', { name: 'All properties', exact: true }))
-    .toHaveAttribute('href', '/app/properties');
+    .toHaveAttribute('href', '/properties');
 
   await hide.click();
   await expect(panel).toBeHidden();
@@ -1114,7 +1037,7 @@ test('a property a reminder already names is listed once, and its documents acti
   world.set('orders', []);
   const [parcel, plot, flat] = only(ID.parcel, ID.plot, ID.flat);
   world.set('properties', listOf([parcel, plot, { ...flat, paperCount: 0 }]));
-  await page.goto('/app');
+  await page.goto('/home');
 
   // Sy 88 is counted — it is still missing its location — but said once.
   await expect(forYouCount(page)).toHaveText('3');
@@ -1128,20 +1051,20 @@ test('a property a reminder already names is listed once, and its documents acti
   await expect(listed).toHaveText(['Flat 4B, Sai Residency']);
   await expect(row.getByRole('link', { name: 'Sy 88', exact: true })).toHaveCount(0);
 
-  // Not "Add document": that is the shortcut, which files into Documents and
+  // Not "Add a document": that is the shortcut, which files into Documents and
   // cannot be opened for one property. Nor "Open Documents", which on Home is
-  // the Documents page. This action opens the property's record, which opens
-  // on its Documents tab, and says so in Home's word for that destination.
-  await expect(row.getByRole('link', { name: /Add document/ })).toHaveCount(0);
+  // the Documents page. This action opens the property's Documents tab, and
+  // says so in Home's word for that destination.
+  await expect(row.getByRole('link', { name: /Add a document/ })).toHaveCount(0);
   await expect(row.getByRole('link', { name: /^Open Documents/ })).toHaveCount(0);
-  const fix = row.getByRole('link', { name: 'Open record: Flat 4B, Sai Residency', exact: true });
-  await expect(fix).toHaveAttribute('href', `/app/records/${ID.flat}`);
-  const addDocument = page.getByRole('link', { name: 'Add document', exact: true });
+  const fix = row.getByRole('link', { name: 'Open property: Flat 4B, Sai Residency', exact: true });
+  await expect(fix).toHaveAttribute('href', `/properties/${ID.flat}/documents`);
+  const addDocument = page.getByRole('link', { name: 'Add a document', exact: true });
   await expect(addDocument).toHaveCount(1);
-  await expect(addDocument).toHaveAttribute('href', '/app/papers?do=add');
+  await expect(addDocument).toHaveAttribute('href', '/papers?do=add');
 
   await fix.click();
-  await expect(page).toHaveURL(new RegExp(`/app/records/${ID.flat}$`));
+  await expect(page).toHaveURL(new RegExp(`/properties/${ID.flat}/documents$`));
   await expect(page.getByRole('heading', { level: 1, name: 'Flat 4B, Sai Residency' })).toBeVisible();
 });
 
@@ -1162,23 +1085,23 @@ test('each action label in For you leads one way, even with a shared link and an
   world.set('orders', []);
   const [parcel, flat] = only(ID.parcel, ID.flat);
   world.set('properties', listOf([parcel, { ...flat, paperCount: 0 }]));
-  await page.goto('/app');
+  await page.goto('/home');
 
   const card = forYou(page);
   // Two reminders and the flat with nothing filed.
   await expect(forYouCount(page)).toHaveText('3');
   await missingRow(page).getByRole('button', { name: 'Show all Missing details', exact: true }).click();
-  await expect(missingRow(page).getByRole('link', { name: 'Open record: Flat 4B, Sai Residency', exact: true }))
+  await expect(missingRow(page).getByRole('link', { name: 'Open property: Flat 4B, Sai Residency', exact: true }))
     .toBeVisible();
 
   const documents = card.getByRole('link', { name: /^Open Documents/ });
   await expect(documents).toHaveCount(1);
-  await expect(documents).toHaveAttribute('href', '/app/papers');
+  await expect(documents).toHaveAttribute('href', '/papers');
   // The tax reminder and the flat: both are records, and only records.
-  const records = card.getByRole('link', { name: /^Open record/ });
+  const records = card.getByRole('link', { name: /^Open property/ });
   await expect(records).toHaveCount(2);
   expect(await records.evaluateAll((els) => els.map((a) => a.getAttribute('href'))))
-    .toEqual([`/app/records/${base.waiting[0].recordId}`, `/app/records/${ID.flat}`]);
+    .toEqual([`/properties/${base.waiting[0].recordId}`, `/properties/${ID.flat}/documents`]);
 });
 
 test('a field with a pin but no boundary is asked for one, and a flat is not', async ({ page, world }) => {
@@ -1192,7 +1115,7 @@ test('a field with a pin but no boundary is asked for one, and a flat is not', a
     { ...parcel, classification: 'agri', ring: [] },
     { ...flat, classification: 'flat', ring: [] },
   ]));
-  await page.goto('/app');
+  await page.goto('/home');
 
   const row = missingRow(page);
   await expect(row).toContainText('1 of 2 complete');
@@ -1200,32 +1123,33 @@ test('a field with a pin but no boundary is asked for one, and a flat is not', a
   await row.getByRole('button', { name: 'Show all Missing details', exact: true }).click();
   await expect(row.getByRole('heading', { level: 4 })).toHaveText(['Sy 214/2']);
   await expect(row.getByRole('link', { name: 'Draw boundary: Sy 214/2', exact: true }))
-    .toHaveAttribute('href', `/app/records/${ID.parcel}/map`);
+    .toHaveAttribute('href', `/properties/${ID.parcel}/location`);
 });
 
 test('row actions in For you are text buttons, each named for its own row', async ({ page, world }) => {
   const seeded = world.seedOf<Portfolio>('portfolio');
-  await page.goto('/app');
+  await page.goto('/home');
 
   const card = forYou(page);
   await expect(reminderRows(page)).toHaveCount(3);
   // Emphasis has no role — a filled, an outlined and a text button are all
   // links here — so the class is the only handle on which one is drawn.
   await expect(card.locator('.btn')).toHaveCount(0);
-  // The page's own four starts keep their weight: one filled, three outlined.
-  const shortcuts = page.getByRole('navigation', { name: 'Shortcuts' });
+  // The page's own starts keep their weight in the head: one filled, two
+  // outlined (the fourth is in the ⋮).
+  const shortcuts = page.locator('.pagehead .actions');
   await expect(shortcuts.locator('.btn.primary')).toHaveCount(1);
-  await expect(shortcuts.locator('.btn')).toHaveCount(4);
+  await expect(shortcuts.locator('.btn')).toHaveCount(3);
 
-  const order = card.getByRole('link', { name: 'Open order: W-2105 · Sy 214/2', exact: true });
+  const order = card.getByRole('link', { name: 'Open order: PT-2105 · Sy 214/2', exact: true });
   await expect(order).toHaveCount(1);
   for (const w of seeded.waiting) {
-    await expect(card.getByRole('link', { name: `Open record: ${w.title}`, exact: true })).toHaveCount(1);
+    await expect(card.getByRole('link', { name: `Open property: ${w.title}`, exact: true })).toHaveCount(1);
   }
 
   // And the order's action opens that order.
   await order.click();
-  await expect(page).toHaveURL(new RegExp(`/app/services/${TICKET.needsYou}$`));
+  await expect(page).toHaveURL(new RegExp(`/services/${TICKET.needsYou}$`));
   await expect(page.getByRole('heading', { level: 1, name: 'Corner survey' })).toBeVisible();
 });
 
@@ -1240,14 +1164,14 @@ test('a reminder about something I shared out opens Documents', async ({ page, w
       actionLabel: 'Extend', actionKind: 'primary', recordId: '',
     }],
   });
-  await page.goto('/app');
+  await page.goto('/home');
 
   const row = reminderRows(page).first();
   // Every live link — its terms, its days left, its revoke — is on Documents.
   const open = row.getByRole('link', {
     name: "Open Documents: The advocate's link to 4 papers expires tomorrow", exact: true,
   });
-  await expect(open).toHaveAttribute('href', '/app/papers');
+  await expect(open).toHaveAttribute('href', '/papers');
   // And "Extend" is not offered, because nothing here can extend anything.
   await expect(row).not.toContainText('Extend');
   // A reminder that names no property hides none from Missing details: Sy 88
@@ -1256,7 +1180,7 @@ test('a reminder about something I shared out opens Documents', async ({ page, w
     .toBeVisible();
 
   await open.click();
-  await expect(page).toHaveURL(/\/app\/papers$/);
+  await expect(page).toHaveURL(/\/papers$/);
 });
 
 test('a reminder the data cannot place carries no button rather than a wrong one', async ({ page, world }) => {
@@ -1270,7 +1194,7 @@ test('a reminder the data cannot place carries no button rather than a wrong one
       actionLabel: 'Finish it', actionKind: 'primary', recordId: '',
     }],
   });
-  await page.goto('/app');
+  await page.goto('/home');
 
   const row = reminderRows(page).first();
   await expect(row).toContainText('Your KYC is not complete');
@@ -1289,7 +1213,7 @@ test('an empty waiting list says so rather than drawing an empty box', async ({ 
   world.set('portfolio', { ...base, waiting: [], waitingCount: 0 });
   world.set('orders', []);
   world.set('properties', listOf(only(ID.parcel, ID.flat)));
-  await page.goto('/app');
+  await page.goto('/home');
 
   // The page has drawn before anything is asserted absent.
   await expect(overview(page)).toBeVisible();
@@ -1300,7 +1224,7 @@ test('an empty waiting list says so rather than drawing an empty box', async ({ 
   await expect(forYou(page)).toHaveCount(0);
   await expect(reminderRows(page)).toHaveCount(0);
   // The way to the full list stays, on the topbar, with no count on it.
-  await expect(bell(page, 'Notifications')).toHaveAttribute('href', '/app/notifications');
+  await expect(bell(page, 'Notifications')).toHaveAttribute('href', '/notifications');
 });
 
 // ── dismissing a reminder ──────────────────────────────────────────────
@@ -1308,7 +1232,7 @@ test('an empty waiting list says so rather than drawing an empty box', async ({ 
 test('dismissing a reminder is asked for, not done on one click', async ({ page, world }) => {
   const seeded = world.seedOf<Portfolio>('portfolio');
   const first = seeded.waiting[0];
-  await page.goto('/app');
+  await page.goto('/home');
 
   await page.getByRole('button', { name: `Dismiss: ${first.title}`, exact: true }).click();
 
@@ -1317,7 +1241,7 @@ test('dismissing a reminder is asked for, not done on one click', async ({ page,
   await expect(dialog).toContainText(first.title);
   await expect(dialog).toContainText('cannot be brought back');
 
-  await dialog.getByRole('button', { name: 'Keep it' }).click();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
 
   // Nothing was sent, and the reminder is exactly where it was.
@@ -1328,7 +1252,7 @@ test('dismissing a reminder is asked for, not done on one click', async ({ page,
 
 test('Escape backs out of the dismiss dialog without dismissing anything', async ({ page, world }) => {
   const first = world.seedOf<Portfolio>('portfolio').waiting[0];
-  await page.goto('/app');
+  await page.goto('/home');
 
   await page.getByRole('button', { name: `Dismiss: ${first.title}`, exact: true }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
@@ -1339,13 +1263,13 @@ test('Escape backs out of the dismiss dialog without dismissing anything', async
   await expect(reminderRows(page)).toHaveCount(3);
 });
 
-test('the dismiss dialog starts on Keep it, holds the keyboard, and hands it back', async ({ page, world }) => {
+test('the dismiss dialog starts on Cancel, holds the keyboard, and hands it back', async ({ page, world }) => {
   // The one modal on the first screen of the app, against the contract
   // Dialog.tsx was written to keep. It matters most here of anywhere: the
   // thing behind this box cannot be undone, and the row it belongs to is one
   // of three identical rows.
   const first = world.seedOf<Portfolio>('portfolio').waiting[0];
-  await page.goto('/app');
+  await page.goto('/home');
 
   const opener = page.getByRole('button', { name: `Dismiss: ${first.title}`, exact: true });
   await opener.click();
@@ -1358,7 +1282,7 @@ test('the dismiss dialog starts on Keep it, holds the keyboard, and hands it bac
   // Focus lands on the way OUT, not on the irreversible one: a dialog that
   // opens with the destructive button under the returning Enter key throws the
   // reminder away on a keystroke that was meant for the row behind it.
-  const keep = dialog.getByRole('button', { name: 'Keep it' });
+  const keep = dialog.getByRole('button', { name: 'Cancel' });
   const drop = dialog.getByRole('button', { name: 'Dismiss it' });
   await expect(keep).toBeFocused();
 
@@ -1382,7 +1306,7 @@ test('the dismiss dialog starts on Keep it, holds the keyboard, and hands it bac
 
 test('clicking off the dismiss dialog backs out of it too', async ({ page, world }) => {
   const first = world.seedOf<Portfolio>('portfolio').waiting[0];
-  await page.goto('/app');
+  await page.goto('/home');
 
   await page.getByRole('button', { name: `Dismiss: ${first.title}`, exact: true }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
@@ -1409,7 +1333,7 @@ test('dismissing one reminder takes that one and leaves the others', async ({ pa
     return true;
   });
 
-  await page.goto('/app');
+  await page.goto('/home');
   await expect(reminderRows(page)).toHaveCount(3);
   // The order back for review, three reminders and Sy 88 off the map.
   await expect(forYouCount(page)).toHaveText('5');
@@ -1429,7 +1353,7 @@ test('dismissing one reminder takes that one and leaves the others', async ({ pa
   expect(world.lastVars('dismissWaiting')).toMatchObject({ id: gone.id });
   // And both counts were re-read with it: For you's, and the bell's.
   await expect(forYouCount(page)).toHaveText('4');
-  await expect(bell(page, 'Notifications, 2 waiting')).toBeVisible();
+  await expect(bell(page, 'Notifications, 2 new')).toBeVisible();
 });
 
 test('dismissing the last reminder leaves the panel saying there is nothing', async ({ page, world }) => {
@@ -1445,7 +1369,7 @@ test('dismissing the last reminder leaves the panel saying there is nothing', as
   world.set('orders', []);
   world.set('properties', listOf(only(ID.parcel, ID.flat)));
 
-  await page.goto('/app');
+  await page.goto('/home');
   await expect(forYouCount(page)).toHaveText('1');
   await page.getByRole('button', { name: `Dismiss: ${base.waiting[0].title}`, exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Dismiss it' }).click();
@@ -1462,7 +1386,7 @@ test('a dismissal in flight says so and cannot be sent twice', async ({ page, wo
   world.set('portfolio', () => ({ ...base, waiting, waitingCount: waiting.length }));
   world.set('dismissWaiting', World.slow(1200, true));
 
-  await page.goto('/app');
+  await page.goto('/home');
   await page.getByRole('button', { name: `Dismiss: ${base.waiting[0].title}`, exact: true }).click();
 
   const dialog = page.getByRole('dialog');
@@ -1471,7 +1395,7 @@ test('a dismissal in flight says so and cannot be sent twice', async ({ page, wo
   // Both controls go dead while the write is out, and the dialog says which
   // way it is going — an unchanged dialog reads as a click that missed.
   await expect(dialog.getByRole('button', { name: 'Dismissing…' })).toBeDisabled();
-  await expect(dialog.getByRole('button', { name: 'Keep it' })).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeDisabled();
   await expect(dialog).toHaveAttribute('aria-busy', 'true');
 
   // Exactly one mutation went out, however long it took to come back.
@@ -1492,7 +1416,7 @@ test('a dismissal in flight cannot be escaped or clicked away', async ({ page, w
     return World.slow(3000, true);
   });
 
-  await page.goto('/app');
+  await page.goto('/home');
   await page.getByRole('button', { name: `Dismiss: ${base.waiting[0].title}`, exact: true }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('button', { name: 'Dismiss it' }).click();
@@ -1521,7 +1445,7 @@ test('reminders can be cleared one after another, each carrying its own id', asy
     return true;
   });
 
-  await page.goto('/app');
+  await page.goto('/home');
   const clear = async (title: string) => {
     await page.getByRole('button', { name: `Dismiss: ${title}`, exact: true }).click();
     const dialog = page.getByRole('dialog');
@@ -1541,7 +1465,7 @@ test('reminders can be cleared one after another, each carrying its own id', asy
   await expect(reminderRows(page)).toHaveCount(1);
 
   await expect(forYou(page)).toContainText(base.waiting[2].title);
-  await expect(bell(page, 'Notifications, 1 waiting')).toBeVisible();
+  await expect(bell(page, 'Notifications, 1 new')).toBeVisible();
   // With Sy 88's reminder gone, Sy 88 is no longer said elsewhere in For you,
   // so Missing details lists it again, behind its disclosure.
   await expect(missingRow(page).getByRole('button', { name: 'Show all Missing details', exact: true }))
@@ -1558,7 +1482,7 @@ test('a dismissal the server refuses keeps the reminder, and says why', async ({
   const first = seeded.waiting[0];
   world.set('dismissWaiting', World.gqlError('that reminder is not yours to dismiss'));
 
-  await page.goto('/app');
+  await page.goto('/home');
   await page.getByRole('button', { name: `Dismiss: ${first.title}`, exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Dismiss it' }).click();
 
@@ -1572,7 +1496,7 @@ test('a dismissal the server refuses keeps the reminder, and says why', async ({
   // unwanted, and the row is untouched underneath it.
   await expect(page.getByRole('dialog')).toBeVisible();
   await expect(page.getByRole('dialog').getByRole('button', { name: 'Dismiss it' })).toBeEnabled();
-  await page.getByRole('dialog').getByRole('button', { name: 'Keep it' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
   await expect(reminderRows(page)).toHaveCount(3);
   await expect(forYou(page)).toContainText(first.title);
 });
@@ -1582,17 +1506,18 @@ test('a dismissal the server refuses keeps the reminder, and says why', async ({
 test('a brand-new account is told the one thing to do, and nothing else', async ({ page, world }) => {
   const base = world.seedOf<Portfolio>('portfolio');
   world.set('portfolio', firstRun(base));
-  await page.goto('/app');
+  await page.goto('/home');
 
-  // It is still a greeting and still an account, so the head stays.
-  await expect(page.locator('.pagehead').getByText('Your portfolio')).toBeVisible();
+  // It is still a greeting and still an account, so the head stays — but
+  // with no summary line and no shortcuts over an account that holds nothing.
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(/^Good (morning|afternoon|evening), Shankar Reddy$/);
-  await expect(page.locator('.pagehead p.note')).toHaveText(/^Nothing waiting on you · .+ \d{2}:\d{2}, India \d{2}:\d{2} IST$/);
+  await expect(page.locator('.pagehead p.note')).toHaveCount(0);
+  await expect(page.locator('.pagehead .actions')).toHaveCount(0);
 
   // One statement of what is absent, and one thing to do about it.
   await expect(page.getByText('No properties yet')).toBeVisible();
   const add = page.getByRole('link', { name: 'Add a property' });
-  await expect(add).toHaveAttribute('href', '/app/properties?new=1');
+  await expect(add).toHaveAttribute('href', '/properties?new=1');
 
   // And NOT a screen's worth of chrome over rows that do not exist: no tiles
   // reading ₹0, no chart with no bars under it, no "Recently opened" heading
@@ -1602,10 +1527,10 @@ test('a brand-new account is told the one thing to do, and nothing else', async 
   await expect(page.getByText('Value by village')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Waiting on you', exact: true })).toHaveCount(0);
   await expect(page.getByText('Recently opened')).toHaveCount(0);
-  await expect(page.getByText('Running costs this year')).toHaveCount(0);
+  await expect(page.getByText('Expenses this year')).toHaveCount(0);
 
   // Exactly one way to add a record, not a header Add plus an empty-state Add.
-  await expect(page.locator('a[href="/app/properties?new=1"]')).toHaveCount(1);
+  await expect(page.locator('a[href="/properties?new=1"]')).toHaveCount(1);
 });
 
 test('a brand-new account refuses the four zero-rupee tiles the server still sends', async ({ page, world }) => {
@@ -1621,7 +1546,7 @@ test('a brand-new account refuses the four zero-rupee tiles the server still sen
       { key: 'loans', label: 'Loans', value: '₹0', unit: '', note: 'outstanding', tone: 'plain' },
     ],
   }));
-  await page.goto('/app');
+  await page.goto('/home');
 
   await expect(page.getByText('No properties yet')).toBeVisible();
   await expect(page.locator('.strip')).toHaveCount(0);
@@ -1638,17 +1563,17 @@ test('an invitation can arrive before my first record does', async ({ page, worl
       actionLabel: 'Accept', actionKind: 'primary', recordId: '',
     }],
   }));
-  await page.goto('/app');
+  await page.goto('/home');
 
   // The empty state is still the main thing said…
   await expect(page.getByText('No properties yet')).toBeVisible();
   // …and the one panel worth drawing beside it is drawn.
   await expect(forYou(page)).toContainText('Ramana Reddy invited you to the family group');
   await expect(reminderRows(page)).toHaveCount(1);
-  await expect(bell(page, 'Notifications, 1 waiting')).toBeVisible();
+  await expect(bell(page, 'Notifications, 1 new')).toBeVisible();
   // An account that holds nothing has nothing missing — even though the
   // property list this world answers with still carries Sy 88 off the map.
-  // The count is the invitation and the seeded order back for review (W-2105),
+  // The count is the invitation and the seeded order back for review (PT-2105),
   // and not Sy 88.
   await expect(missingRow(page)).toHaveCount(0);
   await expect(forYouCount(page)).toHaveText('2');
@@ -1662,18 +1587,21 @@ test('an invitation can arrive before my first record does', async ({ page, worl
 
 test('while my portfolio is still coming the dashboard says so and claims nothing', async ({ page, world }) => {
   world.set('portfolio', World.never());
-  await page.goto('/app');
+  await page.goto('/home');
 
   // The waiting word names the same thing the failure word does.
   const busy = page.locator('[role="status"][aria-busy="true"]');
   await expect(busy).toBeVisible();
-  await expect(busy).toContainText('Loading your home page…');
+  await expect(busy).toHaveAttribute('aria-label', 'Loading your home page');
 
   // It must not claim there is nothing there, and must not claim it failed.
   await expect(page.getByText('No properties yet')).toHaveCount(0);
   await expect(page.getByText('Your home page did not load')).toHaveCount(0);
   await expect(overview(page)).toHaveCount(0);
-  await expect(page.getByRole('heading', { level: 1 })).toHaveCount(0);
+  // The head is there (design.md § Page head) and names the tab, but the
+  // greeting claims no name until the portfolio says whose it is.
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(/^Good (morning|afternoon|evening)$/);
+  await expect(page).toHaveTitle('Home · Pattadar');
 
   // The shell around it is drawn and usable — only the panel is waiting. The
   // rail reads the SAME query (Shell.tsx:63), so this is also the proof that a
@@ -1686,7 +1614,7 @@ test('while my portfolio is still coming the dashboard says so and claims nothin
 
 test('a portfolio that does not come back says so, and says what the server said', async ({ page, world }) => {
   world.set('portfolio', World.gqlError('the portfolio store is not answering'));
-  await page.goto('/app');
+  await page.goto('/home');
 
   const failed = page.getByRole('alert');
   await expect(failed).toContainText('Your home page did not load');
@@ -1694,6 +1622,8 @@ test('a portfolio that does not come back says so, and says what the server said
   // The reason, verbatim, for whoever is being asked "what does it say?".
   await expect(failed).toContainText('the portfolio store is not answering');
   await expect(failed.getByRole('button', { name: 'Try again' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(/^Good (morning|afternoon|evening)$/);
+  await expect(page).toHaveTitle('Home · Pattadar');
 
   // A failure is not an empty portfolio and must never be drawn as one.
   await expect(page.getByText('No properties yet')).toHaveCount(0);
@@ -1703,7 +1633,7 @@ test('a portfolio that does not come back says so, and says what the server said
 test('Try again re-asks for the portfolio, and the dashboard arrives when the server comes back', async ({ page, world }) => {
   const good = world.seedOf<Portfolio>('portfolio');
   world.set('portfolio', World.gqlError('the portfolio store is not answering'));
-  await page.goto('/app');
+  await page.goto('/home');
 
   await expect(page.getByRole('alert')).toContainText('Your home page did not load');
   const asked = world.calls('portfolio').length;
@@ -1723,7 +1653,7 @@ test('Try again re-asks for the portfolio, and the dashboard arrives when the se
 test('Try again puts the screen back into its waiting state while it re-asks', async ({ page, world }) => {
   const good = world.seedOf<Portfolio>('portfolio');
   world.set('portfolio', World.gqlError('the portfolio store is not answering'));
-  await page.goto('/app');
+  await page.goto('/home');
   await expect(page.getByRole('alert')).toContainText('Your home page did not load');
 
   // The server comes back, slowly — which is the only state in which what the
@@ -1741,7 +1671,7 @@ test('Try again puts the screen back into its waiting state while it re-asks', a
   // which is the same promise kept a better way, so it is asserted, not
   // filed as a defect.
   const busy = page.locator('[role="status"][aria-busy="true"]');
-  await expect(busy).toContainText('Loading your home page…');
+  await expect(busy).toHaveAttribute('aria-label', 'Loading your home page');
   await expect(page.getByRole('alert')).toHaveCount(0);
 
   // And it was a real read: the dashboard is here when it lands.
@@ -1752,7 +1682,7 @@ test('Try again puts the screen back into its waiting state while it re-asks', a
 
 test('Try again on a server that is still down leaves the failure on screen', async ({ page, world }) => {
   world.set('portfolio', World.gqlError('the portfolio store is not answering'));
-  await page.goto('/app');
+  await page.goto('/home');
 
   await expect(page.getByRole('alert')).toContainText('Your home page did not load');
   const asked = world.calls('portfolio').length;
@@ -1764,7 +1694,7 @@ test('Try again on a server that is still down leaves the failure on screen', as
   await expect.poll(() => world.calls('portfolio').length).toBeGreaterThan(asked);
   await expect(page.getByRole('alert')).toContainText('Your home page did not load');
   await expect(page.getByRole('button', { name: 'Try again' })).toBeEnabled();
-  await expect(page.getByText('Loading your home page…')).toHaveCount(0);
+  await expect(page.getByRole('status', { name: 'Loading your home page' })).toHaveCount(0);
 });
 
 // ── the phone ──────────────────────────────────────────────────────────
@@ -1779,7 +1709,7 @@ test.describe(() => {
 
   test('@phone the dashboard still hands me every waiting row and its way in', async ({ page, world }) => {
     const seeded = world.seedOf<Portfolio>('portfolio');
-    await page.goto('/app');
+    await page.goto('/home');
 
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Shankar Reddy');
     await expect(overview(page)).toBeVisible();
@@ -1787,7 +1717,7 @@ test.describe(() => {
     const rows = reminderRows(page);
     await expect(rows).toHaveCount(3);
     for (const [i, w] of seeded.waiting.entries()) {
-      await expect(rows.nth(i).getByRole('link', { name: `Open record: ${w.title}`, exact: true })).toBeVisible();
+      await expect(rows.nth(i).getByRole('link', { name: `Open property: ${w.title}`, exact: true })).toBeVisible();
       await expect(rows.nth(i).getByRole('button', { name: `Dismiss: ${w.title}`, exact: true })).toBeVisible();
     }
 
@@ -1799,7 +1729,7 @@ test.describe(() => {
   });
 
   test('@phone the overview cards sit two by two on a phone', async ({ page }) => {
-    await page.goto('/app');
+    await page.goto('/home');
 
     const cards = overview(page).getByRole('link');
     await expect(cards).toHaveCount(4);
@@ -1814,7 +1744,7 @@ test.describe(() => {
     const base = world.seedOf<Portfolio>('portfolio');
     world.set('portfolio', { ...base, waiting: [], waitingCount: 0 });
     world.set('orders', []);
-    await page.goto('/app');
+    await page.goto('/home');
 
     const row = missingRow(page);
     const toggle = row.getByRole('button', { name: 'Show all Missing details', exact: true });

@@ -113,7 +113,7 @@ test.describe('W360 CRUD · features', () => {
   test('a feature is filed, described, changed and removed', async ({ page }) => {
     const NAME = 'E2E Windmill';
     const RENAMED = 'E2E Windmill renamed';
-    await page.goto(`/app/records/${PARCEL}/features`);
+    await page.goto(`/properties/${PARCEL}/site-features`);
     const start = await settled(cards(page));
 
     // add — through the drawer, by naming something the chip list does not offer.
@@ -173,7 +173,7 @@ test.describe('W360 CRUD · features', () => {
   });
 
   test('the type chips file a feature without typing anything', async ({ page, request }) => {
-    await page.goto(`/app/records/${PARCEL}/features`);
+    await page.goto(`/properties/${PARCEL}/site-features`);
     const start = await settled(cards(page));
     // A chip no longer files on the press — nothing is pre-selected and the
     // primary is what commits, so a single unread press cannot file a feature.
@@ -207,7 +207,7 @@ test.describe('W360 CRUD · features', () => {
   });
 
   test('"Not checked" is its own chip, and worst still sorts first', async ({ page }) => {
-    await page.goto(`/app/records/${PARCEL}/features`);
+    await page.goto(`/properties/${PARCEL}/site-features`);
     const start = await settled(cards(page));
 
     // The seeded parcel has been walked, so nothing on it is unchecked and the
@@ -249,7 +249,7 @@ test.describe('W360 CRUD · people', () => {
   test('someone can be assigned, renamed and taken off', async ({ page }) => {
     const NAME = 'E2E Caretaker';
     const RENAMED = 'E2E Caretaker renamed';
-    await page.goto(`/app/records/${PARCEL}/people`);
+    await page.goto(`/properties/${PARCEL}/people`);
     const start = await settled(people(page));
 
     await page.getByRole('button', { name: /Assign someone/ }).click();
@@ -291,7 +291,7 @@ test.describe('W360 CRUD · papers', () => {
     page.locator('.rows.boxed > div:not([aria-hidden])');
 
   test('a paper can be renamed and removed', async ({ page }) => {
-    await page.goto(`/app/records/${PARCEL}`);
+    await page.goto(`/properties/${PARCEL}`);
     const start = await settled(rows(page));
     const first = (await rows(page).first().locator('a').textContent())?.trim() ?? '';
     expect(first.length).toBeGreaterThan(0);
@@ -315,7 +315,7 @@ test.describe('W360 CRUD · papers', () => {
   test('the add control is reachable on a record with nothing filed', async ({ page }) => {
     // The complaint this test exists for: an empty record offered no way in,
     // because the gallery link it would have sent you to is not drawn either.
-    await page.goto(`/app/records/${PARCEL}`);
+    await page.goto(`/properties/${PARCEL}`);
     const addPaper = page.locator('header.sechead').getByRole('button', { name: 'Add a document' });
     await expect(addPaper).toBeVisible();
     // The picker moved INSIDE the drawer, so there is none on the page until the
@@ -344,7 +344,7 @@ test.describe('W360 CRUD · papers', () => {
 
 test.describe('W360 CRUD · photos', () => {
   test('a caption changes, and the Do panel is wired', async ({ page }) => {
-    await page.goto(`/app/records/${PARCEL}/photos`);
+    await page.goto(`/properties/${PARCEL}/media`);
     const box = page.getByLabel('Caption', { exact: true });
     const was = await box.inputValue();
 
@@ -376,7 +376,7 @@ test.describe('W360 CRUD · photos', () => {
   });
 
   test('make cover moves the cover to the photo you are on', async ({ page }) => {
-    await page.goto(`/app/records/${PARCEL}/photos`);
+    await page.goto(`/properties/${PARCEL}/media`);
     // Photo 1 is already the cover, so its button reads "Cover" and is inert —
     // that is the correct state, not a dead control.
     await expect(page.getByRole('button', { name: 'Cover', exact: true })).toBeDisabled();
@@ -394,7 +394,7 @@ test.describe('W360 CRUD · photos', () => {
   });
 
   test('delete asks a second time before it takes the photo', async ({ page }) => {
-    await page.goto(`/app/records/${PARCEL}/photos`);
+    await page.goto(`/properties/${PARCEL}/media`);
     await page.getByRole('button', { name: /^Delete/ }).first().click();
     await expect(page.getByRole('button', { name: 'Keep it' })).toBeVisible();
     await page.getByRole('button', { name: 'Keep it' }).click();
@@ -476,13 +476,13 @@ test.describe('W360 · upload limits', () => {
     // Which is inside the panel on both hangers now. It used to be a note beside
     // a header button that fired the picker directly; the limit belongs where the
     // choosing happens, and it is printed again against each picked file.
-    await page.goto(`/app/records/${PARCEL}/photos`);
+    await page.goto(`/properties/${PARCEL}/media`);
     await expect(page.getByText(/up to 10\.0 MB/i)).toHaveCount(0);
     await page.getByRole('button', { name: /Add photos or video/ }).click();
     await expect(page.getByRole('dialog', { name: MEDIA_PANEL })
       .getByText(/up to 10\.0 MB/i).first()).toBeVisible();
 
-    await page.goto(`/app/records/${PARCEL}`);
+    await page.goto(`/properties/${PARCEL}`);
     await expect(page.getByText(/up to 10\.0 MB/i)).toHaveCount(0);
     await page.locator('header.sechead').getByRole('button', { name: 'Add a document' }).click();
     await expect(page.getByRole('dialog', { name: PAPER_PANEL })
@@ -495,7 +495,7 @@ test.describe('W360 · upload limits', () => {
       if (r.url().includes('/storage/files') && r.method() === 'POST') posted = true;
     });
 
-    await page.goto(`/app/records/${PARCEL}/photos`);
+    await page.goto(`/properties/${PARCEL}/media`);
     // The gallery sits inside the record frame now, so `main header` is the
     // record's own head. The hanger's counts are in its section head.
     const header = page.locator('.sechead');
@@ -518,7 +518,7 @@ test.describe('W360 · upload limits', () => {
   });
 
   test('the picker takes video as well as stills', async ({ page }) => {
-    await page.goto(`/app/records/${PARCEL}/photos`);
+    await page.goto(`/properties/${PARCEL}/media`);
     await page.getByRole('button', { name: /Add photos or video/ }).click();
     await expect(page.getByRole('dialog', { name: MEDIA_PANEL })).toBeVisible();
     // Scoped to the screen. The assistant drawer keeps a file input mounted
@@ -529,7 +529,7 @@ test.describe('W360 · upload limits', () => {
 
   test('a filed clip uploads and plays, and is counted as video', async ({ page }) => {
     await withStorageFixture(page);
-    await page.goto(`/app/records/${PARCEL}/photos`);
+    await page.goto(`/properties/${PARCEL}/media`);
     // The gallery sits inside the record frame now, so `main header` is the
     // record's own head. The hanger's counts are in its section head.
     const header = page.locator('.sechead');
@@ -595,30 +595,30 @@ test.describe('W360 CRUD · ordering a service', () => {
     expect(orders?.data?.web?.orders ?? []).toEqual([]);
   });
 
-  test('ordering happens on its own screen, and comes back', async ({ page, request }) => {
-    await page.goto(`/app/records/${scratch}`);
+  test('ordering happens in the one order flow, with the property already chosen', async ({ page, request }) => {
+    await page.goto(`/properties/${scratch}`);
     await page.getByRole('link', { name: 'Order a service' }).click();
-    await expect(page).toHaveURL(new RegExp(`/records/${scratch}/order$`));
+    // The property is known, so the flow opens on the services step with it
+    // chosen — one workflow, no record-scoped order screen.
+    await expect(page).toHaveURL(new RegExp(`/order\\?.*for=${scratch}`));
+    await expect(page).toHaveURL(/step=services/);
+    await expect(page.getByRole('group', { name: 'Ordering for' })).toContainText('Sy ORDER-TEST');
 
-    // The catalogue is searched server-side, so it can grow past what would
-    // ever fit on a record header.
-    await page.getByLabel('Search services').fill('survey');
-    await expect(page.getByRole('button', { name: 'Boundary re-survey' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Certified patta copy' })).toHaveCount(0);
+    await page.getByRole('checkbox', { name: 'Choose Boundary re-survey' }).check();
+    await page.getByRole('button', { name: 'Next: review' }).click();
 
-    await page.getByRole('button', { name: 'Boundary re-survey' }).click();
-
-    // Ordering stays shut until that service's own required questions are
+    // Nothing is filed until that service's own required questions are
     // answered — an order with no parameters cannot be acted on.
-    const submit = page.getByRole('button', { name: /^Order ·/ });
-    await expect(submit).toBeDisabled();
-    await page.getByLabel(/Which boundary/).selectOption('North');
-    await page.getByLabel(/Is a neighbour disputing it/).selectOption('Yes');
+    const submit = page.getByRole('button', { name: /^Place \d+ orders? ·/ });
     await expect(submit).toBeEnabled();
     await submit.click();
+    await expect(page.getByRole('alert').filter({ hasText: 'Still needed' })).toContainText('Which boundary');
+    await page.getByLabel(/Which boundary/).selectOption('North');
+    await page.getByLabel(/Is a neighbour disputing it/).selectOption('Yes');
+    await submit.click();
 
-    // Back on the record it was ordered against, not stranded in a form.
-    await expect(page).toHaveURL(new RegExp(`/records/${scratch}/services$`));
+    // Placed, and on to Services where it is tracked, not stranded in a form.
+    await expect(page).toHaveURL(/\/services$/);
 
     const out = await gql(request, `{ web { orders(recordId:"${scratch}"){ kind cost params } } }`);
     const orders = (out?.data?.web?.orders ?? []) as
@@ -631,7 +631,7 @@ test.describe('W360 CRUD · ordering a service', () => {
   });
 
   test('Track order shows where it is and what was asked for', async ({ page }) => {
-    await page.goto(`/app/records/${scratch}/services`);
+    await page.goto(`/properties/${scratch}/services`);
     await page.getByRole('button', { name: 'Track' }).first().click();
     await expect(page.getByRole('button', { name: 'Hide' })).toBeVisible();
     // The parameters come back out in words, not as raw JSON.
@@ -639,7 +639,7 @@ test.describe('W360 CRUD · ordering a service', () => {
   });
 
   test('Share securely needs a name, then makes a link', async ({ page, request }) => {
-    await page.goto(`/app/records/${scratch}`);
+    await page.goto(`/properties/${scratch}`);
     await page.getByRole('button', { name: 'Share securely' }).click();
 
     // A link nobody is named on cannot be revoked with any confidence about
@@ -660,7 +660,7 @@ test.describe('W360 CRUD · ordering a service', () => {
   });
 
   test('Ask for a check files a priced site visit', async ({ page, request }) => {
-    await page.goto(`/app/records/${scratch}/features`);
+    await page.goto(`/properties/${scratch}/site-features`);
     await page.getByRole('button', { name: /Ask for a check/ }).click();
     await page.getByRole('button', { name: /^Order ·/ }).click();
     await expect(page.getByRole('link', { name: /Open ordered check/ })).toBeVisible();
@@ -687,10 +687,10 @@ test.describe('W360 · adding a record from a document', () => {
   const stubReader = stubDocumentReader;
 
   const openDrawer = async (page: Pg) => {
-    await page.goto('/app/properties');
+    await page.goto('/properties');
     // 'Add a record' is the empty-state button; the one that is always there
     // is labelled just 'Add'.
-    await page.getByRole('button', { name: 'Add', exact: true }).click();
+    await page.getByRole('button', { name: 'Add a property', exact: true }).click();
     await expect(page.locator('aside.drawer')).toBeVisible();
   };
 
@@ -845,39 +845,41 @@ test.describe('W360 · adding a record from a document', () => {
 
 test.describe('W360 · ordering with no record chosen', () => {
   test('Services sends you to ordering, not to the properties list', async ({ page }) => {
-    await page.goto('/app/services');
+    await page.goto('/services');
     await page.getByRole('link', { name: 'Order a service' }).click();
-    // It used to dump you on /app/properties to go and find one yourself.
-    await expect(page).toHaveURL(/\/app\/order$/);
-    await expect(page.getByRole('heading', { name: 'Which property?' })).toBeVisible();
+    // It used to dump you on /properties to go and find one yourself.
+    await expect(page).toHaveURL(/\/order$/);
+    await expect(page.getByRole('heading', { name: 'Choose the properties' })).toBeVisible();
   });
 
   test('the property is linked before the service is raised', async ({ page, request }) => {
-    await page.goto('/app/order');
+    await page.goto('/order');
 
-    // No property, no order: the service form is not even offered yet.
-    await expect(page.getByRole('heading', { name: 'Pick a service' })).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Order ·/ })).toHaveCount(0);
+    // No property, no order: the services are not even offered yet.
+    await expect(page.getByRole('heading', { name: 'Choose the properties' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Place \d+ order/ })).toHaveCount(0);
 
-    await page.getByLabel('Search your properties').fill('214/2');
-    await page.getByRole('button', { name: 'Sy 214/2', exact: true }).click();
+    await page.getByLabel('Find your property').fill('214/2');
+    await page.getByRole('checkbox', { name: 'Include Sy 214/2' }).check();
+    await page.getByRole('button', { name: 'Next: choose services' }).click();
 
     // Chosen, named, and kept in the URL so a reload does not lose it.
-    await expect(page.getByRole('heading', { name: 'Ordering against' })).toBeVisible();
-    await expect(page).toHaveURL(new RegExp(`record=${PARCEL}`));
+    const forWhom = page.getByRole('group', { name: 'Ordering for' });
+    await expect(forWhom).toContainText('Sy 214/2');
+    await expect(page).toHaveURL(new RegExp(`for=${PARCEL}`));
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'Ordering against' })).toBeVisible();
+    await expect(forWhom).toContainText('Sy 214/2');
 
-    await page.getByLabel('Search services').fill('patta');
-    await page.getByRole('button', { name: 'Certified patta copy' }).click();
+    await page.getByRole('checkbox', { name: 'Choose Certified patta copy' }).check();
+    await page.getByRole('button', { name: 'Next: review' }).click();
     await page.getByLabel(/How many copies/).fill('2');
 
     // Property information can ride along, and only what is ticked.
-    const share = page.getByRole('heading', { name: 'Send them what you have' }).locator('../..');
-    await share.locator('input[type=checkbox]').first().check();
+    await expect(page.getByRole('heading', { name: 'Files to share with the provider' })).toBeVisible();
+    await page.locator('main input[type=checkbox]').first().check();
 
-    await page.getByRole('button', { name: /^Order ·/ }).click();
-    await expect(page).toHaveURL(new RegExp(`/records/${PARCEL}/services$`));
+    await page.getByRole('button', { name: /^Place \d+ orders? ·/ }).click();
+    await expect(page).toHaveURL(/\/services$/);
 
     const out = await gql(request, `{ web { orders(recordId:"${PARCEL}"){ kind params } } }`);
     const orders = (out?.data?.web?.orders ?? []) as { kind: string; params: string }[];
@@ -889,12 +891,12 @@ test.describe('W360 · ordering with no record chosen', () => {
     expect(String(answers.shared ?? '').length).toBeGreaterThan(0);
   });
 
-  test('changing your mind about the property clears the choice', async ({ page }) => {
-    await page.goto(`/app/order?record=${PARCEL}`);
-    await expect(page.getByRole('heading', { name: 'Ordering against' })).toBeVisible();
-    await page.getByRole('button', { name: 'Change' }).click();
-    await expect(page.getByRole('heading', { name: 'Which property?' })).toBeVisible();
-    await expect(page).not.toHaveURL(/record=/);
+  test('changing your mind about the property goes back to choosing', async ({ page }) => {
+    await page.goto(`/order?for=${PARCEL}&step=services`);
+    await expect(page.getByRole('group', { name: 'Ordering for' })).toContainText('Sy 214/2');
+    await page.getByRole('group', { name: 'Ordering for' }).getByRole('button', { name: 'Change' }).click();
+    await expect(page.getByRole('heading', { name: 'Choose the properties' })).toBeVisible();
+    await expect(page).toHaveURL(/step=properties/);
   });
 });
 
@@ -940,7 +942,7 @@ test.describe('W360 · a filed paper is classified, not just named', () => {
       doc_type: 'Partition Deed', document_no: '853', reg_year: '2025',
       registration_date: '26/08/2013', sro: 'SRO Tarlupadu', village: 'Konakanamitla',
     });
-    await page.goto(`/app/records/${id}`);
+    await page.goto(`/properties/${id}`);
     await filePaper(page, pdf);
 
     // Not "Family Partitions.pdf / Filed today / Unsorted".
@@ -957,11 +959,11 @@ test.describe('W360 · a filed paper is classified, not just named', () => {
     await withStorageFixture(page);
     const id = await scratch(request);
     await stubReader(page, { doc_type: 'Encumbrance Certificate', document_no: '', reg_year: '' });
-    await page.goto(`/app/records/${id}`);
+    await page.goto(`/properties/${id}`);
     await filePaper(page, pdf);
     await expect(page.locator('.rows.boxed > div').first())
       .toContainText('Encumbrance Certificate');
-    await expect(page.locator('.rows.boxed > div').first()).toContainText('Search & tax');
+    await expect(page.locator('.rows.boxed > div').first()).toContainText('EC & tax receipts');
 
     await gql(request, `mutation { web { deleteRecords(ids:["${id}"]) } }`);
   });
@@ -970,7 +972,7 @@ test.describe('W360 · a filed paper is classified, not just named', () => {
     await withStorageFixture(page);
     const id = await scratch(request);
     await stubDocumentReader(page, {}, 'This file could not be read.');
-    await page.goto(`/app/records/${id}`);
+    await page.goto(`/properties/${id}`);
     await filePaper(page, pdf);
 
     // Filed and findable.
@@ -1001,7 +1003,7 @@ test.describe('W360 · a filed paper is classified, not just named', () => {
     await withStorageFixture(page);
     const id = await scratch(request);
     await stubDocumentReader(page, {}, 'This file could not be read.');
-    await page.goto(`/app/records/${id}`);
+    await page.goto(`/properties/${id}`);
     await filePaper(page, pdf);
 
     await expect(page.getByText(/could not be read — it is in Unsorted/)).toBeVisible();
@@ -1025,7 +1027,7 @@ test.describe('W360 · correcting a record', () => {
 
   test('the address can be changed from the record itself', async ({ page, request }) => {
     const id = await make(request);
-    await page.goto(`/app/records/${id}`);
+    await page.goto(`/properties/${id}`);
 
     // The way in: the record's own kebab, not a trip back to the list.
     await page.getByRole('button', { name: /Actions for/ }).click();
@@ -1052,7 +1054,7 @@ test.describe('W360 · correcting a record', () => {
     await gql(request, `mutation { web { saveRecord(input:{id:"${id}", village:"Corrected"}) } }`);
     await gql(request, `mutation { web { saveRecord(input:{id:"${id}", title:"Sy AUDITME/2"}) } }`);
 
-    await page.goto(`/app/records/${id}/history`);
+    await page.goto(`/properties/${id}/activity`);
     await expect(page.getByRole('heading', { name: 'What has been changed' })).toBeVisible();
 
     // The old value is the point of the line — it must survive the edit.
@@ -1068,12 +1070,12 @@ test.describe('W360 · correcting a record', () => {
 
   test('the tab is Audit, and says so when nothing has changed', async ({ page, request }) => {
     const id = await make(request);
-    await page.goto(`/app/records/${id}`);
+    await page.goto(`/properties/${id}`);
     const strip = page.locator('.tabs').first();
     await expect(strip.getByRole('link', { name: 'Audit' })).toBeVisible();
     await expect(strip.getByRole('link', { name: 'History' })).toHaveCount(0);
 
-    await page.goto(`/app/records/${id}/history`);
+    await page.goto(`/properties/${id}/activity`);
     await expect(page.getByText(/Nothing has been corrected on this record yet/)).toBeVisible();
     await gql(request, `mutation { web { deleteRecords(ids:["${id}"]) } }`);
   });
@@ -1107,7 +1109,7 @@ test.describe('W360 · deleting records', () => {
     // They used to be opacity:0 until hover. On a touch screen there is no
     // hover, so nothing could be selected and the bulk Delete — which only
     // appears once something is — could never be reached at all.
-    await page.goto('/app/properties');
+    await page.goto('/properties');
     const box = page.locator('.rec .sel').first();
     await expect(box).toBeVisible();
     expect(Number(await box.evaluate((el) => getComputedStyle(el).opacity)))
@@ -1116,7 +1118,7 @@ test.describe('W360 · deleting records', () => {
 
   test('several records can be selected and deleted at once', async ({ page, request }) => {
     const ids = [await make(request, 'DELME-A'), await make(request, 'DELME-B')];
-    await page.goto('/app/properties?q=DELME');
+    await page.goto('/properties?q=DELME');
     await expect(page.locator('.rec')).toHaveCount(2);
 
     for (const i of [0, 1]) {
@@ -1138,7 +1140,7 @@ test.describe('W360 · deleting records', () => {
   });
 
   test('the bulk bar is not there to be read until there is a selection to act on', async ({ page }) => {
-    await page.goto('/app/properties');
+    await page.goto('/properties');
     // It used to stand under the grid at all times explaining itself — "Select
     // cards to act on several at once — tag, order one service for all,
     // archive, or delete." — while its buttons acted on everything shown. A
@@ -1156,7 +1158,7 @@ test.describe('W360 · deleting records', () => {
 
   test('the record kebab is a menu over the page, and can delete', async ({ page, request }) => {
     const id = await make(request, 'MENUME');
-    await page.goto(`/app/records/${id}`);
+    await page.goto(`/properties/${id}`);
 
     await page.getByRole('button', { name: /Actions for/ }).click();
 
@@ -1178,14 +1180,14 @@ test.describe('W360 · deleting records', () => {
     await page.getByRole('button', { name: 'Delete', exact: true }).click();
 
     // Deleting the record you are looking at must not strand you on it.
-    await expect(page).toHaveURL(/\/app\/properties$/);
+    await expect(page).toHaveURL(/\/properties$/);
     const out = await gql(request, `{ web { properties { cards { id } } } }`);
     expect(((out?.data?.web?.properties?.cards ?? []) as { id: string }[]).map((c) => c.id))
       .not.toContain(id);
   });
 
   test('Escape closes the kebab without acting', async ({ page }) => {
-    await page.goto(`/app/records/${PARCEL}`);
+    await page.goto(`/properties/${PARCEL}`);
     await page.getByRole('button', { name: /Actions for/ }).click();
     await expect(page.locator('.menu-list')).toBeVisible();
     await page.keyboard.press('Escape');
@@ -1196,16 +1198,16 @@ test.describe('W360 · deleting records', () => {
 
 test.describe('W360 · requesting work on a record', () => {
   test('Order a survey opens the request page, not a dead button', async ({ page }) => {
-    await page.goto(`/app/records/${PARCEL}/map`);
+    await page.goto(`/properties/${PARCEL}/location`);
     await page.getByRole('link', { name: 'Order a survey' }).click();
-    await expect(page).toHaveURL(new RegExp(`/records/${PARCEL}/request\\?kind=survey$`));
+    await expect(page).toHaveURL(new RegExp(`/properties/${PARCEL}/request\\?kind=survey$`));
     await expect(page.getByRole('heading', { name: 'Ask a surveyor' })).toBeVisible();
     await expect(page.getByLabel('Message', { exact: true }))
       .toHaveValue(/Hey dear surveyor, please do the survey for this location/);
   });
 
   test('the owner raises a request; it is placed and unassigned', async ({ page, request }) => {
-    await page.goto(`/app/records/${PARCEL}/request?kind=survey`);
+    await page.goto(`/properties/${PARCEL}/request?kind=survey`);
 
     // Nothing is sent anywhere by the owner — no link, no attachment leaves.
     await expect(page.getByRole('button', { name: /WhatsApp/ })).toHaveCount(0);
@@ -1213,9 +1215,9 @@ test.describe('W360 · requesting work on a record', () => {
 
     await page.getByLabel('Message', { exact: true }).fill('E2E please survey the north boundary');
     await page.getByRole('button', { name: 'Send request' }).click();
-    await expect(page.getByRole('link', { name: 'Open the job' })).toHaveAttribute('href', /\/app\/services\/wr-/);
+    await expect(page.getByRole('link', { name: 'Open the job' })).toHaveAttribute('href', /\/services\/wr-/);
     await page.getByRole('button', { name: 'Back to Services' }).click();
-    await expect(page).toHaveURL(new RegExp(`/records/${PARCEL}/services$`));
+    await expect(page).toHaveURL(new RegExp(`/properties/${PARCEL}/services$`));
 
     const out = await gql(request, `{ web { orders(recordId:"${PARCEL}"){
       id kind stageLabel assignee detail params } } }`);
@@ -1232,7 +1234,7 @@ test.describe('W360 · requesting work on a record', () => {
   });
 
   test('what the owner ticks is what the request carries', async ({ page, request }) => {
-    await page.goto(`/app/records/${PARCEL}/request?kind=survey`);
+    await page.goto(`/properties/${PARCEL}/request?kind=survey`);
     // The boundary is on by default; papers are not, because papers name people.
     const papers = page.getByRole('heading', { name: 'Papers' }).locator('../..');
     await expect(papers.locator('input[type=checkbox]').first()).not.toBeChecked();
@@ -1240,7 +1242,7 @@ test.describe('W360 · requesting work on a record', () => {
 
     await page.getByLabel('Message', { exact: true }).fill('E2E ticked a paper');
     await page.getByRole('button', { name: 'Send request' }).click();
-    await expect(page.getByRole('link', { name: 'Open the job' })).toHaveAttribute('href', /\/app\/services\/wr-/);
+    await expect(page.getByRole('link', { name: 'Open the job' })).toHaveAttribute('href', /\/services\/wr-/);
     await page.getByRole('button', { name: 'Back to Services' }).click();
     await expect(page).toHaveURL(new RegExp(`/services$`));
 
@@ -1248,7 +1250,7 @@ test.describe('W360 · requesting work on a record', () => {
     const made = ((out?.data?.web?.orders ?? []) as { detail: string; params: string }[])
       .find((o) => o.detail.includes('E2E ticked a paper'));
     const shared = JSON.parse(made!.params).shared as string;
-    expect(shared).toContain('the boundary as GeoJSON');
+    expect(shared).toContain('the boundary as a map file');
     // Exactly one paper, because exactly one was ticked.
     expect(shared.split(',').length).toBe(2);
     const manifest = JSON.parse(made!.params).attachment_manifest;
@@ -1259,7 +1261,7 @@ test.describe('W360 · requesting work on a record', () => {
   });
 
   test('a request with no message is refused', async ({ page }) => {
-    await page.goto(`/app/records/${PARCEL}/request?kind=survey`);
+    await page.goto(`/properties/${PARCEL}/request?kind=survey`);
     await page.getByLabel('Message', { exact: true }).fill('');
     await expect(page.getByRole('button', { name: 'Send request' })).toBeDisabled();
   });
@@ -1270,7 +1272,7 @@ test.describe('W360 · requesting work on a record', () => {
     const rid = out?.data?.web?.createRequest ?? '';
     expect(rid).not.toBe('');
 
-    await page.goto(`/app/records/${PARCEL}/services`);
+    await page.goto(`/properties/${PARCEL}/services`);
     // Open THIS request's panel, not whichever happens to be first.
     const row = page.locator('.rows.boxed > div').filter({ hasText: 'E2E assign me' });
     await row.getByRole('button', { name: 'Track' }).click();
@@ -1316,7 +1318,7 @@ test.describe('W360 · no enabled button is dead', () => {
   });
 
   for (const [surface, path] of [
-    ['features', '/features'],
+    ['features', '/site-features'],
     ['people', '/people'],
   ] as const) {
     test(`${surface} · every enabled button does something`, async ({ page }) => {
@@ -1326,7 +1328,7 @@ test.describe('W360 · no enabled button is dead', () => {
         // networkidle first: every click here files something, which
         // invalidates the whole query tree, and under full-suite load that
         // refetch outlasts a bare locator wait.
-        await page.goto(`/app/records/${scratch}${path}`, { waitUntil: 'networkidle' });
+        await page.goto(`/properties/${scratch}${path}`, { waitUntil: 'networkidle' });
         // Scoped to main, not the shell: a sidebar button satisfies a bare
         // wait instantly while the page itself is still a spinner. Counting
         // then finds nothing and the test passes by measuring nothing.
@@ -1377,13 +1379,13 @@ test.describe('W360 · no control lies about being clickable', () => {
   // A button with no handler is indistinguishable from a working one. Anything
   // still unbuilt must be disabled, so the page never invites a dead click.
   for (const [name, path] of [
-    ['papers', ''], ['features', '/features'], ['people', '/people'],
-    ['photos', '/photos'], ['money', '/money'], ['expenses', '/expenses'],
+    ['papers', ''], ['features', '/site-features'], ['people', '/people'],
+    ['photos', '/media'], ['money', '/money'], ['expenses', '/expenses'],
   ] as const) {
     test(`${name} · every enabled button responds`, async ({ page }) => {
       const errors: string[] = [];
       page.on('pageerror', (e) => errors.push(String(e)));
-      await page.goto(`/app/records/${PARCEL}${path}`);
+      await page.goto(`/properties/${PARCEL}${path}`);
       await expect(page.locator('main')).toBeVisible();
       expect(errors).toEqual([]);
     });
@@ -1404,7 +1406,7 @@ test.describe('W360 · village maps', () => {
    *  them. The label-matched villages carry no extent at all, and a screen
    *  cannot show a figure nobody issued. */
   const open = async (page: Pg, village = 'MARRIPALEM') => {
-    await page.goto('/app/maps');
+    await page.goto('/maps');
     // The landing is the whole mandal; a village is chosen from it.
     await expect(page.getByRole('heading', { name: /Villages on record/ })).toBeVisible();
     await page.getByRole('button', { name: new RegExp(`^${village}`) }).click();
@@ -1422,7 +1424,7 @@ test.describe('W360 · village maps', () => {
   test.afterAll(async ({ request }) => { await wipe(request); });
 
   test('a village map is uploaded, read back and taken off', async ({ page, request }) => {
-    await page.goto('/app/maps');
+    await page.goto('/maps');
     await expect(page.getByRole('heading', { name: /Villages on record/ })).toBeVisible();
     const shipped = await page.locator('.vm-villages .villagerow').count();
     expect(shipped).toBeGreaterThan(0);
@@ -1441,7 +1443,7 @@ test.describe('W360 · village maps', () => {
     // it — a village is a plot count and an extent before it is anything else.
     await expect(page.locator('.vc-badge')).toContainText('BURADA PALEM', { timeout: 30_000 });
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('BURADA PALEM');
-    await expect(page.locator('.pagehead .lede')).toContainText('219 plots');
+    await expect(page.locator('.pagehead-summary')).toContainText('219 parcels');
 
     // Stored, not just drawn: the API has it, at full size.
     const listed = await request.get(API).then((r) => r.json());
@@ -1460,7 +1462,7 @@ test.describe('W360 · village maps', () => {
   });
 
   test('half a village is refused, and says which half is missing', async ({ page }) => {
-    await page.goto('/app/maps');
+    await page.goto('/maps');
     await expect(page.getByRole('heading', { name: /Villages on record/ })).toBeVisible();
     const card = page.locator('.card', { hasText: 'Add a village map' }).first();
 
@@ -1738,13 +1740,13 @@ test.describe('W360 · village maps', () => {
 
   test('the landing map is the whole mandal, and a village opens off it',
     async ({ page }) => {
-      await page.goto('/app/maps');
+      await page.goto('/maps');
       await expect(page.getByRole('heading', { name: /Villages on record/ })).toBeVisible();
 
       // Every village on record, drawn — not a list of names with a map behind
       // one of them. The outlines are the real edges: 77 KB for eight of them
       // against 2.2 MB of plots, which is what makes this affordable at all.
-      await expect(page.locator('.pagehead .lede')).toContainText('villages on record');
+      await expect(page.locator('.pagehead-summary')).toContainText('parcels');
       const named = await page.locator('.vc-village').count();
       expect(named).toBeGreaterThan(3);
       await expect(page.locator('.vc-village').first()).toContainText('plots');
@@ -1764,7 +1766,7 @@ test.describe('W360 · village maps', () => {
 
       await page.getByRole('button', { name: /^RAMAYANAM KANDRIKA/ }).click();
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('RAMAYANAM KANDRIKA');
-      await expect(page.locator('.pagehead .lede')).toContainText('89 plots');
+      await expect(page.locator('.pagehead-summary')).toContainText('89 parcels');
       await expect(page.locator('.vc-badge')).toContainText('RAMAYANAM KANDRIKA',
                                                             { timeout: 30_000 });
 
@@ -1786,9 +1788,10 @@ test.describe('W360 · village maps', () => {
       await expect(bar).toContainText('Plot 839');
 
       // The calculator is open on ONE parcel, and the page says so: the head
-      // drops from the village to the plot, and the only way out is up.
+      // drops from the village to the plot, and the only way out is up. Its
+      // figure is the parcel's extent, which Marripalem's export states.
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('Plot 839');
-      await expect(page.locator('.pagehead .lede')).toContainText('MARRIPALEM');
+      await expect(page.locator('.pagehead-summary')).toHaveText(/^[\d,.]+ ac$/);
       await expect(page.getByRole('button', { name: /Back to MARRIPALEM/ })).toBeVisible();
       // And the inspector stands down — it was answering the question the
       // calculator's own bar answers, in the same words.
@@ -1891,7 +1894,7 @@ test.describe('W360 · village maps', () => {
       // Properties screen where the new parcel can be seen.
       await page.getByRole('button', { name: 'Close the fence calculator' }).click();
       await page.getByRole('button', { name: 'Add to Properties' }).click();
-      await expect(page).toHaveURL(/\/app\/properties$/);
+      await expect(page).toHaveURL(/\/properties$/);
       await expect(page.getByRole('link', { name: 'Sy 839', exact: true }).first()).toBeVisible();
 
       // The destination alone is not persistence evidence: read the card back
@@ -1915,7 +1918,7 @@ test.describe('W360 · village maps', () => {
       // It lands as work on that record — a REQUEST, deliberately, because the
       // fence does not exist yet and the money has not been spent. Writing an
       // expense or a feature would put a thing on the land that is not there.
-      await expect(page).toHaveURL(new RegExp(`/app/records/${recordId}/services`));
+      await expect(page).toHaveURL(new RegExp(`/properties/${recordId}/services`));
       const main = page.locator('main');
       await expect(main).toContainText('Fencing');
       await expect(main).toContainText('posts');

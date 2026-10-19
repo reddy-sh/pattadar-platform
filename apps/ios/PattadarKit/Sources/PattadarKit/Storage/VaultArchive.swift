@@ -21,7 +21,7 @@ public enum VaultArchive {
             case .nothingToArchive:
                 "None of those documents have a file stored on this phone."
             case .couldNotBuild(let why):
-                "Couldn’t build the archive — \(why)"
+                "Could not build the archive — \(why)"
             }
         }
     }

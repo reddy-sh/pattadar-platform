@@ -34,9 +34,9 @@ function facetValues(c: HoldingCard): Record<HoldingFacet, string[]> {
 }
 
 const GROUPS: { key: HoldingFacet; label: string; options: { key: string; label: string }[] }[] = [
-  { key: 'complete', label: 'Records', options: [
-    { key: 'complete', label: 'All records present' },
-    { key: 'missing', label: 'Missing a record' },
+  { key: 'complete', label: 'Properties', options: [
+    { key: 'complete', label: 'All properties present' },
+    { key: 'missing', label: 'Missing a property' },
   ] },
   { key: 'ground', label: 'Boundaries', options: [
     { key: 'all', label: 'All on map' },
@@ -81,7 +81,7 @@ export const HOLDING_SORTS: { key: HoldingSortKey; label: string }[] = [
   { key: 'newest', label: 'Newest first' },
   { key: 'name', label: 'Name A–Z' },
   { key: 'extent', label: 'Largest extent' },
-  { key: 'records', label: 'Most records' },
+  { key: 'records', label: 'Most properties' },
   { key: 'updated', label: 'Recently updated' },
 ];
 
@@ -109,9 +109,9 @@ export function sortHoldings(list: readonly HoldingCard[], key: HoldingSortKey):
   return out.sort(by[key]);
 }
 
-/** "2 holdings · 62.86 ac · 400 Sq.yd · ₹1.40 Cr valued".
+/** "2 holdings · 62.86 ac · 400 sq.yd · ₹1.40 Cr market estimate".
  *
- *  Summed over the rows on screen, as Properties' line is. Acres, plot yards
+ *  Summed over every holding, not the filtered rows, as Properties' line is. Acres, plot yards
  *  and built feet are three figures, never one, and each is printed only when
  *  there is some of it — "0.00 ac" or "₹0" would claim somebody measured. The
  *  forms match the rows' own extent line and Properties' `num(x, 2) ac`. */
@@ -124,9 +124,9 @@ export function holdingSummary(list: readonly HoldingCard[]): string {
   return [
     plural(list.length, HOLDING_WORD.one.toLowerCase(), HOLDING_WORD.many.toLowerCase()),
     farm >= 0.005 ? `${num(farm, 2)} ac` : '',
-    plot > 0 ? `${num(plot)} Sq.yd` : '',
-    built > 0 ? `${num(built)} Sq.ft built` : '',
-    worth > 0 ? `${inr(worth)} valued` : '',
+    plot > 0 ? `${num(plot)} sq.yd` : '',
+    built > 0 ? `${num(built)} sq.ft built` : '',
+    worth > 0 ? `${inr(worth)} market estimate` : '',
   ].filter(Boolean).join(' · ');
 }
 
@@ -142,8 +142,8 @@ export function filteredEmptyNote(total: number): string {
  *  them. `downloadCsv` passes every cell through `csvCell`. */
 export function holdingCsvRows(list: readonly HoldingCard[]): unknown[][] {
   return [
-    ['Name', 'Records', 'Place', 'Farmland (ac)', 'Plots (Sq.yd)', 'Built (Sq.ft)',
-      'With boundaries', 'Complete', 'Worth (₹)', 'Note'],
+    ['Name', 'Properties', 'Place', 'Farmland (ac)', 'Plots (Sq.yd)', 'Built (Sq.ft)',
+      'With boundaries', 'Complete', 'Market estimate (₹)', 'Note'],
     ...list.map((c) => [
       c.name, c.memberCount, c.placeLine, c.farmExtent, c.plotExtent, c.builtExtent,
       `${c.surveyedCount} of ${c.memberCount}`, c.isComplete ? 'yes' : 'no',

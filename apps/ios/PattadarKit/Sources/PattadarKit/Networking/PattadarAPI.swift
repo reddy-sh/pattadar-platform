@@ -101,7 +101,7 @@ public struct PattadarAPI: Sendable {
                 // The everyday one: the server named in the build is not
                 // answering — a local stack that is not running, or no route
                 // to it from where the phone is standing.
-                "Couldn’t reach the server."
+                "Could not reach the server."
             default:
                 sentence(url.localizedDescription)
             }
@@ -142,9 +142,19 @@ public struct PattadarAPI: Sendable {
             if text.hasPrefix("<") {
                 return code == 502 || code == 503 || code == 504
                     ? "The server is briefly unavailable — it may be restarting. Pull to refresh in a moment."
-                    : "The server answered \(code)."
+                    : unreachable(code)
             }
-            return "The server answered \(code). \(text.prefix(160))"
+            // A raw body is server machinery (E2) and never reaches the
+            // screen. Only a finished owner sentence passes — the server's
+            // `error` field and the app's own messages are written as one.
+            let sentence = !text.isEmpty && text.count <= 200
+                && !text.hasPrefix("{") && !text.hasPrefix("[")
+                && (text.hasSuffix(".") || text.hasSuffix("?"))
+            return sentence ? text : unreachable(code)
+        }
+
+        static func unreachable(_ code: Int) -> String {
+            "Pattadar could not reach your properties. Try again in a moment (code \(code))."
         }
     }
 

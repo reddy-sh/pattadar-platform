@@ -16,7 +16,7 @@
  *  2. **Narrow rows, never a record.** A `DeskJob` carries a service, a place, a
  *     ref, two figures and a name. It does not carry the owner, the khata, the
  *     survey number or the record id, and nothing on this page links into
- *     another owner's record — only to `/app/desk/jobs/:id`, which is this same
+ *     another owner's record — only to `/desk/jobs/:id`, which is this same
  *     narrow row in full.
  *  3. **Money says set aside and owed.** Nothing on this desk has been charged
  *     to anybody: the provider is a stub and what is held is owed to whoever
@@ -43,10 +43,11 @@ import { Dialog } from '../Dialog';
 import { useDesk, useDeskUnassign, usePortfolio } from '../api';
 import type { Desk as DeskData, DeskJob as DeskJobRow } from '../api';
 import {
-  Cell, Chip, Empty, FacetFilter, Failed, Loading, PageHead, State, Tag,
-  ddmmyyyy, inr, inrFullish, plural,
+  Cell, Empty, FacetFilter, Failed, PageHead, Segmented, State, Tag,
+  ddmmyyyy, inr, inrFullish, num, plural,
 } from '../ui';
-import type { FacetFilterGroup } from '../ui';
+import type { FacetFilterGroup, SegmentOption } from '../ui';
+import { Sk, SkRows } from '../skeletons';
 
 /** What a refused move says. Word for word the sentence Orders.tsx and
  *  Ticket.tsx say for the same refusal, because one job refused in three places
@@ -118,13 +119,13 @@ export function Contact({ contact, masked }: { contact: string; masked?: string 
 export function NotTheDesk() {
   return (
     <main>
-      <PageHead eyebrow="Pattadar desk" title="This screen is for Pattadar staff">
-        <p className="lede">This account is not on the platform admin list.</p>
-      </PageHead>
+      <PageHead title="This screen is for Pattadar staff" />
       <Empty
-        boxed h="14rem" icon="lock" title="Nothing here belongs to this account."
-        action={<Link className="btn primary" to="/app/services">Work you have ordered</Link>}
-      />
+        boxed h="14rem" icon="lock" title="Nothing here belongs to this account"
+        action={<Link className="btn primary" to="/services">Work you have ordered</Link>}
+      >
+        This account is not on the platform admin list.
+      </Empty>
     </main>
   );
 }
@@ -238,6 +239,8 @@ function JobRow({ j }: { j: DeskJobRow }) {
             : j.ageDays >= 3 && <Tag alert>{plural(j.ageDays, 'day')} waiting</Tag>}
           {j.stuck && <Tag alert>Nobody can take it</Tag>}
           {j.overdue && <Tag alert>Past due</Tag>}
+          {/* The owner pressed "Ask for an update" (nudgeTicket). */}
+          {j.askedAt && <Tag alert>Owner asked for an update {ddmmyyyy(j.askedAt)}</Tag>}
         </span>
         <span className="note" style={{ display: 'block', margin: '0.25rem 0 0' }}>
           {j.place || 'Place not recorded'}
@@ -261,13 +264,13 @@ function JobRow({ j }: { j: DeskJobRow }) {
       </span>
       {j.assignee ? (
         <>
-          <Link className="btn sm" to={`/app/desk/jobs/${j.ticketId}`}>Open the job</Link>
+          <Link className="btn sm" to={`/desk/jobs/${j.ticketId}`}>Open the job</Link>
           {j.assigneeRef && (
             <TakeOff ticketId={j.ticketId} jobRef={j.ref} name={j.assignee} />
           )}
         </>
       ) : (
-        <Link className="btn sm primary" to={`/app/desk/jobs/${j.ticketId}`}>Find someone</Link>
+        <Link className="btn sm primary" to={`/desk/jobs/${j.ticketId}`}>Find someone</Link>
       )}
     </div>
   );
@@ -276,7 +279,7 @@ function JobRow({ j }: { j: DeskJobRow }) {
 function JobList({ title, jobs }: { title: string; jobs: DeskJobRow[] }) {
   if (jobs.length === 0) return null;
   return (
-    <section style={{ marginTop: 'var(--space-lg)' }}>
+    <section>
       <div className="row between" style={{ marginBottom: 'var(--space-sm)' }}>
         <h2 style={{ margin: 0, fontSize: '1rem' }}>{title}</h2>
         <span className="note mono">{jobs.length}</span>
@@ -302,7 +305,7 @@ function Strip({ d }: { d: DeskData }) {
     { k: 'Nothing happening', v: d.silentCount, s: '' },
     {
       k: 'Nobody can take it', v: d.stuck, s: 'See coverage',
-      tone: 'down', to: '/app/desk/coverage',
+      tone: 'down', to: '/desk/coverage',
     },
     { k: 'Taking work', v: d.associatesActive, s: 'members' },
   ].filter((c) => c.v > 0);
@@ -319,8 +322,9 @@ function Strip({ d }: { d: DeskData }) {
   );
 }
 
-const SCOPES: [string, string][] = [
-  ['open', 'Open'], ['silent', 'No update'], ['stuck', 'Stuck'], ['all', 'All'],
+const SCOPES: SegmentOption<string>[] = [
+  { value: 'open', label: 'Open' }, { value: 'silent', label: 'No update' },
+  { value: 'stuck', label: 'Stuck' }, { value: 'all', label: 'All' },
 ];
 
 type DeskFilterKey = 'service' | 'location' | 'status' | 'assignment' | 'attention';
@@ -355,11 +359,11 @@ const NOTHING: Record<string, { title: string; body: string }> = {
     body: 'Nothing is waiting.',
   },
   silent: {
-    title: 'Nothing has gone quiet.',
+    title: 'Nothing has gone quiet',
     body: 'Every assigned job has moved in the last few days.',
   },
   stuck: {
-    title: 'Nothing is stuck.',
+    title: 'Nothing is stuck',
     body: 'Every job waiting has at least one person who could be put on it.',
   },
   all: {
@@ -448,23 +452,31 @@ export function Desk() {
     && !data.unassigned && !data.ageing && !data.silentCount
     && !data.stuck && !data.associatesActive;
   const words = NOTHING[scope] ?? NOTHING.open;
+  /** The head's line: desk-wide totals, so scope and facets never move it.
+   *  The job count is the server's uncapped COUNTs, not the lists' length (the
+   *  lists stop at 200). Past due exists only on rows, so it is counted only
+   *  when the lists hold every job — a capped page must not understate it.
+   *  Unassigned and gone-quiet are not repeated: the strip already says them. */
+  const jobTotal = data ? data.unassigned + data.silentCount : 0;
+  const pastDue = universe.length === jobTotal ? universe.filter((job) => job.overdue).length : 0;
+  const summary = jobTotal > 0
+    ? [plural(jobTotal, 'job'), pastDue > 0 && `${num(pastDue)} past due`].filter(Boolean).join(' · ')
+    : undefined;
 
   if (portfolio.data && !portfolio.data.isPlatformAdmin) return <NotTheDesk />;
 
   return (
     <main>
-      <PageHead eyebrow="Pattadar desk" title="Unassigned and stalled jobs" />
+      <PageHead
+        title="Pattadar desk" info="Unassigned and stalled jobs"
+        summary={isLoading ? <Sk w="18rem" h="1rem" r="var(--radius-xs)" /> : summary}
+      />
 
       {/* Chrome outside the three states stays mounted while modes and facets
           reshape the single desk-wide answer. */}
       {!bare && (
         <>
           {data && <Strip d={data} />}
-          <div className="row tight" style={{ marginBottom: 'var(--space-md)' }}>
-            {SCOPES.map(([k, label]) => (
-              <Chip key={k} active={scope === k} onClick={() => setScope(k)}>{label}</Chip>
-            ))}
-          </div>
           {data && universe.length > 0 && (
             <FacetFilter
               groups={groups}
@@ -472,13 +484,27 @@ export function Desk() {
               onToggle={toggleFilter}
               onClear={clearFilters}
               tally={`${filtered.length} of ${scoped.length} shown`}
+              view={(
+                <Segmented label="Which jobs" options={SCOPES} value={scope} onChange={setScope} />
+              )}
               ariaLabel="Filter desk jobs"
             />
           )}
         </>
       )}
 
-      {isLoading ? <Loading h="18rem" what="the desk" />
+      {isLoading ? (
+          // The first list's own head and boxed rows, so the jobs land in place.
+          <div className="stack lg">
+            <section>
+              <div className="row between" style={{ marginBottom: 'var(--space-sm)' }}>
+                <h2 style={{ margin: 0, fontSize: '1rem' }}>Unassigned</h2>
+                <Sk w="1.5rem" />
+              </div>
+              <SkRows rows={4} label="Loading the desk's waiting jobs" />
+            </section>
+          </div>
+        )
         : !data ? <Failed what="The desk" error={error} boxed h="18rem" />
         : bare ? (
           <Empty boxed h="16rem" icon="ok" title="Every job is assigned">
@@ -491,13 +517,14 @@ export function Desk() {
             ) : filtered.length === 0 ? (
               <Empty
                 boxed h="16rem" icon="search" title="No jobs match those filters"
-                action={<button type="button" className="btn sm" onClick={clearFilters}>Clear filters</button>}
+                action={<button type="button" className="btn sm" onClick={clearFilters}>Clear all</button>}
               />
             ) : (
-              <>
+              // 24px under the band, and between the lists (design.md § Page head).
+              <div className="stack lg">
                 <JobList title="Unassigned" jobs={filteredJobs} />
                 <JobList title="Assigned · No recent update" jobs={filteredSilent} />
-              </>
+              </div>
             )}
           </>
         )}

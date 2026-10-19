@@ -28,6 +28,7 @@ class PublicRecordSettings:
     embed_dimensions: int = 1024
     embed_device: str = "auto"
     embeddings_enabled: bool = False
+    coverage: str = "1975–2029"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "schema", _identifier(self.schema, "schema"))

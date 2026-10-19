@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useLocation, useParams } from 'react-router';
+import { parseISOToDisplay } from '@pattadar/core';
 import { downloadBlob } from '../../pages/documents/storage';
 import '../w360.css';
 
@@ -58,6 +59,10 @@ export default function RecipientAccess() {
   const [unreachable, setUnreachable] = useState(false);
   const [opening, setOpening] = useState(true);
   const [busy, setBusy] = useState(false);
+  /** The conversation's own write in flight. Kept apart from `busy`, which
+   *  belongs to the work form and the file/action buttons: sharing one flag
+   *  turned BOTH send buttons into "Sending…" whichever form was sent. */
+  const [replying, setReplying] = useState(false);
   const [message, setMessage] = useState('');
   const [label, setLabel] = useState('');
   const [note, setNote] = useState('');
@@ -121,8 +126,8 @@ export default function RecipientAccess() {
   const sendReply = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const text = reply.trim();
-    if (!text) return;
-    setBusy(true); setError(''); setMessage('');
+    if (!text || replying) return;
+    setReplying(true); setError(''); setMessage('');
     const body = new FormData();
     body.append('label', text); body.append('note', '');
     try {
@@ -131,7 +136,7 @@ export default function RecipientAccess() {
       setMessage('Your message was added to the service conversation.');
       await load();
     } catch (e) { setError(e instanceof Error ? e.message : 'Your message could not be sent.'); }
-    finally { setBusy(false); }
+    finally { setReplying(false); }
   };
 
   return <div className="w360" data-scheme="light" style={{ display: 'block', minHeight: '100vh' }}>
@@ -172,7 +177,7 @@ export default function RecipientAccess() {
               : <span>Original file unavailable</span>}
           </div>)}
           {view.boundary && <button className="btn" onClick={() => downloadBlob(new Blob([JSON.stringify(view.boundary, null, 2)],
-            { type: 'application/geo+json' }), 'shared-boundary.geojson')}>Download boundary GeoJSON</button>}
+            { type: 'application/geo+json' }), 'shared-boundary.geojson')}>Download boundary (map file, GeoJSON)</button>}
         </section>
         {preview && <section className="card">
           <div className="row between"><h2>{preview.title}</h2><button className="btn" onClick={() => setPreview(null)}>Close preview</button></div>
@@ -188,7 +193,7 @@ export default function RecipientAccess() {
                 {view.messages!.map((item) => (
                   <div key={item.id}
                        className={`chat-message${item.actor_kind === 'worker' ? ' owner' : ''}`}>
-                    <span className="note">{item.actor_label || 'Pattadar'} · {item.at.slice(0, 10)}</span>
+                    <span className="note">{item.actor_label || 'Pattadar'} · {parseISOToDisplay(item.at)}</span>
                     <div className="chat-bubble">{item.detail}</div>
                   </div>
                 ))}
@@ -200,8 +205,11 @@ export default function RecipientAccess() {
                   <textarea maxLength={4000} value={reply}
                             onChange={(event) => setReply(event.target.value)} />
                 </label>
-                <button className="btn primary" disabled={busy || !reply.trim()}>
-                  {busy ? 'Sending…' : 'Send to owner'}
+                {/* "Send reply", not "Send to owner": the work form below has
+                    that name, and two buttons called the same thing could not
+                    be told apart by a screen reader. */}
+                <button className="btn primary" disabled={replying || !reply.trim()}>
+                  {replying ? 'Sending…' : 'Send reply'}
                 </button>
               </form>
             )}

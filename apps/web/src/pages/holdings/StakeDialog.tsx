@@ -52,12 +52,14 @@ export function StakeDialog({
     setSaving(true);
     const ok = await setStake(target.kind, target.id, stake);
     setSaving(false);
-    if (ok) {
+    if (ok === true) {
       notify('Stake updated', 'success');
       onDone();
       onClose();
     } else {
-      notify("Couldn't update — try again", 'error');
+      // The api's sentence when it refuses (a record in a holding keeps the
+      // holding's one stake) — retrying would never help there.
+      notify(ok || "Couldn't update — try again", 'error');
     }
   };
 

@@ -1,5 +1,5 @@
 /**
- * W08 · the people hanger — /app/records/:id/people
+ * W08 · the people hanger — /properties/:id/people
  *
  * "Caretakers & staff" is the only screen in the module that mixes five kinds
  * of person on one page and grades them: the ones you pay get the full
@@ -50,7 +50,7 @@ import { test, expect, World } from '../fixtures/harness';
 import type { Page } from '../fixtures/harness';
 import { ID, PERSON } from '../fixtures/ids';
 
-const PEOPLE_OF = (id: string) => `/app/records/${id}/people`;
+const PEOPLE_OF = (id: string) => `/properties/${id}/people`;
 const PARCEL = PEOPLE_OF(ID.parcel);   // three people, two payments, a wallet
 const NOBODY = PEOPLE_OF(ID.plot);     // the same shape, emptied
 /** The People tab now opens on the ownership side; the caretakers and staff
@@ -120,13 +120,15 @@ test.describe('the hanger, drawn', () => {
     await expect(page.getByRole('heading', { level: 2, name: 'People', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Caretakers & staff', exact: true }))
       .toHaveAttribute('aria-pressed', 'true');
-    await expect(page.getByText('Sy 214/2 · Katragunta')).toBeVisible();
+    // Whose people these are is the property's own h1 above the tab (the
+    // shared RecordHead frame); the hanger no longer repeats it as an eyebrow.
+    await expect(page.getByRole('heading', { level: 1, name: 'Sy 214/2' })).toBeVisible();
 
     const crumbs = page.getByRole('navigation', { name: 'Breadcrumb' });
     await expect(crumbs.getByRole('link', { name: 'Properties' }))
-      .toHaveAttribute('href', '/app/properties');
+      .toHaveAttribute('href', '/properties');
     await expect(crumbs.getByRole('link', { name: 'Sy 214/2' }))
-      .toHaveAttribute('href', `/app/records/${ID.parcel}`);
+      .toHaveAttribute('href', `/properties/${ID.parcel}`);
     // The hanger you are standing on is a word, not a link back to itself.
     await expect(crumbs).toContainText('People');
     await expect(crumbs.getByRole('link', { name: 'People' })).toHaveCount(0);
@@ -256,14 +258,17 @@ test.describe('the hanger, drawn', () => {
   test('somebody remembered from a closed job gets one line and one control', async ({ page }) => {
     await gotoStaff(page, PARCEL);
 
-    // Venkat Reddy is filed compact: no card, no arrangement grid, no rename.
+    // Venkat Reddy is filed compact: no card, no arrangement grid. The one
+    // line is itself the one control — it opens his drawer, which is where he
+    // is edited and removed ("click to open, act inside", RecordPeople.tsx).
     await expect(card(page, 'Venkat Reddy')).toHaveCount(0);
     await expect(page.getByText('Venkat Reddy')).toBeVisible();
     await expect(page.getByText('Brother · equal share')).toBeVisible();
     // `exact` because the assistant panel's placeholder also says "family records".
     await expect(page.getByText('Family', { exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Remove Venkat Reddy' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Rename Venkat Reddy' })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Open Venkat Reddy', exact: true }).click();
+    const drawer = page.getByRole('dialog', { name: 'Venkat Reddy', exact: true });
+    await expect(drawer.getByRole('button', { name: 'Remove from this property' })).toBeVisible();
   });
 
   test('a record whose only people came off closed jobs is not a record with nobody on it', async ({ page, world }) => {
@@ -316,8 +321,9 @@ test.describe('the hanger, drawn', () => {
   });
 
   test('a one-line person keeps the labels that go somewhere, and loses the rest the same way', async ({ page, world }) => {
-    // The compact row maps its labels through destOf a second time
-    // (RecordPeople.tsx:379-382), so it can rot apart from the card's copy.
+    // The actions moved off the card and the row into the person's drawer
+    // (RecordPeople.tsx PersonDrawer), which a one-line person opens the same
+    // way a card does — so the row's labels cannot rot apart from the card's.
     world.set('people', peopleView({
       count: 1,
       people: [person({
@@ -328,11 +334,13 @@ test.describe('the hanger, drawn', () => {
     }));
     await gotoStaff(page, PARCEL);
 
-    await expect(page.getByRole('link', { name: 'Lease agreement' }))
-      .toHaveAttribute('href', `/app/records/${ID.parcel}`);
-    await expect(page.getByText('Permissions')).toHaveCount(0);
     // Still one line: a label never promotes the row to a card.
     await expect(page.getByRole('article')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Open Venkat Reddy' }).click();
+    const drawer = page.getByRole('dialog', { name: 'Venkat Reddy' });
+    await expect(drawer.getByRole('link', { name: 'Lease agreement' }))
+      .toHaveAttribute('href', `/properties/${ID.parcel}/documents`);
+    await expect(drawer.getByText('Permissions')).toHaveCount(0);
   });
 
   test('a person filed with nothing but a name says so instead of drawing an empty grid', async ({ page, world }) => {
@@ -362,24 +370,27 @@ test.describe('the hanger, drawn', () => {
     }));
     await gotoStaff(page, PARCEL);
 
-    const acts = card(page, 'Sai Kumar');
+    // The card is one button; the actions live in the drawer it opens.
+    await expect(card(page, 'Sai Kumar').getByRole('link')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Open Sai Kumar' }).click();
+    const acts = page.getByRole('dialog', { name: 'Sai Kumar' });
     await expect(acts.getByRole('link', { name: 'Lease agreement' }))
-      .toHaveAttribute('href', `/app/records/${ID.parcel}`);
+      .toHaveAttribute('href', `/properties/${ID.parcel}/documents`);
     await expect(acts.getByRole('link', { name: 'Track' }))
-      .toHaveAttribute('href', `/app/records/${ID.parcel}/services`);
+      .toHaveAttribute('href', `/properties/${ID.parcel}/services`);
     await expect(acts.getByRole('link', { name: 'Invite to the app' }))
-      .toHaveAttribute('href', '/app/invitations');
+      .toHaveAttribute('href', '/invitations');
 
     // The labels with nothing behind them are dropped, not drawn disabled.
     for (const dead of ['Message', 'Change pay', 'Record a payment', 'Permissions']) {
       await expect(acts.getByText(dead)).toHaveCount(0);
     }
 
-    // And the footnote under the list is where those things are accounted for.
-    await expect(page.getByText(/Who can see this record is granted as a link/)).toBeVisible();
-    await expect(page.getByText(/Messaging a person, setting a visit\s+schedule/)).toBeVisible();
-    await expect(page.getByRole('main').getByRole('link', { name: 'Papers', exact: true }))
-      .toHaveAttribute('href', '/app/papers');
+    // And the drawer's note is where those things are accounted for.
+    await expect(acts.getByText(/Who can see this property is granted as a link/)).toBeVisible();
+    await expect(acts.getByText(/Messaging a person, setting a visit\s+schedule/)).toBeVisible();
+    await expect(acts.getByRole('link', { name: 'Documents', exact: true }))
+      .toHaveAttribute('href', '/papers');
   });
 
   test('the People tab is the one you are standing on, and it carries the record own count', async ({ page }) => {
@@ -434,6 +445,103 @@ test.describe('the owners side', () => {
     await expect(drawer.locator('.eyebrow')).toHaveText('Sy 214/2 · Owners');
     expect(world.calls('addTransfer')).toHaveLength(0);
   });
+
+  test('the Owners head offers Add a transfer filled, with Edit chain and the title orders in the ⋮, last', async ({ page }) => {
+    // Reddy, 13/10/2026: the Owners side had no head action at all, and its
+    // ⋮ sits at the end of the row, after the filled button.
+    await page.goto(PARCEL);
+    const actions = page.locator('header.sechead .actions');
+    await expect(actions.locator('.btn.primary')).toHaveText('Add a transfer');
+    const order = await actions.evaluate((el) => [...el.children].map((c) =>
+      c.classList.contains('primary') ? 'primary' : c.querySelector('[aria-haspopup="menu"]') || c.matches('[aria-haspopup="menu"]') ? 'more' : 'other'));
+    expect(order.indexOf('primary')).toBeLessThan(order.lastIndexOf('more'));
+
+    await actions.getByRole('button', { name: /^More actions for People/ }).click();
+    await expect(page.getByRole('menuitem', { name: 'Edit chain' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Order an encumbrance certificate' })).toBeVisible();
+    await page.getByRole('menuitem', { name: 'Order a title opinion' }).click();
+    await expect(page).toHaveURL(/\/order\?.*service=title_opinion/);
+  });
+});
+
+// ── the band and the two tables (design.md § Page head slot 5, § Tables) ──
+
+test.describe('the band under the head, and the tables in it', () => {
+  test('the side switch and the view choice sit in the band, and the head keeps only commands', async ({ page }) => {
+    // Reddy, 13/10/2026: the head carries commands; scope and view are the band's.
+    await page.goto(PARCEL);
+    const head = page.locator('header.sechead');
+    const band = page.getByRole('toolbar', { name: 'People' });
+    await expect(band.getByRole('group', { name: 'Owners or staff' })).toBeVisible();
+    await expect(band.getByRole('group', { name: 'Ownership view' })).toBeVisible();
+    await expect(head.getByRole('group')).toHaveCount(0);
+    // Side switch first, view at the right.
+    const [side, view] = await Promise.all([
+      band.getByRole('group', { name: 'Owners or staff' }).boundingBox(),
+      band.getByRole('group', { name: 'Ownership view' }).boundingBox(),
+    ]);
+    expect(side!.x).toBeLessThan(view!.x);
+
+    await band.getByRole('button', { name: 'Caretakers & staff', exact: true }).click();
+    await expect(band.getByRole('group', { name: 'Staff view' })).toBeVisible();
+    await expect(head.locator('.btn.primary')).toHaveText('Assign someone');
+    await expect(head.getByRole('group')).toHaveCount(0);
+  });
+
+  test('the Owners table ticks, totals the owners, and exports the ticked ones', async ({ page }) => {
+    await page.goto(PARCEL);
+    await page.getByRole('group', { name: 'Ownership view' }).getByRole('button', { name: 'Table' }).click();
+    const table = page.getByRole('table', { name: 'Owners' });
+    const foot = table.locator('tfoot th');
+    await expect(foot).toHaveText('Total · 1 owner · 1 current');
+
+    await table.getByRole('checkbox', { name: 'Select Shankar Reddy' }).check();
+    await expect(foot).toHaveText('1 owner selected · 1 current');
+    // Ticking is not opening: no drawer comes up for the tick.
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    const bar = page.getByRole('group', { name: 'Act on the selected owners' });
+    const started = page.waitForEvent('download');
+    await bar.getByRole('button', { name: 'Export' }).click();
+    const file = await started;
+    expect(file.suggestedFilename()).toBe(`owners-${ID.parcel}.csv`);
+    const { readFileSync } = await import('node:fs');
+    const csv = readFileSync((await file.path())!, 'utf8');
+    expect(csv).toContain('Name,Status,Role,Parentage,Address,Acquired via');
+    expect(csv).toContain('Shankar Reddy,Current owner');
+    await bar.getByRole('button', { name: 'Clear' }).click();
+    await expect(foot).toHaveText('Total · 1 owner · 1 current');
+  });
+
+  test('the staff table totals the headcount and the monthly pay, and the selection narrows both', async ({ page }) => {
+    await gotoStaff(page, PARCEL);
+    await page.getByRole('group', { name: 'Staff view' }).getByRole('button', { name: 'Table' }).click();
+    const table = page.getByRole('table', { name: 'Caretakers & staff' });
+    await expect(table.locator('tbody tr')).toHaveCount(3);
+    const foot = table.locator('tfoot tr');
+    await expect(foot.locator('th')).toHaveText('Total · 3 people');
+    // Only "/ month" pay is monthly: the tenant's 40% share is not rupees.
+    await expect(foot.locator('td')).toHaveText('₹7,200 / month');
+
+    await table.getByRole('checkbox', { name: 'Select Sai Kumar' }).check();
+    await expect(foot.locator('th')).toHaveText('1 person selected');
+    await expect(foot.locator('td')).toHaveText('₹0 / month');
+    await table.getByRole('checkbox', { name: 'Select all 3 people' }).check();
+    await expect(foot.locator('th')).toHaveText('3 people selected');
+
+    const bar = page.getByRole('group', { name: 'Act on the selected people' });
+    await expect(bar.getByRole('status')).toHaveText('3 people selected');
+    const started = page.waitForEvent('download');
+    await bar.getByRole('button', { name: 'Export' }).click();
+    expect((await started).suggestedFilename()).toBe(`people-${ID.parcel}.csv`);
+  });
+
+  test('a row still opens its person from anywhere but the tick box', async ({ page }) => {
+    await gotoStaff(page, PARCEL);
+    await page.getByRole('group', { name: 'Staff view' }).getByRole('button', { name: 'Table' }).click();
+    await page.getByRole('table', { name: 'Caretakers & staff' }).getByRole('row', { name: /Ramana Rao/ })
+      .getByText('Walks the land weekly').click();
+    await expect(page.getByRole('dialog', { name: 'Ramana Rao', exact: true })).toBeVisible();
+  });
 });
 
 // ── the money column ───────────────────────────────────────────────────
@@ -457,7 +565,7 @@ test.describe('the money on people', () => {
 
   test('the wallet balance is printed to the rupee, the way the wallet itself prints it', async ({ page, world }) => {
     // ₹1,01,000 read as "₹1.01 L" here and ₹1,01,000 a click away on
-    // /app/wallet is ₹433 of daylight between two figures for the same money.
+    // /wallet is ₹433 of daylight between two figures for the same money.
     world.set('people', peopleView({
       count: 1, people: [paid()], monthlyOut: 7_200, walletBalance: 101_000, walletNote: 'In your wallet',
     }));
@@ -477,7 +585,7 @@ test.describe('the money on people', () => {
     await expect(money).toContainText('Your Pattadar wallet');
     await expect(money).not.toContainText('Paid from your Pattadar wallet');
     await expect(money.getByRole('link', { name: 'See the wallet' }))
-      .toHaveAttribute('href', '/app/wallet');
+      .toHaveAttribute('href', '/wallet');
   });
 
   test('when the wallet goes live the card says the pay comes out of it', async ({ page, world }) => {
@@ -695,7 +803,7 @@ test.describe('assigning someone', () => {
     await gotoStaff(page, PARCEL);
     await page.getByRole('button', { name: 'Assign someone' }).click();
     await nameBox(page).fill('  Lakshmi Devi  ');
-    await page.getByRole('button', { name: 'Caretaker' }).click();
+    await page.getByRole('button', { name: 'Caretaker', exact: true }).click();
     await page.getByLabel('Anything worth knowing').fill('  Holds the key  ');
     await assign(page).click();
 
@@ -731,7 +839,7 @@ test.describe('assigning someone', () => {
     await page.getByRole('button', { name: 'Assign someone' }).click();
     await nameBox(page).fill('Lakshmi Devi');
 
-    const caretaker = page.getByRole('button', { name: 'Caretaker' });
+    const caretaker = page.getByRole('button', { name: 'Caretaker', exact: true });
     await caretaker.click();
     await expect(caretaker).toHaveAttribute('aria-pressed', 'true');
     await caretaker.click();
@@ -833,15 +941,15 @@ test.describe('assigning someone', () => {
 
     await page.getByRole('button', { name: 'Assign someone' }).click();
     await nameBox(page).fill('Lakshmi Devi');
-    await page.getByRole('button', { name: 'Caretaker' }).click();
+    await page.getByRole('button', { name: 'Caretaker', exact: true }).click();
     await assign(page).click();
 
     // Scoped to the alert: a refusal that is only drawn in red says nothing to
     // somebody who cannot see red.
     await expect(page.getByRole('alert'))
-      .toHaveText('That person was not filed. This record may no longer be yours to edit.');
+      .toHaveText('That person was not added. This property may no longer be yours to edit.');
     await expect(nameBox(page)).toHaveValue('Lakshmi Devi');
-    await expect(page.getByRole('button', { name: 'Caretaker' }))
+    await expect(page.getByRole('button', { name: 'Caretaker', exact: true }))
       .toHaveAttribute('aria-pressed', 'true');
   });
 
@@ -852,7 +960,7 @@ test.describe('assigning someone', () => {
     await page.getByRole('button', { name: 'Assign someone' }).click();
     await nameBox(page).fill('Lakshmi Devi');
     await assign(page).click();
-    await expect(page.getByText(/This record may no longer be yours to edit/)).toBeVisible();
+    await expect(page.getByText(/This property may no longer be yours to edit/)).toBeVisible();
 
     // Cancel is a deliberate press, so it closes at once — it is Escape and a
     // slipped click on the scrim that ask first (Drawer.tryClose).
@@ -862,7 +970,7 @@ test.describe('assigning someone', () => {
     // A stale refusal over an empty form is a message about a person who is not
     // on screen any more.
     await expect(nameBox(page)).toHaveValue('');
-    await expect(page.getByText(/This record may no longer be yours to edit/)).toHaveCount(0);
+    await expect(page.getByText(/This property may no longer be yours to edit/)).toHaveCount(0);
   });
 
   test('a person the server never hears about keeps the typed name and says to try again', async ({ page, world }) => {
@@ -873,7 +981,7 @@ test.describe('assigning someone', () => {
     await nameBox(page).fill('Lakshmi Devi');
     await assign(page).click();
 
-    await expect(page.getByText('That person was not filed. Try again.'))
+    await expect(page.getByText('That person was not added. Try again.'))
       .toBeVisible();
     await expect(nameBox(page)).toHaveValue('Lakshmi Devi');
 
@@ -888,12 +996,12 @@ test.describe('assigning someone', () => {
     await page.getByRole('button', { name: 'Assign someone' }).click();
     await nameBox(page).fill('Lakshmi Devi');
     await assign(page).click();
-    await expect(page.getByText(/This record may no longer be yours to edit/)).toBeVisible();
+    await expect(page.getByText(/This property may no longer be yours to edit/)).toBeVisible();
 
     world.set('addPerson', 'w-person-new');
     await assign(page).click();
 
-    await expect(page.getByText(/This record may no longer be yours to edit/)).toHaveCount(0);
+    await expect(page.getByText(/This property may no longer be yours to edit/)).toHaveCount(0);
     await expect(nameBox(page)).toHaveCount(0);
     expect(world.calls('addPerson')).toHaveLength(2);
   });
@@ -937,27 +1045,43 @@ test.describe('assigning someone', () => {
 });
 
 // ── renaming ───────────────────────────────────────────────────────────
+//
+// Rewritten 07/10/2026. A card used to carry its own pencil and an inline
+// rename box. A card is now one button that opens the person's own drawer
+// (RecordPeople.tsx PersonDrawer) — the one place their details are edited —
+// so a rename is "open, change Their name, Save changes".
+
+const openPerson = async (page: Page, name: string) => {
+  await page.getByRole('button', { name: `Open ${name}`, exact: true }).click();
+  const drawer = page.getByRole('dialog', { name, exact: true });
+  await expect(drawer).toBeVisible();
+  return drawer;
+};
+const theirName = (page: Page) => page.getByLabel('Their name', { exact: true });
+const saveChanges = (page: Page) => page.getByRole('button', { name: 'Save changes' });
 
 test.describe('renaming somebody', () => {
-  test('renaming opens an editor with the name already in it, and Save refuses an emptied one', async ({ page }) => {
+  test('a person’s drawer opens with the name already in it, and Save refuses an emptied one', async ({ page }) => {
     await gotoStaff(page, PARCEL);
-    await page.getByRole('button', { name: 'Rename Ramana Rao' }).click();
+    await openPerson(page, 'Ramana Rao');
 
-    const box = page.getByRole('textbox', { name: 'Rename Ramana Rao' });
+    const box = theirName(page);
     await expect(box).toHaveValue('Ramana Rao');
     await expect(box).toBeFocused();
+    // Nothing changed yet, so there is nothing to save.
+    await expect(saveChanges(page)).toBeDisabled();
 
     await box.fill('');
-    await expect(page.getByRole('button', { name: 'Save' })).toBeDisabled();
+    await expect(saveChanges(page)).toBeDisabled();
     await box.fill('   ');
-    await expect(page.getByRole('button', { name: 'Save' })).toBeDisabled();
+    await expect(saveChanges(page)).toBeDisabled();
   });
 
   test('saving a new name calls updatePerson for that person and nobody else', async ({ page, world }) => {
     await gotoStaff(page, PARCEL);
-    await page.getByRole('button', { name: 'Rename Ramana Rao' }).click();
-    await page.getByRole('textbox', { name: 'Rename Ramana Rao' }).fill('  Ramana Rao Naidu  ');
-    await page.getByRole('button', { name: 'Save' }).click();
+    const drawer = await openPerson(page, 'Ramana Rao');
+    await theirName(page).fill('  Ramana Rao Naidu  ');
+    await saveChanges(page).click();
 
     await expect.poll(() => world.calls('updatePerson').length).toBe(1);
     expect(world.lastVars('updatePerson')).toMatchObject({
@@ -965,61 +1089,56 @@ test.describe('renaming somebody', () => {
       personName: 'Ramana Rao Naidu',
       role: '',
       summary: '',
+      photoRef: '',
     });
 
-    // The editor closes and the pencil takes the focus back.
-    await expect(page.getByRole('textbox', { name: 'Rename Ramana Rao' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Rename Ramana Rao' })).toBeFocused();
+    // The drawer closes and the card that opened it takes the focus back.
+    await expect(drawer).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Open Ramana Rao', exact: true })).toBeFocused();
     await expect.poll(() => world.calls('people').length).toBeGreaterThan(1);
   });
 
-  test('a rename the server refuses keeps the editor open with what was typed in it', async ({ page, world }) => {
+  test('a rename the server refuses keeps the drawer open with what was typed in it', async ({ page, world }) => {
     world.set('updatePerson', false);
     await gotoStaff(page, PARCEL);
 
-    await page.getByRole('button', { name: 'Rename Ramana Rao' }).click();
-    await page.getByRole('textbox', { name: 'Rename Ramana Rao' }).fill('Ramana Rao Naidu');
-    await page.getByRole('button', { name: 'Save' }).click();
+    const drawer = await openPerson(page, 'Ramana Rao');
+    await theirName(page).fill('Ramana Rao Naidu');
+    await saveChanges(page).click();
 
-    await expect(page.getByText('That name was not changed. The person may already be off this record.'))
-      .toBeVisible();
-    await expect(page.getByRole('textbox', { name: 'Rename Ramana Rao' })).toHaveValue('Ramana Rao Naidu');
+    await expect(drawer.getByRole('alert'))
+      .toHaveText('That change was not saved. This person may already be off this property.');
+    await expect(theirName(page)).toHaveValue('Ramana Rao Naidu');
   });
 
   test('a rename that cannot be sent keeps what was typed', async ({ page, world }) => {
     world.set('updatePerson', World.gqlError('record_people is read-only right now'));
     await gotoStaff(page, PARCEL);
 
-    await page.getByRole('button', { name: 'Rename Ramana Rao' }).click();
-    await page.getByRole('textbox', { name: 'Rename Ramana Rao' }).fill('Ramana Rao Naidu');
-    await page.getByRole('button', { name: 'Save' }).click();
+    const drawer = await openPerson(page, 'Ramana Rao');
+    await theirName(page).fill('Ramana Rao Naidu');
+    await saveChanges(page).click();
 
-    await expect(page.getByText('That name could not be changed. What you typed is still here.'))
-      .toBeVisible();
-    await expect(page.getByRole('textbox', { name: 'Rename Ramana Rao' })).toHaveValue('Ramana Rao Naidu');
+    await expect(drawer.getByRole('alert')).toHaveText('That change could not be saved. Try again.');
+    await expect(theirName(page)).toHaveValue('Ramana Rao Naidu');
   });
 
   test('a rename that cannot be sent says why it could not be sent', async ({ page, world }) => {
-    // DEFECT: apps/web/src/w360/pages/RecordPeople.tsx:122-123 catches the
-    // failed write with a bare `} catch {` and raises `toast.bad(text)` with no
-    // second argument, so the reason the server gave is dropped on the floor.
-    // The toast is built to carry it — `bad: (text, error?)` prints it small
-    // under the sentence (w360/Toast.tsx:51, :122) — and this module's own
-    // standard says a failure with no reason "cannot be supported at all"
-    // (w360/ui.tsx:675-679), which is why the Failed panel three inches away
-    // prints its reason verbatim. Whoever is on the phone to the owner is owed
-    // the same sentence here. The identical `} catch {` sits on the add at
-    // :90 and on the removal at :141.
+    // DEFECT: PersonDrawer's `save` (RecordPeople.tsx) catches the failed
+    // write with a bare `} catch {` and prints a fixed sentence, so the reason
+    // the server gave is dropped on the floor — while the Failed panel on the
+    // same tab prints its reason verbatim (w360/ui.tsx). Whoever is on the
+    // phone to the owner is owed the reason here too. The identical bare
+    // catch sits on `remove` beside it.
     test.fail();
     world.set('updatePerson', World.gqlError('record_people is read-only right now'));
     await gotoStaff(page, PARCEL);
 
-    await page.getByRole('button', { name: 'Rename Ramana Rao' }).click();
-    await page.getByRole('textbox', { name: 'Rename Ramana Rao' }).fill('Ramana Rao Naidu');
-    await page.getByRole('button', { name: 'Save' }).click();
+    await openPerson(page, 'Ramana Rao');
+    await theirName(page).fill('Ramana Rao Naidu');
+    await saveChanges(page).click();
 
-    await expect(page.getByText('That name could not be changed. What you typed is still here.'))
-      .toBeVisible();
+    await expect(page.getByText('That change could not be saved. Try again.')).toBeVisible();
     await expect(page.getByText('record_people is read-only right now')).toBeVisible();
   });
 
@@ -1027,58 +1146,43 @@ test.describe('renaming somebody', () => {
     world.set('updatePerson', World.slow(1_500, true));
     await gotoStaff(page, PARCEL);
 
-    await page.getByRole('button', { name: 'Rename Ramana Rao' }).click();
-    await page.getByRole('textbox', { name: 'Rename Ramana Rao' }).fill('Ramana Rao Naidu');
-    await page.getByRole('button', { name: 'Save' }).click();
+    const drawer = await openPerson(page, 'Ramana Rao');
+    await theirName(page).fill('Ramana Rao Naidu');
+    await saveChanges(page).click();
 
     const saving = page.getByRole('button', { name: 'Saving…' });
     await expect(saving).toBeVisible();
     await expect(saving).toBeDisabled();
 
-    await expect(page.getByRole('textbox', { name: 'Rename Ramana Rao' })).toHaveCount(0);
+    await expect(drawer).toHaveCount(0);
     expect(world.calls('updatePerson')).toHaveLength(1);
   });
 
-  test('cancelling a rename changes nothing and gives the pencil its focus back', async ({ page, world }) => {
+  test('cancelling a rename changes nothing and gives the card its focus back', async ({ page, world }) => {
     await gotoStaff(page, PARCEL);
-    await page.getByRole('button', { name: 'Rename Ramana Rao' }).click();
-    await page.getByRole('textbox', { name: 'Rename Ramana Rao' }).fill('Somebody Else');
-    await page.getByRole('button', { name: 'Cancel' }).click();
+    const drawer = await openPerson(page, 'Ramana Rao');
+    await theirName(page).fill('Somebody Else');
+    await drawer.getByRole('button', { name: 'Cancel' }).click();
 
-    await expect(page.getByRole('textbox', { name: 'Rename Ramana Rao' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Rename Ramana Rao' })).toBeFocused();
+    await expect(drawer).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Open Ramana Rao', exact: true })).toBeFocused();
     await expect(card(page, 'Ramana Rao')).toBeVisible();
+    await expect(page.getByText('Somebody Else')).toHaveCount(0);
     expect(world.calls('updatePerson')).toHaveLength(0);
   });
 
-  test('only the person whose pencil was pressed gets an editor', async ({ page }) => {
+  test('a name half-typed against one person never arrives prefilled against the next', async ({ page }) => {
     await gotoStaff(page, PARCEL);
-    await page.getByRole('button', { name: 'Rename Ramana Rao' }).click();
+    const first = await openPerson(page, 'Ramana Rao');
+    await theirName(page).fill('Somebody Else');
+    await first.getByRole('button', { name: 'Cancel' }).click();
+    await expect(first).toHaveCount(0);
 
-    await expect(page.getByRole('textbox', { name: 'Rename Ramana Rao' })).toBeVisible();
-    await expect(page.getByRole('textbox', { name: 'Rename Sai Kumar' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Rename Sai Kumar' })).toBeVisible();
-    // His own remove control stands down while he is being renamed: one row,
-    // one question at a time (RecordPeople.tsx:311-357 is a single ternary).
-    await expect(page.getByRole('button', { name: 'Remove Ramana Rao' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Remove Sai Kumar' })).toBeVisible();
-  });
-
-  test('pressing a second pencil moves the editor rather than opening another one', async ({ page }) => {
-    // There is ONE draft for the whole list (RecordPeople.tsx:61), so a name
-    // half-typed against one person is exactly what could arrive prefilled
-    // against the next.
-    await gotoStaff(page, PARCEL);
-    await page.getByRole('button', { name: 'Rename Ramana Rao' }).click();
-    await page.getByRole('textbox', { name: 'Rename Ramana Rao' }).fill('Somebody Else');
-
-    await page.getByRole('button', { name: 'Rename Sai Kumar' }).click();
-
-    await expect(page.getByRole('textbox', { name: 'Rename Ramana Rao' })).toHaveCount(0);
-    await expect(page.getByRole('textbox', { name: 'Rename Sai Kumar' })).toHaveValue('Sai Kumar');
-    // The abandoned draft went nowhere near Ramana Rao's card.
+    await openPerson(page, 'Sai Kumar');
+    await expect(theirName(page)).toHaveValue('Sai Kumar');
+    // One drawer at a time: the other person has none of their own open.
+    await expect(page.getByRole('dialog', { name: 'Ramana Rao', exact: true })).toHaveCount(0);
     await expect(card(page, 'Ramana Rao')).toBeVisible();
-    await expect(page.getByText('Somebody Else')).toHaveCount(0);
   });
 });
 
@@ -1091,12 +1195,6 @@ test.describe('renaming somebody', () => {
  *  drawer (Drawer.tsx `over`, PropertyActions.tsx ConfirmDialog), naming the
  *  person and saying what goes: this property's row, nothing on any other. */
 test.describe('taking somebody off', () => {
-  const openPerson = async (page: Page, name: string) => {
-    await page.getByRole('button', { name: `Open ${name}`, exact: true }).click();
-    const drawer = page.getByRole('dialog', { name, exact: true });
-    await expect(drawer).toBeVisible();
-    return drawer;
-  };
   const askToRemove = async (page: Page, name: string) => {
     const drawer = await openPerson(page, name);
     await drawer.getByRole('button', { name: 'Remove from this property' }).click();
@@ -1180,7 +1278,7 @@ test.describe('taking somebody off', () => {
     await question.getByRole('button', { name: 'Remove', exact: true }).click();
 
     await expect(question.getByRole('alert'))
-      .toHaveText('That person could not be removed. They are still filed here.');
+      .toHaveText('That person could not be removed. They are still on this property.');
     await expect(card(page, 'Ramana Rao')).toHaveCount(1);
   });
 
@@ -1232,9 +1330,10 @@ test.describe('nobody, still coming, failed', () => {
     await expect(page.getByText('No caretakers or staff recorded')).toBeVisible();
     await expect(page.getByRole('article')).toHaveCount(0);
 
-    // The headcount is honest about the zero rather than hiding the line; the
-    // pay figures belong to the rail, which waits for somebody with pay.
-    await expect(page.locator('header.sechead p.note')).toHaveText('0 people');
+    // A first-run empty side has no line under the heading — the empty state
+    // says it (design.md § Page head, one level down); the pay figures belong
+    // to the rail, which waits for somebody with pay.
+    await expect(page.locator('header.sechead p.note')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Assign someone' })).toBeVisible();
 
     // The footnote is about a list, and there is no list — the one sentence on
@@ -1296,7 +1395,7 @@ test.describe('nobody, still coming, failed', () => {
     world.set('people', World.never());
     await gotoStaff(page, PARCEL);
 
-    await expect(page.getByRole('main').getByRole('status')).toContainText('Loading…');
+    await expect(page.getByRole('main').getByRole('status', { name: 'Loading the people on this property' })).toBeVisible();
     // The heading, the side you are on and the tab strip belong to the
     // record, which has landed.
     await expect(page.getByRole('heading', { level: 2, name: 'People', exact: true })).toBeVisible();
@@ -1383,9 +1482,9 @@ test.describe('nobody, still coming, failed', () => {
 
     // The refetch after a successful write is the one that lands here.
     world.set('people', World.gqlError('the people store went down mid-edit'));
-    await page.getByRole('button', { name: 'Rename Ramana Rao' }).click();
-    await page.getByRole('textbox', { name: 'Rename Ramana Rao' }).fill('Ramana Rao Naidu');
-    await page.getByRole('button', { name: 'Save' }).click();
+    await openPerson(page, 'Ramana Rao');
+    await theirName(page).fill('Ramana Rao Naidu');
+    await saveChanges(page).click();
 
     await expect.poll(() => world.calls('people').length).toBeGreaterThan(1);
     await expect(card(page, 'Ramana Rao')).toBeVisible();
@@ -1396,7 +1495,7 @@ test.describe('nobody, still coming, failed', () => {
   test('a record that is not in your portfolio is never asked who looks after it', async ({ page, world }) => {
     await page.goto(PEOPLE_OF(ID.missing));
 
-    await expect(page.getByRole('heading', { name: "This property isn't in your account" }))
+    await expect(page.getByRole('heading', { name: "This property is not in your account" }))
       .toBeVisible();
     expect(world.asked('people')).toBe(false);
   });
@@ -1428,7 +1527,7 @@ test.describe('nobody, still coming, failed', () => {
 
 /**
  * PersonDialog (apps/web/src/pages/families/PersonDialog.tsx) is the OTHER
- * place this app files a person. /app/groups is the W360 screen
+ * place this app files a person. /groups is the W360 screen
  * (w360/pages/Groups.tsx), which opens this same PersonDialog lazily from
  * "Add a person" (specs/30-groups.spec.ts); these tests drive it through
  * /legacy/groups, whose families hooks read the legacy GraphQL surface
@@ -1556,7 +1655,7 @@ async function openPersonDialog(page: Page): Promise<void> {
   await page.goto('/legacy/groups');
   await expect(page.getByRole('heading', { name: 'Families & Groups' })).toBeVisible();
   await page.getByRole('button', { name: 'Add member' }).click();
-  await expect(page.getByRole('heading', { name: 'Add person' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Add member' })).toBeVisible();
 }
 
 test.describe('the other person editor, on the previous interface', () => {
@@ -1590,7 +1689,7 @@ test.describe('the other person editor, on the previous interface', () => {
     await page.getByRole('button', { name: 'Add', exact: true }).click();
     await expect(page.getByText('Name is required')).toBeVisible();
     // The dialog stays open with everything still in it.
-    await expect(page.getByRole('heading', { name: 'Add person' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Add member' })).toBeVisible();
     expect(legacy.saved).toHaveLength(0);
   });
 
@@ -1616,7 +1715,7 @@ test.describe('the other person editor, on the previous interface', () => {
       // Nobody was asked for a share, so nothing is claimed about one.
       kind: 'legalheir',
     });
-    await expect(page.getByRole('heading', { name: 'Add person' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Add member' })).toHaveCount(0);
     // And the screen says it happened, rather than closing on silence.
     await expect(page.getByText('Added')).toBeVisible();
   });
@@ -1633,13 +1732,13 @@ test.describe('the other person editor, on the previous interface', () => {
     await expect(page.getByRole('columnheader', { name: 'Role' })).toBeVisible();
 
     await page.getByRole('button', { name: 'Add member' }).click();
-    await expect(page.getByRole('heading', { name: 'Add person' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Add member' })).toBeVisible();
     await expect(page.getByRole('combobox', { name: 'Role' })).toBeVisible();
     await expect(page.getByRole('combobox', { name: 'Relationship to you' })).toHaveCount(0);
 
     await page.getByLabel('Full name').fill('Suresh Babu');
     await page.getByRole('combobox', { name: 'Role' }).click();
-    await page.getByRole('option', { name: 'Managing Partner', exact: true }).click();
+    await page.getByRole('option', { name: 'Managing partner', exact: true }).click();
     await page.getByRole('button', { name: 'Add', exact: true }).click();
 
     await expect.poll(() => legacy.saved.length).toBe(1);
@@ -1654,9 +1753,9 @@ test.describe('the other person editor, on the previous interface', () => {
 
     await page.getByLabel('Full name').fill('Lakshmi Devi');
     // By role rather than by label: the checkbox beside it is *named* "Present
-    // address same as mine", which getByLabel matches as a substring too.
+    // address same as yours", which getByLabel matches as a substring too.
     await page.getByRole('textbox', { name: 'Present address' }).fill('Somewhere else entirely');
-    await page.getByRole('checkbox', { name: 'Present address same as mine' }).check();
+    await page.getByRole('checkbox', { name: 'Present address same as yours' }).check();
     // The box replaces the field rather than sitting beside it, so there is
     // only ever one answer on screen (PersonDialog.tsx:530).
     await expect(page.getByRole('textbox', { name: 'Present address' })).toHaveCount(0);
@@ -1672,7 +1771,7 @@ test.describe('the other person editor, on the previous interface', () => {
 
     await page.getByLabel('Full name').fill('Lakshmi Devi');
     await page.getByLabel('Phone').fill('98480 22222');
-    await page.getByRole('switch', { name: /Is a beneficiary/ }).check();
+    await page.getByRole('switch', { name: /Is an heir/ }).check();
     await page.getByRole('button', { name: 'Add', exact: true }).click();
 
     await expect.poll(() => legacy.saved.length).toBe(1);
@@ -1682,7 +1781,7 @@ test.describe('the other person editor, on the previous interface', () => {
       name: 'Lakshmi Devi', phone: '+91 9848022222', email: '', isBeneficiary: true,
     });
     // A phone IS a way of reaching them, so the beneficiary rule is satisfied.
-    await expect(page.getByText('Add a mobile number or email so this beneficiary can be verified'))
+    await expect(page.getByText('Add a mobile number or email so this heir can be verified.'))
       .toHaveCount(0);
   });
 
@@ -1692,7 +1791,7 @@ test.describe('the other person editor, on the previous interface', () => {
 
     await page.getByLabel('Full name').fill('Lakshmi Devi');
     await page.getByLabel('Email').fill('lakshmi@example.com');
-    await page.getByRole('switch', { name: /Is a beneficiary/ }).check();
+    await page.getByRole('switch', { name: /Is an heir/ }).check();
     await page.getByLabel('Aadhaar (KYC)').fill('123456789012');
     // Typed in one run, read back in fours — the grouping is for the eye only.
     await expect(page.getByLabel('Aadhaar (KYC)')).toHaveValue('1234 5678 9012');
@@ -1710,7 +1809,7 @@ test.describe('the other person editor, on the previous interface', () => {
 
     await page.getByLabel('Full name').fill('Lakshmi Devi');
     await page.getByLabel('Email').fill('lakshmi@example.com');
-    await page.getByRole('switch', { name: /Is a beneficiary/ }).check();
+    await page.getByRole('switch', { name: /Is an heir/ }).check();
     await page.getByLabel('Share %').fill('40');
     await page.getByRole('button', { name: 'Add', exact: true }).click();
 
@@ -1719,7 +1818,7 @@ test.describe('the other person editor, on the previous interface', () => {
     // way the owner learns WHICH share is already spoken for.
     await expect(page.getByRole('alert')).toContainText('Shares for this group would exceed 100%');
     await expect(page.getByRole('alert')).toContainText('80.0% already allocated');
-    await expect(page.getByRole('heading', { name: 'Add person' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Add member' })).toBeVisible();
     await expect(page.getByLabel('Full name')).toHaveValue('Lakshmi Devi');
     expect(legacy.saved, 'it was sent, and it was refused').toHaveLength(1);
   });
@@ -1737,7 +1836,7 @@ test.describe('the other person editor, on the previous interface', () => {
     // Cancel goes with it: half a person is not something to walk away from.
     await expect(page.getByRole('button', { name: 'Cancel' })).toBeDisabled();
 
-    await expect(page.getByRole('heading', { name: 'Add person' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Add member' })).toHaveCount(0);
     expect(legacy.saved).toHaveLength(1);
   });
 
@@ -1762,7 +1861,7 @@ test.describe('the other person editor, on the previous interface', () => {
     world.set('root.linkAadhaarCard', true);
     await legacyFamilies(page);
     await openPersonDialog(page);
-    await page.getByRole('switch', { name: /Is a beneficiary/ }).check();
+    await page.getByRole('switch', { name: /Is an heir/ }).check();
 
     const input = page.getByRole('dialog').locator('input[type="file"]').first();
     await input.setInputFiles(AADHAAR_SCAN);
@@ -1941,10 +2040,10 @@ test.describe('the other person editor, on the previous interface', () => {
     await openPersonDialog(page);
 
     await page.getByLabel('Full name').fill('Lakshmi Devi');
-    await page.getByRole('switch', { name: /Is a beneficiary/ }).check();
+    await page.getByRole('switch', { name: /Is an heir/ }).check();
     await page.getByRole('button', { name: 'Add', exact: true }).click();
 
-    await expect(page.getByText('Add a mobile number or email so this beneficiary can be verified'))
+    await expect(page.getByText('Add a mobile number or email so this heir can be verified.'))
       .toBeVisible();
     expect(legacy.saved).toHaveLength(0);
   });
@@ -1955,7 +2054,7 @@ test.describe('the other person editor, on the previous interface', () => {
 
     await page.getByLabel('Full name').fill('Lakshmi Devi');
     await page.getByLabel('Email').fill('lakshmi@example.com');
-    await page.getByRole('switch', { name: /Is a beneficiary/ }).check();
+    await page.getByRole('switch', { name: /Is an heir/ }).check();
     await page.getByLabel('Aadhaar (KYC)').fill('1234 5678');
     await page.getByRole('button', { name: 'Add', exact: true }).click();
 
@@ -1967,7 +2066,7 @@ test.describe('the other person editor, on the previous interface', () => {
     await legacyFamilies(page);
     await openPersonDialog(page);
 
-    await page.getByRole('switch', { name: /Is a beneficiary/ }).check();
+    await page.getByRole('switch', { name: /Is an heir/ }).check();
     await expect(page.getByLabel('Aadhaar (KYC)')).toBeVisible();
     await expect(page.getByText(/Stored encrypted; lists show only the last 4 digits/)).toBeVisible();
   });
@@ -1987,7 +2086,7 @@ test.describe('the other person editor, on the previous interface', () => {
     await page.getByLabel('Full name').fill('Anjali');
     await page.getByLabel('Email').fill('anjali.guardian@example.com');
     await page.getByLabel('Date of birth').fill('2015-06-01');
-    await page.getByRole('switch', { name: /Is a beneficiary/ }).check();
+    await page.getByRole('switch', { name: /Is an heir/ }).check();
 
     await expect(page.getByText('⚠️ Minor — guardian required')).toBeVisible();
     await page.getByRole('button', { name: 'Add', exact: true }).click();
@@ -2003,14 +2102,14 @@ test.describe('the other person editor, on the previous interface', () => {
 
     await page.getByLabel('Full name').fill('Lakshmi Devi');
     await page.getByLabel('Email').fill('lakshmi@example.com');
-    await page.getByRole('switch', { name: /Is a beneficiary/ }).check();
+    await page.getByRole('switch', { name: /Is an heir/ }).check();
     await page.getByRole('combobox', { name: 'Marital status' }).click();
     await page.getByRole('option', { name: 'Married', exact: true }).click();
 
-    await expect(page.getByText('Spouse (co-heir)')).toBeVisible();
+    await expect(page.getByText('Spouse (also an heir)')).toBeVisible();
     await page.getByRole('button', { name: 'Add', exact: true }).click();
 
-    await expect(page.getByText('Add the spouse for a married beneficiary')).toBeVisible();
+    await expect(page.getByText('Add the spouse for a married heir.')).toBeVisible();
     expect(legacy.saved).toHaveLength(0);
   });
 
@@ -2020,7 +2119,7 @@ test.describe('the other person editor, on the previous interface', () => {
     await page.getByRole('button', { name: 'Member actions' }).click();
     await page.getByRole('menuitem', { name: 'Edit' }).click();
 
-    await expect(page.getByRole('heading', { name: 'Edit person' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Edit member' })).toBeVisible();
     await expect(page.getByLabel('Full name')).toHaveValue('Venkat Reddy');
     await expect(page.getByLabel('Date of birth')).toHaveValue('1979-04-02');
 
@@ -2051,7 +2150,7 @@ test.describe('the other person editor, on the previous interface', () => {
     await page.getByLabel('Full name').fill('Lakshmi Devi');
     await page.getByRole('button', { name: 'Cancel' }).click();
 
-    await expect(page.getByRole('heading', { name: 'Add person' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Add member' })).toHaveCount(0);
     expect(legacy.saved).toHaveLength(0);
 
     // And the next person starts from an empty form, not from the abandoned one.

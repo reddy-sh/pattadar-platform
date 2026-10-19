@@ -1,5 +1,5 @@
 /**
- * 06 · the features hanger — /app/records/:id/features (W07).
+ * 06 · the features hanger — /properties/:id/site-features (W07).
  *
  * What is on the land, and whether it works. Every card here is a thing an
  * expense, a photo and a repair history hang off, which is why this screen has
@@ -56,16 +56,14 @@
  *
  *   · The one thing on this page that costs money no longer happens on it.
  *     "Ask for a site visit" (it was "Ask for a check" until 28/09/2026) is a
- *     `<Link>` into the order flow at
- *     `/app/records/:id/order` (RecordFeatures.tsx:243-244), so there is no
+ *     More-menu item (Reddy, 13/10/2026) into the one order flow at `/order` (orderHref,
+ *     RecordFeatures.tsx), so there is no
  *     dialog, no `orderService` call and no refusal sentence to assert here
  *     any more — `world.calls('orderService')` is empty on every path through
  *     this screen, and the four steps behind that link are 13-services.spec.ts.
  *     What the page kept is the pair of guards on the control itself: a visit
  *     already filed turns it into a way back to the job, and orders it could
- *     not read turn it into a real disabled `<button>` rather than a link
- *     dressed as one, because a `<Link>` has no `disabled` and navigates
- *     anyway.
+ *     not read turn it into a disabled item a forced press cannot follow.
  *
  *   · An assertion that something is ABSENT is true of a page that has not
  *     drawn yet, so every one of them below stands AFTER something positive on
@@ -262,7 +260,7 @@ const conditionCount = (page: Page, word: string) => railCard(page, 'Condition')
   .locator('.kv > div').filter({ has: page.locator('.k', { hasText: new RegExp('^' + reEscape(word) + '$') }) })
   .locator('.v');
 
-const featuresUrl = (id: string) => `/app/records/${id}/features`;
+const featuresUrl = (id: string) => `/properties/${id}/site-features`;
 
 // ── what the world ships with ──────────────────────────────────────────
 
@@ -298,9 +296,9 @@ test.describe('W07 · what is on this land', () => {
     await page.goto(featuresUrl(ID.parcel));
     // Rewritten 27/09/2026. The tab's own heading is true of every record, so
     // the record has to be named somewhere. Since 07944a0 that is the record
-    // header's <h1>, with the place line beside it, on every tab.
+    // header's <h1>, with the place in the meta row under it, on every tab.
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sy 214/2');
-    await expect(page.locator('p.lede')).toContainText('Katragunta, Markapur, Prakasam');
+    await expect(page.locator('.pagehead-meta')).toContainText('Katragunta, Markapur, Prakasam');
   });
 
   test('the summary line counts the features, and the rail says what state they are in and since when', async ({ page }) => {
@@ -332,10 +330,13 @@ test.describe('W07 · what is on this land', () => {
       .toHaveText([/^Working\s*2$/, /^Watch it\s*1$/, /^Not checked\s*1$/]);
   });
 
-  test('the grid says how it is ordered and that each feature carries its own pin and photos', async ({ page }) => {
+  // The sub line says the total and nothing else: each fact once (design.md
+  // § Property tabs, "Tell a fact once"; RecordFeatures.tsx `featuresSub`).
+  // The ordering sentence it used to carry is gone on purpose.
+  test('the grid’s heading line says how many features there are, once', async ({ page }) => {
     await page.goto(featuresUrl(ID.parcel));
-    await expect(page.getByText('Worst condition first · every one carries its own pin and its own photos'))
-      .toBeVisible();
+    await expect(page.locator('header.sechead p.note')).toHaveText(/^\d+ site features?$/);
+    await expect(page.getByText(/Worst condition first/)).toHaveCount(0);
   });
 
   test('a walked date the server sends as a plain ISO day is read out as a date', async ({ page, world }) => {
@@ -538,7 +539,7 @@ test.describe('W07 · where each thing is, and what has been photographed of it'
     await page.goto(featuresUrl(ID.parcel));
     await cardFor(page, 'Open well').getByRole('link', { name: '4 photos' }).click();
 
-    await expect(page).toHaveURL(new RegExp(`/app/records/${ID.parcel}/photos\\?feature=${FEATURE.well}$`));
+    await expect(page).toHaveURL(new RegExp(`/properties/${ID.parcel}/media\\?feature=${FEATURE.well}$`));
     await expect.poll(() => world.asked('photos')).toBe(true);
     expect(world.lastVars('photos')).toMatchObject({ id: ID.parcel, featureId: FEATURE.well });
   });
@@ -565,11 +566,11 @@ test.describe('W07 · the labels a feature carries, and where they go', () => {
 
     const bore = cardFor(page, 'Borewell 1');
     await expect(bore.getByRole('link', { name: 'Bills' }))
-      .toHaveAttribute('href', `/app/records/${ID.parcel}/expenses`);
+      .toHaveAttribute('href', `/properties/${ID.parcel}/expenses`);
     await expect(bore.getByRole('link', { name: 'Photos 2' }))
-      .toHaveAttribute('href', `/app/records/${ID.parcel}/photos?feature=${FEATURE.well}`);
+      .toHaveAttribute('href', `/properties/${ID.parcel}/media?feature=${FEATURE.well}`);
     await expect(cardFor(page, 'Barbed fence').getByRole('link', { name: 'Deed clause' }))
-      .toHaveAttribute('href', `/app/records/${ID.parcel}`);
+      .toHaveAttribute('href', `/properties/${ID.parcel}/documents`);
   });
 
   test('a label with nothing behind it is dropped rather than drawn as a dead button', async ({ page, world }) => {
@@ -620,8 +621,8 @@ test.describe('W07 · the labels a feature carries, and where they go', () => {
     ]));
     await page.goto(featuresUrl(ID.parcel));
 
-    const ledger = `/app/records/${ID.parcel}/expenses`;
-    const papers = `/app/records/${ID.parcel}`;
+    const ledger = `/properties/${ID.parcel}/expenses`;
+    const papers = `/properties/${ID.parcel}/documents`;
     await expect(cardFor(page, 'Pump set').getByRole('link', { name: 'Service log' }))
       .toHaveAttribute('href', ledger);
     await expect(cardFor(page, 'Coconut trees').getByRole('link', { name: 'Income' }))
@@ -645,15 +646,15 @@ test.describe('W07 · narrowing the grid', () => {
     feat({ id: 'w-feat-shed', label: 'Old shed', category: 'structure', conditionState: 'unknown' }),
   ];
 
-  test('the whole list is the one you land on, with no filter on and no tally', async ({ page, world }) => {
+  test('the whole list is the one you land on, with no filter on and the whole tally', async ({ page, world }) => {
     world.set('features', land(orchard()));
     await page.goto(featuresUrl(ID.parcel));
     await expect(cards(page)).toHaveCount(4);
     await expect(page.getByRole('button', { name: '+ Filter' })).toHaveAttribute('aria-expanded', 'false');
-    // The bar carries a chip only for a filter that is on, and says "n of m
-    // shown" only while something is narrowing.
+    // The bar carries a chip only for a filter that is on, and always says
+    // "n of m shown" (design.md § Page head slot 3: the band's tally).
     await expect(page.locator('.filterbar .fchip')).toHaveCount(0);
-    await expect(page.locator('.filterbar .tally')).toHaveCount(0);
+    await expect(page.locator('.filterbar .tally')).toHaveText('4 of 4 shown');
   });
 
   test('a category narrows the grid to what it names, and the bar says how far', async ({ page, world }) => {
@@ -693,6 +694,7 @@ test.describe('W07 · narrowing the grid', () => {
     await page.getByRole('button', { name: 'Clear all' }).click();
     await expect(cards(page)).toHaveCount(4);
     await expect(page.locator('.filterbar .fchip')).toHaveCount(0);
+    await expect(page.locator('.filterbar .tally')).toHaveText('4 of 4 shown');
   });
 
   test('the chip a filter leaves in the bar lets that filter go', async ({ page, world }) => {
@@ -910,20 +912,23 @@ test.describe('W07 · filing a feature', () => {
 
   test('the primary will not file a feature nothing has been said about', async ({ page, world }) => {
     // Nothing is pre-selected in the chip row — a pre-selected "Bore" is a
-    // feature filed by one unread press of the primary — so the panel opens
-    // with its primary refusing, and whitespace does not change that.
+    // feature filed by one unread press of the primary. The primary is never
+    // greyed (no dead controls): pressing it answers under the control that
+    // settles the question (RecordFeatures.tsx `file`), and files nothing.
     liveLand(world, []);
     await page.goto(featuresUrl(ID.parcel));
 
     await addButton(page).click();
     const panel = drawer(page);
     await expect(panel.locator('#fa-kinds button[aria-pressed="true"]')).toHaveCount(0);
-    await expect(fileIt(page)).toBeDisabled();
+    await expect(fileIt(page)).toBeEnabled();
+    await fileIt(page).click();
+    await expect(panel.getByText('Choose what it is first.')).toBeVisible();
 
     await panel.getByRole('button', { name: 'Something else' }).click();
-    await expect(fileIt(page)).toBeDisabled();
     await nameBox(panel).fill('   ');
-    await expect(fileIt(page)).toBeDisabled();
+    await fileIt(page).click();
+    await expect(panel.getByText('Give it a name on this property.')).toBeVisible();
     expect(world.calls('addFeature')).toHaveLength(0);
 
     // Choosing a named type over a blank name fills the name in, which is what
@@ -1330,8 +1335,11 @@ test.describe('W07 · turning a name into a record', () => {
     await page.goto(featuresUrl(ID.parcel));
 
     await pencil(page, 'Borewell 1').click();
-    await nameBox(editPanel(page, 'Borewell 1')).fill('   ');
-    await expect(saveIt(page)).toBeDisabled();
+    const panel = editPanel(page, 'Borewell 1');
+    await nameBox(panel).fill('   ');
+    // Never greyed: the press answers under the name box and saves nothing.
+    await saveIt(page).click();
+    await expect(panel.getByText('Give it a name on this property.')).toBeVisible();
     expect(world.calls('updateFeature')).toHaveLength(0);
   });
 
@@ -1501,7 +1509,7 @@ test.describe('W07 · taking a feature away', () => {
     await dialog.getByRole('button', { name: 'Remove', exact: true }).click();
 
     await expect(dialog.getByRole('alert'))
-      .toHaveText('That feature could not be removed. It is still filed here.');
+      .toHaveText('That feature could not be removed. It is still on this property.');
     await expect(cardFor(page, 'Barbed fence')).toBeVisible();
   });
 
@@ -1578,8 +1586,8 @@ test.describe('W07 · taking a feature away', () => {
  * "Ask for a site visit" (then "Ask for a check") used to buy the ₹1,200 site visit from a confirm dialog:
  * one tap, no review of what was being bought, no idempotency key, no
  * reference to come back to, and no check that the record could even say where
- * the land is. It is now a `<Link>` into the order flow
- * (RecordFeatures.tsx:243-244) carrying the three things this screen already
+ * the land is. It is now a More-menu item into the order flow
+ * (`orderHref`, RecordFeatures.tsx) carrying the three things this screen already
  * knows — the land, the service, and what the visitor is being asked to look
  * at. What the flow does with them is 13-services.spec.ts's argument. What
  * belongs here is that the handover is complete, that this screen files
@@ -1587,11 +1595,11 @@ test.describe('W07 · taking a feature away', () => {
  */
 
 /** The whole handover, spelled out. Every part of it is load-bearing: without
- *  `step` the flow opens on its own first question, without `a.check` it asks
+ *  `for` and `step` the flow opens on its own first question, without `a.check` it asks
  *  the owner something this screen has already answered, and without `why` the
  *  order goes in with no record of where it was asked for. */
-const ORDER_CHECK = `/app/records/${ID.parcel}/order`
-  + '?service=site_visit&step=pick&a.check=General+condition&why=features';
+const ORDER_CHECK = `/order?for=${ID.parcel}&step=services`
+  + '&service=site_visit&a.check=General+condition&why=features';
 
 /** A site visit already running on this parcel. The seeded orders for it are
  *  an EC and a corner survey — neither of them a check — so a test that wants
@@ -1600,67 +1608,63 @@ const visitOrdered = [{
   id: 'w-tkt-visit', kind: 'site_visit', title: 'Site visit', detail: 'General condition',
   assignee: 'Ravi Kumar, licensed surveyor', cost: 1_200, stage: 2, stageLabel: 'Assigned',
   needsYou: false, dueDate: '2026-09-25', recordId: ID.parcel, recordTitle: 'Sy 214/2',
-  params: '{}', status: 'assigned', statusLabel: 'Assigned', statusState: '', ref: 'W-2107',
+  params: '{}', status: 'assigned', statusLabel: 'Assigned', statusState: '', ref: 'PT-2107',
   held: 1_200, pendingReview: 0,
 }];
 
-/** Whichever shape the site-visit control is wearing — a link when the orders
- *  are known and there is no visit yet, a disabled button while they are not.
- *  Used where a test is about the CONTROL rather than about which of the two
- *  it is. It is named for the catalogue's service, a site visit: "check" on
- *  this tab is the look somebody takes at a feature, not a thing you buy
- *  (design.md § App vocabulary, "Property tabs"). */
-const askForVisit = (page: Page) =>
-  page.getByRole('link', { name: /^Ask for a site visit/ })
-    .or(page.getByRole('button', { name: /^Ask for a site visit/ }));
-const visitLink = (page: Page) => page.getByRole('link', { name: /^Ask for a site visit/ });
+/** The site visit lives in the section head's More menu (Reddy, 13/10/2026).
+ *  It is named for the catalogue's service, a site visit: "check" on this tab
+ *  is the look somebody takes at a feature, not a thing you buy (design.md §
+ *  App vocabulary, "Property tabs"). */
+const openMore = (page: Page) =>
+  page.getByRole('button', { name: 'More actions for Site features' }).click();
+const askForVisit = (page: Page) => page.getByRole('menuitem', { name: /^Ask for a site visit/ });
 
 test.describe('W07 · asking for a site visit', () => {
   test('the price is on the control that asks for one, because a visit costs money', async ({ page }) => {
     await page.goto(featuresUrl(ID.parcel));
+    await openMore(page);
     // The catalogue's own price (servicesOffered, site_visit), not a number
     // typed into the page.
-    await expect(visitLink(page)).toContainText('₹1,200');
+    await expect(askForVisit(page)).toContainText('₹1,200');
   });
 
   test('asking for a site visit hands the order flow the land, the service and the brief', async ({ page, world }) => {
     await page.goto(featuresUrl(ID.parcel));
-
-    await expect(visitLink(page)).toHaveAttribute('href', ORDER_CHECK);
+    await openMore(page);
+    await expect(askForVisit(page)).toBeEnabled();
     // And it is a way in, not a purchase: no question is asked on this screen
     // and no order leaves it.
+    await askForVisit(page).click();
+    await expect(page).toHaveURL(ORDER_CHECK);
     await expect(page.getByRole('dialog')).toHaveCount(0);
     expect(world.calls('orderService')).toHaveLength(0);
   });
 
-  test('following it lands on the step that chooses the work, with the site visit already chosen', async ({ page, world }) => {
+  test('following it lands on the services step, with this property and the site visit already chosen', async ({ page, world }) => {
     await page.goto(featuresUrl(ID.parcel));
-    await visitLink(page).click();
+    await openMore(page);
+    await askForVisit(page).click();
 
+    // Straight into the one order flow, no redirect, carrying the land, the
+    // service, the brief and the reason.
     await expect(page).toHaveURL(ORDER_CHECK);
-    await expect(page.getByRole('heading', { name: 'What do you want done on this land?' }))
-      .toBeVisible();
-    // The land came with it, so the flow never asks which property this is
-    // for — and the service came with it, so the tile is already pressed.
-    await expect(page.getByRole('button', { name: /^Site visit/ }))
-      .toHaveAttribute('aria-pressed', 'true');
-    // Title opinion, not Boundary re-survey: the seeded parcel already has a
-    // re-survey running (W-2102), and a service already on order is drawn as
-    // its open request rather than as a tile that can be pressed.
-    await expect(page.getByRole('button', { name: /^Title opinion/ }))
-      .toHaveAttribute('aria-pressed', 'false');
+    await expect(page.getByRole('heading', { name: 'Choose the services' })).toBeVisible();
+    await expect(page.getByRole('checkbox', { name: 'Choose Site visit' })).toBeChecked();
+    await expect(page.getByRole('checkbox', { name: 'Choose Title opinion' })).not.toBeChecked();
     expect(world.calls('orderService')).toHaveLength(0);
   });
 
   test('the visit arrives at the questions already told what to look at', async ({ page, world }) => {
+    world.set('orders', []);
     await page.goto(featuresUrl(ID.parcel));
-    await visitLink(page).click();
-    await page.getByRole('button', { name: 'Answer what it needs' }).click();
+    await openMore(page);
+    await askForVisit(page).click();
+    await page.getByRole('button', { name: 'Next: review' }).click();
 
-    await expect(page.getByRole('heading', { name: 'What we need to know' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Review and place' })).toBeVisible();
     // `a.check` is the catalogue's own `check` field. Asked from the features
-    // list, the brief is not in question — the features are what needs looking
-    // at — so the owner is not made to answer it again.
+    // list, the brief is not in question, so the owner is not asked again.
     await expect(page.getByLabel('What to check')).toHaveValue('General condition');
     expect(world.calls('orderService')).toHaveLength(0);
   });
@@ -1668,27 +1672,29 @@ test.describe('W07 · asking for a site visit', () => {
   test('a record that already has a site visit on it opens the one it has instead of selling a second', async ({ page, world }) => {
     world.set('orders', visitOrdered);
     await page.goto(featuresUrl(ID.parcel));
+    await openMore(page);
 
-    await expect(page.getByRole('link', { name: 'Open the site visit order' }))
-      .toHaveAttribute('href', `/app/records/${ID.parcel}/services`);
+    const open = page.getByRole('menuitem', { name: 'Open the site visit order' });
+    await expect(open).toBeVisible();
     // Not the order flow under another name: a second paid visit cannot be
-    // started from here at all, in either shape.
+    // started from here at all.
     await expect(askForVisit(page)).toHaveCount(0);
+    await open.click();
+    await expect(page).toHaveURL(`/properties/${ID.parcel}/services`);
     expect(world.calls('orderService')).toHaveLength(0);
   });
 
-  test('while the existing orders are still being read the way in is a button nothing can follow', async ({ page, world }) => {
+  test('while the existing orders are still being read the way in is an item nothing can follow', async ({ page, world }) => {
     world.set('orders', World.never());
     await page.goto(featuresUrl(ID.parcel));
+    await openMore(page);
 
     // "Looking up", not "Checking": check on this tab means a look on the
     // ground.
-    const waiting = page.getByRole('button', { name: 'Looking up your orders…' });
+    const waiting = page.getByRole('menuitem', { name: 'Looking up your orders…' });
     await expect(waiting).toBeDisabled();
-    // The shape matters and not only the greying: a <Link> has no `disabled`,
-    // so a class that dims it still navigates on a click, on Enter and on a
-    // middle click into a new tab. A real button is refused by the browser.
-    await expect(visitLink(page)).toHaveCount(0);
+    // Disabled the way the browser enforces, not the way a stylesheet
+    // suggests: a forced press goes nowhere.
     await waiting.click({ force: true });
     await expect(page).toHaveURL(featuresUrl(ID.parcel));
     expect(world.calls('orderService')).toHaveLength(0);
@@ -1698,7 +1704,7 @@ test.describe('W07 · asking for a site visit', () => {
     world.set('orders', World.gqlError('orders are not readable'));
     await page.goto(featuresUrl(ID.parcel));
 
-    // The failure, and why the control beside it is greyed.
+    // The failure, and why the control is greyed.
     const said = page.getByRole('alert')
       .filter({ hasText: 'Your existing orders did not load, so a site visit cannot be ordered yet.' });
     await expect(said).toBeVisible();
@@ -1706,10 +1712,10 @@ test.describe('W07 · asking for a site visit', () => {
     // Still priced, so nobody reads it as a different offer — but inert, and
     // inert the way the browser enforces rather than the way a stylesheet
     // suggests. A duplicate guard that could not run is not a guard.
-    const asked = page.getByRole('button', { name: /^Ask for a site visit/ });
+    await openMore(page);
+    const asked = askForVisit(page);
     await expect(asked).toBeDisabled();
     await expect(asked).toContainText('₹1,200');
-    await expect(visitLink(page)).toHaveCount(0);
     await asked.click({ force: true });
     await expect(page).toHaveURL(featuresUrl(ID.parcel));
     expect(world.calls('orderService')).toHaveLength(0);
@@ -1718,13 +1724,18 @@ test.describe('W07 · asking for a site visit', () => {
   test('Try again on the orders line brings the way into the order flow back', async ({ page, world }) => {
     world.set('orders', World.gqlError('orders are not readable'));
     await page.goto(featuresUrl(ID.parcel));
-    await expect(page.getByRole('button', { name: /^Ask for a site visit/ })).toBeDisabled();
+    await openMore(page);
+    await expect(askForVisit(page)).toBeDisabled();
+    await page.keyboard.press('Escape');
 
     world.set('orders', []);
     await page.getByRole('button', { name: 'Try again' }).click();
-
-    await expect(visitLink(page)).toHaveAttribute('href', ORDER_CHECK);
     await expect(page.getByText('Your existing orders did not load')).toHaveCount(0);
+
+    await openMore(page);
+    await expect(askForVisit(page)).toBeEnabled();
+    await askForVisit(page).click();
+    await expect(page).toHaveURL(ORDER_CHECK);
   });
 
   test('nothing about the features themselves ever files an order', async ({ page, world }) => {
@@ -1762,7 +1773,7 @@ test.describe('W07 · loading, empty and failed', () => {
 
     // The waiting word names what it waits for, the way the failure does
     // ("Site features did not load").
-    await expect(page.getByText('Loading site features…')).toBeVisible();
+    await expect(page.getByRole('status', { name: 'Loading site features' })).toBeVisible();
     await expect(addCard(page)).toHaveCount(0);
     await expect(addButton(page)).toBeDisabled();
   });
@@ -1845,7 +1856,7 @@ test.describe('W07 · loading, empty and failed', () => {
 
   test('a record that is not in the portfolio says that, rather than that it has no features', async ({ page }) => {
     await page.goto(featuresUrl(ID.missing));
-    await expect(page.getByRole('heading', { name: "This property isn't in your account" })).toBeVisible();
+    await expect(page.getByRole('heading', { name: "This property is not in your account" })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Site features' })).toHaveCount(0);
   });
 

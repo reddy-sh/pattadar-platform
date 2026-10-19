@@ -19,10 +19,54 @@ import {
 import type { Group, NotificationEntry } from '@pattadar/core';
 import { gql } from '../../api/client';
 import { emptyLike, liveQueryOptions } from '../../data/useLiveOrSample';
+import groupTypesJson from './groupTypes.json';
 
 // ---------------------------------------------------------------------------
 // Group type definitions (port of rhub groups.ts)
 // ---------------------------------------------------------------------------
+
+/** One typed fact a group (or a member of it) can carry. The catalogue is
+ *  generated from the server's GROUP_TYPES (groupTypes.json), so the web never
+ *  hand-copies a label, role, option or rule. */
+export interface FactCond {
+  key: string;
+  in?: string[];
+  not?: string[];
+}
+export interface FactField {
+  key: string;
+  label: string;
+  kind: 'text' | 'date' | 'select' | 'country';
+  options?: string[];
+  /** Required while the field is visible. */
+  required?: boolean;
+  /** ALL conditions must hold for the field to show. */
+  when?: FactCond[];
+  pattern?: string;
+  upper?: boolean;
+  help?: string;
+  /** No future dates. */
+  past?: boolean;
+  /** Member fields only: the roles the field shows for. */
+  roles?: string[];
+  /** Whose PAN this is ("firm", "company"…), for the personal-PAN refusal. */
+  entity?: string;
+  /** Expected 4th PAN letter by sub_kind ('*' = any other); a warning only. */
+  pan4?: Record<string, string>;
+  default?: string;
+}
+
+interface CatalogueType {
+  label: string;
+  has_tree: boolean;
+  primary_role: string;
+  default_role: string;
+  roles: string[];
+  fields: FactField[];
+  member_fields: FactField[];
+  share_roles: Record<string, string>;
+}
+const CATALOGUE = groupTypesJson as unknown as Record<string, CatalogueType>;
 
 export interface GroupTypeDef {
   type: string;
@@ -30,45 +74,187 @@ export interface GroupTypeDef {
   icon: string; // emoji used on cards/dialogs
   hasTree: boolean; // family genealogy semantics (relations vs roles)
   primaryRole: string;
+  /** Role a new member starts with (never inferred from list order). */
+  defaultRole: string;
   roles: string[];
+  fields: FactField[];
+  memberFields: FactField[];
+  /** Roles that hold a share, mapped to the share input's label. */
+  shareRoles: Record<string, string>;
 }
 
-export const GROUP_TYPES: GroupTypeDef[] = [
-  {
-    type: 'family', label: 'Family', icon: '👪', hasTree: true, primaryRole: 'Head',
-    roles: ['Head', 'Spouse', 'Son', 'Daughter', 'Father', 'Mother', 'Brother', 'Sister',
-      'Grandfather', 'Grandmother', 'Grandson', 'Granddaughter', 'Other'],
-  },
-  {
-    type: 'partnership', label: 'Partnership', icon: '🤝', hasTree: false,
-    primaryRole: 'Managing Partner', roles: ['Managing Partner', 'Partner'],
-  },
-  {
-    type: 'company', label: 'Company / LLP', icon: '🏢', hasTree: false, primaryRole: 'Director',
-    roles: ['Director', 'Shareholder', 'Authorized Signatory'],
-  },
-  {
-    type: 'huf', label: 'HUF', icon: '🏛️', hasTree: false, primaryRole: 'Karta',
-    roles: ['Karta', 'Coparcener', 'Member'],
-  },
-  {
-    type: 'trust', label: 'Trust / Society', icon: '⚖️', hasTree: false, primaryRole: 'Trustee',
-    roles: ['Trustee', 'Beneficiary', 'Member'],
-  },
-  // Lightweight "wallet": organize holdings without succession machinery.
-  {
-    type: 'portfolio', label: 'Portfolio / Wallet', icon: '💼', hasTree: false, primaryRole: 'Owner',
-    roles: ['Owner', 'Viewer'],
-  },
+// Labels and icons stay here (naming standard: "or", not a slash); everything
+// else comes from the server catalogue.
+const TYPE_LOOK: { type: string; label: string; icon: string }[] = [
+  { type: 'family', label: 'Family', icon: '👪' },
+  { type: 'partnership', label: 'Partnership', icon: '🤝' },
+  { type: 'company', label: 'Company or LLP', icon: '🏢' },
+  { type: 'huf', label: 'HUF', icon: '🏛️' },
+  { type: 'trust', label: 'Trust or society', icon: '⚖️' },
+  // No "Portfolio / Wallet" type (retired 06/10/2026): a group is a holder,
+  // and keeping properties together is what a holding does. The server
+  // refuses the type.
 ];
+
+export const GROUP_TYPES: GroupTypeDef[] = TYPE_LOOK.map(({ type, label, icon }) => {
+  const c = CATALOGUE[type];
+  return {
+    type, label, icon,
+    hasTree: c.has_tree,
+    primaryRole: c.primary_role,
+    defaultRole: c.default_role,
+    roles: c.roles,
+    fields: c.fields,
+    memberFields: c.member_fields,
+    shareRoles: c.share_roles,
+  };
+});
 
 export function groupTypeDef(type: string): GroupTypeDef {
   return GROUP_TYPES.find((g) => g.type === type) || GROUP_TYPES[0];
 }
 
+/** How a stored role reads on screen (naming standard N1, N5). The stored
+ *  value is what the server and every existing member row carry, so it stays
+ *  as it is; only the words an owner reads change. */
+const ROLE_WORD: Record<string, string> = {
+  'Managing Partner': 'Managing partner',
+  'Authorized Signatory': 'Authorised signatory',
+};
+
+/** A role as an owner reads it; unknown roles pass through unchanged. */
+export const roleWord = (role: string): string => ROLE_WORD[role] ?? role;
+
 export function roleOptions(type: string): { value: string; label: string }[] {
-  return groupTypeDef(type).roles.map((r) => ({ value: r, label: r }));
+  return groupTypeDef(type).roles.map((r) => ({ value: r, label: roleWord(r) }));
 }
+
+/** A typed role in the catalogue's own spelling when it matches one
+ *  case-insensitively (the server does the same), else as typed. */
+export function catalogueRole(type: string, role: string): string {
+  const t = role.split(/\s+/).filter(Boolean).join(' ');
+  return groupTypeDef(type).roles.find((r) => r.toLowerCase() === t.toLowerCase()) ?? t;
+}
+
+// ---------------------------------------------------------------------------
+// Typed facts — same rules as the server's _fact_shown / _clean_facts
+// ---------------------------------------------------------------------------
+
+export type Facts = Record<string, string>;
+
+/** A stored facts string as an object; anything unreadable is `{}`. */
+export function parseFacts(s?: string | null): Facts {
+  if (!s) return {};
+  try {
+    const o = JSON.parse(s) as unknown;
+    if (!o || typeof o !== 'object' || Array.isArray(o)) return {};
+    const out: Facts = {};
+    for (const [k, v] of Object.entries(o as Record<string, unknown>)) {
+      if (typeof v === 'string' || typeof v === 'number') out[k] = String(v);
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/** The value a condition reads: an absent country counts as India. */
+const condValue = (facts: Facts, key: string) => (key === 'country' ? facts.country || 'IN' : facts[key] || '');
+
+/** Whether a field shows under these facts (and, for member fields, this role). */
+export function factShown(f: FactField, facts: Facts, role?: string): boolean {
+  if (f.roles && role !== undefined && !f.roles.includes(role)) return false;
+  return (f.when ?? []).every((c) => {
+    const v = condValue(facts, c.key);
+    if (c.in && !c.in.includes(v)) return false;
+    if (c.not && c.not.includes(v)) return false;
+    return true;
+  });
+}
+
+/** The fields that show, in catalogue order. A condition reads only values of
+ *  fields already shown (as the server reads only what it has kept), so a
+ *  stale value behind a hidden field never reveals another. Member fields
+ *  pass the group's facts (its country, sub-kind) as `ctx`. */
+export function visibleFields(fields: FactField[], facts: Facts, role?: string, ctx: Facts = {}): FactField[] {
+  const seen: Facts = { ...ctx };
+  const out: FactField[] = [];
+  for (const f of fields) {
+    if (out.some((o) => o.key === f.key) || !factShown(f, seen, role)) continue;
+    out.push(f);
+    const v = normFact(f, facts[f.key] || '');
+    if (v) seen[f.key] = v;
+  }
+  return out;
+}
+
+/** Today in the viewer's own time zone, as YYYY-MM-DD (not UTC's date). */
+export const todayIso = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+/** Normalise as the server does: collapse spaces, upper-case where set. */
+export function normFact(f: FactField, v: string): string {
+  const t = (v || '').split(/\s+/).filter(Boolean).join(' ');
+  return f.upper || f.kind === 'country' ? t.toUpperCase() : t;
+}
+
+/** A format problem that blocks saving, or '' when the value is fine (or empty). */
+export function factError(f: FactField, raw: string): string {
+  const v = normFact(f, raw);
+  if (!v) return '';
+  if (v.length > 200) return `${f.label} is too long.`;
+  const bad = `${f.label} does not look right.${f.help ? ` ${f.help}` : ''}`;
+  if (f.kind === 'select' && !(f.options ?? []).includes(v)) return bad;
+  if (f.kind === 'country' && !/^[A-Z]{2}$/.test(v)) return bad;
+  if (f.kind === 'date') {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v) || isNaN(new Date(`${v}T00:00:00Z`).getTime())) return bad;
+    if (f.past && v > todayIso()) return `${f.label} cannot be in the future.`;
+  }
+  if (f.pattern && !new RegExp(f.pattern).test(v)) return bad;
+  if (f.entity && v.length === 10 && v[3] === 'P') return `This is a personal PAN; enter the ${f.entity}'s PAN.`;
+  return '';
+}
+
+/** A soft warning when a PAN's 4th letter does not fit the kind of entity. */
+export function panWarn(f: FactField, raw: string, facts: Facts): string {
+  if (!f.pan4) return '';
+  const v = normFact(f, raw);
+  if (v.length !== 10 || factError(f, v)) return '';
+  const want = f.pan4[facts.sub_kind || ''] ?? f.pan4['*'] ?? '';
+  if (!want || want.includes(v[3])) return '';
+  return `The 4th letter is usually ${want} for this kind of entity.`;
+}
+
+/** Required-and-visible fields left empty. */
+export function missingFacts(fields: FactField[], facts: Facts, role?: string, ctx: Facts = {}): FactField[] {
+  return visibleFields(fields, facts, role, ctx).filter((f) => f.required && !normFact(f, facts[f.key] || ''));
+}
+
+/** The first blocking format error among the visible fields, or ''. */
+export function firstFactError(fields: FactField[], facts: Facts, role?: string, ctx: Facts = {}): string {
+  for (const f of visibleFields(fields, facts, role, ctx)) {
+    const e = factError(f, facts[f.key] || '');
+    if (e) return e;
+  }
+  return '';
+}
+
+/** Only the visible, non-empty facts, normalised, as the JSON string the
+ *  server takes. `ctx` is read by conditions but never saved here (a member
+ *  field reading the group's country). */
+export function pickFacts(fields: FactField[], facts: Facts, role?: string, ctx: Facts = {}): string {
+  const out: Facts = {};
+  for (const f of visibleFields(fields, facts, role, ctx)) {
+    const v = normFact(f, facts[f.key] || '');
+    if (v) out[f.key] = v;
+  }
+  return JSON.stringify(out);
+}
+
+/** The label a member's share input carries, or '' when the role holds none. */
+export const shareLabel = (type: string, role: string): string => groupTypeDef(type).shareRoles[role] ?? '';
 
 /** Family relationship options (port of rhub family/genealogy.ts RELATIONS). */
 export const RELATIONS: { value: string; label: string }[] = [
@@ -136,6 +322,8 @@ export interface GroupMember {
   spouseContact: string;
   spouseStatus: string;
   createdAt: string;
+  /** JSON object string of the member's typed facts (DIN, appointed on…). */
+  facts?: string;
 }
 
 export interface ParcelOption {
@@ -179,10 +367,10 @@ export const MEMBER_FIELDS =
   'id ownerUserId name relation gender dob phone email bio photo groupId role isSelf ' +
   'fatherId motherId spouseId isBeneficiary sharePct kind status inviteStatus inviteToken ' +
   'phoneVerified emailVerified inactivityEmailConsent parcelId presentAddress aadhaarMasked isMinor guardianName ' +
-  'guardianContact maritalStatus spouseName spouseContact spouseStatus createdAt heirConfirmed heirNote';
+  'guardianContact maritalStatus spouseName spouseContact spouseStatus createdAt heirConfirmed heirNote facts';
 
 export const GROUP_FIELDS =
-  'id ownerUserId type name description myRole memberCount landCount totalExtent totalShare createdAt';
+  'id ownerUserId type name description myRole memberCount landCount totalExtent totalShare createdAt facts';
 
 /** As above plus what the group actually HOLDS. Kept separate from
  *  GROUP_FIELDS so the legacy screen's query is untouched: `landCount` counts
@@ -357,18 +545,19 @@ export function useNotificationLogList() {
 // Mutations (shapes verbatim from the rhub app)
 // ---------------------------------------------------------------------------
 
-export async function createGroup(type: string, name: string, description: string): Promise<string> {
+export async function createGroup(type: string, name: string, description: string, facts?: string): Promise<string> {
   const d = await gql<{ createGroup: { id: string } | null }>(
-    `mutation($t:String!,$n:String!,$d:String!){ createGroup(type:$t,name:$n,description:$d){ id } }`,
-    { t: type, n: name, d: description },
+    `mutation($t:String!,$n:String!,$d:String!,$x:String){ createGroup(type:$t,name:$n,description:$d,facts:$x){ id } }`,
+    { t: type, n: name, d: description, x: facts ?? null },
   );
   return d.createGroup?.id || '';
 }
 
-export async function updateGroup(id: string, name: string, description: string): Promise<void> {
+/** Omitting `facts` (null) keeps what is stored, so a rename never wipes them. */
+export async function updateGroup(id: string, name: string, description: string, facts?: string): Promise<void> {
   await gql(
-    `mutation($id:String!,$n:String!,$d:String!){ updateGroup(id:$id,name:$n,description:$d){ id } }`,
-    { id, n: name, d: description },
+    `mutation($id:String!,$n:String!,$d:String!,$x:String){ updateGroup(id:$id,name:$n,description:$d,facts:$x){ id } }`,
+    { id, n: name, d: description, x: facts ?? null },
   );
 }
 
@@ -403,6 +592,8 @@ export interface MemberVars {
   spouseName: string;
   spouseContact: string;
   spouseStatus: string;
+  /** Omitted (null) keeps the stored facts. */
+  facts?: string;
 }
 
 // NOTE: updateMember has no groupId arg on the backend (a member never changes
@@ -412,14 +603,14 @@ const MEMBER_ARG_DEF =
   '$email:String!,$bio:String!,$photo:String!,$fatherId:String!,$motherId:String!,$spouseId:String!,' +
   '$isBeneficiary:Boolean!,$sharePct:Float!,$kind:String!,$parcelId:String!,$presentAddress:String!,' +
   '$aadhaar:String!,$aadhaarCandidateId:String!,$guardianName:String!,$guardianContact:String!,$maritalStatus:String!,' +
-  '$spouseName:String!,$spouseContact:String!,$spouseStatus:String!';
+  '$spouseName:String!,$spouseContact:String!,$spouseStatus:String!,$facts:String';
 const MEMBER_CALL =
   'name:$name,relation:$relation,role:$role,gender:$gender,dob:$dob,phone:$phone,email:$email,' +
   'bio:$bio,photo:$photo,fatherId:$fatherId,motherId:$motherId,spouseId:$spouseId,' +
   'isBeneficiary:$isBeneficiary,sharePct:$sharePct,kind:$kind,parcelId:$parcelId,' +
   'presentAddress:$presentAddress,aadhaar:$aadhaar,aadhaarCandidateId:$aadhaarCandidateId,guardianName:$guardianName,' +
   'guardianContact:$guardianContact,maritalStatus:$maritalStatus,spouseName:$spouseName,' +
-  'spouseContact:$spouseContact,spouseStatus:$spouseStatus';
+  'spouseContact:$spouseContact,spouseStatus:$spouseStatus,facts:$facts';
 
 export interface SavedMember {
   id: string;
@@ -433,7 +624,7 @@ export interface SavedMember {
 export async function addMember(groupId: string, vars: MemberVars): Promise<SavedMember | null> {
   const d = await gql<{ addMember: SavedMember | null }>(
     `mutation($groupId:String!,${MEMBER_ARG_DEF}){ addMember(groupId:$groupId,${MEMBER_CALL}){ id inviteToken isMinor guardianContact phone email } }`,
-    { groupId, ...vars, aadhaarCandidateId: vars.aadhaarCandidateId ?? '' },
+    { groupId, ...vars, aadhaarCandidateId: vars.aadhaarCandidateId ?? '', facts: vars.facts ?? null },
   );
   return d.addMember;
 }
@@ -441,7 +632,7 @@ export async function addMember(groupId: string, vars: MemberVars): Promise<Save
 export async function updateMember(id: string, vars: MemberVars): Promise<SavedMember | null> {
   const d = await gql<{ updateMember: SavedMember | null }>(
     `mutation($id:String!,${MEMBER_ARG_DEF}){ updateMember(id:$id,${MEMBER_CALL}){ id inviteToken isMinor guardianContact phone email } }`,
-    { id, ...vars, aadhaarCandidateId: vars.aadhaarCandidateId ?? '' },
+    { id, ...vars, aadhaarCandidateId: vars.aadhaarCandidateId ?? '', facts: vars.facts ?? null },
   );
   return d.updateMember;
 }

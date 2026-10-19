@@ -15,7 +15,7 @@
  * you just gave, and the whole value here is watching the total move.
  *
  * Steps 2 and 3, the sheet and the sums are shared with the Tools tab
- * (`/app/tools?tab=fence`) through FenceParts.tsx and fenceBill.ts: this file
+ * (`/tools?tab=fence`) through FenceParts.tsx and fenceBill.ts: this file
  * owns only what needs a shape — the map, the side toggles and the request.
  */
 import { useMemo, useState } from 'react';
@@ -105,7 +105,7 @@ export function FenceStudio({
         setAsked('That request was not accepted.');
         return;
       }
-      nav(`/app/records/${recordId}/services`);
+      nav(`/properties/${recordId}/services`);
     } catch (e) {
       setAsked(e instanceof Error ? e.message : 'That request could not be raised.');
     }
@@ -180,18 +180,18 @@ export function FenceStudio({
             <div className="row tight" style={{ marginTop: 'var(--space-sm)' }}>
               {duplicate ? (
                 <>
-                  <Link className="btn sm primary" to={`/app/services/${duplicate.id}`}>
-                    Open fencing request
+                  <Link className="btn sm primary" to={`/services/${duplicate.id}`}>
+                    Open fencing order
                   </Link>
-                  <Link className="btn sm danger" to={`/app/services/${duplicate.id}?action=cancel`}>
-                    Cancel request
+                  <Link className="btn sm danger" to={`/services/${duplicate.id}?action=cancel`}>
+                    Cancel order
                   </Link>
                 </>
               ) : (
                 <button type="button" className="btn sm primary"
                         disabled={ask.isPending || openOrders.isLoading || !!openOrders.error}
                         onClick={() => void raise()}>
-                  {ask.isPending ? 'Asking…' : openOrders.isLoading ? 'Checking requests…'
+                  {ask.isPending ? 'Asking…' : openOrders.isLoading ? 'Checking orders…'
                     : `Ask for this on ${recordTitle ?? 'the property'}`}
                 </button>
               )}

@@ -6,7 +6,7 @@
 import { Suspense, lazy } from 'react';
 import type { Ref } from 'react';
 import type { PortfolioCanvasProps, PortfolioCanvasHandle } from './PortfolioCanvas';
-import { Loading } from './ui';
+import { SkMap } from './skeletons';
 
 const Impl = lazy(() => import('./PortfolioCanvas'));
 
@@ -16,7 +16,7 @@ export function PortfolioCanvas(
   props: PortfolioCanvasProps & { ref?: Ref<PortfolioCanvasHandle> },
 ) {
   return (
-    <Suspense fallback={<Loading h="100%" />}>
+    <Suspense fallback={<SkMap label="Loading the map" />}>
       <Impl {...props} />
     </Suspense>
   );

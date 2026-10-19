@@ -2,16 +2,14 @@
 <!--
   heuristic-ux-audit board template. Read references/board-format.md first.
 
-  Copy to .local/ux-audits/<yyyy-mm-dd>-<slug>/board.html, replace every
+  Copy to <audit>/board.html (SKILL.md § Output), replace every
   double-brace placeholder, delete the blocks you do not use, and replace this
   comment with one line naming the page, revision and date. The placeholder
   check in board-format.md must print nothing before rendering.
 
-  The tokens link resolves only from three folders below the repository root
-  (.local/ux-audits/<slug>/ or docs/ux-audits/<slug>/). The fallbacks are
-  design.md's documented approximations so a moved board still renders;
-  tokens.css wins whenever it loads. System fonts only. No script and no
-  external loads.
+  bloom-dark copies Bloom Dark from packages/tokens/src/palette/bloom.ts
+  (09/10/2026); apps/web/src/styles/tokens.css declares no colours, so the
+  board links nothing. System fonts only. No script and no external loads.
 
   One file, two images: board.html renders board.png, the full record, and
   board.html#compare renders compare.png, the two screens alone for chat.
@@ -21,7 +19,6 @@
 <head>
 <meta charset="utf-8">
 <title>{{Page}} · heuristic UX audit · {{DD/MM/YYYY}}</title>
-<link rel="stylesheet" href="../../../apps/web/src/styles/tokens.css">
 <style>
   /* ── Board chrome: the page around the two screens, not product colour ── */
   :root {
@@ -79,18 +76,12 @@
   [data-reddy] { position: relative; }
   [data-reddy]::after { content: "needs Reddy"; position: absolute; right: 0; top: min(10px, calc(50% - 8px)); padding: 0 7px; border-radius: 999px; background: var(--b-warn); color: #fff; font: 600 9.5px/17px var(--b-mono); }
 
-  /* ── Screen looks: bloom-dark (marketing, content, auth) and wire-light (/app/*) ── */
+  /* ── Screen looks: bloom-dark (marketing, content, auth) and wire-light (signed-in app) ── */
   .bloom-dark {
-    --s-bg: var(--color-paper, #0d0504);
-    --s-surface: var(--color-paper-2, #170c09);
-    --s-surface-2: var(--color-paper-3, #241714);
-    --s-ink: var(--color-ink, #f3ede7);
-    --s-ink-2: var(--color-ink-2, #bfb5ae);
-    --s-ink-3: var(--color-ink-3, #827873);
-    --s-rule: var(--color-rule, #312622);
-    --s-rule-strong: var(--color-rule-strong, #54433e);
-    --s-accent: var(--color-accent, #fe860f);
-    --s-on-accent: var(--color-accent-ink, #180600);
+    --s-bg: #0d0504; --s-surface: #170c09; --s-surface-2: #241714;
+    --s-ink: #f3ede7; --s-ink-2: #bfb5ae; --s-ink-3: #8b817b;
+    --s-rule: #312622; --s-rule-strong: #54433e;
+    --s-accent: #fe860f; --s-on-accent: #180600;
   }
   .wire-light {
     --s-bg: #ffffff; --s-surface: #f6f6f6; --s-surface-2: #e9e9e9;

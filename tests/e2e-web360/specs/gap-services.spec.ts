@@ -13,14 +13,14 @@
  *     uploadToDrive THROWS rather than resolving falsy (pages/documents/
  *     storage.ts:50). Those two tests are test.fail().
  *
- *   · /app/tickets/:id/pay. With PAYMENTS_MODE off the ticket page renders no
+ *   · /tickets/:id/pay. With PAYMENTS_MODE off the ticket page renders no
  *     link to it (Ticket.tsx:1026 gates on paymentConfig.enabled), so the screen
  *     is reachable only by URL — which is precisely why nothing had ever
  *     rendered it, and why a regression there would be invisible. It still
  *     draws a `Pay ₹1,180.00` button, held off by one condition
  *     (PaymentsCheckout.tsx:144). This one is honest today, so it passes.
  *
- *   · /app/assigned. screens.spec.ts:2282 walks the href and asserts only that
+ *   · /assigned. screens.spec.ts:2282 walks the href and asserts only that
  *     `main` and a heading render. The rail's badge (Shell.tsx:179) and the
  *     list (Orders.tsx:368) are two copies of one rule — `needsYou ||
  *     pendingReview > 0` — with nothing pinning them together, and this page's
@@ -34,7 +34,7 @@
  * so a trailing delete would be skipped every single run. See crud-360.spec.ts
  * :30 for the sixteen-red-tests story behind that rule.
  *
- * The payments and /app/assigned tests write nothing at all.
+ * The payments and /assigned tests write nothing at all.
  */
 import { randomUUID } from 'node:crypto';
 
@@ -117,7 +117,7 @@ const MARKER = 'E2E half-failed upload';
  *  ready for a press of Send request. */
 async function queueBothFiles(page: Pg): Promise<void> {
   await storageThatDropsOneFile(page);
-  await page.goto(`/app/records/${PARCEL}/request?kind=survey`);
+  await page.goto(`/properties/${PARCEL}/request?kind=survey`);
   await expect(page.getByRole('heading', { name: 'Something else' })).toBeVisible();
 
   await page.locator('input[type=file][aria-label="Add a file to this request"]').setInputFiles([
@@ -205,7 +205,7 @@ test.describe('raising a request whose upload dies half way', () => {
 
 test.describe('the ticket checkout while payments are switched off', () => {
   test('with payments switched off the checkout takes no money and says so', async ({ page }) => {
-    await page.goto(`/app/tickets/${T2101}/pay`);
+    await page.goto(`/services/${T2101}/pay`);
 
     // The h1 is the ticket's own title, so a stranger's ticket id in the URL
     // could not be mistaken for this one.
@@ -245,14 +245,14 @@ test.describe('the ticket checkout while payments are switched off', () => {
 
     // The way back, for a screen no link in the app points at.
     await expect(page.getByRole('link', { name: /Back to the ticket/ }))
-      .toHaveAttribute('href', `/app/tickets/${T2101}`);
+      .toHaveAttribute('href', `/services/${T2101}`);
   });
 
   test('a checkout URL for a ticket that is not yours says so instead of quoting a price', async ({ page }) => {
     // services/api/src/payments.py:163 scopes the lookup by owner_user_id and
     // 404s otherwise, so a guessed ticket id must leak neither a title nor an
     // amount — this page is URL-reachable by anyone signed in.
-    await page.goto('/app/tickets/not-a-ticket/pay');
+    await page.goto('/services/not-a-ticket/pay');
 
     await expect(page.getByRole('alert')).toContainText('Ticket not found');
     await expect(page.getByText(/^₹/)).toHaveCount(0);
@@ -265,7 +265,7 @@ test.describe('the ticket checkout while payments are switched off', () => {
 
 test.describe('the Waiting on you list behind the rail badge', () => {
   test('Waiting on you lists only what needs a decision, and the rail badge agrees', async ({ page }) => {
-    await page.goto('/app/assigned');
+    await page.goto('/assigned');
     await expect(page.getByRole('heading', { name: 'Waiting on you' })).toBeVisible();
     // The lede has to answer "then where is everything else?", because this
     // page deliberately shows a strict subset and the old version did not.
@@ -290,15 +290,15 @@ test.describe('the Waiting on you list behind the rail badge', () => {
 
     // showRecord is on here and off under Services, because a cross-record
     // list that does not say which property is unusable.
-    await expect(waiting.locator(`a[href="/app/records/${PARCEL}"]`)).toBeVisible();
+    await expect(waiting.locator(`a[href="/properties/${PARCEL}"]`)).toBeVisible();
     await expect(waiting.getByRole('link', { name: 'Open ticket' }))
-      .toHaveAttribute('href', `/app/tickets/${T2094}`);
+      .toHaveAttribute('href', `/services/${T2094}`);
 
     // The badge (Shell.tsx:179) and the list (Orders.tsx:368) are two separate
     // copies of `needsYou || pendingReview > 0`. Nothing but this line stops
     // them drifting — a rail promising 3 over a list of 1 sends an owner
     // hunting for work that is not there.
-    await expect(page.locator('.nav a[href="/app/assigned"] .count'))
+    await expect(page.locator('.nav a[href="/assigned"] .count'))
       .toHaveText(String(await rows.count()));
   });
 });

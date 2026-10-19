@@ -6,7 +6,7 @@ is configured.
 
 | module | server key | tools | class |
 | --- | --- | --- | --- |
-| ``ui`` | ``pattadar_ui`` | 5 | intent: may propose a browser action |
+| ``ui`` | ``pattadar_ui`` | 5 + 1 | intent: may propose a browser action; ``propose_add_records`` (saved chats only) shows a confirmation card |
 | ``records`` | ``pattadar_records`` | 8 | read-only reference data |
 
 The **server key** is the part that matters. The SDK builds tool names as
@@ -19,10 +19,12 @@ Everything the model is allowed to call lives here. If you are looking for "the
 MCP", this directory is the whole answer.
 """
 from .records import build_public_record_tools, build_public_records_server
-from .ui import build_ui_server
+from .ui import ProposalSink, build_ui_server, build_ui_tools
 
 __all__ = [
+    "ProposalSink",
     "build_public_record_tools",
     "build_public_records_server",
     "build_ui_server",
+    "build_ui_tools",
 ]

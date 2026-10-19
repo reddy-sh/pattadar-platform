@@ -1,17 +1,21 @@
-"""Account routes: JWT-derived identity, fresh-auth deletion, complete exports."""
+"""Account routes: JWT-derived identity, fresh-auth deletion, complete exports,
+the backup archive and restoring from one."""
 import asyncio
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
+import re
 import time
+import uuid
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse, Response, StreamingResponse
+from pydantic import BaseModel, Field
 
-from .. import auth, database as db
+from .. import auth, backup_archive, database as db
 from ..internal_api import internal_headers
 from .proxy import _api_base_url, _assistant_base_url
 
@@ -118,6 +122,179 @@ async def export(request: Request):
     result = {**api, "files": files, "assistant": assistant}
     return Response(json.dumps(jsonable_encoder(result), ensure_ascii=False, indent=2),
                     media_type="application/json", headers={"Content-Disposition": 'attachment; filename="pattadar-account-export.json"', "Cache-Control": "no-store"})
+
+
+def storage_snapshot(owner):
+    """Every stored node and version of the owner, object keys included. The
+    keys stay on this side: backup_archive strips them from what it writes."""
+    with db._get_conn() as conn:
+        conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        nodes = conn.execute("SELECT * FROM storage_nodes WHERE owner_id=%s ORDER BY created_at,id", (owner,)).fetchall()
+        versions = conn.execute("SELECT v.* FROM storage_versions v JOIN storage_nodes n ON n.id=v.node_id WHERE v.owner_id=%s AND n.owner_id=%s ORDER BY v.created_at,v.id", (owner,owner)).fetchall()
+        tags = conn.execute("SELECT * FROM storage_tags WHERE owner_id=%s", (owner,)).fetchall()
+        node_tags = conn.execute("SELECT * FROM storage_node_tags WHERE owner_id=%s", (owner,)).fetchall()
+        shares = conn.execute("SELECT id,node_id,grantee_id,permission,expires_at,created_at FROM storage_shares WHERE owner_id=%s", (owner,)).fetchall()
+    return {"nodes": nodes, "versions": versions, "tags": tags, "nodeTags": node_tags, "shares": shares}
+
+
+def _attachment_reader(owner):
+    """Assistant attachment bytes, read through the assistant's own
+    owner-checked download route rather than its storage directly."""
+    base = _assistant_base_url()
+
+    def open_attachment(attachment_id):
+        if not base:
+            raise RuntimeError("assistant unavailable")
+        client = httpx.Client(timeout=httpx.Timeout(120, connect=10))
+        try:
+            response = client.send(client.build_request(
+                "GET", f"{base}/api/attachments/{attachment_id}",
+                headers={"x-user-id": owner, **internal_headers()}), stream=True)
+        except Exception:
+            client.close()
+            raise
+        if response.status_code != 200:
+            response.close()
+            client.close()
+            raise RuntimeError(f"attachment {response.status_code}")
+
+        class Chunks:
+            def __iter__(self):
+                return response.iter_bytes(1 << 20)
+
+            def close(self):
+                response.close()
+                client.close()
+        return Chunks()
+    return open_attachment
+
+
+@router.get("/backup")
+async def backup(request: Request):
+    """The whole account as one ZIP: records and the original files."""
+    await auth.validate_bearer(request)
+    uid = auth.extract_user_id(request)
+    api, assistant, snapshot = await asyncio.gather(
+        upstream(_api_base_url(), "/internal/account/export", uid),
+        upstream(_assistant_base_url(), "/internal/account/export", uid),
+        asyncio.to_thread(storage_snapshot, uid))
+    from .storage import get_storage
+    svc = get_storage()
+    made = datetime.now(timezone.utc)
+    plan = backup_archive.plan_archive(api.get("data") or {}, snapshot, assistant, made, str(uuid.uuid4()))
+    reader = _attachment_reader(uid)
+
+    def build(sink):
+        backup_archive.write_archive(sink, plan, account=api, assistant=assistant, storage=snapshot,
+                                     open_object=svc.open_object, open_attachment=reader)
+
+    filename = f"pattadar-backup-{made.astimezone(backup_archive.IST):%d-%m-%Y}.zip"
+    return StreamingResponse(backup_archive.stream_archive(build), media_type="application/zip", headers={
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
+
+# ── Restore ───────────────────────────────────────────────────────────────
+# The browser uploads each file through the ordinary storage routes; these
+# routes only start a restore, record which new node each archived node became
+# (after checking every one is the caller's), and hand the records to the API.
+
+_UUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+#: The records half of a backup. Files travel separately, so this is JSON only.
+MAX_RECORDS_BYTES = int(os.getenv("ACCOUNT_RESTORE_MAX_RECORDS_BYTES", str(64 * 1024 * 1024)))
+_RESTORE_TIMEOUT = httpx.Timeout(300, connect=10)
+
+
+class ImportStart(BaseModel):
+    archiveId: str = Field(pattern=r"^[0-9a-fA-F-]{36}$")
+    formatVersion: int
+
+
+class ImportMapping(BaseModel):
+    old: str = Field(min_length=1, max_length=64)
+    new: str = Field(pattern=r"^[0-9a-fA-F-]{36}$")
+    oldVersion: str = Field(default="", max_length=64)
+    newVersion: str = Field(default="", max_length=64)
+
+
+class ImportMappings(BaseModel):
+    mappings: list[ImportMapping] = Field(default_factory=list, max_length=500)
+
+
+def _job_path(job_id: str, tail: str = "") -> str:
+    if not _UUID.match(job_id or ""):
+        raise HTTPException(404, "This restore was not found.")
+    return f"/internal/account/import/{job_id}{tail}"
+
+
+def _owned_nodes(owner, node_ids, version_ids):
+    nodes = db.query_native("storage_nodes",
+        "SELECT id::text AS id FROM storage_nodes WHERE owner_id=%s AND id = ANY(%s::uuid[])",
+        [owner, node_ids], camel_case=False) if node_ids else []
+    versions = db.query_native("storage_versions",
+        "SELECT id::text AS id, node_id::text AS node_id FROM storage_versions WHERE owner_id=%s AND id = ANY(%s::uuid[])",
+        [owner, version_ids], camel_case=False) if version_ids else []
+    return {r["id"] for r in nodes}, {r["id"]: r["node_id"] for r in versions}
+
+
+@router.post("/import")
+async def start_import(request: Request, body: ImportStart):
+    await auth.validate_bearer(request)
+    uid = auth.extract_user_id(request)
+    if body.formatVersion != backup_archive.FORMAT_VERSION:
+        raise HTTPException(400, "This backup was made by a different version of Pattadar and cannot be restored here.")
+    rows = await asyncio.to_thread(db.query_native, "storage_nodes",
+        "SELECT count(*) AS n FROM storage_nodes WHERE owner_id=%s AND kind='file' AND trashed_at IS NULL",
+        [uid], camel_case=False)
+    storage_empty = not (rows and int(rows[0]["n"]))
+    return await upstream(_api_base_url(), "/internal/account/import", uid, "POST",
+                          {"archive_id": body.archiveId, "format_version": body.formatVersion,
+                           "storage_empty": storage_empty})
+
+
+@router.get("/import")
+async def get_import(request: Request):
+    await auth.validate_bearer(request)
+    return JSONResponse(await upstream(_api_base_url(), "/internal/account/import", auth.extract_user_id(request)),
+                        headers={"Cache-Control": "no-store"})
+
+
+@router.post("/import/{job_id}/nodes")
+async def map_import_nodes(request: Request, job_id: str, body: ImportMappings):
+    await auth.validate_bearer(request)
+    uid = auth.extract_user_id(request)
+    path = _job_path(job_id, "/nodes")
+    nodes = sorted({m.new for m in body.mappings})
+    versions = sorted({m.newVersion for m in body.mappings if m.newVersion})
+    if any(not _UUID.match(v) for v in versions):
+        raise HTTPException(400, "A restored file was not recognised.")
+    owned, version_nodes = await asyncio.to_thread(_owned_nodes, uid, nodes, versions)
+    for m in body.mappings:
+        if m.new not in owned or (m.newVersion and version_nodes.get(m.newVersion) != m.new):
+            raise HTTPException(403, "A restored file does not belong to this account.")
+    payload = {"mappings": [{"old": m.old, "new": m.new, "old_version": m.oldVersion, "new_version": m.newVersion}
+                            for m in body.mappings]}
+    return await upstream(_api_base_url(), path, uid, "POST", payload)
+
+
+@router.post("/import/{job_id}/records")
+async def restore_import_records(request: Request, job_id: str):
+    await auth.validate_bearer(request)
+    uid = auth.extract_user_id(request)
+    path = _job_path(job_id, "/records")
+    declared = int(request.headers.get("content-length") or 0)
+    if declared > MAX_RECORDS_BYTES:
+        raise HTTPException(413, "This backup's records are larger than a restore takes at once.")
+    raw = await request.body()
+    if len(raw) > MAX_RECORDS_BYTES:
+        raise HTTPException(413, "This backup's records are larger than a restore takes at once.")
+    try:
+        body = json.loads(raw)
+    except ValueError:
+        raise HTTPException(400, "This backup's records could not be read.")
+    if not isinstance(body, dict) or not isinstance(body.get("data"), dict):
+        raise HTTPException(400, "This backup's records are not in the expected shape.")
+    return await upstream(_api_base_url(), path, uid, "POST", {"data": body["data"]}, timeout=_RESTORE_TIMEOUT)
 
 
 @router.get("/consent")

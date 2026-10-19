@@ -25,8 +25,10 @@ import { useCallback, useEffect, useState } from 'react';
 import ChevronLeftOutlined from '@mui/icons-material/ChevronLeftOutlined';
 import ChevronRightOutlined from '@mui/icons-material/ChevronRightOutlined';
 
+import { Link } from 'react-router';
 import { useDocument } from '../api';
-import { Failed, Loading } from '../ui';
+import { Failed } from '../ui';
+import { SkPaper } from '../skeletons';
 import { Drawer, drawerEyebrow } from '../Drawer';
 import { ScanView, useScan } from './scan';
 
@@ -120,9 +122,12 @@ function useResizableWidth() {
   return { width, dragging, onPointerDown, onKeyDown };
 }
 
-export function PaperPreview({ paperId, onClose, returnFocus }: {
+export function PaperPreview({ paperId, onClose, returnFocus, openState }: {
   paperId: string;
   onClose: () => void;
+  /** Router state for the Open link — Documents passes where the owner is
+   *  standing, so the Reader's Back returns to that folder or search. */
+  openState?: { from: string };
   /** Where focus goes if the row that opened the drawer is gone by the time it
    *  closes — the drawer's own contract, forwarded to the caller's list. */
   returnFocus?: React.RefObject<HTMLElement | null>;
@@ -135,7 +140,7 @@ export function PaperPreview({ paperId, onClose, returnFocus }: {
   const [zoom, setZoom] = useState(100);
   const { width, dragging, onPointerDown, onKeyDown } = useResizableWidth();
 
-  const href = `/app/papers/${paperId}`;
+  const href = `/papers/${paperId}`;
 
   // The header needs a title before `data` lands. The three pre-data states
   // borrow a neutral one rather than flashing the id.
@@ -189,7 +194,7 @@ export function PaperPreview({ paperId, onClose, returnFocus }: {
         onKeyDown={onKeyDown}
       />
 
-      {isLoading && <Loading h="18rem" what="the document" />}
+      {isLoading && <SkPaper h="18rem" label="Loading the document" />}
 
       {!isLoading && error && (
         <Failed what="This document" error={error} boxed h="18rem" />
@@ -210,8 +215,12 @@ export function PaperPreview({ paperId, onClose, returnFocus }: {
               within the frame below; a PDF is left to its own viewer's zoom, so
               this is not drawn over one. Padded off the edge because the body
               around it is now flush. */}
-          {canZoom && (
-            <div className="row between" style={{ flexWrap: 'nowrap', flex: 'none', padding: 'var(--space-sm) var(--space-md) 0' }}>
+          {/* The full document page is one press away: the preview is a look,
+              and renaming, downloading or sharing one document is done there.
+              Zoom, for an image scan only, sits beside it; a PDF is left to
+              its own viewer's zoom. */}
+          <div className="row between" style={{ flexWrap: 'nowrap', flex: 'none', padding: 'var(--space-sm) var(--space-md) 0' }}>
+            {canZoom ? (
               <span className="segmented" role="group" aria-label="Zoom">
                 <button type="button" onClick={() => setZoom((z) => Math.max(50, z - 15))} aria-label="Zoom out">−</button>
                 <output className="mono" aria-live="polite"
@@ -220,8 +229,9 @@ export function PaperPreview({ paperId, onClose, returnFocus }: {
                 </output>
                 <button type="button" onClick={() => setZoom((z) => Math.min(400, z + 15))} aria-label="Zoom in">+</button>
               </span>
-            </div>
-          )}
+            ) : <span />}
+            <Link className="btn sm" to={href} state={openState} onClick={onClose}>Open</Link>
+          </div>
 
           {/* The scan IS this surface. `flex: 1` gives it every pixel the header
               and the pager do not take, so a tall deed fills the panel and the
@@ -235,14 +245,14 @@ export function PaperPreview({ paperId, onClose, returnFocus }: {
             // Flush to the panel edges — no rounding, no inner padding — so the
             // scan bleeds to the sides the way Dropbox fills its preview. A tiny
             // top margin only when there is a zoom pill above it.
-            marginTop: canZoom ? 'var(--space-sm)' : 0,
+            marginTop: 'var(--space-sm)',
             overflow: 'hidden',
           }}>
             <ScanView
               scan={scan}
               title={data.title}
               isImage={isImage}
-              recordHref={data.recordId ? href : undefined}
+              recordHref={data.recordId ? `/properties/${data.recordId}/documents` : undefined}
               page={page}
               pages={pages}
               zoom={zoom}

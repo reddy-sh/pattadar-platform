@@ -44,7 +44,7 @@ struct AccountScreen: View {
                 Button { app.selectedTab = .documents } label: {
                     HStack {
                         Label {
-                            Text("Papers").foregroundStyle(Color(.label))
+                            Text("Documents").foregroundStyle(Color(.label))
                         } icon: {
                             Image(systemName: "doc.text.fill")
                                 .foregroundStyle(Color.accentColor)
@@ -72,7 +72,7 @@ struct AccountScreen: View {
                     }
                 }
                 NavigationLink { ActivityScreen() } label: {
-                    Label("Activity log", systemImage: "clock.arrow.circlepath")
+                    Label("Activity", systemImage: "clock.arrow.circlepath")
                 }
             }
 
@@ -92,6 +92,8 @@ struct AccountScreen: View {
                 }
             }
 
+            #if DEBUG
+            // Developer builds only: hostnames and token talk are machinery (E2).
             Section {
                 Fact(label: "Server", value: app.api.config.baseURL.host ?? "—")
                 Fact(label: "Signed in as", value: CognitoAuth.shared.email ?? app.api.config.userID)
@@ -103,6 +105,7 @@ struct AccountScreen: View {
                      ? "Signed in with your Pattadar account. Requests carry a signed token; the dev header rides along only for the dev API."
                      : "Not really signed in: this session identifies you to the dev API with a header, not a password. Sign out and back in to use your Pattadar account.")
             }
+            #endif
         }
         .navigationTitle("Account")
         .sheet(isPresented: $showSignIn) { SignInScreen().onDisappear { Task { await load() } } }
@@ -120,18 +123,18 @@ struct AccountScreen: View {
         } message: {
             // Nothing is deleted: the records live on the server, and saying
             // so removes the fear that stops people signing out.
-            Text("Your records stay on the server. Only this device forgets who you are.")
+            Text("Your data stays on the server. Only this device forgets who you are.")
         }
         .confirmationDialog("Clear cached files?", isPresented: $confirmClearCache, titleVisibility: .visible) {
             Button("Clear the cache", role: .destructive) {
                 Task { await ResponseCache.shared.clear() }
                 URLCache.shared.removeAllCachedResponses()
             }
-            Button("Keep them", role: .cancel) { }
+            Button("Cancel", role: .cancel) { }
         } message: {
             // The one thing people fear from "clear": losing unsent work.
             // Filings waiting to go up are a queue, not a cache — untouched.
-            Text("Frees space used by downloaded copies. Papers waiting to upload are not touched.")
+            Text("Frees space used by downloaded copies. Documents waiting to upload are not touched.")
         }
         .onChange(of: photoItem) { _, item in
             guard let item else { return }
@@ -215,7 +218,7 @@ struct AccountScreen: View {
             .padding(.vertical, Space.xs)
             Button(role: .destructive) { identityRemoved = true } label: {
                 VStack(alignment: .leading, spacing: Space.hair) {
-                    Label("This isn't me", systemImage: "person.crop.circle.badge.xmark")
+                    Label("This is not me", systemImage: "person.crop.circle.badge.xmark")
                         .foregroundStyle(Palette.danger)
                     // A concrete colour: the destructive tint would otherwise
                     // bleed through `.secondary` and turn the subline pink.
@@ -278,8 +281,8 @@ struct AccountScreen: View {
                 HStack {
                     Label {
                         VStack(alignment: .leading, spacing: Space.hair) {
-                            Text("Export selected papers").foregroundStyle(Color(.label))
-                            Text("Select papers in Papers, then Share — they leave as one zip")
+                            Text("Export selected documents").foregroundStyle(Color(.label))
+                            Text("Select documents in Documents, then Share — they leave as one zip")
                                 .font(.note).foregroundStyle(Color(.secondaryLabel))
                         }
                     } icon: {
@@ -478,7 +481,7 @@ struct AssistantTeaserScreen: View {
                         .font(.title2).foregroundStyle(Color.accentColor)
                     Text("Ask about your land")
                         .font(.recordTitle)
-                    Text("Duty on a sale, what an EC actually proves, which paper a buyer will ask for next — the Assistant reads your own records and answers in plain words. It is being built now.")
+                    Text("Duty on a sale, what an EC actually proves, which document a buyer will ask for next — the Assistant reads your own documents and answers in plain words. It is being built now.")
                         .font(.bodyCopy).foregroundStyle(.secondary)
                 }
                 .padding(.vertical, Space.sm)

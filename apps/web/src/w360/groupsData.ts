@@ -1,5 +1,5 @@
 /**
- * Families & Groups data, for the W360 screen at /app/groups.
+ * Families & Groups data, for the W360 screen at /groups.
  *
  * Why this file exists rather than reusing `pages/families/familiesData.ts`
  * wholesale: that module reads through `useFamLive`, which catches EVERY error
@@ -39,8 +39,6 @@ import {
   GROUP_FIELDS_HOLDINGS,
   MEMBER_FIELDS,
   addMember,
-  assignLandToGroup,
-  assignPropertyToGroup,
   createGroup,
   deleteGroup,
   inviteMember,
@@ -58,6 +56,8 @@ import type {
   ParcelOption,
   SavedMember,
 } from '../pages/families/familiesData';
+import { setRecordHolder } from './api';
+import type { HolderChange } from './api';
 import { notifierSaveFailedText } from './groupsView';
 import { useToast } from './Toast';
 
@@ -101,6 +101,8 @@ export interface GroupRow {
   inactivityNextAt: string;
   inactivityLastOutcome: string;
   inactiveContactGaps: number;
+  /** JSON object string of the group's typed facts (country, PAN, deed…). */
+  facts?: string;
 }
 
 /** Everything the group holds, however it is held. This is the number the
@@ -249,8 +251,14 @@ function useGroupWrite<V, R>(
     also = [],
     quiet = false,
     reason = true,
+    settle = false,
   }: {
     also?: readonly (readonly unknown[])[];
+    /** Resolve the write only once the groups list has been read again. Create
+     *  sets it: the caller navigates straight to the new group's page, which
+     *  finds the group in that list, and a list read before the write would
+     *  show "not on file" for a group that was just made. */
+    settle?: boolean;
     /** Print the server's reason as the toast's second line. The notifier
      *  editor turns it off: its sentence already says what failed and that
      *  nothing changed, and the raw server words beneath it read as noise. */
@@ -267,9 +275,12 @@ function useGroupWrite<V, R>(
   return useMutation({
     mutationFn: run,
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: GROUPS });
+      const list = qc.invalidateQueries({ queryKey: GROUPS });
       void qc.invalidateQueries({ queryKey: ['pattadar', 'families'] });
       for (const k of also) void qc.invalidateQueries({ queryKey: k });
+      // Returning the promise makes react-query hold mutateAsync until it
+      // settles; a failed refetch does not reject it (throwOnError is off).
+      return settle ? list : undefined;
     },
     // Raised here so no write on this screen can forget it. A caller that
     // wants a more specific message still passes its own onError; react-query
@@ -282,14 +293,15 @@ function useGroupWrite<V, R>(
 }
 
 export const useCreateGroup = () =>
-  useGroupWrite<{ type: string; name: string; description: string }, string>(
-    (v) => createGroup(v.type, v.name, v.description),
+  useGroupWrite<{ type: string; name: string; description: string; facts?: string }, string>(
+    (v) => createGroup(v.type, v.name, v.description, v.facts),
     'That group could not be created.',
+    { settle: true },
   );
 
 export const useUpdateGroup = () =>
-  useGroupWrite<{ id: string; name: string; description: string }, void>(
-    (v) => updateGroup(v.id, v.name, v.description),
+  useGroupWrite<{ id: string; name: string; description: string; facts?: string }, void>(
+    (v) => updateGroup(v.id, v.name, v.description, v.facts),
     'That change could not be saved.',
   );
 
@@ -379,24 +391,27 @@ export const useSetMemberStatus = () =>
   );
 
 /**
- * Move a holding into a group, or out of one.
+ * Set the holder of one property: put it in this group, or (`groupId` '')
+ * back in your own name.
  *
- * Two mutations behind one hook because the grain genuinely differs and the
- * caller has to know: a built property carries its own `group_id` and moves
- * alone, while a parcel has none — agricultural land is grouped through the
- * khata above it, so moving one parcel moves every parcel on that passbook.
- * The screen says so before it acts rather than surprising anyone.
+ * A built property carries its own holder and moves alone; a parcel has none —
+ * it is held through the khata above it, so moving one parcel moves every
+ * parcel on that passbook. `useHolderChange` in `./api` previews that list so
+ * the screen can say so before it acts; this write answers with the same
+ * list. (`kind` and `passbookId` are accepted for the callers that already
+ * pass them; the server works the khata out itself.)
  */
-export const useAssignHolding = () =>
+export const useAssignHolder = () =>
   useGroupWrite<
-    { kind: 'parcel' | 'property'; passbookId: string; recordId: string; groupId: string },
-    void
+    { kind?: 'parcel' | 'property'; passbookId?: string; recordId: string; groupId: string },
+    HolderChange
   >(
-    (v) => (v.kind === 'property'
-      ? assignPropertyToGroup(v.recordId, v.groupId)
-      : assignLandToGroup(v.passbookId, v.groupId)),
-    'That property could not be reassigned.',
-    { also: [[KEY, 'portfolio'], [KEY, 'properties'], [KEY, 'map']] },
+    (v) => setRecordHolder([v.recordId], v.groupId),
+    'That property could not be moved.',
+    {
+      also: [[KEY, 'portfolio'], [KEY, 'properties'], [KEY, 'map'], [KEY, 'record'],
+        [KEY, 'combined']],
+    },
   );
 
 export const useSetNotifiers = () =>

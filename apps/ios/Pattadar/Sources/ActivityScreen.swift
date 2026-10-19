@@ -59,7 +59,7 @@ struct ActivityScreen: View {
         if cal.isDateInToday(d) { return "Today" }
         if cal.isDateInYesterday(d) { return "Yesterday" }
         let f = DateFormatter()
-        f.dateFormat = cal.isDate(d, equalTo: Date(), toGranularity: .year) ? "d MMM" : "d MMM yyyy"
+        f.dateFormat = "dd/MM/yyyy"
         return f.string(from: d)
     }
 

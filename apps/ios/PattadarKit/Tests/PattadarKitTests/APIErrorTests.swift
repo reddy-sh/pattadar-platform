@@ -16,10 +16,16 @@ struct APIErrorTests {
         #expect(odd.description.contains("418"))
     }
 
-    @Test func plainBodiesStillCarryTheirMessage() {
+    @Test func rawBodiesAreNeverEchoed() {
         let e = PattadarAPI.APIError.http(500, "database connection refused")
-        #expect(e.description.contains("500"))
-        #expect(e.description.contains("database connection refused"))
+        #expect(e.description == "Pattadar could not reach your properties. Try again in a moment (code 500).")
+        let json = PattadarAPI.APIError.http(400, "{\"detail\":\"bad\"}")
+        #expect(!json.description.contains("detail"))
+    }
+
+    @Test func ownerSentencesStillPassThrough() {
+        let e = PattadarAPI.APIError.http(403, "You do not have access to this property.")
+        #expect(e.description == "You do not have access to this property.")
     }
 
     @Test("Stopping a read is a stop, not a failure — on both upload paths")
@@ -53,7 +59,7 @@ struct APIErrorTests {
         #expect(!dead.description.contains("NSURLErrorDomain"))
         #expect(!dead.description.contains("UserInfo"))
         #expect(!dead.description.contains("Code="))
-        #expect(dead.description == "Couldn’t reach the server.")
+        #expect(dead.description == "Could not reach the server.")
 
         // An unlocalised error must not leak its NSError fallback either —
         // "The operation couldn't be completed. (NSURLErrorDomain error -1.)"

@@ -1,15 +1,17 @@
 """Drop records the e2e suite created through the app, for one identity.
 
-The two seed scripts purge only what they authored — `w360-` and `demo-` ids.
-Anything the APP mints carries its own prefix (`rec-`, `exp-`, `wr-`, `sl-`,
-`ph-`, `doc-`, `lf-`, `rp-`) and survives every reseed. So a crashed run leaves
+The two seed scripts purge only what they authored — `w360-`, `demo-` and
+`sf-` ids. Anything the APP mints survives every reseed: a property it files
+has a bare UUIDv7 id, and its other rows carry their own prefix (`exp-`, `wr-`,
+`sl-`, `ph-`, `doc-`, `lf-`, `rp-`). So a crashed run leaves
 a parcel behind and the next starts with ten records where the suite asserts
 nine; a test that files an expense leaves it for every run after, and the
 assertion reads "expected 1, received 2". None of those failures name the row
 that caused them, and the residue persists until someone deletes it by hand.
 
-Scoped by identity AND by prefix: the founder files real records in their own
-account, and those must never be in range of this.
+Scoped by identity, and to an e2e identity only (`w360-…`): an app-minted
+property id is indistinguishable from a real one, and the founder files real
+records in their own account, which must never be in range of this.
 
     python scripts/purge-e2e-records.py w360-demo
 """
@@ -24,6 +26,9 @@ DSN = os.getenv("APP_PG_DSN",
                 "host=localhost port=5432 dbname=pattadar user=rhub password=rhub-dev-pwd")
 UID = sys.argv[1] if len(sys.argv) > 1 else os.getenv("DEV_USER_ID", "w360-demo")
 
+# A property the app filed: anything the seeds did not author.
+APP_MINTED = "id NOT LIKE 'w360-%%' AND id NOT LIKE 'demo-%%' AND id NOT LIKE 'sf-%%'"
+
 # Everything that hangs off a record, keyed by the column naming it.
 CHILDREN = (
     ("documents", "record_id"),
@@ -33,7 +38,7 @@ CHILDREN = (
     ("record_people", "record_id"),
     ("land_expenses", "entity_id"),
     ("work_requests", "entity_id"),
-    ("boundary_marks", "parcel_id"),
+    ("boundary_marks", "record_id"),
     ("notes", "entity_id"),
 )
 
@@ -43,13 +48,15 @@ def main() -> None:
     # against a local disposable database, and nothing else should.
     require_local_dsn(DSN, "purge-e2e-records.py",
                       "deletes an account's records and everything hanging off them")
+    if not UID.startswith("w360-"):
+        sys.exit(f"purge-e2e-records.py: refused: {UID!r} is not an e2e identity (w360-…)")
     with psycopg.connect(DSN, autocommit=True) as conn:
         cur = conn.execute(
             "SELECT p.id FROM parcels p JOIN passbooks pb ON pb.id = p.passbook_id"
-            " WHERE pb.owner_user_id = %s AND p.id LIKE 'rec-%%'", (UID,))
+            " WHERE pb.owner_user_id = %s AND " + APP_MINTED.replace("id", "p.id"), (UID,))
         ids = [r[0] for r in cur.fetchall()]
         cur = conn.execute(
-            "SELECT id FROM properties WHERE owner_user_id = %s AND id LIKE 'rec-%%'", (UID,))
+            "SELECT id FROM properties WHERE owner_user_id = %s AND " + APP_MINTED, (UID,))
         ids += [r[0] for r in cur.fetchall()]
 
         # Rows the APP minted, as opposed to rows a seed script authored. Each
@@ -122,7 +129,7 @@ def main() -> None:
         # it (web360.py saveRecord) and takes that passbook's owner name, so one
         # stray empty row silently blanks the owner on every parcel a later run
         # files under the same khata. That is a whole afternoon spent looking at
-        # the card, which is the same shape of bug as the stray `rec-` ids: one
+        # the card, which is the same shape of bug as the stray app-minted ids: one
         # unreachable row, a suite that fails somewhere else entirely.
         orphans = conn.execute(
             "DELETE FROM passbooks pb WHERE pb.owner_user_id = %s"

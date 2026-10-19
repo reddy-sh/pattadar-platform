@@ -1,5 +1,5 @@
 /**
- * Route guard for /app/*: unauthenticated visitors are sent to OUR /login
+ * Route guard for /*: unauthenticated visitors are sent to OUR /login
  * page (never an external URL) with the attempted path preserved, so they
  * land back where they aimed after signing in.
  */

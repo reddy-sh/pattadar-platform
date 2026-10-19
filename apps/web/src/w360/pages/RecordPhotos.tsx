@@ -6,15 +6,17 @@
  *  THAT bore, and what a forwarded picture can and cannot be used for.
  *
  *  The delete copy is not a generic confirm. It names what the photo is doing
- *  elsewhere, because W14's point is that one file is referenced three times
- *  and removing it from one place does not remove it from the others. */
+ *  elsewhere, because W14's point is that one file is referenced from several
+ *  places — a feature's condition, an order's evidence, the cover — and
+ *  deleting the row takes it off every one of them (photoUses.ts). */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
+import { bulkDeleteBody, deleteBody } from '../photoUses';
+import { fmtLocal } from '../../lib/format';
 import ChevronLeftOutlined from '@mui/icons-material/ChevronLeftOutlined';
 import ChevronRightOutlined from '@mui/icons-material/ChevronRightOutlined';
 import AddOutlined from '@mui/icons-material/AddOutlined';
 import CloseOutlined from '@mui/icons-material/CloseOutlined';
-import SearchOutlined from '@mui/icons-material/SearchOutlined';
 import GppGoodOutlined from '@mui/icons-material/GppGoodOutlined';
 import ImageOutlined from '@mui/icons-material/ImageOutlined';
 import FileDownloadOutlined from '@mui/icons-material/FileDownloadOutlined';
@@ -39,9 +41,10 @@ import type { Photo, RecordDetail } from '../api';
 import { useExif } from '../photoExif';
 import type { ExifData } from '../exifGeo';
 import {
-  Card, Empty, Failed, Icon, KV, Loading, Menu, PhotoImg, VideoThumb, Tag, ddmmyyyy, plural,
-  useFullscreen, useNarrow,
+  BandSearch, Card, Empty, FacetFilter, Failed, Icon, KV, PhotoImg, SelectionBar, VideoThumb, Tag,
+  ddmmyyyy, plural, useFullscreen,
 } from '../ui';
+import type { HeadActions } from '../ui';
 import { Drawer, DrawerAction, drawerEyebrow } from '../Drawer';
 import { useToast } from '../Toast';
 import { useRecordCtx } from './Record';
@@ -50,13 +53,19 @@ import { ConfirmDialog } from './PropertyActions';
 import { MAX_UPLOAD_BYTES, MAX_VIDEO_BYTES, limitFor, mediaKindOf, mb, useFilePhotos } from '../filePhotos';
 import { downloadBlob, fetchFileBlob, isStorageRef } from '../../pages/documents/storage';
 import { uniqueNames, zipStore } from '../../lib/zip';
+import { orderHref } from '../orderFlow';
+import { Sk } from '../skeletons';
 
-/** '2026-08-12 07:41 IST' → '12/08/2026 07:41 IST'. A capture stamp is
- *  evidence and is read in the same order as every other date here. */
+/** When a photo was taken, in the owner's own clock — '2026-08-12T06:40:00Z'
+ *  → '12/08/2026, 12:10' in India — the way Activity and Notes print a time
+ *  (lib/format.ts fmtLocal). It used to print the UTC wall clock with a "UTC"
+ *  suffix, which before 05:30 IST named the previous day. A stamp without a
+ *  time is a calendar date and is only reordered. */
 const stamp = (s: string) => {
   if (!s) return '';
-  const tail = s.slice(10).replace(/^T/, ' ').replace(/Z$/, ' UTC');
-  return `${ddmmyyyy(s.slice(0, 10))}${tail}`;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return ddmmyyyy(s);
+  const local = fmtLocal(s);
+  return local === s ? `${ddmmyyyy(s.slice(0, 10))}${s.slice(10).replace(/^T/, ' ')}` : local;
 };
 
 const MAX_MEDIA_ARCHIVE_BYTES = 1024 * 1024 * 1024;
@@ -165,7 +174,7 @@ function PhotoGeoCheckBlock({ rec, p, exif, loading }: {
   );
   return (
     <>
-      <p className="eyebrow" style={{ marginTop: 'var(--space-lg)' }}>Location check</p>
+      <h3 className="eyebrow" style={{ marginTop: 'var(--space-lg)' }}>Location check</h3>
       {check.suspect ? <div className="card alert">{content}</div> : content}
     </>
   );
@@ -181,7 +190,7 @@ function PhotoMetadata({ exif, loading, unsupported }: { exif: ExifData | null; 
   if (loading) {
     return (
       <>
-        <p className="eyebrow" style={{ marginTop: 'var(--space-lg)' }}>Metadata</p>
+        <p className="eyebrow" style={{ marginTop: 'var(--space-lg)' }}>Photo details</p>
         <p className="note" style={{ marginTop: 'var(--space-xs)', color: 'var(--w-ink-3)' }}>
           Reading the file…
         </p>
@@ -191,9 +200,9 @@ function PhotoMetadata({ exif, loading, unsupported }: { exif: ExifData | null; 
   if (unsupported) {
     return (
       <>
-        <p className="eyebrow" style={{ marginTop: 'var(--space-lg)' }}>Metadata</p>
+        <p className="eyebrow" style={{ marginTop: 'var(--space-lg)' }}>Photo details</p>
         <p className="note" style={{ marginTop: 'var(--space-xs)', color: 'var(--w-ink-3)' }}>
-          Metadata cannot be read for this format.
+          Photo details cannot be read for this format.
         </p>
       </>
     );
@@ -214,10 +223,10 @@ function PhotoMetadata({ exif, loading, unsupported }: { exif: ExifData | null; 
 
   return (
     <>
-      <p className="eyebrow" style={{ marginTop: 'var(--space-lg)' }}>Metadata</p>
+      <p className="eyebrow" style={{ marginTop: 'var(--space-lg)' }}>Photo details</p>
       {rows.length === 0 ? (
         <p className="note" style={{ marginTop: 'var(--space-xs)', color: 'var(--w-ink-3)' }}>
-          No readable metadata.
+          No photo details could be read.
         </p>
       ) : (
         <>
@@ -231,7 +240,7 @@ function PhotoMetadata({ exif, loading, unsupported }: { exif: ExifData | null; 
             <>
               <button type="button" className="linkbtn" style={{ marginTop: 'var(--space-xs)' }}
                       onClick={() => setOpen((v) => !v)}>
-                {open ? 'Hide' : `All metadata (${rawKeys.length} fields)`}
+                {open ? 'Hide technical details' : `Technical details (${rawKeys.length} fields)`}
               </button>
               {open && (
                 <div className="card" style={{ padding: 'var(--space-sm)', marginTop: 'var(--space-xs)' }}>
@@ -308,9 +317,9 @@ function Provenance({ p, rec, exif, subject, named }: {
   // vocabulary). A file hash proves the file is unchanged since it was
   // filed, which is what it now says.
   const claims = ([
-    [PhotoCameraOutlined, 'Shot in the Pattadar app, not picked from a gallery', p.source === 'app'],
-    [AccessTimeOutlined, "The device clock matched Pattadar's server", p.deviceClockOk],
-    [FingerprintOutlined, `Unchanged since it was filed · sha256 ${p.sha256.slice(0, 4)}…${p.sha256.slice(-4)}`, !!p.sha256],
+    [PhotoCameraOutlined, 'Taken in the Pattadar app, not picked from a gallery', p.source === 'app'],
+    [AccessTimeOutlined, "Time stamp matches Pattadar's clock", p.deviceClockOk],
+    [FingerprintOutlined, 'Not changed since it was added', !!p.sha256],
     [PersonOutlined, `Taken by ${p.capturedBy}`, !!p.capturedBy],
     [ReceiptLongOutlined, `Came in on service order ${p.orderRef}`, !!p.orderRef],
   ] as const).filter(([, , holds]) => holds);
@@ -320,7 +329,7 @@ function Provenance({ p, rec, exif, subject, named }: {
 
   return (
     <>
-      <p className="eyebrow">Source of truth</p>
+      <p className="eyebrow">Proof</p>
       <h2 style={{ fontSize: '1.375rem', marginBottom: 'var(--space-md)' }}>
         Why this is {named ? subject : 'evidence'}
       </h2>
@@ -401,7 +410,8 @@ function PhotoDrawer({
   seed: File[];
   busy: boolean;
   err: string;
-  onFile: (files: File[], caption: string) => Promise<void>;
+  /** Resolves to the files that were filed. */
+  onFile: (files: File[], caption: string) => Promise<File[]>;
   onClose: () => void;
   clearError: () => void;
   returnFocus: React.RefObject<HTMLButtonElement | null>;
@@ -435,7 +445,10 @@ function PhotoDrawer({
   const file = async () => {
     if (!ready) return;
     sent.current = true;
-    await onFile(picked, caption.trim());
+    const filed = await onFile(picked, caption.trim());
+    // A pick that stopped partway keeps only what did not land, so pressing
+    // add again files the rest instead of filing the first ones twice.
+    if (filed.length) setPicked((have) => have.filter((f) => !filed.includes(f)));
   };
 
   // `err` arrives after the await above has already returned, so the close has
@@ -450,7 +463,7 @@ function PhotoDrawer({
   return (
     <Drawer
       eyebrow={drawerEyebrow(recordTitle, 'Media')}
-      title={picked.length > 1 ? `Add ${picked.length} files` : 'Add photos, video or audio'}
+      title={picked.length > 1 ? `Add ${picked.length} files` : 'Add photos, videos or recordings'}
       onClose={onClose}
       onSubmit={() => void file()}
       busy={busy}
@@ -499,7 +512,7 @@ function PhotoDrawer({
           Drop the media files here
         </p>
         <p className="dropline">
-          Photos up to {mb(MAX_UPLOAD_BYTES)}; videos and audio up to {mb(MAX_VIDEO_BYTES)}.
+          Photos up to {mb(MAX_UPLOAD_BYTES)}; videos and recordings up to {mb(MAX_VIDEO_BYTES)}.
         </p>
         <div className="row tight">
           <button type="button" className="btn" onClick={() => input.current?.click()}>
@@ -622,21 +635,21 @@ export function RecordPhotos() {
   const featureId = params.get('feature') ?? undefined;
   const { data, isLoading, error } = usePhotos(id, featureId);
   const save = useUpdateCaption();
-  const delPhoto = useDeletePhoto();
+  // Both deletes answer in place — the dialog or the selection line — so the
+  // default toast would say it a second time, in other words.
+  const delPhoto = useDeletePhoto(false);
   const cover = useSetCoverPhoto();
   const setTag = useSetTag();
   const toast = useToast();
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   /** The single delete's own answer, printed inside its confirmation. */
   const [delErr, setDelErr] = useState('');
-  /** On a phone the head keeps one filled action; Select, Compare and the
-   *  search move into its menu, and the search opens under the chips. */
-  const narrow = useNarrow(640);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const searchInput = useRef<HTMLInputElement>(null);
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkDeleteIds, setBulkDeleteIds] = useState<string[] | null>(null);
+  // Written when the dialog opens: the list refetches after each delete, and
+  // a body read from it rewrote itself mid-delete under an unchanged title.
+  const [bulkBody, setBulkBody] = useState('');
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [bulkDownload, setBulkDownload] = useState<{ done: number; total: number } | null>(null);
   const [i, setI] = useState(0);
@@ -644,7 +657,7 @@ export function RecordPhotos() {
   const [compareIds, setCompareIds] = useState<[string, string] | null>(null);
   const [caption, setCaption] = useState('');
   const [q, setQ] = useState('');
-  const [mediaFilter, setMediaFilter] = useState<'all' | 'photo' | 'video' | 'audio'>('all');
+  const [kindSel, setKindSel] = useState<string[]>([]);
   // A download of a multi-megabyte original is a fetch that can refuse — an
   // expired token, a 404, a gateway that is down — and it used to refuse into
   // the console. Both halves of that are visible now.
@@ -681,7 +694,7 @@ export function RecordPhotos() {
   // in PhotoDrawer now; what stays here is the hook, because it owns `lastAdded`
   // and that is what walks the gallery to the photograph that just landed.
   const [adding, setAdding] = useState<File[] | null>(null);
-  const addTrigger = useRef<HTMLButtonElement>(null);
+  const addTrigger = useRef<HTMLButtonElement & HTMLAnchorElement>(null);
   // The caption the user is typing, tagged with the photo it belongs to. The
   // index can move out from under a focused caption box — an upload lands, the
   // strip jumps — and the blur that followed compared the draft against the
@@ -697,22 +710,32 @@ export function RecordPhotos() {
   // Filter into a second list rather than in place: `i` indexes whatever the
   // strip and stage show. Type and text filters compose; neither changes data.
   //
-  // A kind with nothing in it has no chip (as on Site features), so a filter
-  // left on one — the last video deleted — stops filtering rather than
-  // emptying the stage with no chip on screen to release it.
-  const kindCount = { all: photos.length, photo: photoCount, video: videoCount, audio: audioCount };
-  const kindFilter = kindCount[mediaFilter] > 0 ? mediaFilter : 'all';
+  // The kinds are a group in the band's one filter (FacetFilter), counted from
+  // the rows. A kind with nothing in it is not offered (as on Site features),
+  // so a filter left on one — the last video deleted — stops filtering rather
+  // than emptying the stage with no chip on screen to release it.
+  const kindGroups = useMemo(() => [{
+    key: 'kind', label: 'Kind',
+    options: ([
+      ['photo', 'Photos', photoCount], ['video', 'Videos', videoCount], ['audio', 'Recordings', audioCount],
+    ] as const).filter(([, , n]) => n > 0).map(([key, label, count]) => ({ key, label, count })),
+  }], [photoCount, videoCount, audioCount]);
+  const kinds = kindSel.filter((k) => kindGroups[0].options.some((o) => o.key === k));
+  const toggleKind = (_group: string, key: string) =>
+    setKindSel(kinds.includes(key) ? kinds.filter((k) => k !== key) : [...kinds, key]);
+  const kindKey = kinds.join(',');
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
+    const on = kindKey ? kindKey.split(',') : [];
     return photos.filter((item) => {
-      if (kindFilter !== 'all' && mediaKindOfRow(item) !== kindFilter) return false;
+      if (on.length > 0 && !on.includes(mediaKindOfRow(item))) return false;
       if (!needle) return true;
       return [
         item.caption, item.category, item.fileName, item.tags.join(' '),
         ddmmyyyy(item.capturedAt.slice(0, 10)), item.capturedAt.slice(0, 10),
       ].join(' ').toLowerCase().includes(needle);
     });
-  }, [photos, q, kindFilter]);
+  }, [photos, q, kindKey]);
   const p = shown[Math.min(i, shown.length - 1)];
   const compareLeft = shown.find((item) => item.id === compareIds?.[0]);
   const compareRight = shown.find((item) => item.id === compareIds?.[1]);
@@ -750,7 +773,9 @@ export function RecordPhotos() {
     setDlErr('');
     setActionErr('');
     setConfirmDeleteId(null);
-    clearError();
+    // Not while the drawer is open: a pick that stopped partway walks the
+    // gallery to what it filed, and that must not wipe its own sentence.
+    if (!adding) clearError();
     captionSent.current = '';
     setAddingTag(false);
     setTagText('');
@@ -770,7 +795,7 @@ export function RecordPhotos() {
     setComparing(false);
     setSelected(new Set());
     setBulkDeleteIds(null);
-  }, [q, mediaFilter]);
+  }, [q, kindKey]);
 
   // The invalidation refetches; jump to the new photo once it actually arrives.
   useEffect(() => {
@@ -797,8 +822,66 @@ export function RecordPhotos() {
     return () => window.removeEventListener('keydown', onKey);
   }, [shown.length]);
 
-  if (isLoading) return <Loading h="24rem" />;
-  if (!data) return <Failed what="These photos" error={error} boxed h="20rem" />;
+  if (isLoading) return (
+    <>
+      {/* Same head boxes as the loaded one: the item-count line (feature scope)
+          and a button-height bar where the Add button sits. */}
+      <SectionHead title={featureId ? <Sk w="14rem" h="1.25rem" /> : 'Media'}
+                   sub={featureId ? <Sk w="4rem" /> : undefined}
+                   controls={(
+                     // In a .btn box, so a touch screen's 44px button floor holds
+                     // the head at the height the real Add button gives it.
+                     <span className="btn" style={{ padding: 0, border: 0, background: 'none' }}>
+                       <Sk w="14rem" h="2.25rem" r="var(--radius-pill)" />
+                     </span>
+                   )} />
+      {/* The band's height, held: it lands with the photos, and without this
+          row the stage dropped by the band's height when it did. Its own
+          classes, hidden, so the height matches at every width and pointer. */}
+      {!featureId && (
+        <div className="filterbar band" aria-hidden>
+          <span className="addfilter" style={{ visibility: 'hidden' }}>+ Filter</span>
+          <span className="search bandsearch" style={{ visibility: 'hidden', marginLeft: 'auto' }}>
+            <input tabIndex={-1} readOnly />
+          </span>
+        </div>
+      )}
+      {/* The viewer's own boxes — the .lightbox (sized by main:has(> .lightbox)),
+          its stage, the 4:3 frame, the thumbnail strip and the side panel — so
+          nothing moves when the photos land. One live region; scaffold hidden. */}
+      <div className="lightbox" role="status" aria-busy="true" aria-label="Loading these photos">
+        <div className="stage" aria-hidden
+             style={{ display: 'grid', gridTemplateRows: 'auto minmax(0,1fr) auto',
+                      placeItems: 'stretch', gap: 'var(--space-md)' }}>
+          <Sk w="5.5rem" h="0.75rem" />
+          <div className="row" style={{ justifyContent: 'center', minHeight: 0, minWidth: 0, overflow: 'hidden' }}>
+            <div className="frame" style={{ width: 'auto', height: '100%', maxWidth: '100%', minWidth: 0 }} />
+          </div>
+          <div className="thumbs" style={{ border: 0, padding: 0 }}>
+            <span className="photostrip">
+              {Array.from({ length: 6 }, (_, n) => (
+                <Sk key={n} w="3.5rem" h="3.5rem" r="var(--radius-sm)" style={{ flex: 'none' }} />
+              ))}
+            </span>
+          </div>
+        </div>
+        <aside className="side stack sm" aria-hidden>
+          <Sk w="40%" h="0.75rem" />
+          <Sk w="85%" />
+          <Sk w="60%" />
+          <Sk w="30%" h="0.75rem" style={{ marginTop: 'var(--space-md)' }} />
+          {[70, 55, 65, 45].map((w) => <Sk key={w} w={`${w}%`} />)}
+        </aside>
+      </div>
+    </>
+  );
+  // The tab keeps its head on a failed read, as it does while loading.
+  if (!data) return (
+    <>
+      <SectionHead title="Media" />
+      <Failed what="These photos" error={error} boxed h="20rem" />
+    </>
+  );
 
   // The server returns "" for a feature whose row is gone, and an unguarded
   // interpolation of that left a display heading trailing off into nothing.
@@ -970,73 +1053,33 @@ export function RecordPhotos() {
   const canSelect = !featureId && photos.length > 0;
   const canCompare = !selecting && shown.length >= 2;
 
-  /** The search box. "Search by tag or date" fits its box at 1512, where
-   *  "Search photos by tag or date" was cut off; the label is unchanged. */
-  const searchBox = (
-    <span className={`search${narrow ? ' media-search' : ''}`}
-          style={narrow ? undefined : { flex: '1 1 10rem', maxWidth: '14rem', minWidth: 0 }}>
-      <SearchOutlined sx={{ fontSize: 16 }} aria-hidden />
-      <input ref={searchInput} placeholder="Search by tag or date" aria-label="Search photos"
-             value={q} onChange={(e) => setQ(e.target.value)} />
-      {q && (
-        <button type="button" className="iconbtn" aria-label="Clear the search"
-                onClick={() => setQ('')}
-                style={{ flex: 'none', width: '1.25rem', height: '1.25rem' }}>
-          <CloseOutlined sx={{ fontSize: 15 }} />
-        </button>
-      )}
-    </span>
-  );
+  const moreItems = [
+    ...(canSelect ? [{ label: selecting ? 'Done selecting' : 'Select', onClick: toggleSelecting }] : []),
+    ...(canCompare ? [{
+      label: comparing ? 'Exit compare' : 'Compare',
+      icon: <CompareArrowsOutlined sx={{ fontSize: 17 }} />,
+      onClick: toggleComparing,
+    }] : []),
+  ];
 
-  const mediaActions = (
-    <>
-      {featureId ? (
-        <Link className="btn"
-              to={`/app/records/${rec.id}/order?service=site_visit&step=pick&a.check=General+condition&why=photos`}>
-          <PhotoCameraOutlined sx={{ fontSize: 15 }} /> Ask for a fresh photo
-        </Link>
-      ) : !narrow && searchBox}
-      {!narrow && canSelect && (
-        <button type="button" className={`btn${selecting ? ' soft' : ''}`}
-                aria-pressed={selecting}
-                onClick={toggleSelecting}>
-          {selecting ? 'Done' : 'Select'}
-        </button>
-      )}
-      {!narrow && canCompare && (
-        <button type="button" className={`btn${comparing ? ' soft' : ''}`}
-                aria-pressed={comparing}
-                onClick={toggleComparing}>
-          <CompareArrowsOutlined sx={{ fontSize: 16 }} /> {comparing ? 'Exit compare' : 'Compare'}
-        </button>
-      )}
-      {/* On a phone the head is the one filled action and this menu, so the
-          stage starts in the first viewport instead of under two rows of
-          controls. */}
-      {narrow && (!featureId || canCompare) && (
-        <Menu label="More for this media" items={[
-          ...(!featureId ? [{
-            label: 'Search',
-            onClick: () => {
-              setSearchOpen(true);
-              requestAnimationFrame(() => searchInput.current?.focus());
-            },
-          }] : []),
-          ...(canSelect ? [{ label: selecting ? 'Done selecting' : 'Select', onClick: toggleSelecting }] : []),
-          ...(canCompare ? [{ label: comparing ? 'Exit compare' : 'Compare', onClick: toggleComparing }] : []),
-        ]} />
-      )}
-      {/* Opens the drawer, like every other "add a thing" on this record. It
-          used to click a hidden file input, so the pick was the whole
-          interaction and every photograph arrived with no caption. */}
-      <button ref={addTrigger} type="button" className="btn primary"
-              aria-haspopup="dialog" aria-expanded={!!adding} disabled={busy}
-              onClick={() => setAdding([])}>
-        <AddOutlined sx={{ fontSize: 16 }} aria-hidden />
-        Add photos, video or audio
-      </button>
-    </>
-  );
+  const mediaActions: HeadActions = {
+    secondaries: featureId ? [{
+      label: 'Ask for a fresh photo', icon: <PhotoCameraOutlined sx={{ fontSize: 15 }} />,
+      to: orderHref(rec.id, { service: 'site_visit', 'a.check': 'General condition', why: 'photos' }),
+    }] : [],
+    /* Select and Compare live in the More menu at every width (Reddy,
+       13/10/2026). The search is the band's, an icon on a phone. */
+    overflow: moreItems,
+    overflowHeader: rec.title,
+    /* Opens the drawer, like every other "add a thing" on this record. It
+       used to click a hidden file input, so the pick was the whole
+       interaction and every photograph arrived with no caption. */
+    primary: {
+      label: 'Add photos, videos or recordings', icon: <AddOutlined sx={{ fontSize: 16 }} aria-hidden />,
+      ref: addTrigger, haspopup: 'dialog', expanded: !!adding, disabled: busy,
+      onClick: () => setAdding([]),
+    },
+  };
 
   /** The empty state's dropzone: one target you can drop files onto, or click
    *  to browse.
@@ -1071,7 +1114,7 @@ export function RecordPhotos() {
     >
       <Icon name="photos" size={26} />
       <span style={{ display: 'block', marginTop: '0.5rem', fontWeight: 700 }}>
-        Drop photos, video or audio here
+        Drop photos, videos or recordings here
       </span>
       <span className="note">or <u>browse files</u></span>
     </button>
@@ -1081,7 +1124,8 @@ export function RecordPhotos() {
     <>
       {/* The record's name, its extent and the way back are the frame's now
           (RecordHead.tsx). What is left here is the hanger's own question, its
-          counts, and the two controls that belong to it. */}
+          counts, and the controls that belong to it: the search, the ⋮ and
+          the add. */}
       {/* The tab's own noun. */}
       <SectionHead
         title={featureId ? `Media of ${data.subject || 'this feature'}` : 'Media'}
@@ -1091,27 +1135,64 @@ export function RecordPhotos() {
         actions={mediaActions}
       />
 
-      {/* Washed when pressed: a filter is not an action, and the one amber
-          fill here is "Add photos, video or audio". A kind with nothing in it
-          has no chip — "Recordings 0" was a filter that led nowhere. */}
+      {/* The tab's band (design.md § Page head slot 5): the kinds as the one
+          filter, the tally, and the search — an icon on a phone, so the band
+          is one row. Nothing filed yet draws no band: a search over nothing
+          is not offered. "Search by tag or date" fits its box at 1512. */}
       {!featureId && photos.length > 0 && (
-        <div className="media-filters" role="group" aria-label="Filter media type">
-          {([
-            ['all', 'All', photos.length],
-            ['photo', 'Photos', photoCount],
-            ['video', 'Videos', videoCount],
-            ['audio', 'Recordings', audioCount],
-          ] as const).filter(([key, , count]) => key === 'all' || count > 0).map(([key, label, count]) => (
-            <button key={key} type="button" className="chip wash"
-                    aria-pressed={kindFilter === key}
-                    onClick={() => setMediaFilter(key)}>
-              {label} <span className="num">{count}</span>
-            </button>
-          ))}
-        </div>
+        <FacetFilter
+          groups={kindGroups}
+          selected={{ kind: kinds }}
+          onToggle={toggleKind}
+          onClear={() => setKindSel([])}
+          tally={`${shown.length} of ${photos.length} shown`}
+          search={<BandSearch value={q} onChange={setQ} placeholder="Search by tag or date" label="Search photos" />}
+          ariaLabel="Filter media type"
+        />
       )}
-      {/* On a phone the search lives here, opened from the head's menu. */}
-      {narrow && !featureId && (searchOpen || q) && searchBox}
+
+      {/* The selection is the shared floating bar every table uses: "N
+          selected", what can be done with them, and Clear. Select and Done
+          selecting stay in the head's ⋮. */}
+      {selecting && !bulkDeleteIds && (
+        <SelectionBar count={selectedItems.length} noun={['item', 'items']}
+                      label="Act on the selected media"
+                      onClear={() => { setSelected(new Set()); setActionErr(''); }}>
+          <button type="button" className="btn sm"
+                  disabled={!!bulkDownload || bulkDeleting}
+                  onClick={() => void downloadSelection()}>
+            <FileDownloadOutlined sx={{ fontSize: 15 }} aria-hidden />
+            {bulkDownload
+              ? `Preparing ${bulkDownload.done} of ${bulkDownload.total}…`
+              : 'Download as .zip'}
+          </button>
+          <button type="button" className="btn sm danger"
+                  disabled={!!bulkDownload || bulkDeleting}
+                  onClick={() => {
+                    setBulkBody(bulkDeleteBody(selectedItems));
+                    setBulkDeleteIds(selectedItems.map((item) => item.id));
+                  }}>
+            <DeleteOutlineOutlined sx={{ fontSize: 15 }} aria-hidden /> Delete selected
+          </button>
+        </SelectionBar>
+      )}
+      {selecting && actionErr && (
+        <p className="note" role="alert" style={{ color: 'var(--w-danger)' }}>{actionErr}</p>
+      )}
+      {/* The same confirmation as a single delete: what else the files are
+          doing, then the 30-day sentence. A partial failure closes it and says
+          which items were not deleted and stay selected. */}
+      {bulkDeleteIds && (
+        <ConfirmDialog
+          title={`Delete ${bulkDeleteIds.length} selected ${bulkDeleteIds.length === 1 ? 'item' : 'items'}?`}
+          body={bulkBody}
+          actionLabel="Delete"
+          danger
+          busy={bulkDeleting}
+          onConfirm={() => void deleteSelection()}
+          onClose={() => setBulkDeleteIds(null)}
+        />
+      )}
 
       {adding && (
         <PhotoDrawer
@@ -1210,7 +1291,7 @@ export function RecordPhotos() {
                     <span style={{ display: 'grid', justifyItems: 'center', gap: '0.5rem' }}>
                       <Icon name={mediaKindOfRow(p) === 'photo' ? p.category.toLowerCase() : mediaKindOfRow(p)} size={40} />
                       <span className="mono note">
-                        photo placeholder · {p.fileName}
+                        {kindWord(p)} placeholder · {p.fileName}
                         {p.width > 0 && ` · ${p.width} × ${p.height}`}
                       </span>
                     </span>
@@ -1289,81 +1370,7 @@ export function RecordPhotos() {
           </div>
 
           <aside className="side">
-            {selecting ? (
-              <div className="selection-panel">
-                <p className="eyebrow">Selection</p>
-                <h2 style={{ fontSize: '1.375rem' }} aria-live="polite">
-                  {selectedItems.length ? `${selectedItems.length} ${selectedItems.length === 1 ? 'item' : 'items'} selected` : 'Nothing selected'}
-                </h2>
-                <KV rows={[
-                  { k: 'Photos', v: String(selectedItems.filter((item) => mediaKindOfRow(item) === 'photo').length) },
-                  { k: 'Videos', v: String(selectedItems.filter(isVideoRow).length) },
-                  { k: 'Recordings', v: String(selectedItems.filter(isAudioRow).length) },
-                ]} />
-                {selectedItems.length > 0 && (
-                  <div className="selection-previews" aria-label="Selected media">
-                    {selectedItems.map((item) => (
-                      <span key={item.id} className="selection-preview" role="img"
-                            aria-label={item.caption || item.fileName || 'Untitled'}>
-                        {mediaKindOfRow(item) === 'video' ? (
-                          <VideoThumb fileRef={item.fileRef} fallback={<Icon name="video" size={18} />} />
-                        ) : mediaKindOfRow(item) === 'audio' ? (
-                          <Icon name="audio" size={18} />
-                        ) : (
-                          <PhotoImg fileRef={item.fileRef} alt="" thumb={128}
-                                    fallback={<Icon name={item.category.toLowerCase()} size={18} />} />
-                        )}
-                        <span className="thumb-select" aria-hidden>✓</span>
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {selectedItems.length > 0 && !bulkDeleteIds && (
-                  <div className="stack sm selection-actions">
-                    <button type="button" className="btn"
-                            disabled={!!bulkDownload || bulkDeleting}
-                            onClick={() => void downloadSelection()}>
-                      <FileDownloadOutlined sx={{ fontSize: 16 }} aria-hidden />
-                      {bulkDownload
-                        ? `Preparing ${bulkDownload.done} of ${bulkDownload.total}…`
-                        : 'Download as .zip'}
-                    </button>
-                  </div>
-                )}
-                {actionErr && <p className="note" role="alert" style={{ color: 'var(--w-danger)' }}>{actionErr}</p>}
-                {/* The same confirmation as a single delete, and the same
-                    30-day sentence. A partial failure closes it and says, in
-                    the panel, which items were not deleted and stay selected. */}
-                {bulkDeleteIds && (
-                  <ConfirmDialog
-                    title={`Delete ${bulkDeleteIds.length} selected ${bulkDeleteIds.length === 1 ? 'item' : 'items'}?`}
-                    body={`${bulkDeleteIds.length === 1 ? 'It archives' : 'They archive'} for 30 days before permanent deletion.`}
-                    actionLabel="Delete"
-                    danger
-                    busy={bulkDeleting}
-                    onConfirm={() => void deleteSelection()}
-                    onClose={() => setBulkDeleteIds(null)}
-                  />
-                )}
-                <div className="row tight selection-footer">
-                  <button type="button" className="linkbtn"
-                          disabled={!selectedItems.length || bulkDeleting || !!bulkDownload}
-                          onClick={() => {
-                            setSelected(new Set());
-                            setBulkDeleteIds(null);
-                            setActionErr('');
-                          }}>Clear selection</button>
-                  <span className="grow" />
-                  {!bulkDeleteIds && (
-                    <button type="button" className="linkbtn danger"
-                            disabled={!selectedItems.length || bulkDeleting || !!bulkDownload}
-                            onClick={() => setBulkDeleteIds(selectedItems.map((item) => item.id))}>
-                      <DeleteOutlineOutlined sx={{ fontSize: 15 }} aria-hidden /> Delete selected
-                    </button>
-                  )}
-                </div>
-              </div>
-            ) : featureId ? (
+            {featureId ? (
               <>
                 {mediaKindOfRow(p) === 'photo' ? (
                   <>
@@ -1423,13 +1430,14 @@ export function RecordPhotos() {
                   }}
                   onBlur={commitCaption}
                   style={{
-                    fontWeight: 700, fontSize: '1.375rem',
+                    // The base h2 size: one step under the tab's own head.
+                    fontWeight: 700, fontSize: '1.1875rem',
                     border: 0, background: 'none', padding: 0, marginBottom: '0.5rem',
                     width: '100%',
                   }}
                 />
 
-                <p className="eyebrow" style={{ marginTop: 'var(--space-md)' }}>Details</p>
+                <h3 className="eyebrow" style={{ marginTop: 'var(--space-md)' }}>Details</h3>
                 {/* The app's words for what is missing: "not set" for a value
                     the record does not hold, "Not checked" for a check that has
                     not run. "N/A" stood for both, and for "does not apply". */}
@@ -1451,14 +1459,16 @@ export function RecordPhotos() {
                   ]}
                 />
 
-                <p className="eyebrow" style={{ marginTop: 'var(--space-lg)' }}>Audit</p>
+                <h3 className="eyebrow" style={{ marginTop: 'var(--space-lg)' }}>Proof</h3>
                 <KV rows={[
-                  { k: 'Source', v: p.source || 'not set' },
+                  { k: 'Taken with', v: p.source === 'app' ? 'Pattadar app' : p.source === 'phone' ? 'Phone camera'
+                      : p.source === 'upload' ? 'Uploaded file' : p.source === 'forwarded' ? 'Forwarded'
+                      : p.source || 'not set' },
                   { k: 'On-site check', v: p.verified ? 'Verified on site' : 'Not checked' },
-                  { k: 'Device clock', v: p.deviceClockOk ? 'Matched server' : 'Not checked' },
-                  { k: 'File hash', v: p.sha256 || 'not set' },
+                  { k: 'Time stamp', v: p.deviceClockOk ? "Matches Pattadar's clock" : 'Not checked' },
+                  { k: 'File fingerprint', v: p.sha256 || 'not set' },
                   { k: 'Service order', v: p.orderRef
-                      ? <Link className="accent" to={`/app/records/${id}/services`}>{p.orderRef} ›</Link>
+                      ? <Link className="accent" to={`/properties/${id}/services`}>{p.orderRef} ›</Link>
                       : 'not set' },
                 ]} />
 
@@ -1470,7 +1480,7 @@ export function RecordPhotos() {
                     loading={exif.status === 'loading'} />
                 )}
 
-                <p className="eyebrow" style={{ marginTop: 'var(--space-lg)' }}>Tags</p>
+                <h3 className="eyebrow" style={{ marginTop: 'var(--space-lg)' }}>Tags</h3>
                 {/* Only the owner's own tags. Three automatic ones used to lead
                     the row — the kind, the property's title and the visit date —
                     each a fact already on screen (the eyebrow, the <h1>, the
@@ -1517,8 +1527,11 @@ export function RecordPhotos() {
                   )}
                 </div>
 
-                <p className="eyebrow" style={{ marginTop: 'var(--space-lg)' }}>Do</p>
-                <div className="grid4" style={{ gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 'var(--space-xs)' }}>
+                <h3 className="eyebrow" style={{ marginTop: 'var(--space-lg)' }}>Do</h3>
+                {/* One column per action present, so a clip's lone Download
+                    fills the row instead of half of it beside an empty cell. */}
+                <div className="grid4" style={{ gridTemplateColumns: 'none', gridAutoFlow: 'column',
+                                                gridAutoColumns: 'minmax(0,1fr)', gap: 'var(--space-xs)' }}>
                   {mediaKindOfRow(p) === 'photo' && (
                     <button type="button" className="btn" style={{ justifyContent: 'center' }}
                             disabled={p.isCover || cover.isPending}
@@ -1561,7 +1574,8 @@ export function RecordPhotos() {
                     {dlErr}
                   </p>
                 )}
-                {actionErr && (
+                {/* While selecting, the line under the selection bar says it. */}
+                {actionErr && !selecting && (
                   <p className="note" role="alert"
                      style={{ color: 'var(--w-danger)', marginTop: 'var(--space-xs)' }}>
                     {actionErr}
@@ -1574,7 +1588,10 @@ export function RecordPhotos() {
                 {confirmDeleteId === p.id && (
                   <ConfirmDialog
                     title={`Delete this ${kindWord(p)}?`}
-                    body="It archives for 30 days before permanent deletion."
+                    // Names what else the one file is doing — a feature's
+                    // condition, an order's evidence, the cover — because the
+                    // row going takes it off every one of them (photoUses.ts).
+                    body={deleteBody(p, kindWord(p))}
                     actionLabel="Delete"
                     danger
                     busy={delPhoto.isPending}
@@ -1626,7 +1643,7 @@ export function RecordPhotos() {
           <Empty icon="photos" boxed h="18rem"
                  title={`No photos of ${subject} yet`}
                  action={
-                   <Link to={`/app/records/${id}/photos`} className="btn sm">
+                   <Link to={`/properties/${id}/media`} className="btn sm">
                      <ImageOutlined sx={{ fontSize: 15 }} /> All photos on this property
                    </Link>
                  } />
@@ -1640,7 +1657,7 @@ export function RecordPhotos() {
           <aside className="stack">
             <Card title="Limits" className="railcard">
               <p className="note" style={{ margin: 0 }}>
-                Photos up to {mb(MAX_UPLOAD_BYTES)}; videos and audio up to {mb(MAX_VIDEO_BYTES)}.
+                Photos up to {mb(MAX_UPLOAD_BYTES)}; videos and recordings up to {mb(MAX_VIDEO_BYTES)}.
               </p>
             </Card>
           </aside>

@@ -26,7 +26,7 @@ struct EditProfileScreen: View {
                     FormRow(label: "Email", text: $email, prompt: "you@example.com")
                         .textInputAutocapitalization(.never)
                 } footer: {
-                    Text("This is the name shown on your records and in the activity log.")
+                    Text("This is the name shown on your properties and in Activity.")
                 }
 
                 if !problem.isEmpty {

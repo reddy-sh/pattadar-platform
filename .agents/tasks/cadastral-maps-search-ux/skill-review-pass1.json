@@ -1,0 +1,87 @@
+{
+  "verdict": "CHANGES_REQUESTED",
+  "findings": [
+    {
+      "id": 1,
+      "label": "Shift file is viewport-relative",
+      "blocking": true,
+      "confidence": "likely",
+      "location": ".kiro/skills/heuristic-ux-audit/references/evidence-capture.md:81, :116-122; references/web-heuristics.md:191-192",
+      "issue": "capture() stores stage.boundingBox(), which Playwright 1.62 computes relative to the viewport and which moves with scroll; focus(), fill() and click() scroll their target into view, so pass 9's rule that any box change between states is a finding can report a scroll as a layout shift. The focused-highcontrast state comes from a second goto and a scheme switch but sits in the same comparison.",
+      "action": "Record window.scrollX/scrollY with each box (page coordinates), have pass 9 compare each interaction state against resting from the same load and scheme, and leave the High Contrast state out of the comparison."
+    },
+    {
+      "id": 2,
+      "label": "Evidence names have no control slot",
+      "blocking": true,
+      "confidence": "likely",
+      "location": ".kiro/skills/heuristic-ux-audit/references/evidence-capture.md:73-74, :82, :123-124, :195, :198-209",
+      "issue": "Screenshots and JSON are named <page>-<state>-<project> while the template and § Interaction states say to repeat the steps for every control; the eval needs at least the village search and the Filter's own search, so a second run silently overwrites the first control's PNGs and JSON and the surviving focus JSON can be read as the wrong control's.",
+      "action": "Add a <control> slot to every evidence name and key both JSON objects by control."
+    },
+    {
+      "id": 3,
+      "label": "JSON written only after the last step",
+      "blocking": true,
+      "confidence": "confirmed",
+      "location": ".kiro/skills/heuristic-ux-audit/references/evidence-capture.md:123-124 (against :132)",
+      "issue": "Both writeFileSync calls are the template's last lines, so any failing step (a differing no-match sentence, an off-screen option, the High Contrast switch) discards every box and ring already measured, while the skill's failure rule falls back to source only for that state.",
+      "action": "Write the shift and focus JSON inside capture() or in a finally block."
+    },
+    {
+      "id": 4,
+      "label": "High Contrast step assumes a signed-in shell",
+      "blocking": false,
+      "confidence": "confirmed",
+      "location": ".kiro/skills/heuristic-ux-audit/references/evidence-capture.md:59, :62, :114-122, :210-215",
+      "issue": "The theme menu exists only in apps/web/src/w360/Shell.tsx:589 and the legacy apps/web/src/layout/AppShell.tsx:132 (design.md:108-117 keeps marketing dark), so on auth and marketing pages the unconditional High Contrast step times out; the file-level test.use({ signedIn: false }) also applies to the states test, and the states test lacks the landing test's OUT guard, so an unset UX_AUDIT_EVIDENCE points every path at /.",
+      "action": "Mark the High Contrast step app pages only and list High Contrast as not applicable elsewhere, scope signedIn: false to a describe around the landing test, and copy the expect(OUT, …) guard into the states test."
+    },
+    {
+      "id": 5,
+      "label": "searchPlaceholder rule carries a design.md label",
+      "blocking": false,
+      "confidence": "likely",
+      "location": ".kiro/skills/heuristic-ux-audit/references/web-heuristics.md:163-174",
+      "issue": "The whole FacetFilter contract is labelled design.md § App-surface rules, but no design.md sentence (design.md:527-531) says searchPlaceholder names only what its search matches; that rule comes from the ui.tsx comment and markup (ui.tsx:500-502, :599).",
+      "action": "Keep design.md § App-surface rules for what design.md:527-531 states, and label the ui.tsx-derived rules audit with the ui.tsx:line cite, or WCAG 2.4.6 for the naming rule."
+    },
+    {
+      "id": 6,
+      "label": "Proposal rules still read group removal as within authority",
+      "blocking": false,
+      "confidence": "confirmed",
+      "location": ".kiro/skills/heuristic-ux-audit/references/web-heuristics.md:173-174 vs :303-310",
+      "issue": "Pass 8 makes removing a filter group Reddy's decision, but the unchanged Proposal rules that step 6 applies still let 'Within authority' cover it and name only sections in the Reddy list, the ambiguity eval-traceability.md's red row 8 recorded.",
+      "action": "Add 'removes or moves a control or a filter group' to the Reddy's decision bullet (web-heuristics.md:306-310)."
+    },
+    {
+      "id": 7,
+      "label": "Stale W3C license name",
+      "blocking": false,
+      "confidence": "confirmed",
+      "location": ".kiro/skills/heuristic-ux-audit/references/web-heuristics.md:337-341",
+      "issue": "The Sources entry attributes both Understanding pages to the W3C Document License; the 2.4.7 page's footer says permissive license rules apply and links https://www.w3.org/copyright/software-license/ (W3C Software and Document License).",
+      "action": "Replace '(W3C Document License)' with '(W3C Software and Document License)'."
+    },
+    {
+      "id": 8,
+      "label": "Eval capture clauses need 8c6a2d4 served",
+      "blocking": false,
+      "confidence": "likely",
+      "location": ".kiro/skill-evals/portfolio.json (heuristic-ux-audit output case 3); .agents/tasks/cadastral-maps-search-ux/red-runs.md",
+      "issue": "The case is anchored to 8c6a2d4 but sealed captures drive whatever the founder's dev server serves; once Task 6 lands, clauses 1 and 6 (captured, measured) can only be met by a runner serving 8c6a2d4.",
+      "action": "Record in red-runs.md that clauses 1 and 6 need a server running 8c6a2d4, or that source-only evidence is accepted for them."
+    },
+    {
+      "id": 9,
+      "label": "Two new rules have no eval clause",
+      "blocking": false,
+      "confidence": "confirmed",
+      "location": ".kiro/skills/heuristic-ux-audit/references/web-heuristics.md (pass 4 same-quantity rule, pass 9 capped-list rule); .agents/tasks/cadastral-maps-search-ux/eval-traceability.md",
+      "issue": "Pass 4's two-figures-for-one-quantity rule and pass 9's capped-list rule are not exercised by any output case, so the static proxy says nothing about them.",
+      "action": "Add a clause for each to an output case, or list both in eval-traceability.md as unmeasured."
+    }
+  ],
+  "reviewDoc": "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/.agents/tasks/cadastral-maps-search-ux/skill-review.md"
+}

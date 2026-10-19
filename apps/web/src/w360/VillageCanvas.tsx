@@ -23,6 +23,7 @@ import { cssVar } from './cssVar';
 import { acresText } from './villageGeom';
 import type { PlotFacts } from './villageGeom';
 import { measureVillageTape } from './villageMeasure';
+import { removeMap } from './mapTeardown';
 
 export type VillageMode = 'satellite' | 'street' | 'extent' | 'boundaries';
 
@@ -135,6 +136,14 @@ const hoverNow = () => cssVar('--w-focus', '#ffa03c');
 // values, literal only because they paint onto the canvas over imagery.
 const EDGE_ON_STREET = '#234d38'; // deep Bloom green — visible on a light basemap
 const EDGE_ON_IMAGERY = '#f6ead8'; // warm paper tint — visible over satellite ground
+
+/** Boundaries has no imagery: the edges sit on the page's own ground, so they
+ *  take the scheme's ink, read when drawn and again on a scheme change. The
+ *  imagery literal on a light scheme measured 1.01:1. */
+const edgeNow = (mode: VillageMode) =>
+  mode === 'street' ? EDGE_ON_STREET
+    : mode === 'boundaries' ? cssVar('--w-ink', EDGE_ON_IMAGERY) : EDGE_ON_IMAGERY;
+const meshNow = () => cssVar('--w-ink-2', EDGE_ON_IMAGERY);
 
 /** What the scale bar is reading, in metres.
  *
@@ -343,7 +352,7 @@ export default function VillageCanvas({
       labelBox.current = null;
       activeTiles.current = null;
       failedTiles.current.clear();
-      mapRef.current?.remove();
+      removeMap(mapRef.current);
       mapRef.current = null;
       shapes.current.clear();
       overviewDrawings.current.clear();
@@ -412,7 +421,7 @@ export default function VillageCanvas({
     return {
       color: shaded ? band
         : mode === 'street' ? EDGE_ON_STREET
-        : mode === 'boundaries' ? 'rgba(255,255,255,0.68)' : 'rgba(255,255,255,0.52)',
+        : mode === 'boundaries' ? meshNow() : 'rgba(255,255,255,0.52)',
       weight: shaded ? 0.7 : 0.9,
       fillColor: shaded ? band : '#ffffff',
       // Never zero. A polygon with no fill at all is not hit-tested, and the
@@ -460,7 +469,7 @@ export default function VillageCanvas({
           const segs = m.outline ?? [];
           const edge = segs.length ? L.polyline(segs as L.LatLngTuple[][], {
             renderer: renderer.current ?? undefined,
-            color: mode === 'street' ? EDGE_ON_STREET : EDGE_ON_IMAGERY, weight: 1.3, opacity: 0.8, dashArray: '7 6',
+            color: edgeNow(mode), weight: 1.3, opacity: 0.8, dashArray: '7 6',
             interactive: false,
           }) : null;
           const hull = convexHull(segs.flat());
@@ -474,18 +483,20 @@ export default function VillageCanvas({
             area.on('mouseover', () => { area.setStyle({ fillOpacity: 0.16 }); });
             area.on('mouseout', () => { area.setStyle({ fillOpacity: 0.001 }); });
             area.on('click', (e) => {
+              // While the tape is out a click is a corner, wherever it lands.
+              if (live.current.measuring) return;
               L.DomEvent.stop(e);
               live.current.onPickVillage?.(m.village);
             });
           }
           drawing = {
             mark: m, edge, hit: area,
-            color: mode === 'street' ? EDGE_ON_STREET : EDGE_ON_IMAGERY,
+            color: edgeNow(mode),
             active: false,
           };
           overviewDrawings.current.set(m.key, drawing);
         }
-        const color = mode === 'street' ? EDGE_ON_STREET : EDGE_ON_IMAGERY;
+        const color = edgeNow(mode);
         if (drawing.color !== color) {
           drawing.edge?.setStyle({ color });
           drawing.color = color;
@@ -512,7 +523,7 @@ export default function VillageCanvas({
     for (const seg of outline) {
       L.polyline(seg as L.LatLngTuple[], {
         renderer: renderer.current ?? undefined,
-        color: mode === 'street' ? EDGE_ON_STREET : EDGE_ON_IMAGERY, weight: 1.4, opacity: 0.75, dashArray: '7 6', interactive: false,
+        color: edgeNow(mode), weight: 1.4, opacity: 0.75, dashArray: '7 6', interactive: false,
       }).addTo(edges);
     }
 
@@ -575,9 +586,9 @@ export default function VillageCanvas({
 
   // ── A new scheme ────────────────────────────────────────────────────
   //
-  // The selection, the hover, the villages' hit areas and the tape are the
-  // canvas's only colours that follow the scheme, so they are the only
-  // things repainted. By the time this runs MUI has already written the new
+  // The selection, the hover, the villages' hit areas, the tape and the
+  // Boundaries edges and mesh are the canvas's only colours that follow the
+  // scheme, so they are the only things repainted. By the time this runs MUI has already written the new
   // scheme onto <html> (a layout effect), so the tokens read are the new ones.
   useEffect(() => {
     if (paintedScheme.current === scheme) return;
@@ -590,6 +601,13 @@ export default function VillageCanvas({
     const accent = accentNow();
     for (const drawing of overviewDrawings.current.values()) drawing.hit?.setStyle({ fillColor: accent });
     if (tape.current.length) redrawTape();
+    // Boundaries draws on the page's ground, so its edges and mesh are ink.
+    if (mode === 'boundaries') {
+      const edge = edgeNow(mode);
+      for (const drawing of overviewDrawings.current.values()) drawing.color = edge;
+      edgeLayer.current?.eachLayer((layer) => (layer as L.Path).setStyle({ color: edge }));
+      for (const [lp, poly] of shapes.current) if (lp !== s && lp !== h) poly.setStyle(plainStyle(lp));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scheme]);
 
@@ -621,7 +639,7 @@ export default function VillageCanvas({
         // village switch give its extent to one decimal, and so does its name
         // here. Rounded to the acre, this read 27 over a head that said 26.8.
         const n = m.plots ?? 0;
-        const sub = `${n.toLocaleString('en-IN')} plot${n === 1 ? '' : 's'}`
+        const sub = `${n.toLocaleString('en-IN')} parcel${n === 1 ? '' : 's'}`
           + (m.acres
             ? ` · ${m.acres.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} ac`
             : '');

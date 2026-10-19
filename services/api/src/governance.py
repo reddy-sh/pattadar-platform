@@ -173,7 +173,8 @@ def _item(key: str, title: str, why: str, source_ids: list[str],
     }
 
 
-def _service_visual(service_key: str, alt: str, caption: str) -> dict[str, str]:
+def _service_visual(service_key: str, alt: str, caption: str,
+                    asset_key: str = "") -> dict[str, str]:
     """One governed mapping from a service to a bundled visual asset.
 
     ``assetKey`` deliberately names an internal asset instead of accepting an
@@ -182,7 +183,7 @@ def _service_visual(service_key: str, alt: str, caption: str) -> dict[str, str]:
     """
     return {
         "serviceKey": service_key,
-        "assetKey": service_key,
+        "assetKey": asset_key or service_key,
         "alt": alt,
         "caption": caption,
     }
@@ -223,7 +224,7 @@ BASELINE_DOCUMENT: dict[str, Any] = {
                 _item("title_chain", "Registered title deed and link documents", "Establish the transfer chain and compare names, survey number, extent and boundaries.", ["dolr-registration-faq", "ap-registration"]),
                 _item("ror", "Pattadar passbook and current 1-B", "Confirm the current revenue-record holder and khata details.", ["ap-meebhoomi", "dolr-dilrmp"]),
                 _item("adangal", "Current Adangal", "Check land classification, cultivation and survey particulars.", ["ap-meebhoomi"]),
-                _item("ec", "Current Encumbrance Certificate", "Review registered mortgages, transfers and other indexed transactions for the relevant period.", ["ap-registration", "dolr-registration-faq"]),
+                _item("ec", "Current encumbrance certificate", "Review registered mortgages, transfers and other indexed transactions for the relevant period.", ["ap-registration", "dolr-registration-faq"]),
                 _item("fmb", "FMB / cadastral map", "Match recorded measurements and boundaries to the ground.", ["ap-bhunaksha", "ap-fmb-service", "ap-survey-records"]),
                 _item("tax", "Latest land-revenue or tax receipt", "Check dues and retain payment evidence.", ["dolr-registration-faq"]),
                 _item("restrictions", "Restriction and dispute review", "Check assigned/grant conditions, prohibited-property lists, acquisition, court disputes, endowment or Wakf interests, and transfer eligibility.", ["dolr-registration-faq"], "review", "private"),
@@ -235,7 +236,7 @@ BASELINE_DOCUMENT: dict[str, Any] = {
             "matches": ["property", "flat", "house"],
             "items": [
                 _item("title_chain", "Registered title deed and link documents", "Trace the land and building title to the current owner.", ["dolr-registration-faq", "ap-registration"]),
-                _item("ec", "Current Encumbrance Certificate", "Check registered burdens and transfers for the relevant period.", ["ap-registration", "ap-rera-rules"]),
+                _item("ec", "Current encumbrance certificate", "Check registered burdens and transfers for the relevant period.", ["ap-registration", "ap-rera-rules"]),
                 _item("mutation_tax", "Mutation and latest property-tax receipt", "Match the municipal assessment to the owner and check dues.", ["ap-cdma-charter"]),
                 _item("permission", "Building permission and sanctioned plan", "Confirm that the competent authority approved the building and its use.", ["ap-cdma-charter", "ap-dtcp-permits"]),
                 _item("occupancy", "Completion / occupancy certificate", "Confirm that completed construction was cleared for occupation where required.", ["ap-cdma-charter", "ap-rera-rules"]),
@@ -248,7 +249,7 @@ BASELINE_DOCUMENT: dict[str, Any] = {
             "matches": ["property", "open_plot"],
             "items": [
                 _item("title_chain", "Registered title deed and link documents", "Trace the plot title and compare the schedule across documents.", ["dolr-registration-faq", "ap-registration"]),
-                _item("ec", "Current Encumbrance Certificate", "Check registered burdens and transfers.", ["ap-registration"]),
+                _item("ec", "Current encumbrance certificate", "Check registered burdens and transfers.", ["ap-registration"]),
                 _item("mutation_vlt", "Mutation and vacant-land tax receipt", "Match the local-body assessment and check outstanding dues.", ["ap-cdma-charter"]),
                 _item("layout", "Approved layout and proceedings", "Verify the final layout approval, plot number, roads, open spaces and approval authority.", ["ap-dtcp-permits", "ap-rera-rules"]),
                 _item("land_use", "Land-use / zoning confirmation", "Confirm that the intended use is permitted and that any conversion or change of land use is recorded.", ["ap-dtcp-permits"], "review"),
@@ -262,7 +263,7 @@ BASELINE_DOCUMENT: dict[str, Any] = {
             "matches": ["property", "shop", "commercial"],
             "items": [
                 _item("title_lease", "Registered title or lease and link documents", "Confirm the owner or lessor has authority to grant the commercial interest.", ["dolr-registration-faq", "ap-registration"]),
-                _item("ec", "Current Encumbrance Certificate", "Check registered burdens, leases and transfers.", ["ap-registration", "ap-rera-rules"]),
+                _item("ec", "Current encumbrance certificate", "Check registered burdens, leases and transfers.", ["ap-registration", "ap-rera-rules"]),
                 _item("permission", "Commercial-use building permission and sanctioned plan", "Confirm approved use, setbacks, parking and built area.", ["ap-cdma-charter", "ap-dtcp-permits"]),
                 _item("occupancy", "Completion / occupancy certificate", "Confirm that the completed building was cleared for occupation.", ["ap-cdma-charter", "ap-rera-rules"]),
                 _item("tax", "Current property-tax assessment and receipt", "Match the assessment and check outstanding dues.", ["ap-cdma-charter"]),
@@ -343,6 +344,14 @@ BASELINE_DOCUMENT: dict[str, Any] = {
             "site_visit",
             "A field worker photographs and inspects a property on site.",
             "A field worker visits, photographs and reports what is present on the land.",
+        ),
+        # shortcut: no bore_point.webp is bundled yet, so it reuses the survey
+        # visual; draw apps/web/public/service-visuals/bore_point.webp, then drop asset_key.
+        _service_visual(
+            "bore_point",
+            "A hydrogeologist studies the ground on a field to find where to drill for water.",
+            "A hydrogeologist reads the ground beneath the land and marks the best spot to drill a borewell.",
+            asset_key="survey",
         ),
         _service_visual(
             "title_opinion",

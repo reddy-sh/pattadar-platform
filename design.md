@@ -39,7 +39,7 @@ atmospheric (dark warm paper, ambient blooms, typography-only enrichment)
   scroll-morph** (full-width hairline bar at rest → floating pill when
   scrolled; deliberate variation from the source's N5 — Pattadar's landing nav
   carries 9 section links + one route-level Pricing link + brand + CTA).
-- **App pages** (`/app/*`): functional shell, tokens-only restyle. No
+- **App pages** (signed-in, top-level: `/home`, `/properties`, …): functional shell, tokens-only restyle. No
   decoration ever — function carries the page. Light, Dark, and High Contrast
   remain complete, user-switchable schemes. **Domain structure is allowed**
   (founder decision, 27/09/2026): an app surface may take the grammar of the
@@ -47,7 +47,7 @@ atmospheric (dark warm paper, ambient blooms, typography-only enrichment)
   their record code and year, dashed slots for what is not filed yet — when
   that grammar carries real data. It stays token-only colour, hairline rules
   and type: no illustration, scene, texture or ornament, and nothing drawn
-  that the record does not say. First applied on Documents (`/app/papers`).
+  that the record does not say. First applied on Documents (`/papers`).
 - **Content/legal pages** (`/privacy`, `/terms`, auth frames): Long Document
   voice — wordmark hairline bar, measure-limited column, statement-free
   bottom row.
@@ -158,7 +158,7 @@ drifted from the pack.
 the menu: it is saved, so MUI agrees when it mounts, and then taken off the
 address, so a reload or a later choice is never overruled by it. Only a
 registered id is honoured; anything else is ignored and the address is left
-alone. This is how a scheme is shown for review — `/app?scheme=pattadar`
+alone. This is how a scheme is shown for review — `/home?scheme=pattadar`
 replaced the retired `/theme-samples` page.
 
 Marketing remains intentionally dark, independent of the signed-in app choice.
@@ -429,7 +429,7 @@ an invented rupee total returns to the landing copy without a sample label.
 
 ## App vocabulary (founder decision, 26/09/2026)
 
-The signed-in W360 app (`/app/*`) uses one noun per concept, and a page's
+The signed-in W360 app uses one noun per concept, and a page's
 title always matches its rail label. Decided by the founder as "Option C":
 short, stable rail nouns; noun-phrase section headings; factual
 dot-separated subheaders ("Village recorded · Boundary saved · Pin not set");
@@ -438,16 +438,19 @@ verb + object actions. `/legacy/*` keeps its own older copy until retired.
 | Concept | Say | Not |
 |---|---|---|
 | Everything the owner holds | **Properties** (a parcel, plot, flat or house when known). **Holdings** must never be used for the Properties list | holdings, records, land, portfolio items |
-| Stored papers | **Documents** (item: document; bytes: file) | Papers, Vault, My Drive |
-| Several properties held as one | **Holding** (list: **Holdings**) — official records stay separate. Inside one, use the singular ("This holding"). Never write "your holdings" to mean all of an owner's land. Web: one constant, `HOLDING_WORD` in `apps/web/src/w360/ui.tsx` | combined view, combined property, estate, portfolio |
+| Stored papers | **Documents** (item: document; bytes: file), on web **and iOS** — the iOS tab is "Documents" (decided 06/10/2026, D5) | Papers, paper, Vault, My files, My Drive |
+| Several properties that make one piece of ground | **Holding** (list: **Holdings**) — official records stay separate. Its members are **properties**, like everywhere else (D1, 06/10/2026). Inside one, use the singular ("This holding"). Never write "your holdings" to mean all of an owner's land. Web: one constant, `HOLDING_WORD` in `apps/web/src/w360/ui.tsx`. Holdings is a top-level page, so it has **no eyebrow** (V2; founder, 09/10/2026 — the former eyebrow "Several properties, one piece of ground" is retired); what a holding is lives behind its ⓘ | combined view, combined property, view, estate, portfolio, records (for its members), "held" (a holding is never held) |
+| WHO holds land vs WHICH land is one farm | A **family or group** holds land: **"holds"** and **"Held by"** belong to groups only; land held personally is **"In your own name"**. A **holding** is **"part of {name}"** and **"one piece of ground"**. Properties filters: **Holder** and **Holding**; selection actions: **Set holder** and **Combine into a holding**. Group tile: "{n} properties · {x} ac →". Group disclaimer: "Your own record of who shares this land. It does not change the khata." Mixed holders in Combine: "These properties have {n} holders. That is fine for one farm; who holds each one does not change." (holdings-vs-groups memo §4.6, approved 06/10/2026, with "properties" for "records") | a holding that "holds", a group "held as one", "holding" for a group's land |
+| Group types | Family · HUF (Hindu Undivided Family) · Company or LLP · Partnership · Trust or society. The **Portfolio / Wallet** type is removed (06/10/2026): keeping properties together is what a holding does | Portfolio, Wallet (as a group type) |
 | Village / cadastral maps | **Cadastral maps** | Village maps, Maps |
 | One property's pin and boundary | **Location & boundary** — "Boundary saved", never "surveyed" | Where this land is |
 | Things physically on the land | **Site features** | Features, assets |
 | Owner's paid work | **Service order** (the desk's operational unit stays a **job**) | ticket, request, job (on owner screens) |
 | Owner-facing trail | **Activity** (Audit log is reserved for a compliance surface) | Audit Log, History, Timeline |
-| Pattadar's people | **Member** / **provider** | associate, somebody |
+| Pattadar's people | **Provider** on owner screens ("Pattadar provider"); **member** means a member of a family or group only; **Company members** only on the admin rail (D3, 06/10/2026) | member (for Pattadar's people), associate, worker, somebody, someone, whoever |
+| AI cost (tokens, $, model, credit balance, per-reply cost, ScanFirst reading cost) | **Admin-only**, behind the existing `admin.uids` gate (`isPlatformAdmin` / `useIsPlatformAdmin` / `<AdminOnly>` in `apps/web/src/w360/adminOnly.tsx`). Owners see none of it; any future owner-facing cost is in ₹, in Pattadar's own pricing words (D2, 06/10/2026) | Anthropic, API credits, tokens, US dollars on an owner screen |
 | A family's inactivity safeguard (Families & groups) | Tab **Safeguard**, heading **Inactivity safeguard**; tab status drawn as a glyph only (! or ✓); its word **needs action** or **set** is the glyph's tooltip and part of the tab's accessible name ("Safeguard, needs action"), never visible text | a safeguard box above every tab, a colour-only status, the status word printed in the tab |
-Holding approved by Reddy on 03/10/2026, superseding the 26/09/2026 "Combined view" entry (research: `.agents/tasks/pattadar-platform-combined-views-standardize-2026-10-27/naming-research.md`). Web files, identifiers and routes say holding (`/app/holdings`; `/app/combined…` redirects); GraphQL fields, operations, query keys and the `combined_*` tables keep `combined` (server contract). `scripts/vocab-tests.ts` (VOC-1..7) holds the web to it, and holds iOS (which has no Holdings feature) to "property" for one property.
+Holding approved by Reddy on 03/10/2026, superseding the 26/09/2026 "Combined view" entry (research: `.agents/tasks/pattadar-platform-combined-views-standardize-2026-10-27/naming-research.md`). Web files, identifiers and routes say holding (`/holdings`; the old `/app/combined…` redirect was removed on 07/10/2026 under naming rule V5 — no redirects); GraphQL fields, operations, query keys and the `combined_*` tables keep `combined` (server contract). `scripts/vocab-tests.ts` (VOC-1..7, and VOC-R0..X1 for the naming standard) holds the web to it, and holds iOS (which has no Holdings feature) to "property" for one property.
 Safeguard tab approved by Reddy on 03/10/2026 (audit `.local/ux-audits/2026-10-03-families-inactivity-safeguard/board.html`).
 Its notifier editor ("Inactivity notifications", from **Configure notifiers**) opens in the shared right-side Drawer with Save first; the contact gap is one warn StatusChip with one sentence, from the server's `inactiveContactGaps`, on the tab and in the editor (`contactGapSentence`). Approved by Reddy on 03/10/2026 (audit `.local/ux-audits/2026-10-03-inactivity-notifications-dialog/board.html`).
 
@@ -464,16 +467,20 @@ the section-head action.
 Explanatory lines follow the same rule as subheaders: one short, factual
 sentence or a dot-separated status line, never a paragraph. "You pay only
 after you accept the work", not "Nothing is taken when you order. Money is
-owed only once you accept the work." Owners count **properties**; "record"
-is used only for the members of a holding.
+owed only once you accept the work." Owners count **properties**, including
+inside a holding (D1, 06/10/2026); "record" is never a noun for a property.
 
 ### Property tabs (founder decision, 28/09/2026)
 
 Taken from the ten heuristic audits of the property page
-(`/app/records/:id/*`), as recommended. Evidence:
+(then `/app/records/:id/*`, now `/properties/:id/*`), as recommended. Evidence:
 `.local/ux-audits/2026-09-27-w360-record-*/board.html`.
 
-- **Headings name the tab:** Documents, Site features, People (sides
+- **Overview is the first tab** (Reddy, 11/10/2026: a basic-info tab first):
+  the property's master record — how it is held, from whom, under which
+  document, each value's source, disagreements and what is missing
+  (`docs/specs/2026-10-11-property-overview.md`). Documents is the second tab.
+- **Headings name the tab:** Overview, Documents, Site features, People (sides
   **Owners** · **Caretakers & staff**), Location & boundary, Media, Notes,
   Service orders, Money, Activity — the tab's own noun, or for Location and
   Services the noun the table above gives them. Money's ledger, **Expenses**,
@@ -491,6 +498,20 @@ Taken from the ten heuristic audits of the property page
   payments provider is a stub (the People rail says "Your Pattadar wallet").
 - **Tell a fact once** on a tab: counts in the sub line or the rail, not both;
   the extent in Measurements; the duty in Other costs.
+- **A section's band** (Reddy, 13/10/2026, from
+  `.local/ux-audits/2026-10-13-tab-action-bars/board.html`): a tab that
+  filters a collection draws one band directly under its `SectionHead`, with
+  the shared parts only — `FacetFilter` (kinds, shelves, categories, scope as
+  filter groups) or `ToolbarBand`, with `BandSearch`, `SortCycle` and
+  `ViewToggle`. The head holds commands (`HeadActions`, outlined secondaries,
+  the one filled add, the ⋮ last); the band holds + Filter and its chips on
+  the left, then tally, search, sort and view on the right. The tally is
+  always passed and says "N of M shown"; the head's line keeps the tab's
+  totals ("5 documents"), never "showing N". 24px from head to band and from
+  band to content. On a phone the band is one row with search as an icon.
+  No band over nothing: a tab with no items draws neither filter nor search.
+  A selection uses the shared floating `SelectionBar` ("N things selected",
+  its actions, Clear) — Media's Download as .zip and Delete selected included.
 - **Fill means act:** pressed filters and view toggles take the wash state;
   the property header's "Share securely" is outlined, so each tab's own add is
   its one filled button.
@@ -499,12 +520,407 @@ Taken from the ten heuristic audits of the property page
   the server answers.
 - **Motion:** the Location outline draws on once, on the first visit; the
   per-visit stars and glow are gone.
-- **Notes** cannot be edited once added; deleting one is recorded in Activity.
+- **Notes** are written and edited in place, newest first (13/10/2026): "Add
+  a note" opens a blank note card at the top of the list and a note's Edit
+  turns its own card into the editor. The body is rich text (Markdown subset,
+  `RichText.tsx`), its box grows with its text, and adding, editing or
+  deleting a note is recorded in Activity.
   **Activity** names who acted in words ("You", "Pattadar desk"), never an
   identity key.
 - **Kept on purpose:** the share panel's "Valid for 30 days · Anyone with the
   link can download…" line stays visible rather than behind an ⓘ, because it
   is the consent notice for a public link.
+
+### Addresses and ids (founder decision, 11/10/2026)
+
+There is no "record": a property is a Pattadar property. Reddy, 11/10/2026:
+
+- **No `/app` prefix.** Signed-in pages sit at the top level of the host,
+  named for the feature: `/home`, `/properties`, `/properties/<id>`, `/papers`,
+  `/services`, `/order`, `/admin/…` (`apps/web/src/routes.tsx`, the pathless
+  `app` layout route). Public pages keep their own (`/`, `/login`, `/share/…`).
+- **Property tabs are named for the tab:** `/properties/<id>` (Overview, the
+  index; Reddy, 11/10/2026, amending the Documents index of the same day),
+  `/documents`, `/site-features`, `/people`, `/location`, `/media`, `/notes`, `/services`,
+  `/money` (and `/expenses`), `/activity`, plus `/request`.
+- **No redirects or aliases** for the old `/app/…` addresses or old tab names
+  (V5); `/legacy/*` stays until retired.
+- **Property ids are UUIDv7** (RFC 9562) strings; existing ids are rewritten
+  by script, seed-fixture ids (`w360-`, `demo-`, `sf-`) excepted, and the
+  append-only audit trail is read through an old-to-new alias table rather
+  than rewritten.
+- **The browser tab names the land:** LP and extent (§ Page head, Browser tab).
+- In-app return paths are checked against the known top-level sections, never
+  a bare leading `/`.
+
+## Naming standard (founder decision, 06/10/2026)
+
+The house rules for every word an owner reads, on the signed-in web app, iOS and in the
+strings the server sends to either. Approved by Reddy on 06/10/2026 from the
+naming review (sections 2–4 and 6), with these exceptions: route renames are
+not part of the standard's first pass, and decisions D6–D17 of that review are
+not adopted except where the App vocabulary table above says so (Documents on
+iOS, Provider, AI cost admin-only, Portfolio / Wallet removed). The App
+vocabulary table is the noun list; this section is the grammar around it.
+`scripts/vocab-tests.ts` (VOC-R0..X1) enforces it; an exception is an entry in
+that script's allow-list with its reason, never a silent skip.
+
+### Voice and casing
+| # | Rule | Right / wrong |
+|---|---|---|
+| N1 | Use sentence case for every label, heading, button, chip and menu item. Capitalise only proper nouns, product names and acronyms. | "High contrast" / "High Contrast"; "Encumbrance certificate" / "Encumbrance Certificate" |
+| N2 | Address the owner as **you/your**. Use "my" only in consent sentences the owner signs ("I agree…"). | "Your address", "Your stake" / "My address", "My stake" |
+| N3 | Write negatives in full in system, error and empty copy. Friendly one-offs can keep a contraction ("You're all caught up"). | "could not", "is not" / "couldn't", "isn't" |
+| N4 | Don't write "please" in errors or system messages. | "Try again." |
+| N5 | Use Indian/British spelling. | organise, authorised, catalogue, enrolment, synchronisation |
+| N6 | Use device-neutral verbs. | "Choose", "select" / "click", "tap" |
+| N7 | Use no idioms or British-only usage. | "Rented out", "Rental agent" / "Let to a tenant", "Letting agent", "shoots it" |
+| N8 | Use "&" only in fixed names (rail labels). Use "and" in sentences and actions. | "Edit name and properties" / "Edit name & records" |
+| N9 | Titles, headings and empty-state titles take no full stop. Confirm titles end in "?". | "Nothing is stuck" |
+
+### Actions
+| # | Rule |
+|---|---|
+| A1 | An action is a verb plus an object. Openers use "a": **Add a property**, **Add a document**, **Add a member**. Confirm buttons use "the": **Add the property**. Plurals are only for genuine multi-item actions (**Add documents**). |
+| A2 | One verb per act: **Add** creates an item; **New** is only for containers you then fill (New holding, New folder, New family or group); don't use **Create** in owner copy; **Record** is not a verb ("Add an expense", "Add rent", "Add a purchase"). The desk's "Record submitted work" stays. |
+| A3 | **Delete** means the object stops existing. **Remove** means taking an item out of a container while it still exists (from a group or holding, a provider, a link, a filter). |
+| A4 | The safe button in a destructive or irreversible confirmation is **Cancel**; the destructive button is named by its outcome ("Delete holding"). Exceptions: **Keep editing** in the discard guard, and **Keep order** / **Cancel order**, so "Cancel" never appears on both buttons. |
+| A5 | "…" means only that work is in progress ("Saving…"). A label that opens a dialog gets no "…". A busy label names the action ("Cancelling…", not "Working…"). |
+| A6 | A toggle uses opposite words: Show/Hide, Expand/Collapse. |
+| A7 | Back links and breadcrumbs repeat the destination's exact title. Every crumb is a separate page. A rail group is never a crumb. |
+
+### One concept, one name
+Banned on owner screens (signed-in web, iOS, and server strings owners see).
+Identifiers, routes and GraphQL names are exempt. Where this table and the App
+vocabulary table differ, the App vocabulary table wins (it carries the
+founder's amendments).
+
+| Concept | Canonical | Item / unit | Never |
+|---|---|---|---|
+| Everything owned | **Properties** | property; parcel, plot, flat, house or shop when known | records, land records, land (as a count noun), Land parcel |
+| Several properties that make one piece of ground | **Holding** | its members are **properties** | combined view, combined property, view, estate, portfolio, ungrouped |
+| Stored papers | **Documents** | document; the bytes are a **file** | Papers, paper, vault, My files, My Drive |
+| Owner's paid work | **Service order** ("order") | — | request, job, ticket (the desk and the provider's dispatch keep "job") |
+| Pattadar's people | **Provider** | — | worker, somebody, someone, whoever |
+| Payment gateway | **the payment company** | — | provider, capture, settlement |
+| Money spent on land | **Expenses** | kinds **Improvement · Upkeep · Money in** | Costs, Spend, capital, running, One-off |
+| Wallet movement | **Added · Held · Released · Refunded**; **Pattadar fee** | — | Settled, escrow, Service fee, Worker payment. No "paid" or "charged" while payments are a stub; the denial "Not charged" stays |
+| Government rate | **Government value** (gloss: "also called market or guideline value") | — | bare "Market value", "Registration value rates" |
+| Owner's own figure | **Market estimate** | — | Worth, Worth today, Estimated value, valued |
+| Stake | **Your stake: Owned · Managed · Watching** | — | Mine, I manage it, Watch, My stake, "held in your own name" |
+| Owner's trail | **Activity** | — | Audit log, Activity log, History, trail, share log |
+| Things on the land | **Site features** | **Working · Watch it · Broken · Not checked** | On the land, Working well, Needs attention, Not working |
+| Media | **Media** | **photo · video · recording** | photograph, clip, audio |
+| Village survey sheets | **Cadastral maps** | each shape is a **parcel** | Village map, plot (for a survey shape), Plot size |
+| Survey number | **Survey number** (inline "Sy {n}") | — | Sy., survey no, a bare number |
+| Group members | **Members** | — | "person" inside Groups |
+| Heir flag | **heir**; kinds **Co-owner · Legal heir · Nominee**; column **Listed as** | — | beneficiary (except in a trust), co-heir, co-ownership, Held as, Legal Heir |
+| Heir verification | **verification link** | — | invite, invitation (these mean co-manage access only) |
+| Access ending | **Revoked / Expired** | — | withdrawn, lapsed |
+| Families | **Families & groups** | — | household, Family as a page title |
+| Deed amount | **Amount in the deed**; on iOS, purchase price is **Price paid** | — | Consideration |
+| Assistant | **Pattadar Assistant**; the topbar icon reads "Assistant"; a thread is a **conversation** | — | New chat, Pattadar assistant |
+| Privacy and account scope | **your data** | — | your records |
+
+Not adopted yet (decisions still open): the Khata number label (D7), area in
+the record's own unit on Groups (D8), the Cadastral maps gloss (D10) and the
+iOS tab moves (D12–D15). Until Reddy decides them, nothing enforces them.
+
+### Numbers, units, dates
+| # | Rule |
+|---|---|
+| U1 | After a number, write units in lower case: **ac, sq.yd, sq.ft, sq.m, cents, guntas** ("1,450 sq.ft built"). Picker labels may be spelled out. Stored unit codes don't change. |
+| U3 | Field labels are spelled out (Survey number, Deed number). Only inline values are abbreviated (Sy 214/2). |
+| U4 | Absolute dates are **DD/MM/YYYY** on every surface. Relative times are spelled out ("3 hours ago", not "3h"). |
+| U5 | Counts agree with their noun. Don't put "×N" in a button or leave an abbreviation unexplained ("pp" becomes "pages"). |
+| U6 | Owners see money only in ₹, never in US dollars. |
+
+### Navigation
+| # | Rule |
+|---|---|
+| V1 | Page title = rail label = browser tab "{title} · Pattadar". The only exception is Home, whose title is a greeting; its tab still reads "Home · Pattadar". |
+| V2 | Top-level pages (every page a rail label opens, Home included) have no eyebrow — not their own name, not their rail group ("Account", "Operations", "Administration"). A nested screen with no crumbs may carry an eyebrow that names its parent; a screen with crumbs never also has an eyebrow (one wayfinding device). Re-affirmed by the founder on 09/10/2026; § Page head enforces it. |
+| V3 | Headings repeat the tab name. A property's Services tab is headed "Service orders". |
+| V4 | An entry label (link, More row, menu item) is the destination's title. This applies on iOS too. |
+| V5 | Nothing is deployed: when a noun is renamed, rename its route outright. No redirects, aliases or back-compat for old routes, links or params. |
+
+### Errors, empty and status
+| # | Rule |
+|---|---|
+| E1 | An error says what happened and what to do: "{Thing} could not be {done}. {Next step}." |
+| E2 | Owners never see vendors, keys, consoles, region codes, hostnames, HTTP bodies, enums, or GIS and EXIF terms. These go to logs and admin views. A boundary file is "a map file", with "(KML or GeoJSON)" only as a parenthetical. |
+| E3 | A server refusal shown in the UI is an owner sentence: "You do not have access to this property", not "Not authorized for this property". |
+| E4 | Every enum shown to owners goes through a word table (STATUS_WORD, SHELF_WORD, the condition STATES, ENTRY_LABEL), and every surface's copy of a table holds the same words. The humanised fallback is only a safety net. |
+| E5 | Copy never claims a legal status the app can't know. Don't write "Can't be sold", and don't call a nominee a co-owner. |
+
+### Telugu readiness
+| # | Rule |
+|---|---|
+| T1 | One English word per concept gives one Telugu source word. |
+| T2 | Keep the real land terms (khata, pahani, adangal, 1-B, FMB, EC, kist, mutation). Gloss unfamiliar ones on first use: "Mutation (name transfer)", "HUF (Hindu Undivided Family)", "Karta (head of the family)". |
+| T3 | Write whole sentences with placeholders. Don't stitch fragments together or build plurals as "{noun}s". |
+| T4 | Don't use idioms, contractions, or metaphors like "filed against". |
+
+### Guardrails (`scripts/vocab-tests.ts`)
+VOC-R1/R2 record(s) and land records · VOC-D1 papers, vault, My files ·
+VOC-H1 combined view/property, estate, ungrouped · VOC-S1 job, service request
+· VOC-S2 somebody, someone, whoever, worker payment · VOC-M1 bare Market value
+or Worth · VOC-M2 escrow, Settled, Service fee, capture · VOC-K1 Mine, I manage
+it, My stake, a bare Watch · VOC-A1 Audit log, Activity log, History · VOC-E1
+Spend, Record a cost/purchase/rent · VOC-P1 plot for a survey shape · VOC-V1
+vendor and engineering jargon · VOC-G1..G7 contractions, please, click/tap,
+"…" on openers, Keep-it cancel buttons, Title Case, American spelling · VOC-U1
+units, Sy., ×N, pp · VOC-N1 page title = rail label and the browser tab ·
+VOC-N2 iOS entry label = destination title · VOC-X1 the word tables agree
+across ui.tsx, web360.py, ticketing.py, Shelf.tsx, iOS and packages/core.
+Scope: `apps/web/src/w360`, `apps/web/src/assistant`, the live routes
+PaymentsCheckout, AccountDataPage, InvitePage and PersonDialog; Swift in
+`apps/ios/Pattadar*` and `apps/ios/Shared` (outside `#if DEBUG`);
+`services/api/src/{web360,main,growth,ticketing,governance,inbox}.py` and
+`services/assistant/src/domain`. The desk and admin screens are exempt from the
+owner-noun rules but not from grammar. Every rename updates its e2e locators
+and fixtures in the same change; consent wording changes only with a notice
+version bump.
+
+## Page head (founder decision, 09/10/2026)
+
+Every signed-in page opens with the same head, drawn by one component,
+`PageHead` in `apps/web/src/w360/ui.tsx`. No page builds its own. Approved by
+Reddy as "all recommended" on 09/10/2026 from the content-header audit
+(`.local/ux-audits/2026-10-09-content-header/findings.md` §5). It is the
+dominant admin-app header (Polaris, Atlassian, Carbon, Ant, Primer, SLDS) in
+Bloom; it adds no copy and no features. `scripts/shared-components-tests.ts`
+(SC-H*; SC-H10 reads `routes.tsx`, so a screen with no head at all fails, not
+only a hand-built one) and `scripts/vocab-tests.ts` (VOC-N1, VOC-1) enforce
+it, and `tests/e2e-app/specs/31-page-head.spec.ts` sweeps what the browser
+draws.
+
+**Locked (Reddy, 09/10/2026).** The head is not redesigned per feature. A new
+signed-in screen or rail entry adopts it as it lands — title, ⓘ, `HeadActions`,
+summary, band, tabs — and gets no variant of its own. Changing a slot, its
+order or its rule is Reddy's decision, recorded in this section first and in
+the guards second. CI runs `scripts/shared-components-tests.ts` on every push,
+so a new route without `PageHead` (SC-H10), or a top-level rail page
+without a `summary` (SC-H11; Help & support is its one named exception),
+fails the build; the `web-feature-delivery` skill and invariant 9
+of the project standards (`.kiro/steering/pattadar-standards.md`) tell agents
+the same before they write markup.
+
+### One frame
+- `.w360 main` is padded 24 / 40 / 96px (16px under 900px) on every route,
+  Privacy & your data and Checkout included.
+- One 80rem measure (`--max-width`), centred, shared by head, band and
+  content, so all three share one left edge (x 280 at 1512, 16 at 390).
+  Page-local caps are only for a form's own field measure, never for cards.
+- The viewer may lift the cap (Reddy, 10/10/2026): the theme menu's
+  Centred page / Full-width page pair sets `data-width` on `.w360`, per
+  device (`w360.width`). Centred stays the default; full width drops the
+  80rem cap, never the padding or the shared left edge.
+- Two h1 positions, by page type: top-level (no crumbs) and detail (crumbs
+  above). The title row is a button's height whether or not it has actions,
+  so the h1 never moves with them.
+- h1 is 28/700 at 1512 and 22/700 at 390 everywhere.
+
+### Slots, top to bottom
+| # | Slot | `PageHead` prop | Rule |
+|---|---|---|---|
+| 0 | Wayfinding | `crumbs` | Detail pages only. Ends at the current page (not a link, `aria-current`). Never with an eyebrow, never a rail group as a crumb. Under 600px only the parent shows: "‹ Properties". |
+| 1 | Eyebrow | `eyebrow` | None on a top-level page (V2). A nested page with no crumbs may name its parent. A record's kind ("Agricultural land", "Holding") is not an eyebrow: it goes in `meta`, under the title. |
+| 2 | Title row | `glyph`, `title`, `info`, `switcher`, `pill`, `actions` | Left: glyph, h1, ⓘ, switcher, status or extent pill. Right: the actions, centred on the h1 line. |
+| 3 | Summary | `summary` | One `.note` line (13px ink-3) 6px under the h1, on **every top-level page a rail label opens**, as on Properties (Reddy, 09/10/2026: "the same UX design for all the side menu items"). Figures, never guidance or a tagline: "{N} {things} · {totals}" from what the page already reads — Properties "1 property · 5.00 ac", Families & groups "1 family · 1 property · 5.00 ac", Wallet "₹0 available · ₹1,180 held for 1 order". The band's tally counts what the filter lets through; the summary carries the account's totals, so a tally is never a reason to leave the summary out, and a filtered-empty page keeps it. A zero figure is dropped (a money balance excepted). A placeholder line (`Sk`, 18rem) while the first read is pending; no line on a failed read or a first-run empty page. A page that reads nothing it could count (Help & support) is a named exception in the guard, never a silent omission. |
+| 3′ | Meta | `meta` | Detail pages: the facts row (kind · place · holder) in one treatment, 6px under the h1. |
+| 4 | Place line | `PlaceLine` | Only where there is a place hierarchy: always on Cadastral maps; on Documents inside a folder or while filtering. The first row of the band, 13px, the current place bold. |
+| 5 | Toolbar band | `FacetFilter` / `ToolbarBand` | Collection pages only. One row between hairlines, 24px under the head and 24px above the content. Left: + Filter and the active chips. Right, in order: tally, the page's own search (`BandSearch`), sort (`SortCycle`), view toggle (`ViewToggle`). It does not wrap at 1512. View toggles and search never sit in the head. A tab's band sits the same way under its `SectionHead` (§ Property tabs). |
+| 6 | Tabs | `tabs` | Detail pages (and Tools, a top-level page that keeps its tabs): the last row of the head, 24px below it, so the content starts 24px under the strip. |
+
+Vertical rhythm (1512, 390 in brackets): frame top → first row 24px (16);
+crumbs → h1 8px; nested eyebrow → h1 4px; h1 → summary or meta 6px; head →
+place line, band, tabs or content 24px; band → content 24px.
+
+### Actions
+`actions` takes `{ primary, secondaries, overflow }` (`HeadActions`), each
+command as data (`HeadAction`: label, icon, `onClick` or `to`, and a `tip`
+when a hover tooltip says more than the label), so the head draws it and
+moves it — never hand-placed buttons. `overflowLabel` names the ⋮ and
+`overflowHeader` names what its items act on. `PageHead` takes no children:
+everything under the title is `summary`, `meta` or `tabs`.
+- At most **one filled** head button, the `primary`. Export, Print, Share
+  and Edit are outlined `secondaries` or in the ⋮.
+- Left to right: secondaries by importance, then the filled primary, then
+  the ⋮ (`overflow`) last (Reddy, 13/10/2026: "more actions should be in
+  the end"). `PageHead` draws the first two secondaries; any more go into
+  the ⋮. A tab's `SectionHead` draws the same row from the same data, and
+  holds commands only: no search, year, view, scope or segmented choice
+  (Reddy, 13/10/2026; SC-H6 scans section heads too). Those go in the tab's
+  band. A command that is not the tab's add stays in the ⋮, even when it is
+  the ⋮'s only item; the ⋮ is named "More actions for {heading}".
+- A detail page has no filled primary: its own add lives in its tab's
+  section head (as Documents does on a property). Secondaries, then ⋮. The
+  type says so: a head with `crumbs` takes `DetailActions`, which has no
+  `primary`.
+- A command that cannot act is not drawn. A filled button that is always
+  disabled is a dead control (Wallet offers no "Add money" until payments
+  are live).
+- A command that appears on several pages has one label and one position:
+  **Export** (never "Download CSV"); "Add a property", never a bare "Add"
+  (A1).
+- **Home** (option A): the shortcuts sit on the title row, right-aligned —
+  "Add a document" and "Order a service" outlined, **"Add a property"**
+  filled, then the ⋮ holding "Share a property", last. The greeting stays the
+  h1; `docTitle="Home"` names the tab "Home · Pattadar" (V1).
+- **Cadastral maps**: "Add a cadastral map" is its one filled primary, at the
+  standard button height; Print is outlined.
+
+### Every state has the head
+The loading, failed and not-found states of a page draw the same `PageHead`
+as the page itself: crumbs back and a title that names the state ("There is
+no shelf by that name", "This order is not in your account"), or the page's
+own title while it loads. So the tab is named and there is a heading to land
+on before the data arrives, and when it never does. A signed-in address that
+matches nothing is a page too (`w360/pages/NotFound.tsx`), on the same head.
+
+### ⓘ (`info`)
+- An ⓘ appears only where a page has standing guidance, and always right
+  after the h1. Guidance is never printed as a permanent sentence (`.lede`)
+  under a title.
+- An ⓘ holds guidance, never a data fact. A fact goes in the summary line or
+  the page footer — Documents' residency note ("{region} · Private unless
+  shared") is in its summary line, not its ⓘ.
+- How many pages have an ⓘ may vary; where it sits may not.
+
+### Empty states
+- **First-run empty** (the owner has none yet): the title (and ⓘ) at the
+  populated y, and nothing else in the head — no eyebrow, no summary, no
+  actions, no band, no view toggle. The empty card carries the one filled
+  add.
+- **Filtered empty** (a filter or search matched nothing): the head and band
+  stay exactly as when populated, filled primary included. The card offers
+  the way out ("Show all", "Clear all"), never a second add.
+
+### Phone (under 600px)
+- The title never truncates and the summary wraps between facts, never
+  inside one; nothing scrolls sideways. Two-pane pages stack.
+- The head keeps one row of actions: the filled primary always visible, the
+  secondaries and overflow in the ⋮ (`PageHead` does this itself). A command
+  moved into the ⋮ hands focus back to the ⋮ when the panel it opened closes.
+- The band keeps + Filter left and its tools right, on one row: the tools
+  take the rest of the + Filter row and the sort chip's words shorten before
+  the row wraps. Search becomes an icon that opens a full-width field; the
+  view toggle goes icon-only, each icon keeping its word as its name.
+- Crumbs show only the parent.
+- A detail page's meta facts stack one per line, without separator dots.
+- The first list item shows in the top half of an 844px viewport.
+
+### Browser tab
+`PageHead` names the tab "{title} · Pattadar" (V1). A page whose `title` is
+not plain text (Home's greeting, a property's name with markup) passes
+`docTitle`. A property page's tab reads "LP {survey no} · {extent} {unit} ·
+Pattadar" (Reddy, 11/10/2026; `RecordHead.tsx`): the extent as the extent chip
+formats it, in acres (acre for exactly 1), sq yds or sq ft; the property's
+title stands in when it has no survey no, and the extent part is left out
+when there is none.
+
+### Named exceptions
+- The full-bleed **Document reader** keeps its own bar (`main.flush` with
+  `.rd-bar`, h1 at 16px): a viewer is an M3 small top app bar, not a page.
+- Full-screen flows such as **Checkout** keep their own bar.
+- Both still name the tab, with `useDocumentTitle`.
+Everything else uses the shared frame and `PageHead`.
+
+### Shared with me
+One route. Its h1 is "Shared with me" (the rail label); the selected share's
+name is an h2 under it.
+
+## Tables (founder decision, 10/10/2026)
+
+Every rows-and-columns view in the signed-in app follows one standard, drawn from the
+shared parts in `apps/web/src/w360/ui.tsx` § Tables (`usePaged`, `TablePager`,
+`Th`, `sortBy`, `SelectAllBox`, `SelectCell`, `useRowSelection`,
+`SelectionBar`) with `PropertyTable.tsx` as the reference. The founder raised
+each rule below after a pass that skipped it; none of them is optional by size.
+
+- **Every data table can be ticked.** A tick box on each row, `SelectAllBox` in
+  the header ("Select all N things", partial state shown), selection over every
+  row the filter lets through (not the page), dropped when the filter changes,
+  kept across sort, paging and view switch. Ticking is how the reader gets a
+  spreadsheet's status-bar sum, so it does not wait for a bulk action.
+- **Every table with ticks or summable columns has a total row,** whatever its
+  size: a `<tfoot>` whose label is `<th scope="row">` "Total · N things", or
+  "N things selected" while rows are ticked, with each summable column summed
+  underneath (rupees; extent per unit as entered, never converted; counts).
+  Rates, dates and statuses get an empty cell.
+- **The selection bar** (`SelectionBar`) appears only while rows are ticked:
+  the count, **Export** of the ticked rows in the screen's own CSV format, the
+  bulk actions the screen already has, and Clear. A new bulk action that
+  changes data or money is Reddy's decision.
+- **Pager** (`TablePager`) under every data table: 20 rows by default, 5 / 10 /
+  20 / 50, remembered per table, hidden at 5 rows or fewer, back to page 1 on
+  sort or filter. Choosing tables in a flow (order step 1) are not paged.
+- **Figures** are right-aligned with `.num` in the heading, the cells and the
+  total; headings sort through `Th` where reordering helps.
+- **Grid · Table on every collection page.** A top-level page that lists things
+  (properties, families and groups, documents, holdings, service orders,
+  invitations, members) offers `ViewToggle` Grid · Table (· Map where there is
+  geometry) in the band. The grid's cards share the table's selection and row
+  menu. Ledgers and reference tables (wallet transactions, SRO offices,
+  government values, geography, desk coverage) are table-only. A rows-and-
+  columns view is called **Table**, never "List"; "List" names a view that is
+  not a table.
+- **The property register** (founder, 11/10/2026). `PropertyTable` reads as a
+  land register: **Survey No / LP** (the record's name; under it the
+  **Pattadar ID**, our id for it (a UUIDv7), and a built property's LP), Type (with
+  khata), Owner (+ other owners; father/husband), Where (village, then mandal
+  and district; a boundary, pin or crossed-pin mark), Held by, Holding,
+  Managed by (first caretaker or agent; your stake), Status (mutation, EC, in
+  court), Extent, Market estimate (what was paid and when), Title deed
+  (registered on), Last activity (when · by whom; what changed · added). Each
+  cell is the fact over what qualifies it; an unrecorded fact is "—". Lines
+  never wrap; the tick box and Survey No / LP stay put while it scrolls. The
+  CSV leads with Pattadar ID and LP and carries every fact flat.
+- **A fact opens the tab it lives on** (founder, 11/10/2026). A link about one
+  aspect of a property goes to that tab of `/properties/:id`, never the front
+  page: location → `location`, services and orders → `services`, people and
+  managers → `people`, price → `money`, expenses → `expenses`, trail →
+  `activity`, deeds and documents → the default Documents tab. Only a link that
+  names the property itself opens the default tab.
+- **Section head.** A table inside a tab, step or block opens with `SectionHead`
+  (`RecordHead.tsx`): the title, one line of facts ("12 expenses · ₹48,200
+  spent"), guidance behind its ⓘ, its own actions as `HeadActions` (⋮ last).
+  Never a hand-built `.sechead`, never guidance as the line under the heading,
+  never a search, year, view or scope control in it: those are the band's
+  (§ Property tabs, "A section's band").
+
+- **One order flow** (founder, 10/10/2026). Every "Order a service" — page
+  head, property head, row or card menu, a selection's bulk bar, "Order it
+  again", the one-tap visit buttons — opens `/order` through `orderHref`
+  (`orderFlow.ts`). With the properties already known it opens on the services
+  step with them chosen, and step 2 names them ("Ordering for" chips, each
+  removable, and Change). No screen places an order itself and there is no
+  second route in.
+
+## Loading (founder decision, 10/10/2026)
+
+"Where is the smooth loading?" — a region loads as a skeleton of its own
+shape, never a grey box with a sentence under it.
+
+- **First read:** a table draws `SkTable` (its real headings, shaped rows, the
+  tick column and the total row reserved); a card grid draws `SkGrid` (or the
+  screen's own card skeleton, as Properties' `SkRecordCards`); a list of rows
+  draws `SkRows`; a map draws `SkMap` (tile grid, zoom and scale where
+  Leaflet puts them — also the lazy map's Suspense fallback); a document or
+  scan draws `SkPaper`; a page draws its own page skeleton. Nothing moves when the
+  data lands. `Loading` (the generic box) is not used on signed-in screens.
+- **A new read of something already on screen** (a filter, a chosen property,
+  a tab's year): the query keeps its last answer (`placeholderData:
+  keepPreviousData`) and the region dims and goes inert (`aria-busy`) until the
+  new one lands; a command that would act on the stale answer waits. A region
+  never blanks back to a skeleton.
+- One live region per skeleton (`Busy`); the scaffold is `aria-hidden`.
+- A failed read is `Failed`, never a skeleton that pulses forever.
+
+`scripts/shared-components-tests.ts` (SC-S1, SC-T*, SC-O1, SC-L1) fails a hand-built section
+head, a page-local pager, an unlabelled total row, a data table without tick
+boxes and a collection page without the view toggle.
 
 ## Data provenance (project rule, enforced 2026-09-25)
 
@@ -598,14 +1014,17 @@ again.
   (`darken(primary, 0.5)` = a solid `#7f4307`), so an empty bar read as a
   finished amber line. `MuiLinearProgress` pins the track to `action.selected`.
 - **Content is measure-capped.** `AppShell` caps the routed area at `80rem`
-  (`--max-width`) and centres it, so the app and marketing pages agree.
+  (`--max-width`) and centres it, so the app and marketing pages agree. On
+  W360 the cap is on `.w360 main` itself (§ Page head, "One frame"): one
+  80rem measure that the head, the toolbar band and the content share. A page
+  may cap a form's own field measure, never its cards or its head.
 - **One component per concern** (founder decision, 27/09/2026). A screen
   composes the shared components — `apps/web/src/w360/ui.tsx` on W360 (`Card`,
   `KV`, `Cell`, `Empty`, `Failed`, `Loading`, `PageHead`, `Chip`, `StatusChip`,
   `FacetFilter`, `Menu` …) and `apps/web/src/components/` on the previous app —
   and never re-implements one inside a page file. A page that needs a variant
   adds a prop to the shared component; it does not copy it. Where a concern has
-  no shared component yet (tabs, form fields, segmented controls, tables), the
+  no shared component yet (form fields, tables), the
   second copy is the moment to lift it into `ui.tsx`, never a third page-local
   copy. Domain and format rules (units and their singular/plural labels,
   dates, money) live in `packages/core`. `scripts/shared-components-tests.ts`
@@ -617,6 +1036,14 @@ again.
   counted options, removable active chips, `Clear all`, and an adjacent result
   tally. Pages supply domain groups and values; they do not introduce their own
   select bars, filter drawers, search-as-filter layouts, or dismissal behavior.
+  The filter is the left half of the **toolbar band** (§ Page head, slot 5):
+  the band's right half is, in this order, the tally, the page's own search
+  (`BandSearch`), sort (`SortCycle`) and the view toggle (`ViewToggle`) —
+  `FacetFilter`'s `search`, `sort` and `view` props, never the page head's
+  action slot. A collection with nothing to filter uses `ToolbarBand`. A
+  segmented choice (a view, a scope such as Services' Open / All, a unit) is
+  `Segmented` from `ui.tsx`; Grid · List · Table · Map is `ViewToggle`, in
+  that order on every page.
 
 - **A tab declares who owns vertical space.** Every active Record and Holding
   frame exposes `data-tab-layout`: `document`, `viewport`, or

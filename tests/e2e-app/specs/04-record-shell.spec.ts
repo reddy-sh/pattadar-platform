@@ -1,7 +1,7 @@
 /**
  * W03 · one record — the 360 frame, its header, its hangers and its writes.
  *
- * `/app/records/:id` is two components wearing one URL. `pages/Record.tsx` is
+ * `/properties/:id` is two components wearing one URL. `pages/Record.tsx` is
  * the frame: it asks for the record, and it is the only thing on the route
  * that decides between "still coming", "not yours", "would not load" and "here
  * it is". Everything under it — the hero, the six hangers, the kebab, the
@@ -31,7 +31,7 @@ import { test, expect, World } from '../fixtures/harness';
 import type { Page } from '../fixtures/harness';
 import { ID } from '../fixtures/ids';
 
-const at = (id: string, hanger = '') => `/app/records/${id}${hanger ? `/${hanger}` : ''}`;
+const at = (id: string, hanger = '') => `/properties/${id}${hanger ? `/${hanger}` : ''}`;
 
 /** Every field `Q_RECORD` selects, for the surveyed parcel. Mirrors the shape
  *  `recordOf` builds in fixtures/seed.ts — a field left out of here arrives as
@@ -69,6 +69,7 @@ const PARCEL = {
   peopleCount: 3,
   serviceCount: 2,
   photoCount: 18,
+  mediaCount: 18,
   photoNote: 'Last visit 12 Aug 2026',
   tags: ['ancestral'],
   noteBody: 'The eastern boundary is disputed with the adjoining survey.',
@@ -116,6 +117,7 @@ const FLAT = {
   peopleCount: 1,
   serviceCount: 0,
   photoCount: 0,
+  mediaCount: 0,
   photoNote: 'Nothing has been photographed here',
   tags: [],
   noteBody: '',
@@ -134,16 +136,6 @@ const tabStrip = (page: Page) =>
 const kebab = (page: Page, title = 'Sy 214/2') =>
   page.getByRole('button', { name: `Actions for ${title}` });
 
-/** One of the four hero figures, found by the word printed above it.
- *
- *  A figure strip expresses no role of its own, and asserting against the strip
- *  as a whole — which is what these tests did first — passes just as happily
- *  with the worth and the rate swapped, because both numbers are somewhere in
- *  the same box. The cell is `Cell` (ui.tsx:397): a `.k` for the word, a `.v`
- *  for the figure and its unit, a `.s` for the line beneath. */
-const figure = (page: Page, k: string) =>
-  page.locator('.strip > div').filter({ has: page.getByText(k, { exact: true }) });
-const figureValue = (page: Page, k: string) => figure(page, k).locator('.v');
 
 // ── the frame ──────────────────────────────────────────────────────────
 
@@ -158,24 +150,38 @@ test.describe('W03 · the frame around every hanger', () => {
 
   test('a record still on its way holds the shape of the page it is becoming', async ({ page, world }) => {
     world.set('record', World.never());
-    await page.goto(at(ID.parcel));
+    // Documents, not the Overview index: the Overview's own summary strip is
+    // a strip the skeleton rightly draws.
+    await page.goto(at(ID.parcel, 'documents'));
 
     // SkRecordPage, not a 70vh slab: the status region says which screen is
     // arriving, and nothing has claimed a title, a figure or a hanger yet.
     // The extra patience is for the route's own lazy chunk, which the dev
     // server hands over one module at a time — the skeleton cannot be asserted
     // before the code that draws it has arrived.
-    await expect(page.getByRole('status', { name: 'Loading this record' }))
+    await expect(page.getByRole('status', { name: 'Loading this property' }))
       .toBeVisible({ timeout: 25_000 });
     await expect(page.getByRole('heading', { level: 1, name: 'Sy 214/2' })).toHaveCount(0);
     await expect(tabStrip(page)).toHaveCount(0);
-    await expect(page.getByText("This property isn't in your account")).toHaveCount(0);
+    await expect(page.getByText("This property is not in your account")).toHaveCount(0);
+    // The header has no figure strip any more, so neither does its skeleton:
+    // drawing four placeholder cells here made Documents jump when it landed.
+    await expect(page.getByRole('status', { name: 'Loading this property' }).locator('.strip')).toHaveCount(0);
+  });
+
+  test('the expenses skeleton keeps the strip its ledger really draws', async ({ page, world }) => {
+    world.set('record', World.never());
+    await page.goto(`${at(ID.parcel)}/expenses`);
+
+    const busy = page.getByRole('status', { name: 'Loading this property' });
+    await expect(busy).toBeVisible({ timeout: 25_000 });
+    await expect(busy.locator('.strip')).toHaveCount(1);
   });
 
   test('a record that is not in your portfolio is told so, and not shown a failure', async ({ page }) => {
     await page.goto(at(ID.missing));
 
-    await expect(page.getByRole('heading', { name: "This property isn't in your account" })).toBeVisible();
+    await expect(page.getByRole('heading', { name: "This property is not in your account" })).toBeVisible();
     await expect(page.getByText('It may have been archived, or shared with you rather than owned by you.')).toBeVisible();
     // The two facts are different, so the two screens must be. Nothing here
     // may say the read failed.
@@ -198,11 +204,11 @@ test.describe('W03 · the frame around every hanger', () => {
     await expect(failed).toContainText('Check your connection and try again.');
     // Printed verbatim, for whoever is being asked "what does it say?".
     await expect(failed).toContainText('the record store is down');
-    await expect(page.getByText("This property isn't in your account")).toHaveCount(0);
-    // Its trail says "Record", not "Not found" (Record.tsx:70 against :78) —
+    await expect(page.getByText("This property is not in your account")).toHaveCount(0);
+    // Its trail says "Property", not "Not found" (Record.tsx against :78) —
     // the same distinction the page under it is making, one line up.
     const crumbs = page.getByRole('navigation', { name: 'Breadcrumb' });
-    await expect(crumbs).toContainText('Record');
+    await expect(crumbs).toContainText('Property');
     await expect(crumbs).not.toContainText('Not found');
     await expect(tabStrip(page)).toHaveCount(0);
   });
@@ -220,7 +226,7 @@ test.describe('W03 · the frame around every hanger', () => {
       const failed = page.getByRole('alert');
       await expect(failed).toContainText('This property did not load');
       await expect(failed).toContainText('GraphQL HTTP 503');
-      await expect(page.getByText("This property isn't in your account")).toHaveCount(0);
+      await expect(page.getByText("This property is not in your account")).toHaveCount(0);
     });
   });
 
@@ -243,7 +249,7 @@ test.describe('W03 · the frame around every hanger', () => {
 
     await page.getByRole('navigation', { name: 'Breadcrumb' })
       .getByRole('link', { name: 'Properties' }).click();
-    await expect(page).toHaveURL(/\/app\/properties$/);
+    await expect(page).toHaveURL(/\/properties$/);
   });
 
   test('a hanger whose record will not load fails on the frame, not inside the hanger', async ({ page, world }) => {
@@ -269,6 +275,12 @@ test.describe('W03 · the header', () => {
     await expect(page.getByText('Agricultural land')).toBeVisible();
     await expect(page.getByText('Katragunta, Markapur, Prakasam — Andhra Pradesh')).toBeVisible();
     await expect(page.getByText('కత్రగుంట, మార్కాపురం, ప్రకాశం')).toBeVisible();
+    // Who holds it is the head's last meta item (RecordHead.tsx HolderLine);
+    // land in nobody's group says so in words. The khata · owner line moved
+    // to the Documents tab's rail (RecordPapers.tsx), asserted below.
+    await expect(page.getByText('In your own name', { exact: true })).toBeVisible();
+    await expect(page.getByText('Khata 1042 · Telukutla Shankar Reddy')).toHaveCount(0);
+    await tabStrip(page).getByRole('link', { name: /^Documents/ }).click();
     await expect(page.getByText('Khata 1042 · Telukutla Shankar Reddy')).toBeVisible();
   });
 
@@ -297,75 +309,48 @@ test.describe('W03 · the header', () => {
     await expect(page.getByText('Archived', { exact: true })).toBeVisible();
   });
 
-  test('the four figures at the top are the ones you are asked for on a phone call', async ({ page, world }) => {
+  // The header used to carry a four-figure strip (extent, market value, rate,
+  // year bought). It is gone: the property page tells a fact once (design.md
+  // § Property tabs, "Tell a fact once"), so the header keeps only the extent,
+  // as a pill beside the title whose accessible name carries the long form,
+  // and the money figures live on the Money tab (08-record-money covers them).
+  test('the header carries the extent beside the title, with the long form as its name', async ({ page, world }) => {
     world.set('record', parcel());
     await page.goto(at(ID.parcel));
 
-    // Each figure under its own word. The worth and the rate are the pair a
-    // strip-wide assertion would let swap places without anything failing.
-    await expect(figureValue(page, 'Extent')).toHaveText('4.30 ac');
-    await expect(figure(page, 'Extent')).toContainText('4 acres 12 guntas');
-    await expect(figureValue(page, 'Market value')).toHaveText('₹86.0 L');
-    await expect(figureValue(page, 'per acre')).toHaveText('₹20.0 L');
-    await expect(figureValue(page, 'Bought')).toHaveText('1998');
+    await expect(page.getByLabel('Extent 4 acres 12 guntas')).toHaveText('4.30 ac');
+    // The money figures are not repeated in the header.
+    await expect(page.locator('header.pagehead')).not.toContainText('₹');
   });
 
-  test('a record nobody has valued says so instead of printing ₹0', async ({ page, world }) => {
+  test('a record nobody has valued prints no ₹0 in its header', async ({ page, world }) => {
     world.set('record', parcel({ marketValue: 0, perUnitValue: 0 }));
     await page.goto(at(ID.parcel));
 
-    await expect(figureValue(page, 'Market value')).toHaveText('Not valued');
-    // The rate cannot be derived from an unknown worth, and a ₹0 rate would be
-    // a claim rather than a gap.
-    await expect(figureValue(page, 'per acre')).toHaveText('—');
-    // The extent is known, and goes on saying so beside the two that are not.
-    await expect(figureValue(page, 'Extent')).toHaveText('4.30 ac');
-    await expect(page.locator('.strip').first()).not.toContainText('₹0');
+    // The extent is known, and goes on saying so beside the worth that is not.
+    await expect(page.getByLabel('Extent 4 acres 12 guntas')).toHaveText('4.30 ac');
+    await expect(page.locator('header.pagehead')).not.toContainText('₹0');
   });
 
-  test('a rate cannot be worked out for land nobody has measured, however well it is valued', async ({ page, world }) => {
-    // The server divides worth by extent and sends 0 when there is no extent
-    // (web360.py:2696). The screen must not print that 0 as a rate.
-    world.set('record', parcel({ extent: 0, extentDetail: '', perUnitValue: 0 }));
-    await page.goto(at(ID.parcel));
-
-    await expect(figureValue(page, 'Market value')).toHaveText('₹86.0 L');
-    await expect(figureValue(page, 'per acre')).toHaveText('—');
-  });
-
-  // DEFECT. The Extent cell (RecordPapers.tsx:456-461) prints `num(rec.extent,
-  // 2)` with no guard on zero, while the two cells beside it say "Not valued"
-  // (:469) and "Not recorded" (:472) rather than assert a figure nobody filed.
-  // A record added with the extent box left empty is stored as 0 —
-  // PropertyActions.tsx:384 sends `Number(extent) || 0`, and web360.py's `_f`
-  // does the same for an omitted one — so its own page states "0.00 ac", in the
-  // same type as a surveyed parcel's real extent, directly beside a rate cell
-  // that refuses to divide by that very number because it knows it is unknown.
-  // The owner is owed "Not measured" in that cell, the way the other three
-  // unknowns on this strip are already said in words.
-  test.fail('a record nobody has measured says so instead of printing 0.00 ac', async ({ page, world }) => {
+  // Was a DEFECT ("0.00 ac" printed for an unmeasured record). The header now
+  // draws the extent pill only when there is an extent (RecordHead.tsx,
+  // `rec.extent > 0`), so an unmeasured record states no figure at all.
+  test('a record nobody has measured prints no 0.00 ac', async ({ page, world }) => {
     world.set('record', parcel({ extent: 0, extentDetail: '', perUnitValue: 0 }));
     await page.goto(at(ID.parcel));
     await expect(page.getByRole('heading', { level: 1, name: 'Sy 214/2' })).toBeVisible();
 
-    await expect(figureValue(page, 'Extent')).not.toContainText('0.00');
+    await expect(page.getByLabel(/^Extent /)).toHaveCount(0);
+    await expect(page.locator('header.pagehead')).not.toContainText('0.00');
   });
 
-  test('a record with no year of purchase on file says it is not recorded', async ({ page, world }) => {
-    world.set('record', parcel({ boughtYear: '' }));
-    await page.goto(at(ID.parcel));
-
-    await expect(figureValue(page, 'Bought')).toHaveText('Not recorded');
-  });
-
-  test('a built property is measured in its own unit and rated per square foot', async ({ page, world }) => {
+  test('a built property is measured in its own unit', async ({ page, world }) => {
     world.set('record', flat());
     await page.goto(at(ID.flat));
 
     // Whole square yards: a fraction of one means nothing, which is why the
-    // cell rounds everything that is not acres (RecordPapers.tsx:458).
-    await expect(figureValue(page, 'Extent')).toHaveText('850 sq.yd');
-    await expect(figureValue(page, 'per sft')).toHaveText('₹5,000');
+    // pill rounds everything that is not acres (RecordHead.tsx).
+    await expect(page.getByLabel('Extent 850 sq.yd')).toHaveText('850 sq.yd');
     await expect(page.getByText('Built property')).toBeVisible();
   });
 
@@ -384,7 +369,7 @@ test.describe('W03 · the header', () => {
     await page.goto(at(ID.parcel));
 
     await expect(page.getByRole('link', { name: 'Order a service' }))
-      .toHaveAttribute('href', `/app/records/${ID.parcel}/order`);
+      .toHaveAttribute('href', `/order?for=${ID.parcel}&step=services`);
     const share = page.getByRole('button', { name: 'Share securely' });
     await expect(share).toBeVisible();
     // Closed until it is asked for — the panel opens under this button rather
@@ -416,26 +401,36 @@ test.describe('W03 · the header', () => {
 // ── the hangers ────────────────────────────────────────────────────────
 
 const HANGERS = [
-  // The index carries the record's own h1; every other hanger heads itself
-  // with an h2 under it (RecordHead.tsx SectionHead), and that h2 is the
-  // tab's own word (design.md § App vocabulary, "Property tabs"). People opens
-  // on its Owners side, which is a segment under the People heading.
-  { label: 'Documents', path: '', heading: 'Sy 214/2', level: 1 },
-  { label: 'Site features', path: 'features', heading: 'Site features', level: 2 },
-  { label: 'People', path: 'people', heading: 'People', level: 2 },
-  { label: 'Services', path: 'services', heading: 'Service orders', level: 2 },
-  { label: 'Money', path: 'money', heading: 'Money', level: 2 },
-  { label: 'Activity', path: 'history', heading: 'Activity', level: 2 },
+  // Every hanger, the Overview index included, heads itself with an h2
+  // under the record's own h1 (RecordHead.tsx SectionHead), and that h2 is the
+  // tab's own word, or for Location and Services the noun the vocabulary
+  // gives them (design.md § Property tabs, "Headings name the tab").
+  { label: 'Overview', path: '', heading: 'Overview', level: 2, counted: false },
+  { label: 'Documents', path: 'documents', heading: 'Documents', level: 2, counted: true },
+  { label: 'Site features', path: 'site-features', heading: 'Site features', level: 2, counted: true },
+  { label: 'People', path: 'people', heading: 'People', level: 2, counted: true },
+  { label: 'Location', path: 'location', heading: 'Location & boundary', level: 2, counted: true },
+  { label: 'Media', path: 'media', heading: 'Media', level: 2, counted: true },
+  { label: 'Notes', path: 'notes', heading: 'Notes', level: 2, counted: true },
+  { label: 'Services', path: 'services', heading: 'Service orders', level: 2, counted: true },
+  { label: 'Money', path: 'money', heading: 'Money', level: 2, counted: false },
+  { label: 'Activity', path: 'activity', heading: 'Activity', level: 2, counted: false },
 ];
 
-test.describe('W03 · the six hangers', () => {
-  test('all six hangers are there, each pointing at its own part of the record', async ({ page, world }) => {
+/** A correction trail in `recordHistory`'s shape (w360/api.ts HistoryEvent). */
+const HISTORY = [
+  { id: 'w-ev-1', action: 'record.corrected', detail: '', field: 'Khata number', was: '1041', now: '1042', at: '2026-08-20T06:00:00Z', by: 'Shankar Reddy' },
+  { id: 'w-ev-2', action: 'record.corrected', detail: '', field: 'Owner name', was: 'T S Reddy', now: 'Telukutla Shankar Reddy', at: '2026-07-02T06:00:00Z', by: 'Shankar Reddy' },
+];
+
+test.describe('W03 · the ten hangers', () => {
+  test('all ten hangers are there, each pointing at its own part of the record', async ({ page, world }) => {
     world.set('record', parcel());
     await page.goto(at(ID.parcel));
     await expect(page.getByRole('heading', { level: 1, name: 'Sy 214/2' })).toBeVisible();
 
     const tabs = tabStrip(page);
-    await expect(tabs.getByRole('link')).toHaveCount(6);
+    await expect(tabs.getByRole('link')).toHaveCount(10);
     for (const h of HANGERS) {
       await expect(tabs.getByRole('link', { name: h.label })).toHaveAttribute('href', at(ID.parcel, h.path));
     }
@@ -451,28 +446,39 @@ test.describe('W03 · the six hangers', () => {
     await expect(tabs.getByRole('link', { name: 'Site features' })).toContainText('14');
     await expect(tabs.getByRole('link', { name: 'People' })).toContainText('3');
     await expect(tabs.getByRole('link', { name: 'Services' })).toContainText('2');
+    // Pin and boundary both on file: two of the two things Location counts.
+    await expect(tabs.getByRole('link', { name: 'Location' })).toContainText('2');
+    await expect(tabs.getByRole('link', { name: 'Media' })).toContainText('18');
     // Money and Activity are not countable things, so they carry no number.
     await expect(tabs.getByRole('link', { name: 'Money' })).toHaveText('Money');
     await expect(tabs.getByRole('link', { name: 'Activity' })).toHaveText('Activity');
   });
 
-  test('a record with nothing filed on it wears no counts at all', async ({ page }) => {
+  // Zero is printed, dimmed (RecordHead.tsx RecordTabs): an empty hanger and
+  // one whose count has not loaded used to look identical. Money and Activity
+  // carry no count at all, which is not the same as zero.
+  test('a record with nothing filed on it says 0 on every countable hanger', async ({ page, world }) => {
+    world.set('record', parcel({
+      id: ID.plot, title: 'Sy 88', lat: 0, lon: 0, ring: [], paperCount: 0, featureCount: 0,
+      peopleCount: 0, serviceCount: 0, photoCount: 0, mediaCount: 0, noteBody: '', noteAuthor: '', noteAt: '',
+    }));
     await page.goto(at(ID.plot));
     await expect(page.getByRole('heading', { level: 1, name: 'Sy 88' })).toBeVisible();
 
     const tabs = tabStrip(page);
-    await expect(tabs.getByRole('link')).toHaveCount(6);
+    await expect(tabs.getByRole('link')).toHaveCount(10);
     for (const h of HANGERS) {
-      await expect(tabs.getByRole('link', { name: h.label })).toHaveText(h.label);
+      await expect(tabs.getByRole('link', { name: h.label }))
+        .toHaveText(h.counted ? `${h.label}0` : h.label);
     }
   });
 
   for (const h of HANGERS) {
     test(`the ${h.label} hanger opens its own question and marks itself as where you are`, async ({ page, world }) => {
       world.set('record', parcel());
-      // Documents is the index, so it is reached FROM somewhere else; the rest are
+      // Overview is the index, so it is reached FROM somewhere else; the rest are
       // reached from the index.
-      await page.goto(at(ID.parcel, h.path === '' ? 'features' : ''));
+      await page.goto(at(ID.parcel, h.path === '' ? 'site-features' : ''));
       await expect(tabStrip(page)).toBeVisible();
 
       await tabStrip(page).getByRole('link', { name: h.label }).click();
@@ -485,16 +491,16 @@ test.describe('W03 · the six hangers', () => {
     });
   }
 
-  test('Documents is the front door: it is current at the bare record URL and nowhere else', async ({ page, world }) => {
+  test('Overview is the front door: it is current at the bare record URL and nowhere else', async ({ page, world }) => {
     world.set('record', parcel());
     await page.goto(at(ID.parcel));
     await expect(page.getByRole('heading', { level: 1, name: 'Sy 214/2' })).toBeVisible();
 
     const tabs = tabStrip(page);
-    await expect(tabs.getByRole('link', { name: 'Documents' })).toHaveAttribute('aria-current', 'page');
+    await expect(tabs.getByRole('link', { name: 'Overview' })).toHaveAttribute('aria-current', 'page');
 
     await page.goto(at(ID.parcel, 'money'));
-    await expect(tabs.getByRole('link', { name: 'Documents' })).not.toHaveAttribute('aria-current', 'page');
+    await expect(tabs.getByRole('link', { name: 'Overview' })).not.toHaveAttribute('aria-current', 'page');
   });
 
   test('the breadcrumb on a hanger walks back to the record, and then to Properties', async ({ page, world }) => {
@@ -542,7 +548,7 @@ test.describe('W03 · the six hangers', () => {
     await expect(crumbs.getByRole('link', { name: 'Properties', exact: true })).toHaveCount(0);
 
     await crumbs.getByRole('link', { name: 'Katragunta Land' }).click();
-    await expect(page).toHaveURL(/\/app\/holdings\/cp-katragunta$/);
+    await expect(page).toHaveURL(/\/holdings\/cp-katragunta$/);
   });
 
   test('a record in no holding still walks back to Properties', async ({ page, world }) => {
@@ -580,7 +586,7 @@ test.describe('W03 · the six hangers', () => {
 
   test('the Media hanger is on the same frame and names the record it belongs to', async ({ page, world }) => {
     world.set('record', parcel());
-    await page.goto(at(ID.parcel, 'photos'));
+    await page.goto(at(ID.parcel, 'media'));
 
     // The gallery is a tab of the frame: the record is the h1 above it, the
     // tab's own word is its h2, and Media is the tab marked as where you are.
@@ -589,7 +595,7 @@ test.describe('W03 · the six hangers', () => {
     await expect(tabStrip(page).getByRole('link', { name: /^Media/ })).toHaveAttribute('aria-current', 'page');
     await expect.poll(() => world.asked('photos')).toBe(true);
     expect(world.lastVars('record')).toMatchObject({ id: ID.parcel });
-    await expect(page.getByText("This property isn't in your account")).toHaveCount(0);
+    await expect(page.getByText("This property is not in your account")).toHaveCount(0);
   });
 });
 
@@ -680,7 +686,7 @@ test.describe('W03 · the actions menu', () => {
     // focus used to drop activeElement onto <body> and restart the next Tab at
     // the top of the page. Focus goes back to the kebab first and the browser's
     // own Tab then moves on to the next control after it — the first hanger.
-    await expect(tabStrip(page).getByRole('link', { name: 'Documents' })).toBeFocused();
+    await expect(tabStrip(page).getByRole('link', { name: 'Overview' })).toBeFocused();
     expect(world.calls('archiveRecords')).toHaveLength(0);
     expect(world.calls('saveRecord')).toHaveLength(0);
   });
@@ -716,11 +722,11 @@ test.describe('W03 · the actions menu', () => {
     await page.keyboard.press('Escape');
 
     await tabStrip(page).getByRole('link', { name: /^Activity/ }).click();
-    await expect(page).toHaveURL(new RegExp(`${at(ID.parcel, 'history').replace(/\//g, '\\/')}$`));
+    await expect(page).toHaveURL(new RegExp(`${at(ID.parcel, 'activity').replace(/\//g, '\\/')}$`));
     await expect(page.getByRole('heading', { level: 2, name: 'Activity', exact: true })).toBeVisible();
 
     await tabStrip(page).getByRole('link', { name: /^Location/ }).click();
-    await expect(page).toHaveURL(new RegExp(`${at(ID.parcel, 'map').replace(/\//g, '\\/')}$`));
+    await expect(page).toHaveURL(new RegExp(`${at(ID.parcel, 'location').replace(/\//g, '\\/')}$`));
     await expect(page.getByRole('heading', { level: 2, name: 'Location & boundary', exact: true })).toBeVisible();
   });
 
@@ -732,10 +738,10 @@ test.describe('W03 · the actions menu', () => {
     await page.getByRole('menuitem', { name: 'Ask a surveyor' }).click();
 
     // The catalogue survey the Location tab orders, not the retired free-text
-    // /request form: the order flow opens on its first step with the survey
-    // already the service being asked about.
-    await expect(page).toHaveURL(/\/app\/records\/w-sy-214-2\/order\?service=survey&step=pick$/);
-    await expect(page.getByRole('heading', { level: 2, name: 'What do you want done on this land?' })).toBeVisible();
+    // /request form: the order flow opens on its services step with this
+    // property chosen and the survey already the service being asked about.
+    await expect(page).toHaveURL(/\/order\?for=w-sy-214-2&step=services&service=survey$/);
+    await expect(page.getByRole('heading', { level: 2, name: 'Choose the services' })).toBeVisible();
   });
 
   // DEFECT. The item list at RecordPapers.tsx:253-269 is a constant: every
@@ -755,7 +761,7 @@ test.describe('W03 · the actions menu', () => {
 
     await kebab(page).click();
     const menu = page.getByRole('menu', { name: 'Actions for Sy 214/2' });
-    await expect(menu.getByRole('menuitem', { name: 'Unarchive this record' })).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: 'Unarchive this property' })).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: 'Archive this property' })).toHaveCount(0);
   });
 });
@@ -772,10 +778,10 @@ test.describe('W03 · archiving and deleting from the record', () => {
 
     const ask = page.getByRole('dialog', { name: 'Archive Sy 214/2?' });
     await expect(ask).toBeVisible();
-    await expect(ask).toContainText('Archived properties leave lists, maps and totals, but keep everything filed under them.');
+    await expect(ask).toContainText('Hidden from lists, the map and totals.');
     // The promise this dialog makes, and the one the archived record's own
     // kebab then cannot keep — see the test.fail above.
-    await expect(ask).toContainText('Bring it back any time from the Archived facet in the rail.');
+    await expect(ask).toContainText('Restore it from Archived.');
 
     await ask.getByRole('button', { name: 'Cancel' }).click();
     await expect(ask).toHaveCount(0);
@@ -816,7 +822,7 @@ test.describe('W03 · archiving and deleting from the record', () => {
     await page.keyboard.press('Escape');
     await expect(ask).toBeVisible();
 
-    await expect(page).toHaveURL(/\/app\/properties$/);
+    await expect(page).toHaveURL(/\/properties$/);
     expect(world.calls('archiveRecords')).toHaveLength(1);
   });
 
@@ -829,7 +835,7 @@ test.describe('W03 · archiving and deleting from the record', () => {
     await page.getByRole('dialog', { name: 'Archive Sy 214/2?' })
       .getByRole('button', { name: 'Archive' }).click();
 
-    await expect(page).toHaveURL(/\/app\/properties$/);
+    await expect(page).toHaveURL(/\/properties$/);
     expect(world.lastVars('archiveRecords')).toEqual({ ids: [ID.parcel], archived: true });
   });
 
@@ -871,7 +877,7 @@ test.describe('W03 · archiving and deleting from the record', () => {
     await page.getByRole('menuitem', { name: 'Delete this property' }).click();
 
     const ask = page.getByRole('dialog', { name: 'Delete Sy 214/2?' });
-    await expect(ask).toContainText('Everything filed under it is deleted too.');
+    await expect(ask).toContainText('Everything saved under it is deleted too.');
     await expect(ask).toContainText('There is no undo.');
 
     await ask.getByRole('button', { name: 'Cancel' }).click();
@@ -887,7 +893,7 @@ test.describe('W03 · archiving and deleting from the record', () => {
     await page.getByRole('dialog', { name: 'Delete Sy 214/2?' })
       .getByRole('button', { name: 'Delete' }).click();
 
-    await expect(page).toHaveURL(/\/app\/properties$/);
+    await expect(page).toHaveURL(/\/properties$/);
     expect(world.lastVars('deleteRecords')).toEqual({ ids: [ID.parcel] });
   });
 
@@ -917,7 +923,7 @@ test.describe('W03 · archiving and deleting from the record', () => {
     await ask.getByRole('button', { name: 'Delete' }).click();
 
     await expect(ask.getByRole('alert'))
-      .toHaveText('That property could not be deleted. Nothing was removed.');
+      .toHaveText('That property could not be deleted. Nothing was deleted.');
   });
 });
 
@@ -937,7 +943,8 @@ test.describe('W03 · editing the record’s own fields', () => {
     await page.goto(at(ID.parcel));
 
     const drawer = await openDrawer(page);
-    await expect(drawer).toContainText('This record');
+    // The drawer's eyebrow names the property and the part of it being edited.
+    await expect(drawer).toContainText('Sy 214/2 · Details');
     // An edit IS the form — there is nothing to read when the record already
     // exists — so it opens on the first field rather than on a scan.
     await expect(drawer.getByLabel('Survey number')).toBeFocused();
@@ -956,7 +963,7 @@ test.describe('W03 · editing the record’s own fields', () => {
     await expect(drawer.getByLabel('District')).toHaveValue('Prakasam');
     // The unit the record is STORED in, not one derived from its class.
     await expect(drawer.getByLabel('Extent · Acres')).toHaveValue('4.3');
-    await expect(drawer.getByLabel('Worth today')).toHaveValue('₹86,00,000');
+    await expect(drawer.getByLabel('Market estimate')).toHaveValue('₹86,00,000');
     await expect(drawer.getByLabel('Status')).toHaveValue('owned');
     await expect(drawer.getByLabel('Your stake')).toHaveValue('owned');
   });
@@ -970,10 +977,10 @@ test.describe('W03 · editing the record’s own fields', () => {
     // being created (PropertyActions.tsx:508, :515, :629). This one exists:
     // reading a deed at it would only overwrite what is already filed, and
     // what it cost was settled on the day it was bought.
-    await expect(drawer.getByText('What kind of record')).toHaveCount(0);
+    await expect(drawer.getByText('What kind of property')).toHaveCount(0);
     await expect(drawer.getByLabel('What you paid')).toHaveCount(0);
-    await expect(drawer.getByRole('button', { name: 'Add property' })).toHaveCount(0);
-    await expect(drawer.getByLabel('Worth today')).toBeVisible();
+    await expect(drawer.getByRole('button', { name: 'Add the property' })).toHaveCount(0);
+    await expect(drawer.getByLabel('Market estimate')).toBeVisible();
     await expect(drawer.getByRole('button', { name: 'Save changes' })).toBeVisible();
   });
 
@@ -1059,7 +1066,7 @@ test.describe('W03 · editing the record’s own fields', () => {
 
     // "I don't know what it is worth" is not ₹0. Emptying the box to read it
     // used to write zero over a real figure.
-    await drawer.getByLabel('Worth today').fill('');
+    await drawer.getByLabel('Market estimate').fill('');
     await drawer.getByLabel('District').fill('Prakasham');
     await drawer.getByRole('button', { name: 'Save changes' }).click();
 
@@ -1074,11 +1081,11 @@ test.describe('W03 · editing the record’s own fields', () => {
     await page.goto(at(ID.parcel));
     const drawer = await openDrawer(page);
 
-    await drawer.getByLabel('Worth today').fill('9000000');
+    await drawer.getByLabel('Market estimate').fill('9000000');
 
     // Grouped as it is typed, in the lakhs-and-crores grouping the rest of
     // these screens use — ₹9,000,000 is not how anybody here writes it.
-    await expect(drawer.getByLabel('Worth today')).toHaveValue('₹90,00,000');
+    await expect(drawer.getByLabel('Market estimate')).toHaveValue('₹90,00,000');
     await drawer.getByRole('button', { name: 'Save changes' }).click();
 
     await expect.poll(() => world.calls('saveRecord').length).toBe(1);
@@ -1287,7 +1294,11 @@ test.describe('W03 · editing the record’s own fields', () => {
 
     // The header behind the drawer is a plain <header> inside <main> and so
     // carries no ARIA role of its own; `inert` on it is the assertion.
-    await expect(page.locator('main > header')).toHaveAttribute('inert', '');
+    // Every header under <main>: the page head and the section head that
+    // mounts once its data loads, which used to stay reachable behind the drawer.
+    for (const h of await page.locator('main > header').all()) {
+      await expect(h).toHaveAttribute('inert', '');
+    }
 
     const inside = () => page.evaluate(() => !!document.activeElement?.closest('[role="dialog"]'));
     for (let i = 0; i < 20; i += 1) {
@@ -1326,32 +1337,161 @@ test.describe('W03 · editing the record’s own fields', () => {
 // ── the note, and what has been corrected ──────────────────────────────
 
 test.describe('W03 · the note and the audit trail', () => {
-  test('the note somebody left on the record is shown with who left it and when', async ({ page, world }) => {
+  // Notes is its own tab now (RecordNotes.tsx), read through the root `notes`
+  // query, not a card on the Documents index fed by RecordDetail.noteBody.
+  test('the note somebody left on the property is shown on its Notes tab, with the day it was written', async ({ page, world }) => {
     world.set('record', parcel());
-    await page.goto(at(ID.parcel));
+    world.set('root.notes', [
+      { id: 'w-note-1', body: 'The eastern boundary is disputed with the adjoining survey.', createdAt: '2026-08-14T06:00:00' },
+    ]);
+    await page.goto(at(ID.parcel, 'notes'));
 
-    await expect(page.getByRole('heading', { name: 'Notes' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Notes', exact: true })).toBeVisible();
     await expect(page.getByText('The eastern boundary is disputed with the adjoining survey.')).toBeVisible();
-    await expect(page.getByText('Shankar Reddy · 2026-08-14')).toBeVisible();
+    await expect(page.getByText('14/08/2026')).toBeVisible();
+    await expect(tabStrip(page).getByRole('link', { name: 'Notes' })).toHaveText('Notes1');
   });
 
-  test('a record nobody has written a note on shows no note card', async ({ page, world }) => {
+  // Notes are written and edited where they are read (founder, 13/10/2026):
+  // a blank card on top for a new one, the card itself for an edit.
+  test('a note is added in place at the top, with formatting, and lands newest first', async ({ page, world }) => {
+    world.set('record', parcel());
+    world.set('root.notes', [
+      { id: 'w-note-1', body: 'Older note', createdAt: '2026-08-14T06:00:00' },
+    ]);
+    await page.goto(at(ID.parcel, 'notes'));
+
+    await page.getByRole('button', { name: 'Add a note' }).click();
+    const editor = page.getByRole('region', { name: 'New note' });
+    // Above the existing note: the list is newest first.
+    await expect(page.locator('.stack > *').first()).toHaveClass(/note-edit/);
+    await expect(editor.getByRole('button', { name: 'Add the note' })).toBeDisabled();
+
+    await editor.getByLabel('What happened').fill('Boundary walked');
+    const body = editor.getByRole('textbox', { name: 'Anything else worth keeping' });
+    await body.fill('north stone');
+    await body.selectText();
+    await editor.getByRole('button', { name: 'Bold' }).click();
+    await expect(body).toHaveValue('**north stone**');
+    await editor.getByRole('button', { name: 'Preview' }).click();
+    await expect(editor.locator('strong')).toHaveText('north stone');
+
+    await editor.getByRole('button', { name: 'Add the note' }).click();
+    expect(world.lastVars('root.addNote')).toMatchObject({ entityId: ID.parcel, body: 'Boundary walked\n\n**north stone**' });
+    await expect(editor).toHaveCount(0);
+  });
+
+  test('the text box grows with what is typed instead of scrolling inside itself', async ({ page, world }) => {
+    world.set('record', parcel());
+    await page.goto(at(ID.parcel, 'notes'));
+    await page.getByRole('button', { name: 'Add a note' }).click();
+    const body = page.getByRole('textbox', { name: 'Anything else worth keeping' });
+    const before = (await body.boundingBox())!.height;
+    await body.fill(Array.from({ length: 14 }, (_, i) => `line ${i + 1}`).join('\n'));
+    await expect.poll(async () => (await body.boundingBox())!.height).toBeGreaterThan(before + 100);
+    expect(await body.evaluate((el) => el.scrollHeight <= el.clientHeight + 2)).toBe(true);
+  });
+
+  test('a note is edited in place on its own card, and the change is saved', async ({ page, world }) => {
+    world.set('record', parcel());
+    world.set('root.notes', [
+      { id: 'w-note-1', body: 'Gate lock\n\n- old key with Ramana', createdAt: '2026-08-14T06:00:00' },
+    ]);
+    await page.goto(at(ID.parcel, 'notes'));
+    await expect(page.locator('.richtext li')).toHaveText('old key with Ramana');
+
+    await page.getByRole('button', { name: 'Edit note: Gate lock' }).click();
+    const editor = page.getByRole('region', { name: 'Edit note' });
+    await expect(editor.getByLabel('What happened')).toHaveValue('Gate lock');
+    const body = editor.getByRole('textbox', { name: 'Anything else worth keeping' });
+    await expect(body).toHaveValue('- old key with Ramana');
+    // Nothing changed yet, so there is nothing to save.
+    await expect(editor.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+    await body.fill('- new key with Ramana');
+    await editor.getByRole('button', { name: 'Save changes' }).click();
+
+    expect(world.lastVars('root.updateNote')).toEqual({ id: 'w-note-1', body: 'Gate lock\n\n- new key with Ramana' });
+    await expect(editor).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Edit note: Gate lock' })).toBeFocused();
+  });
+
+  test('cancelling a note with typed text asks first, and keeping it keeps the text', async ({ page, world }) => {
+    world.set('record', parcel());
+    world.set('root.notes', [{ id: 'w-note-1', body: 'Gate lock', createdAt: '2026-08-14T06:00:00' }]);
+    await page.goto(at(ID.parcel, 'notes'));
+    await page.getByRole('button', { name: 'Edit note: Gate lock' }).click();
+    const editor = page.getByRole('region', { name: 'Edit note' });
+    await editor.getByLabel('What happened').fill('Gate lock changed');
+    await editor.getByRole('button', { name: 'Cancel' }).click();
+    const ask = page.getByRole('dialog', { name: 'Discard your changes?' });
+    await ask.getByRole('button', { name: 'Keep editing' }).click();
+    await expect(editor.getByLabel('What happened')).toHaveValue('Gate lock changed');
+    await editor.getByRole('button', { name: 'Cancel' }).click();
+    await ask.getByRole('button', { name: 'Discard' }).click();
+    await expect(editor).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Gate lock', exact: true })).toBeVisible();
+    expect(world.calls('root.updateNote')).toHaveLength(0);
+  });
+
+  test.describe('a note save refused at the transport', () => {
+    // A 503 IS the scenario; Chrome logs every failed response itself.
+    test.use({ allowConsole: true });
+
+    test('an edit that does not save keeps what was typed and says why', async ({ page, world }) => {
+      world.set('record', parcel());
+      world.set('root.notes', [{ id: 'w-note-1', body: 'Gate lock', createdAt: '2026-08-14T06:00:00' }]);
+      world.set('root.updateNote', World.httpError(503));
+      await page.goto(at(ID.parcel, 'notes'));
+
+      await page.getByRole('button', { name: 'Edit note: Gate lock' }).click();
+      const editor = page.getByRole('region', { name: 'Edit note' });
+      await editor.getByLabel('What happened').fill('Gate lock changed');
+      await editor.getByRole('button', { name: 'Save changes' }).click();
+      await expect(editor.getByRole('alert')).toHaveText('That change was not saved. Try again.');
+      await expect(editor.getByLabel('What happened')).toHaveValue('Gate lock changed');
+
+      // A note that is not the owner's (or is gone) answers null.
+      world.set('root.updateNote', null);
+      await editor.getByRole('button', { name: 'Save changes' }).click();
+      await expect(editor.getByRole('alert')).toHaveText('That note is no longer here, so the change was not saved.');
+    });
+
+    test('a new note that does not save stays on its card', async ({ page, world }) => {
+      world.set('record', parcel());
+      world.set('root.addNote', World.httpError(503));
+      await page.goto(at(ID.parcel, 'notes'));
+      await page.getByRole('button', { name: 'Add a note' }).click();
+      const editor = page.getByRole('region', { name: 'New note' });
+      await editor.getByLabel('What happened').fill('Boundary walked');
+      await editor.getByRole('button', { name: 'Add the note' }).click();
+      await expect(editor.getByRole('alert')).toHaveText('That note was not saved. Try again.');
+      await expect(editor.getByLabel('What happened')).toHaveValue('Boundary walked');
+    });
+  });
+
+  test('a property nobody has written a note on says so, and the index draws no note card', async ({ page, world }) => {
     world.set('record', parcel({ noteBody: '', noteAuthor: '', noteAt: '' }));
     await page.goto(at(ID.parcel));
 
     await expect(page.getByRole('heading', { level: 1, name: 'Sy 214/2' })).toBeVisible();
     // An empty card with a heading and nothing under it is worse than no card.
     await expect(page.getByRole('heading', { name: 'Notes' })).toHaveCount(0);
+
+    await tabStrip(page).getByRole('link', { name: 'Notes' }).click();
+    await expect(page.getByText('No notes yet')).toBeVisible();
   });
 
+  // The Activity tab reads `recordHistory` (Orders.tsx RecordHistory), the
+  // same audit grammar as Account → Activity; a correction is the event
+  // `record.corrected` carrying field / was / now. The world's default answer
+  // for it is [] (fixtures/seed.ts), so these scenarios seed their own trail.
   test('the audit hanger shows what changed, with the value it used to be', async ({ page, world }) => {
     world.set('record', parcel());
-    await page.goto(at(ID.parcel, 'history'));
+    world.set('recordHistory', HISTORY);
+    await page.goto(at(ID.parcel, 'activity'));
 
-    await expect(page.getByRole('heading', { level: 1, name: 'What has been changed' })).toBeVisible();
-    await expect(page.getByText('Anything on this record can be corrected.')).toBeVisible();
-    // Whose trail this is, said above the headline (Orders.tsx:286).
-    await expect(page.getByText('Sy 214/2 · Katragunta')).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Activity', exact: true })).toBeVisible();
+    await expect(page.getByText('2 changes', { exact: true })).toBeVisible();
 
     // Scoped to the row, because the old value, the new one, the date and the
     // person are one correction — asserted loose on the page, the date off the
@@ -1362,22 +1502,23 @@ test.describe('W03 · the note and the audit trail', () => {
     // `<s>` and nothing else: the old value being struck rather than dropped is
     // the whole point of the line, and no role expresses that.
     await expect(khata.locator('s')).toHaveText('1041');
+    await expect(khata).toContainText('Corrected a field');
     await expect(khata).toContainText('1042');
-    await expect(khata).toContainText('2026-08-20');
+    await expect(khata).toContainText('20/08/2026');
     await expect(khata).toContainText('Shankar Reddy');
 
     const owner = rows.filter({ has: page.getByText('Owner name') });
     await expect(owner.locator('s')).toHaveText('T S Reddy');
     await expect(owner).toContainText('Telukutla Shankar Reddy');
-    await expect(owner).toContainText('2026-07-02');
+    await expect(owner).toContainText('02/07/2026');
   });
 
   test('a value that was filed where there had been none shows the blank it replaced', async ({ page, world }) => {
     world.set('record', parcel());
-    world.set('corrections', [
-      { id: 'w-corr-3', field: 'Khata number', was: '', now: '1042', at: '2026-09-01', by: 'Shankar Reddy' },
+    world.set('recordHistory', [
+      { id: 'w-ev-3', action: 'record.corrected', detail: '', field: 'Khata number', was: '', now: '1042', at: '2026-09-01T06:00:00Z', by: 'Shankar Reddy' },
     ]);
-    await page.goto(at(ID.parcel, 'history'));
+    await page.goto(at(ID.parcel, 'activity'));
 
     const row = page.locator('.rows.boxed > div').filter({ has: page.getByText('Khata number') });
     // A row reading "1042" on its own says a khata was corrected; the dash is
@@ -1399,34 +1540,36 @@ test.describe('W03 · the note and the audit trail', () => {
   // (Verified end to end: with `corrections` refused, this screen holds the
   // skeleton through React Query's one retry and then settles on the empty
   // sentence, with no alert anywhere on the page.)
-  test.fail('an audit trail that did not load says so, rather than that nothing was ever corrected', async ({ page, world }) => {
+  // Was a DEFECT on the old audit hanger (a refused read said "nothing was
+  // ever corrected"). RecordHistory now branches on `!data` to <Failed>.
+  test('an audit trail that did not load says so, rather than that nothing ever changed', async ({ page, world }) => {
     world.set('record', parcel());
-    world.set('corrections', World.gqlError('the audit log is down'));
-    await page.goto(at(ID.parcel, 'history'));
+    world.set('recordHistory', World.gqlError('the audit log is down'));
+    await page.goto(at(ID.parcel, 'activity'));
 
-    await expect(page.getByRole('heading', { level: 1, name: 'What has been changed' })).toBeVisible();
-    await expect(page.getByRole('alert')).toContainText('did not load');
-    await expect(page.getByText('Nothing has been corrected on this record yet.')).toHaveCount(0);
+    await expect(page.getByRole('heading', { level: 2, name: 'Activity', exact: true })).toBeVisible();
+    await expect(page.getByRole('alert')).toContainText('did not load', { timeout: 20_000 });
+    await expect(page.getByText('No activity recorded yet')).toHaveCount(0);
   });
 
-  test('a record nothing has been corrected on says so rather than showing an empty list', async ({ page }) => {
-    await page.goto(at(ID.plot, 'history'));
+  test('a property nothing has changed on says so rather than showing an empty list', async ({ page }) => {
+    await page.goto(at(ID.plot, 'activity'));
 
-    await expect(page.getByText('Nothing has been corrected on this record yet.')).toBeVisible();
-    await expect(page.locator('s')).toHaveCount(0);
+    await expect(page.getByText('No activity recorded yet')).toBeVisible();
+    await expect(page.locator('main s')).toHaveCount(0);
   });
 
-  test('the audit hanger holds its shape while the corrections are still coming', async ({ page, world }) => {
+  test('the audit hanger holds its shape while the trail is still coming', async ({ page, world }) => {
     world.set('record', parcel());
-    world.set('corrections', World.never());
-    await page.goto(at(ID.parcel, 'history'));
+    world.set('recordHistory', World.never());
+    await page.goto(at(ID.parcel, 'activity'));
 
-    await expect(page.getByRole('heading', { level: 1, name: 'What has been changed' })).toBeVisible();
-    // Filtered on the word, because an empty live region sits in the shell too
-    // and an unnamed skeleton block announces nothing on its own.
-    await expect(page.getByRole('status').filter({ hasText: 'Loading' })).toBeVisible();
-    // Still loading is not "nothing has been corrected".
-    await expect(page.getByText('Nothing has been corrected on this record yet.')).toHaveCount(0);
+    await expect(page.getByRole('heading', { level: 2, name: 'Activity', exact: true })).toBeVisible();
+    // Filtered on the word, because an empty live region sits in the shell too.
+    await expect(page.getByRole('status').filter({ hasText: /Loading/ })
+      .or(page.getByRole('status', { name: /Loading/ })).first()).toBeVisible();
+    // Still loading is not "nothing has changed".
+    await expect(page.getByText('No activity recorded yet')).toHaveCount(0);
   });
 });
 
@@ -1438,14 +1581,26 @@ test.describe('W03 · where the record says it is', () => {
     // is, and this card used to answer "No pin set yet" over eight surveyed
     // corners (RecordPapers.tsx:170-180). The figure is the centroid of the
     // ring, to four places, exactly as `coords` writes one (ui.tsx:159).
+    // Where the record says it is lives on the Location tab now (its own
+    // hanger, RecordBoundary.tsx), not a card on the Documents index.
+    // The tab reads `boundary` (Q_BOUNDARY), not the record, so the pin is
+    // taken off there; the rest of the answer is the ring 09-record-boundary
+    // also uses.
     world.set('record', parcel({ lat: 0, lon: 0 }));
-    await page.goto(at(ID.parcel));
+    world.set('boundary', {
+      recordId: ID.parcel, title: 'Sy 214/2', lat: 0, lon: 0, setBy: '', accuracy: '',
+      extentLabel: '4 acres 12 guntas', caption: '8 corners walked 12 Aug 2026',
+      ring: PARCEL.ring, sheetTitle: '', sheetDetail: '', sheetId: '', marks: [],
+    });
+    await page.goto(at(ID.parcel, 'location'));
 
-    await expect(page.getByText('15.7406° N, 79.2699° E')).toBeVisible();
-    // And it says which source answered: the centre of a surveyed boundary is
-    // not a pin anybody stood on, and the two can disagree.
-    await expect(page.getByText('Centre of the surveyed boundary — no pin set on site yet.')).toBeVisible();
-    await expect(page.getByText('No pin set yet — open the map to place one')).toHaveCount(0);
+    await expect(page.getByRole('heading', { level: 2, name: 'Location & boundary' })).toBeVisible();
+    // The boundary's centre answers, under its own word: the centre of a
+    // surveyed boundary is not a pin anybody stood on, and no Pin row claims one.
+    const rail = page.getByRole('complementary');
+    await expect(rail).toContainText(/Boundary\s*15\.7406° N, 79\.2699° E/);
+    await expect(rail).not.toContainText(/Pin\s*\d/);
+    await expect(page.getByText(/Boundary saved · Pin not set/)).toBeVisible();
   });
 });
 
@@ -1453,38 +1608,48 @@ test.describe('W03 · where the record says it is', () => {
 
 test.describe('W03 · a record with nothing filed on it', () => {
   test('an empty record says what is missing, on each part of itself', async ({ page }) => {
-    await page.goto(at(ID.plot));
+    await page.goto(at(ID.plot, 'documents'));
 
     await expect(page.getByRole('heading', { level: 1, name: 'Sy 88' })).toBeVisible();
     await expect(page.getByText('No documents on this parcel yet.')).toBeVisible();
-    await expect(page.getByText('Nothing filmed or photographed here yet.')).toBeVisible();
-    // Never surveyed and never pinned: the screen says so rather than drawing
-    // 0.0000° N as if it were a place in the Gulf of Guinea.
-    await expect(page.getByText('No pin set yet — open the map to place one')).toBeVisible();
-    await expect(page.getByText('Never surveyed')).toBeVisible();
+    // Nothing photographed: the Media tab says 0 rather than holding nothing
+    // silently (the gallery card on the index is gone; Media is a tab).
+    await expect(tabStrip(page).getByRole('link', { name: 'Media' })).toHaveText('Media0');
+    // Never surveyed and never pinned: the Location tab says so rather than
+    // drawing 0.0000° N as if it were a place in the Gulf of Guinea.
+    await tabStrip(page).getByRole('link', { name: 'Location' }).click();
+    await expect(page.getByText(/No boundary · Pin not set/)).toBeVisible();
+    await expect(page.getByText('0.0000° N')).toHaveCount(0);
   });
 
   test('an empty record still carries its khata and the name it is filed under', async ({ page }) => {
-    await page.goto(at(ID.plot));
+    await page.goto(at(ID.plot, 'documents'));
 
     await expect(page.getByText('Khata 318 · Telukutla Shankar Reddy')).toBeVisible();
   });
 
   test('a record with neither khata nor owner on file prints no empty line where they would be', async ({ page, world }) => {
     world.set('record', parcel({ khataNo: '', ownerName: '' }));
-    await page.goto(at(ID.parcel));
+    // The khata · owner line lives on the Documents tab's rail now; the
+    // Overview index draws the deed's own parties and facts instead.
+    await page.goto(at(ID.parcel, 'documents'));
 
     await expect(page.getByRole('heading', { level: 1, name: 'Sy 214/2' })).toBeVisible();
     await expect(page.getByText(/^Khata/)).toHaveCount(0);
-    await expect(page.getByText('Telukutla Shankar Reddy')).toHaveCount(0);
+    // Scoped to the holder line: the "From the deed" card beside it names the
+    // deed's buyer, which is the deed's fact and not the record's owner field.
+    await expect(page.getByRole('paragraph').filter({ hasText: 'Telukutla Shankar Reddy' })).toHaveCount(0);
   });
 
   test('a record filed under a name but no khata number prints the name alone', async ({ page, world }) => {
     world.set('record', parcel({ khataNo: '' }));
-    await page.goto(at(ID.parcel));
+    // The khata · owner line lives on the Documents tab's rail now; the
+    // Overview index draws the deed's own parties and facts instead.
+    await page.goto(at(ID.parcel, 'documents'));
 
     await expect(page.getByRole('heading', { level: 1, name: 'Sy 214/2' })).toBeVisible();
-    await expect(page.getByText('Telukutla Shankar Reddy')).toBeVisible();
+    // The holder line, not the "From the deed" card's Buyer row beside it.
+    await expect(page.getByRole('paragraph').filter({ hasText: 'Telukutla Shankar Reddy' })).toHaveText('Telukutla Shankar Reddy');
     // Not "Khata · Telukutla Shankar Reddy", and not a stray separator with
     // nothing on one side of it (RecordPapers.tsx:920-925).
     await expect(page.getByText(/Khata/)).toHaveCount(0);
@@ -1494,19 +1659,17 @@ test.describe('W03 · a record with nothing filed on it', () => {
 
 // ── the phone ──────────────────────────────────────────────────────────
 
-test('on a phone the record still names itself and keeps all six hangers @phone', async ({ page, world }) => {
+test('on a phone the record still names itself and keeps all ten hangers @phone', async ({ page, world }) => {
   world.set('record', parcel());
   await page.goto(at(ID.parcel));
 
   await expect(page.getByRole('heading', { level: 1, name: 'Sy 214/2' })).toBeVisible();
   const tabs = tabStrip(page);
-  await expect(tabs.getByRole('link')).toHaveCount(6);
-  await expect(tabs.getByRole('link', { name: 'Documents' })).toHaveAttribute('aria-current', 'page');
+  await expect(tabs.getByRole('link')).toHaveCount(10);
+  await expect(tabs.getByRole('link', { name: 'Overview' })).toHaveAttribute('aria-current', 'page');
   await expect(kebab(page)).toBeVisible();
-  // All four figures are still there, in a strip that re-flows rather than
-  // dropping two of them off the side (w360.css:519-528).
-  await expect(figureValue(page, 'Extent')).toHaveText('4.30 ac');
-  await expect(figureValue(page, 'Bought')).toHaveText('1998');
+  // The extent pill stays beside the title rather than dropping off the side.
+  await expect(page.getByLabel('Extent 4 acres 12 guntas')).toBeVisible();
   // And the page itself does not scroll sideways: the header's three actions
   // wrap onto their own row and the hanger strip scrolls inside itself, both
   // of which w360.css:347-357 and :559-565 exist to do.

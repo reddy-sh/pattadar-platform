@@ -94,7 +94,7 @@ export class ErrorBoundary extends Component<Props, State> {
               type="button"
               // Back to the dashboard rather than history.back(): the screen
               // that threw is very often the one behind you.
-              onClick={() => { window.location.href = '/app'; }}
+              onClick={() => { window.location.href = '/home'; }}
               style={{ padding: '0.4375rem 0.875rem', borderRadius: 999, cursor: 'pointer',
                        border: '1px solid #453c36', background: 'none', color: 'inherit',
                        font: 'inherit', fontSize: '0.8125rem' }}

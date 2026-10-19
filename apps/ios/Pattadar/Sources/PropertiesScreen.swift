@@ -198,7 +198,7 @@ enum PropertyGrouping: String, CaseIterable, Identifiable {
 /// How the list is ordered (M02's "Sort:" chip). The comp's default is the
 /// survey number — the order the records themselves are spoken in.
 enum PropertySort: String, CaseIterable, Identifiable {
-    case surveyNo = "Survey no."
+    case surveyNo = "Survey number"
     case extent = "Extent"
     case village = "Village"
     var id: String { rawValue }
@@ -404,7 +404,7 @@ struct PropertiesScreen: View {
                 Button("Delete", role: .destructive) {
                     if let pb = confirmPassbook { Task { await delete(passbook: pb) } }
                 }
-                Button("Keep it", role: .cancel) { confirmPassbook = nil }
+                Button("Cancel", role: .cancel) { confirmPassbook = nil }
             } message: {
                 Text(confirmPassbook.map {
                     "\($0.pattadarNo) and every parcel filed under it will be removed. This cannot be undone."
@@ -417,7 +417,7 @@ struct PropertiesScreen: View {
                 Button("Delete", role: .destructive) {
                     if let p = confirmParcel { Task { await delete(parcel: p) } }
                 }
-                Button("Keep it", role: .cancel) { confirmParcel = nil }
+                Button("Cancel", role: .cancel) { confirmParcel = nil }
             } message: {
                 Text(confirmParcel.map { "Sy \($0.surveyNo) and the documents attached to it will be removed. This cannot be undone." } ?? "")
             }
@@ -428,7 +428,7 @@ struct PropertiesScreen: View {
                 Button("Delete", role: .destructive) {
                     if let p = confirmProperty { Task { await delete(property: p) } }
                 }
-                Button("Keep it", role: .cancel) { confirmProperty = nil }
+                Button("Cancel", role: .cancel) { confirmProperty = nil }
             } message: {
                 Text(confirmProperty.map { "\($0.label.isEmpty ? "This property" : $0.label) and its deeds will be removed. This cannot be undone." } ?? "")
             }
@@ -480,7 +480,7 @@ struct PropertiesScreen: View {
         } else {
             // Deleted since the widget last refreshed. Said plainly rather than
             // pushing a blank screen somebody has to work out for themselves.
-            ContentUnavailableView("Not in your records",
+            ContentUnavailableView("Not in your properties",
                                    systemImage: "questionmark.folder",
                                    description: Text("This property is no longer on file."))
         }
@@ -743,7 +743,7 @@ struct PropertiesScreen: View {
         }
         var parts: [String] = []
         if acres > 0 { parts.append(String(format: "%.2f ac", acres)) }
-        if sqyd > 0 { parts.append(String(format: "%.0f sq. yd", sqyd)) }
+        if sqyd > 0 { parts.append(String(format: "%.0f sq.yd", sqyd)) }
         return parts.joined(separator: " · ")
     }
 
@@ -752,7 +752,7 @@ struct PropertiesScreen: View {
             filter == .all ? "Nothing recorded yet" : "Nothing in \(filter.rawValue.lowercased())",
             systemImage: filter == .all ? "map" : "line.3.horizontal.decrease.circle",
             description: Text(filter == .all
-                              ? "Scan a passbook or a deed to add your first record."
+                              ? "Scan a passbook or a deed to add your first property."
                               : "Try another filter.")
         )
     }

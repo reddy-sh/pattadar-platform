@@ -37,9 +37,6 @@ export function AssignedResourceProof({ resource }: { resource: AssignedResource
 
       <div className="resource-proof-metrics">
         <span><StarRounded sx={{ fontSize: 16 }} aria-hidden /> {rating}</span>
-        {/* "order": the owner's word for the work, as on the rest of this
-            screen and on the order page. */}
-        <span>{plural(resource.jobsOpen, 'active Pattadar order')}</span>
       </div>
 
       {resource.professionalCredentials.length > 0 && (

@@ -55,6 +55,9 @@ type SpecialAnswer = GqlErrorAnswer | HttpErrorAnswer | SlowAnswer | NeverAnswer
 export type AnswerFn = (
   vars: Record<string, unknown>,
   query: string,
+  /** For a write that must agree with a read the page drew from — the
+   *  server refuses acceptTicket when nothing was kept, and so must the seal. */
+  world: World,
 ) => unknown | Promise<unknown>;
 export type Answer = unknown | AnswerFn | SpecialAnswer;
 
@@ -138,6 +141,14 @@ export class World {
       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
     }
     return structuredClone(current) as T;
+  }
+
+  /** What `field` answers right now for these variables; undefined for a
+   *  failure answer. Lets one answer read another (see AnswerFn's `world`). */
+  async current(field: string, vars: Record<string, unknown> = {}): Promise<unknown> {
+    const answer = this.answers.get(field);
+    if (isSpecial(answer)) return undefined;
+    return typeof answer === 'function' ? (answer as AnswerFn)(vars, '', this) : answer;
   }
 
   /** The field answers with a GraphQL error — what a refused operation does. */
@@ -333,7 +344,7 @@ export class World {
       }
     }
 
-    const value = typeof answer === 'function' ? await (answer as AnswerFn)(vars, query) : answer;
+    const value = typeof answer === 'function' ? await (answer as AnswerFn)(vars, query, this) : answer;
     // A function answer is allowed to escalate too — `id => notFound ? null :
     // record` is the common case, but so is "this id makes the server fall
     // over", and that must not have to be wired a second way.

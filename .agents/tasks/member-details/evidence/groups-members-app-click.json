@@ -1,0 +1,9 @@
+{
+  "afterClick": {
+    "url": "/app/groups?g=w-grp-family",
+    "dialogs": 1
+  },
+  "rowFocusables": [
+    "button:Actions for Venkat Reddy"
+  ]
+}

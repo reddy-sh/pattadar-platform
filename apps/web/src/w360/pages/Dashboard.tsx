@@ -10,12 +10,13 @@
  *  Missing details is no longer a card of its own: it is one summary row
  *  inside For you, so For you holds the orders, the reminders and the
  *  properties missing details, and says "You're all caught up" only when all
- *  three are empty. The order is the greeting, summary line and shortcuts;
+ *  three are empty. The order is the greeting with the shortcuts on its row
+ *  (09/10/2026, design.md § Page head, Home option A), the summary line;
  *  For you; Overview; Value by village; Recently opened; Recent activity. The
  *  Estimated value card is always one of the four and reads "—" while nothing
  *  is valued; Value by village appears only when something has been valued. */
 import { useId, useState } from 'react';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import AddOutlined from '@mui/icons-material/AddOutlined';
 import CloseOutlined from '@mui/icons-material/CloseOutlined';
 import FileUploadOutlined from '@mui/icons-material/FileUploadOutlined';
@@ -30,9 +31,11 @@ import { NOTHING_MISSING, missingOf } from '../homeGaps';
 import type { Incomplete, Missing } from '../homeGaps';
 import { ActivityRow } from './Audit';
 import {
-  Card, Chip, Empty, Failed, Icon, KV, Loading, PageHead, StatusChip, inr, inrOr, num, plural,
+  Card, Chip, Empty, Failed, Icon, KV, PageHead, StatusChip, inr, inrOr, num, plural,
 } from '../ui';
+import type { HeadActions } from '../ui';
 import { SetupChecklist } from '../SetupChecklist';
+import { Sk, SkRowItems } from '../skeletons';
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -50,7 +53,7 @@ export function RecordTile({ rec }: { rec: RecordCard }) {
   const art = rec.classification === 'flat' || rec.classification === 'open_plot'
     ? 'built' : rec.classification === 'shop' ? 'shop' : '';
   return (
-    <Link className="rec compact" to={`/app/records/${rec.id}`}>
+    <Link className="rec compact" to={`/properties/${rec.id}`}>
       <span className={`rec-kind ${art}`}>
         <Icon name={rec.classification} size={20} />
       </span>
@@ -79,8 +82,8 @@ export function RecordTile({ rec }: { rec: RecordCard }) {
  * the owner on the wrong screen.
  */
 function whereTo(w: WaitingItem): { to: string; label: string } | null {
-  if (w.recordId) return { to: `/app/records/${w.recordId}`, label: 'Open record' };
-  if (w.icon === 'lock') return { to: '/app/papers', label: 'Open Documents' };
+  if (w.recordId) return { to: `/properties/${w.recordId}`, label: 'Open property' };
+  if (w.icon === 'lock') return { to: '/papers', label: 'Open Documents' };
   return null;
 }
 
@@ -130,7 +133,7 @@ function WaitingRow({ w }: { w: WaitingItem }) {
         <p className="note" style={{ marginTop: '0.1875rem' }}>{w.detail}</p>
       </div>
       <span className="row tight" style={{ flexWrap: 'nowrap' }}>
-        {/* A text action, named for its row: three rows say "Open record",
+        {/* A text action, named for its row: three rows say "Open property",
             and a screen reader's list of links must not hold three identical
             names. */}
         {go && (
@@ -160,7 +163,7 @@ function WaitingRow({ w }: { w: WaitingItem }) {
             <>
               <button type="button" className="btn" disabled={dismiss.isPending}
                       onClick={() => setAsking(false)}>
-                Keep it
+                Cancel
               </button>
               <button type="button" className="btn danger" disabled={dismiss.isPending}
                       onClick={() => { void drop(); }}>
@@ -188,7 +191,7 @@ function OrderRow({ o }: { o: Order }) {
       </span>
       <div className="grow">
         <h3>
-          <Link to={`/app/services/${o.id}`} style={{ color: 'inherit', textDecoration: 'none' }}>
+          <Link to={`/services/${o.id}`} style={{ color: 'inherit', textDecoration: 'none' }}>
             {o.pendingReview > 0 ? `Review submitted work · ${o.title}` : o.title}
           </Link>
         </h3>
@@ -198,7 +201,7 @@ function OrderRow({ o }: { o: Order }) {
       </div>
       <span className="row tight" style={{ flexWrap: 'nowrap' }}>
         <StatusChip state={o.statusState}>{o.statusLabel}</StatusChip>
-        <Link className="linkbtn" to={`/app/services/${o.id}`}
+        <Link className="linkbtn" to={`/services/${o.id}`}
               aria-label={`Open order: ${[o.ref, o.recordTitle].filter(Boolean).join(' · ') || o.title}`}>
           Open order
         </Link>
@@ -217,7 +220,7 @@ function GapRow({ r, gaps }: Incomplete) {
     <div>
       <div className="grow gapline">
         <h4>
-          <Link to={`/app/records/${r.id}`} style={{ color: 'inherit', textDecoration: 'none' }}>
+          <Link to={`/properties/${r.id}`} style={{ color: 'inherit', textDecoration: 'none' }}>
             {r.title}
           </Link>
         </h4>
@@ -284,7 +287,7 @@ function MissingRow({ missing }: { missing: Missing }) {
             {more > 0 && (
               <p className="note" style={{ margin: 'var(--space-md) 0 0' }}>
                 {plural(more, 'more property', 'more properties')} ·{' '}
-                <Link className="link accent" to="/app/properties">All properties</Link>
+                <Link className="link accent" to="/properties">All properties</Link>
               </p>
             )}
           </div>
@@ -344,27 +347,27 @@ function Overview({ label, value, say, note, to }: {
   );
 }
 
-/** The four things an owner comes to Home to start. Each lands on the screen
- *  that does it with its dialog already open (`?new=1`, `?do=`), so none is a
- *  second click. "Add property" opens the add drawer, which starts on the
- *  passbook scanner. */
-function Shortcuts() {
-  return (
-    <nav className="shortcuts" aria-label="Shortcuts">
-      <Link className="btn primary" to="/app/properties?new=1">
-        <AddOutlined sx={{ fontSize: 17 }} /> Add property
-      </Link>
-      <Link className="btn" to="/app/papers?do=add">
-        <FileUploadOutlined sx={{ fontSize: 16 }} /> Add document
-      </Link>
-      <Link className="btn" to="/app/order">
-        <HandshakeOutlined sx={{ fontSize: 16 }} /> Order a service
-      </Link>
-      <Link className="btn" to="/app/papers?do=share">
-        <IosShareOutlined sx={{ fontSize: 16 }} /> Share documents
-      </Link>
-    </nav>
-  );
+/** The four things an owner comes to Home to start, as the head's commands
+ *  (design.md § Page head, Home option A, 09/10/2026): on the title row,
+ *  right-aligned, "Add a document" and "Order a service" outlined, "Share a
+ *  property" in the ⋮ and "Add a property" filled and rightmost. Each lands on
+ *  the screen that does it with its dialog already open (`?new=1`, `?do=`),
+ *  so none is a second click. "Add a property" opens the add drawer, which
+ *  starts on the passbook scanner. Under 600px the two outlined ones join the
+ *  ⋮ and the filled one stays (PageHead does that itself). */
+function shortcuts(go: (to: string) => void): HeadActions {
+  return {
+    secondaries: [
+      { label: 'Add a document', icon: <FileUploadOutlined sx={{ fontSize: 16 }} />, to: '/papers?do=add' },
+      { label: 'Order a service', icon: <HandshakeOutlined sx={{ fontSize: 16 }} />, to: '/order' },
+    ],
+    overflow: [{
+      label: 'Share a property', icon: <IosShareOutlined sx={{ fontSize: 16 }} />,
+      onClick: () => go('/papers?do=share'),
+    }],
+    overflowLabel: 'More shortcuts',
+    primary: { label: 'Add a property', icon: <AddOutlined sx={{ fontSize: 17 }} />, to: '/properties?new=1' },
+  };
 }
 
 const ACTIVITY_ROWS = 5;
@@ -380,7 +383,7 @@ function RecentActivity() {
     <section className="sec" aria-labelledby="home-activity">
       <div className="row between" style={{ marginBottom: 'var(--space-md)' }}>
         <h2 id="home-activity" className="home-h2" style={{ margin: 0 }}>Recent activity</h2>
-        <Link className="link accent" to="/app/audit" style={{ fontSize: '0.8125rem' }}>
+        <Link className="link accent" to="/audit" style={{ fontSize: '0.8125rem' }}>
           All activity
         </Link>
       </div>
@@ -390,6 +393,35 @@ function RecentActivity() {
         </div>
       </div>
     </section>
+  );
+}
+
+/** Home before the portfolio lands: For you and Overview in their own boxes
+ *  (the four tiles' labels are constants, printed for real), so nothing moves
+ *  when the figures arrive. One live region; the scaffold is aria-hidden. */
+function HomeSkeleton() {
+  return (
+    <div role="status" aria-busy="true" aria-label="Loading your home page">
+      <div aria-hidden>
+        <div className="sec sec-first">
+          <Card title="For you"><div className="rows"><SkRowItems rows={3} /></div></Card>
+        </div>
+        <div className="sec ov-sec">
+          <h2 className="home-h2">Overview</h2>
+          <div className="overview">
+            {['Properties', 'Documents', 'Open orders', 'Market estimate'].map((label) => (
+              <div className="ovcard" key={label}>
+                <span className="ov-label">{label}</span>
+                <span className="ov-value" style={{ display: 'flex', alignItems: 'center', height: '1.5em' }}>
+                  <Sk w="4rem" h="0.62em" />
+                </span>
+                <span className="ov-note"><Sk w="7rem" h="0.62em" /></span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -403,12 +435,26 @@ export function Dashboard() {
   // page had drawn; asked here it is in flight beside the portfolio, so For you
   // is whole when it draws instead of saying "all caught up" first.
   const propsQ = useProperties(EMPTY_FILTER);
+  const nav = useNavigate();
 
-  if (isLoading) return <main><Loading h="70vh" what="your home page" /></main>;
+  // The head is drawn while the portfolio is out or failed too, so the tab is
+  // named and the page has a heading; the name joins the greeting on arrival,
+  // and the summary line holds its place while the first read is out.
+  if (isLoading) {
+    return (
+      <main>
+        <PageHead title={greeting()} docTitle="Home" summary={<Sk w="18rem" h="1rem" r="var(--radius-xs)" />}
+                  actions={shortcuts(nav)} />
+        <HomeSkeleton />
+      </main>
+    );
+  }
   // A failed read used to hold this same skeleton for good — retry: 1 in
   // main.tsx settles a dead query at isLoading:false, data:undefined, and the
   // old guard could not tell that apart from a query still in flight.
-  if (!data) return <main><Failed what="Your home page" error={error} boxed h="26rem" /></main>;
+  if (!data) {
+    return <main><PageHead title={greeting()} docTitle="Home" /><Failed what="Your home page" error={error} boxed h="26rem" /></main>;
+  }
 
   // For you claims "all caught up" only on answers it has: undefined here is
   // a read still out or one that failed, and neither is "nothing missing".
@@ -416,21 +462,26 @@ export function Dashboard() {
   const missing = propsQ.data ? missingOf(propsQ.data.cards, data.waiting) : undefined;
   const orders = orderQ.data ?? [];
   const needYou = orders.filter((o) => o.needsYou || o.pendingReview > 0);
-  const properties = data.farmCount + data.plotCount + data.builtFlats + data.builtShops;
-  const all = properties + data.managedCount + data.watchedCount;
+  // Every active property is a land parcel, a plot or a building; managed and
+  // watched are stakes on those same rows (web360.py `portfolio`), so adding
+  // them as well counted each one twice, against the Properties count.
+  const all = data.farmCount + data.plotCount + data.builtFlats + data.builtShops;
   const title = data.displayName ? `${greeting()}, ${data.displayName}` : greeting();
 
-  // Only facts that exist: "1 property · 2.80 ac · 2 documents".
+  // Only facts that exist: "1 property · 2.80 ac · 200 sq.yd". An extent
+  // that rounds to "0.00 ac" or "0 sq.yd" is dropped too, as Properties does.
+  // No document count: `paperCount` adds parcel gallery photos to the vault's
+  // documents (web360.py `portfolio`), and a photo filed in Documents and
+  // linked to a parcel is in both, so it is not the Documents page's figure.
   const meta = [
     plural(all, 'property', 'properties'),
-    data.farmExtent > 0 ? `${num(data.farmExtent, 2)} ac` : '',
-    data.plotExtent > 0 ? `${num(data.plotExtent)} sq.yd` : '',
-    data.paperCount > 0 ? plural(data.paperCount, 'document') : '',
+    data.farmExtent >= 0.005 ? `${num(data.farmExtent, 2)} ac` : '',
+    data.plotExtent >= 0.5 ? `${num(data.plotExtent)} sq.yd` : '',
   ].filter(Boolean).join(' · ');
 
   const add = (
-    <Link to="/app/properties?new=1" className="btn primary">
-      <AddOutlined sx={{ fontSize: 17 }} /> Add property
+    <Link to="/properties?new=1" className="btn primary">
+      <AddOutlined sx={{ fontSize: 17 }} /> Add a property
     </Link>
   );
 
@@ -444,7 +495,9 @@ export function Dashboard() {
   if (all === 0) {
     return (
       <main>
-        <PageHead title={title} />
+        {/* First-run empty (design.md § Page head): the title alone; the
+            empty card carries the one filled add. */}
+        <PageHead title={title} docTitle="Home" />
         <SetupChecklist />
         {data.waiting.length > 0 && (
           <div className="sec">
@@ -452,7 +505,7 @@ export function Dashboard() {
           </div>
         )}
         <Empty boxed h="18rem" icon="parcel" title="No properties yet" action={add}>
-          Add a parcel or property, or upload a pattadar passbook.
+          Add a property, or upload a pattadar passbook.
         </Empty>
       </main>
     );
@@ -468,12 +521,8 @@ export function Dashboard() {
 
   return (
     <main>
-      {/* "Add property" is the first shortcut, so it is not also a header
-          action — the same button twice on one screen. */}
-      <PageHead title={title}>
-        <p className="note" style={{ margin: '0.375rem 0 0' }}>{meta}</p>
-        <Shortcuts />
-      </PageHead>
+      {/* The greeting stays the h1 (V1); the tab reads "Home · Pattadar". */}
+      <PageHead title={title} docTitle="Home" summary={meta} actions={shortcuts(nav)} />
       <SetupChecklist />
 
       {/* The first block under the head: the head's own 24px is the gap,
@@ -495,15 +544,15 @@ export function Dashboard() {
                       data.builtFlats + data.builtShops > 0
                         ? plural(data.builtFlats + data.builtShops, 'building') : '',
                     ].filter(Boolean).join(' · ')}
-                    to="/app/properties" />
-          <Overview label="Documents" value={num(data.paperCount)} to="/app/papers" />
+                    to="/properties" />
+          <Overview label="Documents" value={num(data.paperCount)} to="/papers" />
           <Overview label="Open orders" value={num(openOrders)}
                     note={needYou.length > 0 ? `${needYou.length} need you` : undefined}
-                    to="/app/services" />
-          <Overview label="Estimated value" value={inrOr(data.worthNow)}
+                    to="/services" />
+          <Overview label="Market estimate" value={inrOr(data.worthNow)}
                     say={valued ? undefined : 'not set'}
                     note={data.invested > 0 ? `Bought for ${inr(data.invested)}` : undefined}
-                    to="/app/properties" />
+                    to="/properties" />
         </div>
       </section>
 
@@ -524,7 +573,7 @@ export function Dashboard() {
               ))}
             </div>
             {data.runningCosts > 0 && (
-              <KV rows={[{ k: 'Running costs this year', v: inr(data.runningCosts) }]} />
+              <KV rows={[{ k: 'Expenses this year', v: inr(data.runningCosts) }]} />
             )}
           </Card>
         </div>
@@ -534,7 +583,7 @@ export function Dashboard() {
         <section className="sec" aria-labelledby="home-recent">
           <div className="row between" style={{ marginBottom: 'var(--space-md)' }}>
             <h2 id="home-recent" className="home-h2" style={{ margin: 0 }}>Recently opened</h2>
-            <Link className="link accent" to="/app/properties" style={{ fontSize: '0.8125rem' }}>
+            <Link className="link accent" to="/properties" style={{ fontSize: '0.8125rem' }}>
               All properties
             </Link>
           </div>

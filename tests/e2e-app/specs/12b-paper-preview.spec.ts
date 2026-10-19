@@ -3,9 +3,9 @@
  * list it was filed in instead of routing away to the full Reader.
  *
  * apps/web/src/w360/paper/PaperPreview.tsx is the panel; it is opened from a
- * shelf row (Shelf.tsx), a vault search hit (Vault.tsx) and a record's papers
+ * shelf row (Shelf.tsx), a Documents row or search hit (Vault.tsx) and a record's papers
  * (RecordPapers.tsx). Every one of those rows is still a real
- * `<Link to="/app/papers/:id">`, and this file asserts BOTH halves of that
+ * `<Link to="/papers/:id">`, and this file asserts BOTH halves of that
  * bargain: a plain left-click opens the drawer, and a modified click or the
  * deep link still lands on the full Reader. The scan itself is rendered by the
  * shared ScanView (paper/scan.tsx), which the Reader spec already exercises
@@ -90,7 +90,7 @@ function serveBytes(world: World, kind: 'pdf' | 'image', delayMs?: number) {
 
 /** Open the Title shelf and return the deed's row link. */
 async function openTitleShelf(page: import('@playwright/test').Page) {
-  await page.goto('/app/papers/shelf/title');
+  await page.goto('/papers/shelf/title');
   return page.getByRole('main').getByRole('link', { name: /Sale deed 4412 of 1998/ });
 }
 
@@ -106,12 +106,12 @@ test('a plain click on a shelf row opens the paper in a drawer, not the full pag
   const drawer = page.getByRole('dialog');
   await expect(drawer).toBeVisible();
   await expect(drawer.getByRole('heading', { name: 'Sale deed 4412 of 1998' })).toBeVisible();
-  await expect(page).toHaveURL(/\/app\/papers\/shelf\/title$/);
+  await expect(page).toHaveURL(/\/papers\/shelf\/title$/);
 });
 
 test('the deep link still opens the full Reader, so a shared or bookmarked paper is unchanged', async ({ page, world }) => {
   world.set('document', DEED);
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   // The full page has the toolbar header the drawer does not.
   await expect(page.locator('header.rd-bar')).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -122,7 +122,7 @@ test('the shelf row is still a real link to the paper, so a new tab and Copy lin
   const row = await openTitleShelf(page);
   // The href is what a middle-click, cmd-click and "Copy link address" all use;
   // only a plain left-click is intercepted, so the anchor must still point home.
-  await expect(row).toHaveAttribute('href', `/app/papers/${PAPER.deed}`);
+  await expect(row).toHaveAttribute('href', `/papers/${PAPER.deed}`);
 });
 
 // ── the scan reaches the drawer ────────────────────────────────────────
@@ -207,7 +207,7 @@ test('the header X puts the drawer away and leaves the owner on the shelf', asyn
   // The header X is the only close control now the footer is gone.
   await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect(page).toHaveURL(/\/app\/papers\/shelf\/title$/);
+  await expect(page).toHaveURL(/\/papers\/shelf\/title$/);
 });
 
 test('Escape closes the read-only drawer at once, because there is nothing typed to lose', async ({ page, world }) => {
@@ -223,19 +223,41 @@ test('Escape closes the read-only drawer at once, because there is nothing typed
 
 // ── the other two doors onto the same drawer ───────────────────────────
 
-test('a vault search hit opens the same preview drawer', async ({ page, world }) => {
-  world.set('search', [{
-    id: PAPER.deed, kind: 'paper', title: 'Sale deed 4412 of 1998',
-    subtitle: 'Markapur SRO · 1998', route: `/app/papers/${PAPER.deed}`,
+test('a Documents search hit opens the same preview drawer', async ({ page, world }) => {
+  // Documents searches its own file list in the browser now (Vault.tsx
+  // `selectionRows`), not the server's `search`; a hit is a row of that list,
+  // and its name is the same real <Link> to the Reader.
+  world.set('vaultPapers', [{
+    ...TITLE_ROW, mimeType: 'application/pdf', sizeBytes: 0, folderId: '', jointFmbId: '',
+    createdAt: '2026-09-20T10:00:00', recordId: ID.parcel, recordTitle: 'Sy 214/2', linkedProperties: [],
   }]);
   world.set('document', DEED);
-  await page.goto('/app/papers');
-  await page.getByLabel('Search your documents by name').fill('Sale deed');
-  const hit = page.getByRole('link', { name: /Sale deed 4412 of 1998/ });
+  await page.goto('/papers');
+  await page.getByPlaceholder('Search documents').fill('Sale deed');
+  const hit = page.getByRole('table', { name: 'Your private documents' })
+    .getByRole('link', { name: 'Sale deed 4412 of 1998' });
+  await expect(hit).toHaveAttribute('href', `/papers/${PAPER.deed}`);
   await hit.click();
 
   await expect(page.getByRole('dialog').getByRole('heading', { name: 'Sale deed 4412 of 1998' })).toBeVisible();
-  await expect(page).toHaveURL(/\/app\/papers$/);
+  await expect(page).toHaveURL(/\/papers$/);
+});
+
+test('the preview leads to the full document page, and Back from there returns to Documents', async ({ page, world }) => {
+  world.set('vaultPapers', [{
+    ...TITLE_ROW, mimeType: 'application/pdf', sizeBytes: 0, folderId: '', jointFmbId: '',
+    createdAt: '2026-09-20T10:00:00', recordId: ID.parcel, recordTitle: 'Sy 214/2', linkedProperties: [],
+  }]);
+  world.set('document', DEED);
+  await page.goto('/papers');
+  await page.getByRole('table', { name: 'Your private documents' })
+    .getByRole('link', { name: 'Sale deed 4412 of 1998' }).click();
+  const open = page.getByRole('dialog').getByRole('link', { name: 'Open', exact: true });
+  await expect(open).toHaveAttribute('href', `/papers/${PAPER.deed}`);
+  await open.click();
+  await expect(page).toHaveURL(new RegExp(`/papers/${PAPER.deed}$`));
+  // Opened from Documents, Back goes back to Documents, not to the property.
+  await expect(page.getByRole('link', { name: /^Back/ })).toHaveAttribute('href', '/papers');
 });
 
 // ── the reading surface earns a width, a grip and a zoom ───────────────

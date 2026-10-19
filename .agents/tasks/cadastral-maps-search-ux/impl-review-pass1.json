@@ -1,0 +1,85 @@
+{
+  "verdict": "CHANGES_REQUESTED",
+  "findings": [
+    {
+      "id": 1,
+      "title": "Phone keyboard reopens after choosing a match",
+      "blocking": true,
+      "confidence": "likely",
+      "where": "apps/web/src/w360/pages/VillageMaps.tsx:611-616 (chooseVillage → refocusFind); tests/e2e-app/specs/17-villages.spec.ts:861",
+      "detail": "chooseVillage calls refocusFind() on every activation. A tap blurs the field (the keyboard closes; the code's own comment at :1006-1008 says Safari focuses nothing on that press), then focus() inside the tap's click handler reopens the on-screen keyboard on iOS Safari and Android Chrome, over the village map that has just opened. At HEAD the row's click only opened the village, and the jump box does not refocus after a choice either. Playwright has no on-screen keyboard, and the focus assertion at :861 is Chromium-only with a mouse click.",
+      "action": "Refocus only for keyboard activation (the row's click has detail === 0 for Enter or Space), or skip it after a touch pointerdown. Add an Enter-on-row test that expects focus back in the field, and a @phone test that taps a match and expects the field not to be focused. Check that the @phone test fails first."
+    },
+    {
+      "id": 2,
+      "title": "FacetFilter closed through its DOM",
+      "blocking": false,
+      "confidence": "confirmed",
+      "where": "apps/web/src/w360/pages/VillageMaps.tsx:598-602 (openFind); design.md:528-531",
+      "detail": "openFind clicks FacetFilter's .addfilter[aria-expanded=\"true\"]. That is a page-owned dismissal of the component's popover, which design.md § App-surface rules says pages do not introduce. It is tied to private markup, and only the take-turns test (:939) guards it. The behavior came from a test the coder added, not from the brief.",
+      "action": "Reddy decides: add a controlled-close or onOpenChange prop to FacetFilter, lift a shared SearchField, or accept the overlap at 390 and remove the reach-in. Already raised in report.md and in TODO-one-platform row 19."
+    },
+    {
+      "id": 3,
+      "title": "Third hand-built search-with-results surface",
+      "blocking": false,
+      "confidence": "confirmed",
+      "where": "VillageMaps.tsx .vm-find/.vm-find-results; design.md:514-527",
+      "detail": "The village matches are the third page-local search-with-results surface, after the jump box and the plot finder. design.md § One component per concern says never a third page-local copy. Unlike the other two, they have no combobox state (aria-expanded, aria-controls) and no arrow keys or Enter. The approved plan left lifting a shared component out of scope.",
+      "action": "Reddy grants an explicit exception, or the shared component is lifted. TODO row 19 tracks it."
+    },
+    {
+      "id": 4,
+      "title": "Empty Filter without a catalog",
+      "blocking": false,
+      "confidence": "confirmed",
+      "where": "VillageMaps.tsx areaGroups; apps/web/src/w360/ui.tsx:628",
+      "detail": "With catalog = [] (a failed /vm/catalog.json read, a local run without .local/vm-build, or an older /vm/ build), + Filter opens a popover with no groups that says 'No filter options match that search.' before anything is typed. Before Task 6, the Village group filled it. The coder recorded this but did not fix it.",
+      "action": "Hide + Filter when no group has options, or have FacetFilter show the empty line only for a typed query. The second is a ui.tsx change and Reddy's decision."
+    },
+    {
+      "id": 5,
+      "title": "Escape works only while focus is inside the box",
+      "blocking": false,
+      "confidence": "confirmed (code path; untested)",
+      "where": "VillageMaps.tsx:1011-1018",
+      "detail": "Escape is handled by the box's onKeyDown. A successful removal from the matches unmounts the bin that was pressed, so focus falls to the body while other matches stay open; a press on part of the surface that cannot take focus does the same. The next Escape then reaches only the page's handler, which clears the plot, and the matches stay open.",
+      "action": "Refocus the field after a removal from the matches, or listen for Escape on window while findShown, as FacetFilter does."
+    },
+    {
+      "id": 6,
+      "title": "Clipped keyboard ring on the match rows",
+      "blocking": false,
+      "confidence": "likely",
+      "where": "apps/web/src/w360/w360.css:4349-4350",
+      "detail": "The rule .vm-search-results > * { padding: 0 } sits inside an unpadded overflow-y: auto scroller. A ring drawn outside the row button (the browser's ring in Dark, 3px at a 2px offset in High Contrast) loses its top edge on the first row (new, because the old rows had 0.75rem of vertical padding) and its left edge on every row (that one predates this change).",
+      "action": "Inset the rows' focus ring (like .strip-link's -3px), or give the scroller a few pixels of padding."
+    },
+    {
+      "id": 7,
+      "title": "Class locators without comments",
+      "blocking": false,
+      "confidence": "confirmed",
+      "where": "tests/e2e-app/specs/17-villages.spec.ts new tests (.vm-villages .villagerow ×7, .vm-villages ×2, .vm-map-filters, .vm-stage, .vc-village)",
+      "detail": "Twelve class locators in the new tests lack the comment AUTHORING.md rule 2 asks for, although report.md says every class locator has one. They follow the spec's existing selectors.",
+      "action": "Add a commented matches(page) helper, or a comment per locator, and correct the report."
+    },
+    {
+      "id": 8,
+      "title": "WebKit and High Contrast coverage gaps",
+      "blocking": false,
+      "confidence": "confirmed",
+      "where": "17-villages.spec.ts:861-1018, 2340",
+      "detail": "Nine of the eleven new tests run only in Chromium, because the phone project greps @phone, so the :has() rings and the High Contrast rules are unverified in WebKit. Nothing tests the High Contrast .fpop-head ring, the jump box's new ring, the second Escape reaching the page's handler, Escape after a removal, or choosing a match by touch.",
+      "action": "Run the ring tests in the phone project where that means something, and add the missing cases."
+    }
+  ],
+  "gates": {
+    "newTestsGreen": "pass: 11 of 11 new tests pass (9 in app only, 2 @phone tests in app and phone); every new test failed first (cadastral-search-pw-red.log, cadastral-search-pw-red2.log; the code frames match the current spec)",
+    "noNewFailuresVsBaseline": "pass: 17-villages 116 of 116. 01-shell with 24-responsive: 179 failed and 132 passed, against a baseline of 163 and 148. Twenty tests fail now that passed at baseline, all in 01-shell [app], each only on the harness console guard for the seal's 400 on Home's root-level auditTrail query. None is attributable to this change: VillageMaps is lazy-loaded, CSS sends no request, ten of the twenty never focus a .search input, and the same tests flip in the coder's repeat runs.",
+    "noOverflowAt390": "pass: 24-responsive.spec.ts:548 (/app/maps) passes in app and phone, and so does the new @phone scrollWidth check",
+    "snapshotsAndProtectedFiles": "pass: every hunk from pre-product to current is Tasks 5-7; other sessions' hunks are intact; design.md, ui.tsx, Shell.tsx, fixtures/ and the Playwright config are unchanged against HEAD",
+    "guardsTypecheckUnit": "pass, apart from typography-tests TY-5, which comes from commit 641ddb5 in apps/university/src/styles.css; that file is unmodified in the tree"
+  },
+  "reviewDoc": "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/.agents/tasks/cadastral-maps-search-ux/impl-review.md"
+}

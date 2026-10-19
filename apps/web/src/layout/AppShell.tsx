@@ -74,18 +74,18 @@ const NAV_SECTIONS: NavSection[] = [
   {
     header: '',
     items: [
-      { label: 'Dashboard', path: '/app', icon: <DashboardOutlinedIcon /> },
-      { label: 'Passbooks', path: '/app/passbooks', icon: <MenuBookOutlinedIcon /> },
-      { label: 'Land & Properties', path: '/app/parcels', icon: <MapOutlinedIcon /> },
-      { label: 'Vault', path: '/app/documents', icon: <DescriptionOutlinedIcon /> },
-      { label: 'Families & Groups', path: '/app/groups', icon: <GroupsOutlinedIcon /> },
-      { label: 'Invitations', path: '/app/invitations', icon: <MailOutlinedIcon /> },
-      { label: 'Notifications', path: '/app/notifications', icon: <NotificationsOutlinedIcon /> },
-      { label: 'Wallet', path: '/app/wallet', icon: <AccountBalanceWalletOutlinedIcon />, goldDot: true },
-      { label: 'Tools', path: '/app/tools', icon: <CalculateOutlinedIcon /> },
-      { label: 'Audit Log', path: '/app/audit', icon: <FactCheckOutlinedIcon /> },
-      { label: 'Admin & Ref Data', path: '/app/admin', icon: <AdminPanelSettingsOutlinedIcon /> },
-      { label: 'Profile', path: '/app/profile', icon: <PersonOutlinedIcon /> },
+      { label: 'Dashboard', path: '/home', icon: <DashboardOutlinedIcon /> },
+      { label: 'Passbooks', path: '/properties?kind=parcel', icon: <MenuBookOutlinedIcon /> },
+      { label: 'Land & Properties', path: '/properties?kind=parcel', icon: <MapOutlinedIcon /> },
+      { label: 'Vault', path: '/papers', icon: <DescriptionOutlinedIcon /> },
+      { label: 'Families & Groups', path: '/groups', icon: <GroupsOutlinedIcon /> },
+      { label: 'Invitations', path: '/invitations', icon: <MailOutlinedIcon /> },
+      { label: 'Notifications', path: '/notifications', icon: <NotificationsOutlinedIcon /> },
+      { label: 'Wallet', path: '/wallet', icon: <AccountBalanceWalletOutlinedIcon />, goldDot: true },
+      { label: 'Tools', path: '/tools', icon: <CalculateOutlinedIcon /> },
+      { label: 'Audit Log', path: '/audit', icon: <FactCheckOutlinedIcon /> },
+      { label: 'Admin & Ref Data', path: '/desk', icon: <AdminPanelSettingsOutlinedIcon /> },
+      { label: 'Profile', path: '/profile', icon: <PersonOutlinedIcon /> },
     ],
   },
 ];
@@ -145,10 +145,10 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
         >
           {section.items.map((item) => {
             const selected =
-              item.path === '/app' ? pathname === '/app' : pathname.startsWith(item.path);
+              item.path === '/home' ? pathname === '/home' : pathname.startsWith(item.path);
             return (
               <ListItemButton
-                key={item.path}
+                key={item.label}
                 component={NavLink}
                 to={item.path}
                 onClick={onNavigate}

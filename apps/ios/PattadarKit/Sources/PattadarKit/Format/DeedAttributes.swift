@@ -74,7 +74,7 @@ public func deedAttributes(_ fields: [String: Any]) -> [String: String] {
     // The numbers that identify the land on the ground and in the registrar's
     // index. `survey_no` has no column on a property, so it would otherwise be
     // read off the deed and thrown away.
-    put("Survey no.", fields["survey_no"])
+    put("Survey number", fields["survey_no"])
     if let list = fields["plot_nos"] as? [String], !list.isEmpty {
         put("Plot no.", list.joined(separator: ", "))
     } else {

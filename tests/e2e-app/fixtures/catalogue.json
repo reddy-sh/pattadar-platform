@@ -1,0 +1,988 @@
+{
+ "offers": [
+  {
+   "key": "ec",
+   "label": "Encumbrance certificate",
+   "price": 1180.0,
+   "group": "Records",
+   "blurb": "The registrar's list of every transaction on this land, for a period you choose.",
+   "days": 7,
+   "shelves": [
+    "search"
+   ],
+   "fields": [
+    {
+     "name": "from_year",
+     "label": "From year",
+     "kind": "year",
+     "required": false,
+     "options": [],
+     "help": "Leave both empty for the full history, which is what the registrar gives by default."
+    },
+    {
+     "name": "to_year",
+     "label": "To year",
+     "kind": "year",
+     "required": false,
+     "options": [],
+     "help": ""
+    },
+    {
+     "name": "purpose",
+     "label": "What it is for",
+     "kind": "select",
+     "required": false,
+     "options": [
+      "Sale",
+      "Loan",
+      "Court",
+      "Own reference"
+     ],
+     "help": ""
+    }
+   ],
+   "visual": {
+    "assetKey": "ec",
+    "src": "/service-visuals/ec.webp",
+    "alt": "A records officer traces a property's registered transaction history.",
+    "caption": "Shows the registration history used to find mortgages and other recorded claims.",
+    "sourceScope": "IN/AP/*/*/*"
+   },
+   "deliverable": "The registrar’s list of transactions, as a certificate",
+   "filesTo": "search",
+   "aliases": [],
+   "perRecord": false,
+   "directionsField": "",
+   "guides": [
+    {
+     "state": "AP",
+     "slug": "encumbrance-and-deeds",
+     "topic": "",
+     "title": "",
+     "ownPaper": true
+    },
+    {
+     "state": "TS",
+     "slug": "ec-registration",
+     "topic": "",
+     "title": "",
+     "ownPaper": true
+    }
+   ],
+   "synonyms": [
+    "ec",
+    "encumbrance",
+    "encumbrance certificate"
+   ],
+   "alsoCalled": "Also called an EC",
+   "flatPriceNote": "",
+   "featured": true
+  },
+  {
+   "key": "survey",
+   "label": "Boundary re-survey",
+   "price": 2900.0,
+   "group": "On the ground",
+   "blurb": "A licensed surveyor walks the boundary and pins each corner against the FMB sheet.",
+   "days": 21,
+   "shelves": [],
+   "fields": [
+    {
+     "name": "which_side",
+     "label": "Which boundary",
+     "kind": "select",
+     "required": true,
+     "options": [
+      "All four",
+      "North",
+      "South",
+      "East",
+      "West"
+     ],
+     "help": ""
+    },
+    {
+     "name": "dispute",
+     "label": "Is a neighbour disputing it?",
+     "kind": "select",
+     "required": true,
+     "options": [
+      "No",
+      "Yes"
+     ],
+     "help": "A disputed boundary is surveyed with both parties present."
+    },
+    {
+     "name": "notes",
+     "label": "Anything the surveyor should know",
+     "kind": "textarea",
+     "required": false,
+     "options": [],
+     "help": ""
+    }
+   ],
+   "visual": {
+    "assetKey": "survey",
+    "src": "/service-visuals/survey.webp",
+    "alt": "A licensed surveyor measures a field boundary with surveying equipment.",
+    "caption": "A surveyor measures boundary corners on the land and marks where they fall.",
+    "sourceScope": "IN/AP/*/*/*"
+   },
+   "deliverable": "A surveyor’s sheet with your corners pinned against the FMB",
+   "filesTo": "map",
+   "aliases": [],
+   "perRecord": true,
+   "directionsField": "notes",
+   "guides": [
+    {
+     "state": "AP",
+     "slug": "fmb-and-village-map",
+     "topic": "",
+     "title": "",
+     "ownPaper": false
+    },
+    {
+     "state": "TS",
+     "slug": "tippan-lpm-village-map",
+     "topic": "",
+     "title": "",
+     "ownPaper": false
+    }
+   ],
+   "synonyms": [
+    "survey",
+    "re-survey",
+    "resurvey",
+    "measurement",
+    "measure",
+    "boundary survey"
+   ],
+   "alsoCalled": "",
+   "flatPriceNote": "",
+   "featured": true
+  },
+  {
+   "key": "site_visit",
+   "label": "Site visit",
+   "price": 1200.0,
+   "group": "On the ground",
+   "blurb": "A provider stands on the land, photographs it and reports what they found.",
+   "days": 7,
+   "shelves": [],
+   "fields": [
+    {
+     "name": "visit_on",
+     "label": "Preferred date",
+     "kind": "date",
+     "required": false,
+     "options": [],
+     "help": "Left empty, we go within the week."
+    },
+    {
+     "name": "check",
+     "label": "What to check",
+     "kind": "select",
+     "required": true,
+     "options": [
+      "General condition",
+      "Crop",
+      "Encroachment",
+      "Water",
+      "Fencing"
+     ],
+     "help": ""
+    },
+    {
+     "name": "meet",
+     "label": "Who to meet on site",
+     "kind": "text",
+     "required": false,
+     "options": [],
+     "help": ""
+    }
+   ],
+   "visual": {
+    "assetKey": "site_visit",
+    "src": "/service-visuals/site_visit.webp",
+    "alt": "A field worker photographs and inspects a property on site.",
+    "caption": "A field worker visits, photographs and reports what is present on the land.",
+    "sourceScope": "IN/AP/*/*/*"
+   },
+   "deliverable": "Photographs and a written report of what was found",
+   "filesTo": "unsorted",
+   "aliases": [
+    "visit"
+   ],
+   "perRecord": false,
+   "directionsField": "meet",
+   "guides": [],
+   "synonyms": [
+    "site visit",
+    "visit",
+    "inspection",
+    "inspect",
+    "check the land"
+   ],
+   "alsoCalled": "",
+   "flatPriceNote": "",
+   "featured": false
+  },
+  {
+   "key": "bore_point",
+   "label": "Bore point (hydro-geo survey)",
+   "price": 4000.0,
+   "group": "On the ground",
+   "blurb": "A hydrogeologist studies the ground beneath your land and marks the spot most likely to give water, before anyone pays for drilling.",
+   "days": 7,
+   "shelves": [],
+   "fields": [
+    {
+     "name": "purpose",
+     "label": "What the water is for",
+     "kind": "select",
+     "required": true,
+     "options": [
+      "Drinking",
+      "Irrigation",
+      "Both"
+     ],
+     "help": ""
+    },
+    {
+     "name": "nearby",
+     "label": "Working borewells nearby",
+     "kind": "select",
+     "required": false,
+     "options": [
+      "None",
+      "1 or 2",
+      "3 or more",
+      "Not sure"
+     ],
+     "help": "Wells around yours tell the hydrogeologist a lot about the ground."
+    },
+    {
+     "name": "nearby_depth",
+     "label": "Depth of nearby borewells, if known",
+     "kind": "text",
+     "required": false,
+     "options": [],
+     "help": ""
+    },
+    {
+     "name": "visit_on",
+     "label": "Preferred date",
+     "kind": "date",
+     "required": false,
+     "options": [],
+     "help": "Left empty, we go within the week."
+    },
+    {
+     "name": "notes",
+     "label": "Anything the hydrogeologist should know",
+     "kind": "textarea",
+     "required": false,
+     "options": [],
+     "help": ""
+    }
+   ],
+   "visual": {
+    "assetKey": "survey",
+    "src": "/service-visuals/survey.webp",
+    "alt": "A hydrogeologist studies the ground on a field to find where to drill for water.",
+    "caption": "A hydrogeologist reads the ground beneath the land and marks the best spot to drill a borewell.",
+    "sourceScope": "IN/AP/*/*/*"
+   },
+   "deliverable": "The bore point marked on your land, with a report of the likely depth and water",
+   "filesTo": "map",
+   "aliases": [],
+   "perRecord": true,
+   "directionsField": "notes",
+   "guides": [
+    {
+     "state": "AP",
+     "slug": "groundwater-and-borewells-ap",
+     "topic": "",
+     "title": "",
+     "ownPaper": false
+    },
+    {
+     "state": "TS",
+     "slug": "groundwater-and-borewells-ts",
+     "topic": "",
+     "title": "",
+     "ownPaper": false
+    }
+   ],
+   "synonyms": [
+    "bore point",
+    "borewell point",
+    "borewell",
+    "bore well",
+    "hydro geo survey",
+    "hydrogeological survey",
+    "groundwater survey",
+    "water divining",
+    "where to drill"
+   ],
+   "alsoCalled": "Also called a groundwater survey",
+   "flatPriceNote": "",
+   "featured": false
+  },
+  {
+   "key": "title_opinion",
+   "label": "Title opinion",
+   "price": 4500.0,
+   "group": "Legal",
+   "blurb": "An advocate reads the chain of documents and writes whether the title is clean.",
+   "days": 14,
+   "shelves": [],
+   "fields": [
+    {
+     "name": "years",
+     "label": "How far back to trace",
+     "kind": "select",
+     "required": true,
+     "options": [
+      "13 years",
+      "30 years"
+     ],
+     "help": "Banks usually ask for 30."
+    },
+    {
+     "name": "for_bank",
+     "label": "Which bank, if it is for a loan",
+     "kind": "text",
+     "required": false,
+     "options": [],
+     "help": ""
+    }
+   ],
+   "visual": {
+    "assetKey": "title_opinion",
+    "src": "/service-visuals/title_opinion.webp",
+    "alt": "An advocate reviews a chain of property ownership documents.",
+    "caption": "An advocate traces the ownership chain and gives a written title opinion.",
+    "sourceScope": "IN/AP/*/*/*"
+   },
+   "deliverable": "A written opinion from an advocate on whether the title is clean",
+   "filesTo": "title",
+   "aliases": [
+    "opinion"
+   ],
+   "perRecord": false,
+   "directionsField": "",
+   "guides": [],
+   "synonyms": [
+    "title opinion",
+    "legal opinion",
+    "title search",
+    "title check",
+    "title deed check",
+    "title verification",
+    "lawyer"
+   ],
+   "alsoCalled": "",
+   "flatPriceNote": "",
+   "featured": false
+  },
+  {
+   "key": "mutation",
+   "label": "Mutation / name transfer",
+   "price": 2200.0,
+   "group": "Records",
+   "blurb": "Getting the revenue record moved into the new owner's name after a sale.",
+   "days": 30,
+   "shelves": [],
+   "fields": [
+    {
+     "name": "new_owner",
+     "label": "Name to transfer into",
+     "kind": "text",
+     "required": true,
+     "options": [],
+     "help": ""
+    },
+    {
+     "name": "deed_no",
+     "label": "Registered deed number",
+     "kind": "text",
+     "required": true,
+     "options": [],
+     "help": ""
+    }
+   ],
+   "visual": {
+    "assetKey": "mutation",
+    "src": "/service-visuals/mutation.webp",
+    "alt": "A revenue officer transfers a land record from the previous owner to the new owner.",
+    "caption": "Updates the revenue record to the new owner's name after a registered sale.",
+    "sourceScope": "IN/AP/*/*/*"
+   },
+   "deliverable": "The revenue record in the new owner’s name",
+   "filesTo": "revenue",
+   "aliases": [],
+   "perRecord": true,
+   "directionsField": "",
+   "guides": [
+    {
+     "state": "AP",
+     "slug": "",
+     "topic": "mutation",
+     "title": "Mutation",
+     "ownPaper": true
+    },
+    {
+     "state": "TS",
+     "slug": "",
+     "topic": "mutation",
+     "title": "Mutation",
+     "ownPaper": true
+    }
+   ],
+   "synonyms": [
+    "mutation",
+    "name transfer",
+    "transfer the name",
+    "transfer name"
+   ],
+   "alsoCalled": "Also called a name transfer",
+   "flatPriceNote": "",
+   "featured": false
+  },
+  {
+   "key": "patta_copy",
+   "label": "Certified patta copy",
+   "price": 450.0,
+   "group": "Records",
+   "blurb": "A stamped copy of the pattadar passbook entry from the village office.",
+   "days": 5,
+   "shelves": [
+    "revenue"
+   ],
+   "fields": [
+    {
+     "name": "copies",
+     "label": "How many copies",
+     "kind": "number",
+     "required": false,
+     "options": [],
+     "help": "One certified copy is requested when this is left empty."
+    }
+   ],
+   "visual": {
+    "assetKey": "patta_copy",
+    "src": "/service-visuals/patta_copy.webp",
+    "alt": "An owner receives a certified copy of the pattadar landholding entry.",
+    "caption": "A certified copy of the current pattadar landholding entry from the revenue office.",
+    "sourceScope": "IN/AP/*/*/*"
+   },
+   "deliverable": "A stamped copy of the passbook entry",
+   "filesTo": "revenue",
+   "aliases": [],
+   "perRecord": false,
+   "directionsField": "",
+   "guides": [
+    {
+     "state": "AP",
+     "slug": "pattadar-passbook",
+     "topic": "",
+     "title": "",
+     "ownPaper": true
+    },
+    {
+     "state": "TS",
+     "slug": "eppb-and-ror-1b",
+     "topic": "",
+     "title": "",
+     "ownPaper": true
+    }
+   ],
+   "synonyms": [
+    "patta",
+    "passbook",
+    "pattadar passbook",
+    "patta copy"
+   ],
+   "alsoCalled": "",
+   "flatPriceNote": "The number of copies does not change the price.",
+   "featured": false
+  },
+  {
+   "key": "deed_copy",
+   "label": "Certified sale deed copy",
+   "price": 900.0,
+   "group": "Records",
+   "blurb": "A certified copy from the registration office when the original deed is unavailable.",
+   "days": 10,
+   "shelves": [
+    "title"
+   ],
+   "fields": [
+    {
+     "name": "document_number",
+     "label": "Document number, if known",
+     "kind": "text",
+     "required": false,
+     "options": [],
+     "help": ""
+    },
+    {
+     "name": "registration_year",
+     "label": "Registration year, if known",
+     "kind": "year",
+     "required": false,
+     "options": [],
+     "help": ""
+    }
+   ],
+   "visual": {
+    "assetKey": "deed_copy",
+    "src": "/service-visuals/deed_copy.webp",
+    "alt": "An archived registered sale deed is copied and certified for the owner.",
+    "caption": "A certified duplicate of a registered sale deed when the original is unavailable.",
+    "sourceScope": "IN/AP/*/*/*"
+   },
+   "deliverable": "A certified copy of the registered deed",
+   "filesTo": "title",
+   "aliases": [],
+   "perRecord": false,
+   "directionsField": "",
+   "guides": [
+    {
+     "state": "AP",
+     "slug": "encumbrance-and-deeds",
+     "topic": "",
+     "title": "",
+     "ownPaper": false
+    },
+    {
+     "state": "TS",
+     "slug": "ec-registration",
+     "topic": "",
+     "title": "",
+     "ownPaper": false
+    }
+   ],
+   "synonyms": [
+    "deed copy",
+    "sale deed",
+    "certified copy",
+    "document copy",
+    "deed"
+   ],
+   "alsoCalled": "",
+   "flatPriceNote": "",
+   "featured": false
+  },
+  {
+   "key": "revenue_extract",
+   "label": "1-B / Adangal extract",
+   "price": 650.0,
+   "group": "Records",
+   "blurb": "The latest revenue extract showing the recorded pattadar and cultivation entry.",
+   "days": 5,
+   "shelves": [
+    "revenue"
+   ],
+   "fields": [
+    {
+     "name": "as_of_year",
+     "label": "Year, if not the latest",
+     "kind": "year",
+     "required": false,
+     "options": [],
+     "help": ""
+    }
+   ],
+   "visual": {
+    "assetKey": "revenue_extract",
+    "src": "/service-visuals/revenue_extract.webp",
+    "alt": "A farmer and revenue officer compare a cultivation register with the field.",
+    "caption": "The current landholder and cultivation details from the 1-B or Adangal record.",
+    "sourceScope": "IN/AP/*/*/*"
+   },
+   "deliverable": "A copy of the latest 1-B / Adangal entry for this land",
+   "filesTo": "revenue",
+   "aliases": [],
+   "perRecord": false,
+   "directionsField": "",
+   "guides": [
+    {
+     "state": "AP",
+     "slug": "ror-1b",
+     "topic": "",
+     "title": "",
+     "ownPaper": true
+    },
+    {
+     "state": "AP",
+     "slug": "adangal",
+     "topic": "",
+     "title": "",
+     "ownPaper": true
+    },
+    {
+     "state": "TS",
+     "slug": "eppb-and-ror-1b",
+     "topic": "",
+     "title": "",
+     "ownPaper": true
+    },
+    {
+     "state": "TS",
+     "slug": "pahani",
+     "topic": "",
+     "title": "",
+     "ownPaper": true
+    }
+   ],
+   "synonyms": [
+    "1-b",
+    "1b",
+    "adangal",
+    "pahani",
+    "ror",
+    "revenue extract",
+    "revenue record"
+   ],
+   "alsoCalled": "",
+   "flatPriceNote": "",
+   "featured": false
+  },
+  {
+   "key": "tax_receipt",
+   "label": "Land tax receipt",
+   "price": 400.0,
+   "group": "Records",
+   "blurb": "The latest land or property tax receipt and arrears position from the local office.",
+   "days": 5,
+   "shelves": [
+    "search"
+   ],
+   "fields": [
+    {
+     "name": "financial_year",
+     "label": "Financial year, if not the latest",
+     "kind": "text",
+     "required": false,
+     "options": [],
+     "help": ""
+    }
+   ],
+   "visual": {
+    "assetKey": "tax_receipt",
+    "src": "/service-visuals/tax_receipt.webp",
+    "alt": "A property owner pays land tax and receives a receipt.",
+    "caption": "Proof of land or property tax paid, including the current arrears position.",
+    "sourceScope": "IN/AP/*/*/*"
+   },
+   "deliverable": "The latest tax receipt, with any arrears noted",
+   "filesTo": "search",
+   "aliases": [],
+   "perRecord": false,
+   "directionsField": "",
+   "guides": [],
+   "synonyms": [
+    "tax receipt",
+    "land tax",
+    "property tax",
+    "tax"
+   ],
+   "alsoCalled": "",
+   "flatPriceNote": "",
+   "featured": false
+  },
+  {
+   "key": "fmb_copy",
+   "label": "FMB / survey map copy",
+   "price": 750.0,
+   "group": "Records",
+   "blurb": "A certified field measurement sketch or survey map from the revenue office.",
+   "days": 7,
+   "shelves": [
+    "map"
+   ],
+   "fields": [
+    {
+     "name": "sheet_number",
+     "label": "Sheet number, if known",
+     "kind": "text",
+     "required": false,
+     "options": [],
+     "help": ""
+    }
+   ],
+   "visual": {
+    "assetKey": "fmb_copy",
+    "src": "/service-visuals/fmb_copy.webp",
+    "alt": "A field measurement sketch shows a parcel's sides and measured boundary points.",
+    "caption": "A measured field sketch showing parcel shape, sides and boundary points, not a new survey.",
+    "sourceScope": "IN/AP/*/*/*"
+   },
+   "deliverable": "A certified copy of the field measurement sketch or survey map",
+   "filesTo": "map",
+   "aliases": [],
+   "perRecord": false,
+   "directionsField": "",
+   "guides": [
+    {
+     "state": "AP",
+     "slug": "fmb-and-village-map",
+     "topic": "",
+     "title": "",
+     "ownPaper": true
+    },
+    {
+     "state": "TS",
+     "slug": "tippan-lpm-village-map",
+     "topic": "",
+     "title": "",
+     "ownPaper": true
+    }
+   ],
+   "synonyms": [
+    "fmb",
+    "survey map",
+    "tippan",
+    "field measurement book",
+    "sketch"
+   ],
+   "alsoCalled": "",
+   "flatPriceNote": "",
+   "featured": false
+  },
+  {
+   "key": "approval_copy",
+   "label": "Approved plan copy",
+   "price": 1100.0,
+   "group": "Records",
+   "blurb": "A certified layout or building approval copy from the issuing authority.",
+   "days": 10,
+   "shelves": [
+    "identity"
+   ],
+   "fields": [
+    {
+     "name": "authority",
+     "label": "Issuing authority, if known",
+     "kind": "text",
+     "required": false,
+     "options": [],
+     "help": ""
+    }
+   ],
+   "visual": {
+    "assetKey": "approval_copy",
+    "src": "/service-visuals/approval_copy.webp",
+    "alt": "An approved layout plan shows roads, plots and the approved building footprint.",
+    "caption": "The authority-approved layout or building plan for this property.",
+    "sourceScope": "IN/AP/*/*/*"
+   },
+   "deliverable": "A certified copy of the approved layout or building plan",
+   "filesTo": "identity",
+   "aliases": [],
+   "perRecord": false,
+   "directionsField": "",
+   "guides": [],
+   "synonyms": [
+    "approved plan",
+    "building plan",
+    "plan copy",
+    "approval",
+    "layout"
+   ],
+   "alsoCalled": "",
+   "flatPriceNote": "",
+   "featured": false
+  },
+  {
+   "key": "occupancy_copy",
+   "label": "Occupancy certificate copy",
+   "price": 1200.0,
+   "group": "Records",
+   "blurb": "A certified occupancy certificate copy for the completed building or flat.",
+   "days": 10,
+   "shelves": [
+    "identity"
+   ],
+   "fields": [
+    {
+     "name": "approval_number",
+     "label": "Approval number, if known",
+     "kind": "text",
+     "required": false,
+     "options": [],
+     "help": ""
+    }
+   ],
+   "visual": {
+    "assetKey": "occupancy_copy",
+    "src": "/service-visuals/occupancy_copy.webp",
+    "alt": "A completed building is inspected and cleared for people to occupy.",
+    "caption": "Proof that a completed building was cleared for occupation.",
+    "sourceScope": "IN/AP/*/*/*"
+   },
+   "deliverable": "A certified copy of the occupancy certificate",
+   "filesTo": "identity",
+   "aliases": [],
+   "perRecord": false,
+   "directionsField": "",
+   "guides": [],
+   "synonyms": [
+    "occupancy",
+    "occupancy certificate",
+    "oc"
+   ],
+   "alsoCalled": "",
+   "flatPriceNote": "",
+   "featured": false
+  }
+ ],
+ "disciplines": [
+  {
+   "key": "surveyor",
+   "label": "Licensed surveyor",
+   "blurb": "Boundary re-survey · Bore point (hydro-geo survey) · village work",
+   "kinds": [
+    "survey",
+    "bore_point"
+   ],
+   "areaGrain": "village",
+   "credential": "Survey licence",
+   "fanout": 3
+  },
+  {
+   "key": "advocate",
+   "label": "Advocate",
+   "blurb": "Title opinion · anywhere in the state",
+   "kinds": [
+    "title_opinion",
+    "opinion"
+   ],
+   "areaGrain": "state",
+   "credential": "Bar Council enrolment",
+   "fanout": 5
+  },
+  {
+   "key": "writer",
+   "label": "Document writer",
+   "blurb": "Encumbrance certificate · Certified patta copy · mandal work",
+   "kinds": [
+    "ec",
+    "patta_copy",
+    "deed_copy",
+    "revenue_extract",
+    "tax_receipt",
+    "fmb_copy",
+    "approval_copy",
+    "occupancy_copy",
+    "mutation"
+   ],
+   "areaGrain": "mandal",
+   "credential": "Writer's licence",
+   "fanout": 4
+  },
+  {
+   "key": "agent",
+   "label": "Revenue agent",
+   "blurb": "Mutation / name transfer · Encumbrance certificate · mandal work",
+   "kinds": [
+    "mutation",
+    "ec",
+    "patta_copy",
+    "deed_copy",
+    "revenue_extract",
+    "tax_receipt",
+    "fmb_copy",
+    "approval_copy",
+    "occupancy_copy"
+   ],
+   "areaGrain": "mandal",
+   "credential": "",
+   "fanout": 4
+  },
+  {
+   "key": "photo_studio",
+   "label": "Photo & drone studio",
+   "blurb": "Site visit · mandal work",
+   "kinds": [
+    "site_visit",
+    "visit"
+   ],
+   "areaGrain": "mandal",
+   "credential": "GST",
+   "fanout": 3
+  },
+  {
+   "key": "caretaker",
+   "label": "Caretaker",
+   "blurb": "Site visit · Certified patta copy · village work",
+   "kinds": [
+    "site_visit",
+    "visit",
+    "patta_copy"
+   ],
+   "areaGrain": "village",
+   "credential": "",
+   "fanout": 3
+  },
+  {
+   "key": "contractor",
+   "label": "Fencing & earthwork",
+   "blurb": "Fencing · village work",
+   "kinds": [
+    "fencing"
+   ],
+   "areaGrain": "village",
+   "credential": "",
+   "fanout": 3
+  },
+  {
+   "key": "landscaper",
+   "label": "Landscaping & plantation",
+   "blurb": "Fencing · village work",
+   "kinds": [
+    "fencing"
+   ],
+   "areaGrain": "village",
+   "credential": "",
+   "fanout": 3
+  },
+  {
+   "key": "developer",
+   "label": "Property developer",
+   "blurb": "Fencing · Site visit · district work",
+   "kinds": [
+    "fencing",
+    "visit"
+   ],
+   "areaGrain": "district",
+   "credential": "RERA / company verification",
+   "fanout": 2
+  },
+  {
+   "key": "labour",
+   "label": "Labour & crew",
+   "blurb": "Fencing · Site visit · village work",
+   "kinds": [
+    "fencing",
+    "visit"
+   ],
+   "areaGrain": "village",
+   "credential": "",
+   "fanout": 2
+  },
+  {
+   "key": "hydrogeologist",
+   "label": "Hydrogeologist",
+   "blurb": "Bore point (hydro-geo survey) · district work",
+   "kinds": [
+    "bore_point"
+   ],
+   "areaGrain": "district",
+   "credential": "Geology degree or groundwater department registration",
+   "fanout": 3
+  }
+ ]
+}

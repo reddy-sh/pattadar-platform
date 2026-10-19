@@ -33,12 +33,18 @@ import { trashDocuments } from '../../data/pattadarActions';
 import { ddmmyyyy } from '../../w360/ui';
 import {
   RELATIONS,
+  catalogueRole,
   cropSquareDataUrl,
+  factError,
   groupTypeDef,
   isMinorDob,
+  parseFacts,
+  pickFacts,
   roleOptions,
+  shareLabel,
+  visibleFields,
 } from './familiesData';
-import type { GroupMember, MemberVars, ParcelOption } from './familiesData';
+import type { Facts, GroupMember, MemberVars, ParcelOption } from './familiesData';
 import { COUNTRY_CODES, DEFAULT_DIAL, formatAadhaar, joinPhone, splitPhone } from './countryCodes';
 
 interface FormValues {
@@ -126,6 +132,7 @@ export function PersonDialog({
   parcels,
   myAddress,
   groupType,
+  groupFacts,
   onCancel,
   onSubmit,
   notify,
@@ -136,12 +143,20 @@ export function PersonDialog({
   parcels: ParcelOption[];
   myAddress: string;
   groupType: string;
+  /** The group's own facts (JSON): member fields read its country and kind. */
+  groupFacts?: string;
   onCancel: () => void;
   onSubmit: (vars: MemberVars) => Promise<void>;
   notify: (msg: string, severity?: 'success' | 'error' | 'warning' | 'info') => void;
 }) {
-  const hasTree = groupTypeDef(groupType).hasTree;
+  const def = groupTypeDef(groupType);
+  const hasTree = def.hasTree;
+  const ctx = useMemo(() => parseFacts(groupFacts), [groupFacts]);
   const [v, setV] = useState<FormValues>(EMPTY);
+  /** The role is typed, not picked: "Other (type it)", or a stored role the
+   *  list does not carry (iOS and Expo save "Member" for every type). */
+  const [otherRole, setOtherRole] = useState(false);
+  const [facts, setFacts] = useState<Facts>({});
   const [phoneCc, setPhoneCc] = useState(DEFAULT_DIAL);
   const [photo, setPhoto] = useState('');
   const [aadhaarUploading, setAadhaarUploading] = useState(false);
@@ -172,6 +187,15 @@ export function PersonDialog({
   }, []);
 
   const minor = useMemo(() => isMinorDob(v.dob), [v.dob]);
+  /** The role as the server will store it: the catalogue's spelling when a
+   *  typed one matches. */
+  const role = hasTree ? v.relation : catalogueRole(groupType, v.role);
+  const memberFields = useMemo(
+    () => (hasTree ? [] : visibleFields(def.memberFields, facts, role, ctx)),
+    [hasTree, def, facts, role, ctx]);
+  // A share outside a family is a partner's or shareholder's, labelled for the role.
+  const shareWord = hasTree ? ''
+    : shareLabel(groupType, role) || (v.isBeneficiary || Number(v.sharePct) > 0 ? 'Share %' : '');
 
   useEffect(() => {
     if (!open) return;
@@ -181,6 +205,9 @@ export function PersonDialog({
     setAadhaarMasked('');
     setRetainAadhaarCard(false);
     setCardReading(null);
+    setFacts(parseFacts(editing?.facts));
+    setOtherRole(!!editing && !hasTree && !!editing.role
+      && !groupTypeDef(groupType).roles.includes(editing.role));
     if (editing) {
       const { cc, national } = splitPhone(editing.phone);
       setPhoneCc(cc);
@@ -216,7 +243,7 @@ export function PersonDialog({
       setV({
         ...EMPTY,
         relation: hasTree ? 'son' : '',
-        role: hasTree ? '' : roleOptions(groupType)[1]?.value || '',
+        role: hasTree ? '' : groupTypeDef(groupType).defaultRole,
       });
       setPhoto('');
     }
@@ -296,7 +323,7 @@ export function PersonDialog({
           ? `Aadhaar read securely — masked details filled; the card goes to Documents › ${who} › Aadhaar when you save`
           : 'Aadhaar read securely — masked details filled; the card was not retained');
       } catch {
-        notify('Aadhaar extraction failed', 'error');
+        notify('The Aadhaar could not be read. Try again.', 'error');
       } finally {
         setAadhaarUploading(false);
       }
@@ -307,14 +334,15 @@ export function PersonDialog({
   const pickPhoto = (file: File) => {
     cropSquareDataUrl(file, 256)
       .then(setPhoto)
-      .catch(() => notify('Could not process image', 'error'));
+      .catch(() => notify('The image could not be read. Try again.', 'error'));
   };
 
   const submit = useCallback(async () => {
     const errs: Partial<Record<keyof FormValues, string>> = {};
     if (!v.name.trim()) errs.name = 'Name is required';
     if (hasTree && !v.relation) errs.relation = 'Relationship is required';
-    if (!hasTree && !v.role) errs.role = 'Role is required';
+    if (!hasTree && !v.role.trim()) errs.role = 'Role is required';
+    const factErr = memberFields.map((f) => factError(f, facts[f.key] || '')).find(Boolean);
     if (v.email.trim() && !/^\S+@\S+\.\S+$/.test(v.email.trim())) errs.email = 'Enter a valid email';
     const aadDigits = v.aadhaar.replace(/\D/g, '');
     if (aadDigits && aadDigits.length !== 12) errs.aadhaar = 'Aadhaar must be 12 digits';
@@ -323,10 +351,15 @@ export function PersonDialog({
       if (!v.guardianContact.trim()) errs.guardianContact = 'Guardian contact is required';
     }
     if (v.isBeneficiary && v.maritalStatus === 'married' && !v.spouseName.trim())
-      errs.spouseName = 'Add the spouse for a married beneficiary';
+      errs.spouseName = 'Add the spouse for a married heir.';
     const fullPhone = joinPhone(phoneCc, v.phone);
     if (v.isBeneficiary && !fullPhone.trim() && !v.email.trim()) {
-      setFormError('Add a mobile number or email so this beneficiary can be verified');
+      setFormError('Add a mobile number or email so this heir can be verified.');
+      setErrors(errs);
+      return;
+    }
+    if (factErr) {
+      setFormError(factErr);
       setErrors(errs);
       return;
     }
@@ -339,7 +372,7 @@ export function PersonDialog({
       await onSubmit({
         name: v.name,
         relation: hasTree ? v.relation : '',
-        role: hasTree ? v.relation : v.role,
+        role: hasTree ? v.relation : role,
         gender: v.gender,
         dob: v.dob,
         phone: fullPhone,
@@ -362,13 +395,15 @@ export function PersonDialog({
         spouseName: v.spouseName,
         spouseContact: v.spouseContact,
         spouseStatus: v.spouseStatus,
+        // A family has no member fields; leave whatever is stored alone.
+        facts: hasTree ? undefined : pickFacts(def.memberFields, facts, role, ctx),
       });
     } catch (e) {
-      setFormError(e instanceof Error ? e.message : 'Could not save this member');
+      setFormError(e instanceof Error ? e.message : 'That member could not be saved.');
     } finally {
       setSaving(false);
     }
-  }, [v, hasTree, minor, phoneCc, photo, myAddress, onSubmit, aadhaarCandidateId]);
+  }, [v, hasTree, minor, phoneCc, photo, myAddress, onSubmit, aadhaarCandidateId, memberFields, facts, role, ctx, def]);
 
   const peopleOpts = people
     .filter((p) => p.id !== editing?.id)
@@ -396,7 +431,7 @@ export function PersonDialog({
 
   return (
     <Dialog open={open} onClose={onCancel} maxWidth="md" fullWidth>
-      <DialogTitle>{editing ? 'Edit person' : 'Add person'}</DialogTitle>
+      <DialogTitle>{editing ? 'Edit member' : 'Add member'}</DialogTitle>
       <DialogContent dividers>
         {formError && (
           <Alert severity="error" sx={{ mb: 2 }}>
@@ -563,19 +598,60 @@ export function PersonDialog({
                   size="small"
                   label="Role"
                   required
-                  value={v.role}
-                  onChange={(e) => set('role', e.target.value)}
-                  error={!!errors.role}
-                  helperText={errors.role}
+                  value={otherRole ? '__other' : v.role}
+                  onChange={(e) => {
+                    const other = e.target.value === '__other';
+                    setOtherRole(other);
+                    set('role', other ? '' : e.target.value);
+                  }}
+                  error={!otherRole && !!errors.role}
+                  helperText={otherRole ? undefined : errors.role}
                 >
                   {roleOptions(groupType).map((r) => (
                     <MenuItem key={r.value} value={r.value}>
                       {r.label}
                     </MenuItem>
                   ))}
+                  <MenuItem value="__other">Other (type it)</MenuItem>
                 </TextField>
               )}
             </Box>
+            {!hasTree && otherRole && (
+              <TextField
+                size="small"
+                label="Role name"
+                required
+                value={v.role}
+                onChange={(e) => set('role', e.target.value)}
+                error={!!errors.role}
+                helperText={errors.role || 'As they are named in the deed or register, e.g. Advisor.'}
+                slotProps={{ htmlInput: { maxLength: 60 } }}
+              />
+            )}
+            {memberFields.length > 0 && (
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 1.5 }}>
+                {memberFields.map((f) => {
+                  const val = facts[f.key] ?? '';
+                  const fe = factError(f, val);
+                  return (
+                    <TextField
+                      key={f.key}
+                      size="small"
+                      label={f.label}
+                      type={f.kind === 'date' ? 'date' : 'text'}
+                      value={val}
+                      onChange={(e) => setFacts((cur) => ({ ...cur, [f.key]: e.target.value }))}
+                      error={!!fe}
+                      helperText={fe || f.help}
+                      slotProps={{
+                        ...(f.kind === 'date' ? { inputLabel: { shrink: true } } : {}),
+                        htmlInput: f.kind === 'date' ? {} : { maxLength: 200 },
+                      }}
+                    />
+                  );
+                })}
+              </Box>
+            )}
             <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 1.5 }}>
               <TextField
                 size="small"
@@ -656,7 +732,7 @@ export function PersonDialog({
                   onChange={(e) => set('sameAddress', e.target.checked)}
                 />
               }
-              label="Present address same as mine"
+              label="Present address same as yours"
               sx={{ mb: -0.5 }}
             />
             {!v.sameAddress && (
@@ -671,6 +747,17 @@ export function PersonDialog({
                 onChange={(e) => set('presentAddress', e.target.value)}
               />
             )}
+            {shareWord && (
+              <TextField
+                size="small"
+                label={shareWord}
+                type="number"
+                value={v.sharePct}
+                onChange={(e) => set('sharePct', e.target.value)}
+                slotProps={{ htmlInput: { min: 0, max: 100 } }}
+                sx={{ maxWidth: 220 }}
+              />
+            )}
             <FormControlLabel
               control={
                 <Switch
@@ -678,7 +765,7 @@ export function PersonDialog({
                   onChange={(e) => set('isBeneficiary', e.target.checked)}
                 />
               }
-              label="Is a beneficiary / heir (allocate a share and require verification)"
+              label="Is an heir (give a share and ask them to confirm)"
             />
             {v.isBeneficiary && (
               <Box
@@ -696,22 +783,25 @@ export function PersonDialog({
                   <TextField
                     select
                     size="small"
-                    label="Type"
+                    label="Listed as"
                     value={v.kind}
                     onChange={(e) => set('kind', e.target.value)}
                   >
-                    <MenuItem value="legalheir">Legal Heir</MenuItem>
+                    <MenuItem value="legalheir">Legal heir</MenuItem>
                     <MenuItem value="coowner">Co-owner</MenuItem>
                     <MenuItem value="nominee">Nominee</MenuItem>
                   </TextField>
-                  <TextField
-                    size="small"
-                    label="Share %"
-                    type="number"
-                    value={v.sharePct}
-                    onChange={(e) => set('sharePct', e.target.value)}
-                    slotProps={{ htmlInput: { min: 0, max: 100 } }}
-                  />
+                  {/* Outside a family the share sits above, labelled for the role. */}
+                  {hasTree && (
+                    <TextField
+                      size="small"
+                      label="Share %"
+                      type="number"
+                      value={v.sharePct}
+                      onChange={(e) => set('sharePct', e.target.value)}
+                      slotProps={{ htmlInput: { min: 0, max: 100 } }}
+                    />
+                  )}
                   <TextField
                     select
                     size="small"
@@ -720,7 +810,7 @@ export function PersonDialog({
                     onChange={(e) => set('parcelId', e.target.value)}
                   >
                     <MenuItem value="">
-                      <em>Whole estate</em>
+                      <em>All properties</em>
                     </MenuItem>
                     {parcels.map((p) => (
                       <MenuItem key={p.id} value={p.id}>
@@ -810,7 +900,7 @@ export function PersonDialog({
                       gap: 1.5,
                     }}
                   >
-                    <Typography variant="subtitle2">Spouse (co-heir)</Typography>
+                    <Typography variant="subtitle2">Spouse (also an heir)</Typography>
                     <TextField
                       size="small"
                       label="Spouse name"

@@ -8,7 +8,7 @@ oidc-client-ts (Cognito PKCE, social logins only). Theme derives from
 `@pattadar/core`. Dates render DD/MM/YYYY via `@pattadar/core` formatters.
 
 One SPA serves both the public landing site (pattadar.com) and the
-authenticated app (`/app/*`). Every route component is `React.lazy`, so the
+authenticated app (top-level feature paths: `/home`, `/properties`, …; there is no `/app` prefix). Every route component is `React.lazy`, so the
 landing page ships as its own small chunk and the app shell + pages load only
 after sign-in.
 
@@ -31,12 +31,12 @@ bun run build        # production bundle
 | `/forgot-password` | Public | Native password reset (email → code + new password) |
 | `/privacy` | Public | Privacy notice placeholder — TODO(DPDP) final EN+Telugu |
 | `/terms` | Public | Terms of use placeholder — TODO(DPDP) final EN+Telugu |
-| `/auth/callback` | Public | Completes the SOCIAL-login redirect, then continues to `/app` (or the preserved return path) |
+| `/auth/callback` | Public | Completes the SOCIAL-login redirect, then continues to `/home` (or the preserved return path) |
 | `/verify/:token` | Public | Beneficiary verification — must work WITHOUT login |
-| `/app/*` | Auth required (`RequireAuth`) | Record-360 app (W01–W15) — see below |
+| `/home`, `/properties`, `/papers`, … | Auth required (`RequireAuth`) | Property-360 app (W01–W15) — see below |
 | `/legacy/*` | Auth required (`RequireAuth`) | The previous app shell, intact |
 
-## The record-360 app (`/app/*`)
+## The property-360 app
 
 Design handover W01–W15, built 2026-08-15. Spec:
 `docs/specs/2026-08-15-web-360-design.md`. Code: `src/w360/`, styled by
@@ -48,25 +48,25 @@ hangers.
 
 | Route | Screen |
 | --- | --- |
-| `/app` | W01 · Home — greeting and shortcuts; For you (orders, reminders and Missing details in one card); Overview; Value by village, once something is valued; Recently opened; Recent activity |
-| `/app/properties` | W02 · faceted list; the filter lives in the URL |
-| `/app/map` | W06 · find by map |
-| `/app/records/:id` | W03 · the 360, Papers hanger |
-| `…/features` `…/people` `…/services` `…/money` `…/expenses` `…/history` | W07 · W08 · services · W10 · W11+W12 · history |
-| `…/map` | W04 · boundary marks |
-| `…/photos` (+ `?feature=`) | W05 gallery · W14 provenance |
-| `/app/papers` · `/app/papers/:id` | W15 · the vault · W13 · the reader |
-| `/app/shared` | W09 · someone else's kit, never in your totals |
+| `/home` | W01 · Home — greeting and shortcuts; For you (orders, reminders and Missing details in one card); Overview; Value by village, once something is valued; Recently opened; Recent activity |
+| `/properties` | W02 · faceted list; the filter lives in the URL |
+| `/map` | W06 · find by map |
+| `/properties/:id` (UUIDv7) | W03 · the 360, Documents tab; the browser tab reads `LP <survey no> · <extent> <unit> · Pattadar` |
+| `…/site-features` `…/people` `…/services` `…/money` `…/expenses` `…/activity` | W07 · W08 · services · W10 · W11+W12 · activity |
+| `…/location` | W04 · boundary marks |
+| `…/media` (+ `?feature=`) | W05 gallery · W14 provenance |
+| `/papers` · `/papers/:id` | W15 · the vault · W13 · the reader |
+| `/shared` | W09 · someone else's kit, never in your totals |
 
 Every rail section is drawn in W360 now — the "still in the previous version"
-signpost (`w360/pages/Section.tsx`) is gone. Invitations (`/app/invitations`)
+signpost (`w360/pages/Section.tsx`) is gone. Invitations (`/invitations`)
 was the last; `/legacy/invitations`, `/legacy/tools` and `/legacy/profile` only
-redirect. `/app/help` is Help & support, at the foot of the rail with Tools and
+redirect. `/help` is Help & support, at the foot of the rail with Tools and
 Pattadar University. Invitation links land on `/i/:token` (and `/verify/:token`),
-referral links on `/r/:code`; the invitee's heir screen is `/app/heir/:id` and
-Invite & earn is `/app/refer` (docs/specs/2026-09-27-invitations-onboarding-referrals.md). Old `/app` URLs
-(`/app/parcels`, `/app/documents`, `/app/passbooks`) redirect into the new
-vocabulary.
+referral links on `/r/:code`; the invitee's heir screen is `/heir/:id` and
+Invite & earn is `/refer` (docs/specs/2026-09-27-invitations-onboarding-referrals.md). Old `/app/…` and alias URLs
+(`/parcels`, `/documents`, `/passbooks`, `/tickets/…`) are not redirected; they
+land on the not-found page (no legacy links, 11/10/2026).
 
 ### Seeing the demo data
 
@@ -151,10 +151,10 @@ and outputs these values; CI injects them at build time per environment.
 
 **Mock mode:** with `VITE_COGNITO_AUTHORITY` unset, auth is a local stub — a
 dev user is auto-signed-in, the AppShell shows an "Auth mocked — dev only"
-chip, and the landing Sign-in button goes straight to `/app`. This is the
+chip, and the landing Sign-in button goes straight to `/home`. This is the
 default for `bun run dev` before the pool exists.
 
-## View inventory (under `/app`)
+## View inventory (historical: pre-11/10/2026 `/app` addresses)
 
 Each placeholder page maps to the rhub source it gets rebuilt from
 (`rhub/ui/apps/pattadar/src/`).

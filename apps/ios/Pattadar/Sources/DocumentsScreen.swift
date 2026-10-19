@@ -148,7 +148,7 @@ struct DocumentsScreen: View {
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
                     } header: {
-                        Text("\(rows.count + unread.count) papers · encrypted at rest")
+                        Text("\(rows.count + unread.count == 1 ? "1 document" : "\(rows.count + unread.count) documents") · encrypted at rest")
                     }
                 } else if !landing {
                 ForEach(grouped, id: \.key) { group in
@@ -176,8 +176,8 @@ struct DocumentsScreen: View {
                                            description: Text("Try the survey number, the khata, a name, or the year."))
                 }
             }
-            .navigationTitle("Papers")
-            .searchable(text: $query, prompt: "Sy. 128/1A · Khata 397 · a name · 2016…")
+            .navigationTitle("Documents")
+            .searchable(text: $query, prompt: "Sy 128/1A · Khata 397 · a name · 2016")
             .environment(\.editMode, $editMode)
             .toolbar {
                 // Picking several papers to send at once. Off the critical
@@ -229,7 +229,7 @@ struct DocumentsScreen: View {
                                  set: { if $0 == nil { archive = nil } })) { item in
                 ShareSheet(url: item.url)
             }
-            .alert("Couldn’t share those", isPresented: Binding(
+            .alert("Could not share those", isPresented: Binding(
                 get: { !archiveProblem.isEmpty },
                 set: { if !$0 { archiveProblem = "" } })) {
                 Button("OK", role: .cancel) { archiveProblem = "" }
@@ -329,7 +329,7 @@ struct DocumentsScreen: View {
                 Text(entry.displayName).lineLimit(1)
                 if entry.needsReview {
                     // The server said no; retrying is not the answer. Say so.
-                    Text(entry.lastError ?? "The server refused this filing.")
+                    Text(entry.lastError ?? "Pattadar could not accept this document.")
                         .font(.caption).foregroundStyle(Palette.caution).lineLimit(2)
                 } else {
                     Text("Will sync when the server is reachable")
@@ -442,7 +442,7 @@ struct DocumentsScreen: View {
         HStack(alignment: .top, spacing: Space.sm) {
             Image(systemName: "checkmark.shield")
                 .foregroundStyle(Palette.success)
-            Text("Stored encrypted in Mumbai (ap-south-1). Identity papers stay masked until Face ID.")
+            Text("Stored encrypted in India. Identity documents stay masked until Face ID.")
                 .font(.note).foregroundStyle(Palette.success)
         }
         .padding(Space.md)
@@ -507,7 +507,7 @@ struct DocumentsScreen: View {
         .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(familyLabel(family)), \(count) papers")
+        .accessibilityLabel("\(familyLabel(family)), \(count == 1 ? "1 document" : "\(count) documents")")
     }
 
     private static func familySymbol(_ family: String) -> String {
@@ -582,7 +582,7 @@ struct DocumentsScreen: View {
             VStack(alignment: .leading, spacing: Space.hair) {
                 Text(bannerHead)
                     .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.caution)
-                Text("Tap to see only those papers")
+                Text("Show only those documents")
                     .font(.caption).foregroundStyle(Palette.caution.opacity(0.7))
             }
             Spacer(minLength: 0)
@@ -939,7 +939,7 @@ struct DocumentDetailScreen: View {
                         VStack(alignment: .leading, spacing: Space.hair) {
                             Text("Filed before deep reading")
                                 .font(.subheadline.weight(.semibold))
-                            Text("Pages, checks and the paper trail arrive when a fresh scan is read.")
+                            Text("Pages, checks and the earlier deeds arrive when a fresh scan is read.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
@@ -959,7 +959,7 @@ struct DocumentDetailScreen: View {
                 // says "4 entries"; this is where the four are.
                 if !recordEntries.isEmpty {
                     VStack(alignment: .leading, spacing: Space.sm) {
-                        Text("INSIDE THIS RECORD — \(recordEntries.count) \(recordEntries.count == 1 ? "ENTRY" : "ENTRIES")")
+                        Text("INSIDE THIS DOCUMENT — \(recordEntries.count) \(recordEntries.count == 1 ? "ENTRY" : "ENTRIES")")
                             .font(.caption.weight(.medium)).kerning(1.1)
                             .foregroundStyle(.secondary)
                         VStack(spacing: 0) {
@@ -1011,7 +1011,7 @@ struct DocumentDetailScreen: View {
                 // links[] upgrade these cards the day they exist.
                 if !railCards.isEmpty {
                     VStack(alignment: .leading, spacing: Space.sm) {
-                        Text("PAPER TRAIL")
+                        Text("EARLIER DEEDS")
                             .font(.caption.weight(.medium)).kerning(1.1)
                             .foregroundStyle(.secondary)
                         ScrollView(.horizontal, showsIndicators: false) {
@@ -1170,7 +1170,7 @@ struct DocumentDetailScreen: View {
         }
         .confirmationDialog("Delete this document?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive) { Task { await remove() } }
-            Button("Keep it", role: .cancel) { }
+            Button("Cancel", role: .cancel) { }
         } message: {
             // Say what else goes: the summary and the parties are part of this
             // document, not separate things that survive it.
@@ -1184,7 +1184,7 @@ struct DocumentDetailScreen: View {
             Button("Rename") { Task { await rename() } }
                 .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty || renamingBusy)
         } message: {
-            Text("The name you will find this paper by.")
+            Text("The name you will find this document by.")
         }
         .fullScreenCover(item: $openAtPage) { selection in
             if let url = LocalFiles.url(for: doc.id) {
@@ -1271,7 +1271,7 @@ struct DocumentDetailScreen: View {
             tiles.append(("Property", doc.village, doc.mandal))
         }
         if !doc.extent.isEmpty { tiles.append(("Extent", doc.extent, "")) }
-        if doc.consideration > 0 { tiles.append(("Consideration", rupees(doc.consideration), "")) }
+        if doc.consideration > 0 { tiles.append(("Amount in the deed", rupees(doc.consideration), "")) }
         if tiles.count < 4, !spine.partiesLine.isEmpty {
             tiles.append((spine.partiesLine.contains("→") ? "From → To" : "Holder",
                           spine.partiesLine, ""))
@@ -1311,8 +1311,8 @@ struct DocumentDetailScreen: View {
         case "map": "Sheet / survey"
         case "identity": "Number"
         case "search": "Certificate"
-        case "old_record": "Record"
-        default: "Document no."
+        case "old_record": "Record number"
+        default: "Document number"
         }
     }
 
@@ -1548,7 +1548,7 @@ struct DocumentDetailScreen: View {
         struct Ack: Decodable { let deleteRegisteredDocument: Bool? }
         guard await app.load(Mutations.deleteRegisteredDocument,
                              variables: ["id": doc.id], as: Ack.self) != nil else {
-            problem = app.lastFailure ?? "Couldn’t delete it."
+            problem = app.lastFailure ?? "Could not delete it."
             return
         }
         // Bytes must not outlive the record that explains them.
@@ -1604,7 +1604,7 @@ struct DocumentDetailScreen: View {
     private var facts: [(String, String)] {
         [("Sub-registrar", doc.sro), ("Village", doc.village), ("Survey number", doc.surveyNo),
          ("Plot number", doc.plotNo), ("Extent", doc.extent),
-         ("Consideration", doc.consideration > 0 ? rupees(doc.consideration) : "")]
+         ("Amount in the deed", doc.consideration > 0 ? rupees(doc.consideration) : "")]
             .filter { !$0.1.isEmpty }
     }
 }

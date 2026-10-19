@@ -59,7 +59,7 @@ struct FMBMapSection: View {
             controls
 
             if geometry.orderSource == "inferred" {
-                Label("Corner order inferred — confirm against the sheet",
+                Label("We guessed the corner order. Compare it with the sheet.",
                       systemImage: "exclamationmark.triangle.fill")
                     .font(.caption).foregroundStyle(Palette.caution)
             }
@@ -70,7 +70,7 @@ struct FMBMapSection: View {
             useOnTheGround
 
             if !geometry.datumStated {
-                Text("Datum unstated on the sheet — placement on imagery is approximate.")
+                Text("The sheet does not say which map system it uses, so its place on the satellite picture is approximate.")
                     .font(.caption2).foregroundStyle(.secondary)
             }
         }
@@ -158,7 +158,7 @@ struct FMBMapSection: View {
                 .background(.black.opacity(0.35), in: Capsule())
                 .foregroundStyle(.white.opacity(0.8))
         } else if imageryFailed {
-            Text("Imagery didn't load — plain sketch behind the lines")
+            Text("Imagery did not load — plain sketch behind the lines")
                 .font(.caption2.weight(.semibold))
                 .padding(.horizontal, Space.md).padding(.vertical, Space.xs)
                 .background(Palette.caution.opacity(0.15), in: Capsule())
@@ -328,8 +328,8 @@ struct FMBMapSection: View {
                 .pickerStyle(.segmented)
                 .frame(width: 150)
                 layerChip("Lengths", on: $showLengths)
-                layerChip("Bearings", on: $showBearings)
-                layerChip("Point IDs", on: $showPointIDs)
+                layerChip("Directions", on: $showBearings)
+                layerChip("Corner numbers", on: $showPointIDs)
             }
         }
     }
@@ -379,7 +379,7 @@ struct FMBMapSection: View {
             .foregroundStyle(Palette.Category.plot)
         Text("\(panelLengthText(geometry.perimeterM, unit: unit)) around")
             .font(.title3.weight(.bold)).monospacedDigit()
-        Text("\(spelled(geometry.sides.count).capitalized) sides, \(spelled(geometry.points.count)) corners. Tap any side or corner on the map for its measurement, bearing and who lies beyond it.")
+        Text("\(spelled(geometry.sides.count).capitalized) sides, \(spelled(geometry.points.count)) corners. Choose any side or corner on the map for its measurement, bearing and who lies beyond it.")
             .font(.subheadline).foregroundStyle(.secondary)
         HStack(spacing: Space.sm) {
             tipTile("Sides", "\(geometry.sides.count)")
@@ -397,7 +397,7 @@ struct FMBMapSection: View {
         HStack(spacing: Space.sm) {
             tipTile("Metres", panelLengthText(side.m, unit: .metres))
             tipTile("Feet", panelLengthText(side.m, unit: .feet))
-            tipTile("Grid bearing", bearingText(side.bearing))
+            tipTile("Direction", bearingText(side.bearing))
         }
         Text(sideSentence(side))
             .font(.subheadline).foregroundStyle(.secondary)
@@ -429,12 +429,17 @@ struct FMBMapSection: View {
             .foregroundStyle(Palette.danger)
         Text(String(format: "%.5f, %.5f", point.lat, point.lon))
             .font(.title3.weight(.bold)).monospacedDigit()
-        Text("WGS 84 degrees, and \(geometry.utmZoneLabel ?? "projected") in metres.")
-            .font(.subheadline).foregroundStyle(.secondary)
-        HStack(spacing: Space.sm) {
-            tipTile("Easting", String(format: "%.2f", point.e))
-            tipTile("Northing", String(format: "%.2f", point.n))
+        // Datum, zone and grid figures are surveyor's terms (E2): kept, but
+        // folded away so an owner never meets them unasked.
+        DisclosureGroup("For a surveyor") {
+            Text("WGS 84 degrees, and \(geometry.utmZoneLabel ?? "projected") in metres.")
+                .font(.subheadline).foregroundStyle(.secondary)
+            HStack(spacing: Space.sm) {
+                tipTile("Easting", String(format: "%.2f", point.e))
+                tipTile("Northing", String(format: "%.2f", point.n))
+            }
         }
+        .font(.subheadline)
         HStack(spacing: Space.lg) {
             Button {
                 UIPasteboard.general.string = String(format: "%.5f, %.5f", point.lat, point.lon)
@@ -483,7 +488,7 @@ struct FMBMapSection: View {
                 .foregroundStyle(.secondary)
             VStack(spacing: 0) {
                 areaRow("From these \(spelled(geometry.points.count)) corners",
-                        sub: "Shoelace on the \(geometry.utmZoneLabel.map { _ in "UTM" } ?? "projected") coordinates",
+                        sub: "Worked out from the corners",
                         value: acText(geometry.areaAc),
                         tint: verdictColour)
                 if let sheet = geometry.areaCheck?.sheetAc {
@@ -541,9 +546,9 @@ struct FMBMapSection: View {
             + String(format: "%.2f", diff)
             + (abs(diff - 1) < 0.005 ? " acre" : " acres")
             + String(format: ", about %.2f%%. ", delta)
-        let tail = delta < 0.5 ? "Within survey tolerance."
+        let tail = delta < 0.5 ? "Close to the area on the sheet."
             : delta <= 2 ? "Worth a look."
-            : "Check the ring order, the corners and the units."
+            : "Make sure the corners are in walking order and the units are right."
         return head + tail
     }
 
@@ -646,7 +651,7 @@ struct FMBMapSection: View {
                 if let items = exportItems {
                     ShareLink(items: items) {
                         groundRow(icon: "square.and.arrow.up.on.square", tint: Palette.Category.commercial,
-                                  title: "Export KML / GeoJSON",
+                                  title: "Export boundary (KML or GeoJSON)",
                                   sub: "For a surveyor, a drone flight, or Google Earth")
                     }
                     .buttonStyle(.plain)

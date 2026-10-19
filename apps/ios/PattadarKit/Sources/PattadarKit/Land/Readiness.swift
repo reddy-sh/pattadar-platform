@@ -122,7 +122,7 @@ public func assessReadiness(_ input: ReadinessInput, thisYear: Int) -> Readiness
               passed: input.hasRegistrationNumber, blocking: false),
         // Stated as a check so it lands in the same list rather than being a
         // separate warning somebody has to notice on its own.
-        .init(id: "litigation", problem: "Under litigation",
+        .init(id: "litigation", problem: "In court",
               passed: !input.litigation, blocking: true),
     ]
     return Readiness(checks: checks)
@@ -138,7 +138,7 @@ public func readinessBlurb(_ items: [(name: String, readiness: Readiness)]) -> S
     guard !failing.isEmpty else {
         return items.isEmpty
             ? "Nothing recorded yet."
-            : "Every property on file would stand up to scrutiny today."
+            : "Every property on file is in order today."
     }
     let named = failing.prefix(3).map { item -> String in
         let worst = item.readiness.blocking.first ?? item.readiness.failures.first
@@ -148,6 +148,6 @@ public func readinessBlurb(_ items: [(name: String, readiness: Readiness)]) -> S
     let count = failing.count
     let noun = count == 1 ? "property" : "properties"
     let more = count > 3 ? ", and \(count - 3) more" : ""
-    return "\(count) \(noun) would not survive a bank's scrutiny today: "
+    return "\(count) \(noun) \(count == 1 ? "needs" : "need") fixing before a bank will accept \(count == 1 ? "it" : "them"): "
         + named.joined(separator: "; ") + more + "."
 }

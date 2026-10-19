@@ -33,7 +33,7 @@ def test_anonymous_root_queries_and_mutations_deny_without_database():
 
 
 def test_missing_context_does_not_become_system_owner():
-    with pytest.raises(main.NotAuthorized, match="Authentication"):
+    with pytest.raises(main.NotAuthorized, match="Your session has ended"):
         main._uid_from_info(info())
 
 

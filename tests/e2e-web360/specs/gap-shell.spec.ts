@@ -3,7 +3,7 @@
  *
  * UPDATE: every rail section is drawn in W360 now. Invitations was the last
  * "Not yet redrawn" stub (w360/pages/Section.tsx, deleted) and its
- * /legacy address redirects to /app/invitations, so the stub walk that
+ * /legacy address redirects to /invitations, so the stub walk that
  * used to open this file is gone. The history below is kept as written.
  *
  * W01–W15 drew fifteen screens. The other seven sections of the rail — groups,
@@ -24,7 +24,7 @@
  *     them, so the URL plus a legacy-shell-only marker is the only honest proof
  *     the click went anywhere.
  *   · The legacy drawer, which is a DEFECT on two counts — every one of its 12
- *     links points back at `/app/*`, and nothing in it is ever marked current.
+ *     links points back at `/*`, and nothing in it is ever marked current.
  *     Those two are `test.fail()`: they assert what the previous app owes
  *     someone sent into it, and go green the day AppShell.tsx is fixed.
  *   · "View holdings ›" on a group card, which drops the group id on the floor.
@@ -57,8 +57,8 @@ test.describe('the previous app, once you are inside it', () => {
   test('the previous app\'s own rail keeps you inside the previous app', async ({ page }) => {
     // DEFECT: apps/web/src/layout/AppShell.tsx:79-90 — all twelve NAV_SECTIONS
     // paths are still `/app*`. Clicking "Audit Log" inside /legacy throws you
-    // back out to the /app/audit stub you just came from; "Passbooks" is worse,
-    // because routes.tsx:302 redirects /app/passbooks to the W360 property
+    // back out to the /audit stub you just came from; "Passbooks" is worse,
+    // because routes.tsx:302 redirects /passbooks to the W360 property
     // list. The only exit from the stub leads to a screen whose own navigation
     // loops you back into it.
     test.fail();
@@ -97,16 +97,12 @@ test.describe('the previous app, once you are inside it', () => {
   });
 
   test('View holdings on a group card shows that group\'s holdings, not everything you own', async ({ page }) => {
-    // DEFECT: FamiliesGroupsPage.tsx:183 navigates to /app/parcels?group=<id>,
-    // and routes.tsx:295 is a hardcoded `<Navigate to="/app/properties?kind=
-    // parcel">` that discards every incoming search param. The group id is gone
-    // before the destination ever sees it — and w360/pages/Properties.tsx:249
+    // DEFECT: FamiliesGroupsPage.tsx:183 navigates to /parcels?group=<id>,
+    // which is no address at all now (no legacy links) — and w360/pages/Properties.tsx:249
     // could not honour it anyway: PARAM maps only kind|status|stake|in|tag and
     // PropertyFilter has no group concept at all. So the control is dead at
     // both ends, and its label promises a filter nothing applies.
     //
-    // screens.spec.ts:2396 asserts the /app/parcels redirect, but for a bare
-    // URL with no query string — it can never observe the dropped param.
     test.fail();
 
     // The group is a fixture, not a row. create_group mints a raw uuid
@@ -160,7 +156,7 @@ test.describe('the two topbar controls the sweeps cannot reach', () => {
     await page.route('**/api/gateway/assistant/**', (route) =>
       route.fulfill({ status: 503, json: { error: 'unreachable' } }));
 
-    await page.goto('/app');
+    await page.goto('/home');
     // CSS, not getByRole: MUI's temporary Drawer marks the app root aria-hidden
     // while it is open, so the button leaves the accessibility tree the moment
     // it does its job and a role query would stop finding it.
@@ -205,7 +201,7 @@ test.describe('the two topbar controls the sweeps cannot reach', () => {
       return route.fulfill({ status: 200, json: { errors: [{ message: 'search is down' }] } });
     });
 
-    await page.goto('/app');
+    await page.goto('/home');
     // A query that DOES match a seeded record (w360-p-214-2), so "nothing
     // matches" would be provably false rather than merely unhelpful.
     await page.locator('#w360-search').fill('214/2');

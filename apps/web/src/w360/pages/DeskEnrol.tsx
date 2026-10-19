@@ -20,7 +20,8 @@ import type { ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router';
 
 import { useDisciplines, useInviteAssociate, useUpdateAssociate } from '../api';
-import { Card, Crumbs, Failed, Loading, PageHead } from '../ui';
+import { Sk } from '../skeletons';
+import { Card, Failed, PageHead } from '../ui';
 
 /** The five levels `associates.AREA_LEVELS` spells, in the desk's words.
  *  `state` is the one that is not a place at all: it means no geographic limit,
@@ -152,7 +153,7 @@ export function DeskEnrol() {
           return;
         }
       }
-      nav(`/app/admin/members/${id}`);
+      nav(`/admin/members/${id}`);
     } catch {
       // The reason itself arrives as a toast from the shared mutation helper;
       // this line is what the form says about its own state.
@@ -162,14 +163,14 @@ export function DeskEnrol() {
 
   return (
     <main>
-      <Crumbs trail={[{ label: 'The desk', to: '/app/desk' },
-                      { label: 'Company members', to: '/app/admin/members' },
-                      { label: 'Add a member' }]} />
-      <PageHead eyebrow="Administration" title="Add a member" />
+      <PageHead
+        crumbs={[{ label: 'Company members', to: '/admin/members' }, { label: 'Add a member' }]}
+        title="Add a member"
+      />
 
       <form
         className="stack lg"
-        style={{ maxWidth: '48rem', marginTop: 'var(--space-md)' }}
+        style={{ maxWidth: '48rem' }}
         onSubmit={(e) => { e.preventDefault(); void file(); }}
       >
         <Card className="stack">
@@ -258,10 +259,20 @@ export function DeskEnrol() {
         </Card>
 
         <Card title="Services they provide" className="stack">
-          {catalogue.isLoading ? <Loading h="10rem" what="the kinds of work" />
+          {catalogue.isLoading ? (
+            // The same .choice.wide tiles the catalogue lands in, so the card does not resize.
+            <div className="choice wide" role="status" aria-busy="true" aria-label="Loading the kinds of work">
+              {Array.from({ length: 6 }, (_, i) => (
+                <button key={i} type="button" disabled tabIndex={-1} aria-hidden style={{ cursor: 'default' }}>
+                  <Sk w={`${6 + ((i * 3) % 5)}rem`} h="0.9em" />
+                  <small><Sk w={`${9 + ((i * 5) % 6)}rem`} h="0.9em" /></small>
+                </button>
+              ))}
+            </div>
+          )
             : !catalogue.data ? <Failed what="The kinds of work" error={catalogue.error} boxed h="10rem" />
               : (
-                <div className="choice svc">
+                <div className="choice wide">
                   {catalogue.data.map((d) => {
                     const on = picked.includes(d.key);
                     return (
@@ -338,16 +349,16 @@ export function DeskEnrol() {
             {err}
             {' '}
             {halfDone
-              ? <Link className="link" to={`/app/admin/members/${halfDone}`}>Open their page</Link>
-              : <Link className="link" to="/app/admin/members">Open the roster</Link>}
+              ? <Link className="link" to={`/admin/members/${halfDone}`}>Open their page</Link>
+              : <Link className="link" to="/admin/members">Open the roster</Link>}
           </p>
         )}
 
         <div className="row">
           <button type="submit" className="btn primary" disabled={!ready || invite.isPending}>
-            {invite.isPending ? 'Adding…' : 'Add member'}
+            {invite.isPending ? 'Adding…' : 'Add the member'}
           </button>
-          <Link className="btn" to="/app/admin/members">Cancel</Link>
+          <Link className="btn" to="/admin/members">Cancel</Link>
           {!ready && (
             <Why>
               Add their name, contact, full address, one kind of work and one coverage area.

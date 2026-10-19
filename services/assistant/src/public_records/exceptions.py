@@ -9,6 +9,10 @@ class PublicRecordsUnavailable(PublicRecordsError):
     """The configured historical corpus cannot currently be queried."""
 
 
+class PublicRecordsQueryTimeout(PublicRecordsUnavailable):
+    """One query outran its statement timeout; the corpus itself is reachable."""
+
+
 class ToolInputError(PublicRecordsError):
     """A public-record handler received invalid user input."""
 

@@ -1,0 +1,33 @@
+{
+  "verdict": "CHANGES_REQUESTED",
+  "findings": [
+    {
+      "id": 1,
+      "label": "High Contrast ring read after mouse clicks",
+      "blocking": true,
+      "confidence": "confirmed",
+      "location": ".kiro/skills/heuristic-ux-audit/references/evidence-capture.md:131-141 (template High Contrast block), :76-80 (popover-trigger adaptation), :226-243 (§ Interaction states focus and High Contrast bullets); apps/web/src/w360/w360.css:5061; apps/web/src/w360/ui.tsx:936, :1045",
+      "issue": "The template switches to High Contrast with two mouse clicks (W360's Menu then refocuses its trigger from script) and only then calls field.focus(). After a pointer click, Chromium matches :focus-visible on a scripted focus only for text inputs, and every W360 outline ring, including the High Contrast !important one, is a :focus-visible rule. In the pinned Chromium a scripted focus on a button after two clicks gave :focus-visible false and outline none; a text input, or a button after a Shift press or a keyboard-driven menu, gave true. So the High Contrast ring of any popover trigger, chip or list row (the eval's + Filter trigger included) records as none, which pass 12 treats as a finding against design.md § Microinteractions stance, and any non-text ring read after a click (an option in a popover opened by click) has the same problem in Dark.",
+      "action": "In the template, press a key (await page.keyboard.press('Shift')) or drive the theme menu from the keyboard before field.focus(), and add to the § Interaction states focus bullet that any ring on a control that is not a text input, read after a click, needs a key press first."
+    },
+    {
+      "id": 2,
+      "label": "SKILL.md step 2 colon list",
+      "blocking": false,
+      "confidence": "confirmed",
+      "location": ".kiro/skills/heuristic-ux-audit/SKILL.md:45-47",
+      "issue": "\"including every state its § Interaction states lists: the user's screenshot, a temporary sealed capture, or the source alone\" puts the three evidence options after the states clause, so they read as the states.",
+      "action": "Move the states clause after the options, for example: get the current state by references/evidence-capture.md (the user's screenshot, a temporary sealed capture, or the source alone), covering every state its § Interaction states lists."
+    },
+    {
+      "id": 3,
+      "label": "Image-size rule missing from the unmeasured list",
+      "blocking": false,
+      "confidence": "confirmed",
+      "location": ".kiro/skills/heuristic-ux-audit/SKILL.md:131-134; .agents/tasks/cadastral-maps-search-ux/eval-traceability.md:50-58",
+      "issue": "The 2000 px read-back Safety rule came in with this edit and no output case has a clause for it, but \"Rules no output case exercises\" says \"Two rules added in this task\" and lists only the pass 4 and pass 9 rules.",
+      "action": "Add the image-size rule as a third unmeasured row and change \"Two rules\" to match. Optionally, measure the pass 9 capped-list rule in output case 3 instead, since the in-flow village results at 8c6a2d4 are capped at 16rem with overflow-y: auto (VillageMaps.tsx:975-976, w360.css:4250-4252)."
+    }
+  ],
+  "reviewDoc": "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/.agents/tasks/cadastral-maps-search-ux/skill-review.md"
+}

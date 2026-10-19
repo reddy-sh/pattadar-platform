@@ -15,7 +15,8 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 
-import { Empty, Failed, Loading } from '../ui';
+import { Empty, Failed } from '../ui';
+import { SkPaper } from '../skeletons';
 import { apiFetch } from '../../api/client';
 import { isStorageRef } from '../../pages/documents/storage';
 
@@ -122,7 +123,7 @@ export function ScanView({
   if (scan.status === 'loading') {
     return (
       <div style={{ width: 'min(100%, 34rem)' }}>
-        <Loading h="26rem" what="the scan" />
+        <SkPaper label="Loading the scan" />
       </div>
     );
   }

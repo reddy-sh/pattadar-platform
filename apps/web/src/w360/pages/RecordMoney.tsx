@@ -13,11 +13,12 @@ import FileDownloadOutlined from '@mui/icons-material/FileDownloadOutlined';
 
 import { useDeletePurchase, useMoney, useSavePurchase, useUpdatePurchase } from '../api';
 import type { PurchaseLot } from '../api';
-import { Card, Empty, Failed, Loading, Menu, ddmmyyyy, downloadCsv, inr, num } from '../ui';
+import { Card, Empty, Failed, Menu, ddmmyyyy, downloadCsv, inr, num, plural } from '../ui';
 import { Drawer, DrawerAction, drawerEyebrow } from '../Drawer';
 import { useToast } from '../Toast';
 import { useRecordCtx } from './Record';
 import { SectionHead } from './RecordHead';
+import { Sk } from '../skeletons';
 import { ConfirmDialog } from './PropertyActions';
 import { ExpenseDrawerFor } from './RecordExpenses';
 import { useId, useRef, useState } from 'react';
@@ -131,7 +132,7 @@ function PurchaseDrawer({ recordId, recordTitle, extentUnit, lot, onClose, retur
         .then((r) => !!r.web.savePurchase).catch(() => false);
     if (!ok) {
       setErr(lot ? 'That correction was not saved. The lot is unchanged.'
-        : 'That purchase could not be saved. Nothing was recorded.');
+        : 'That purchase could not be saved. Nothing was changed.');
       return;
     }
     onClose();
@@ -140,7 +141,7 @@ function PurchaseDrawer({ recordId, recordTitle, extentUnit, lot, onClose, retur
   return (
     <Drawer
       eyebrow={drawerEyebrow(recordTitle, 'Money')}
-      title={lot ? 'Correct this purchase' : 'Record a purchase'}
+      title={lot ? 'Correct this purchase' : 'Add a purchase'}
       onClose={onClose}
       onSubmit={() => void commit()}
       busy={pending}
@@ -150,7 +151,7 @@ function PurchaseDrawer({ recordId, recordTitle, extentUnit, lot, onClose, retur
       // A greyed primary says why, beside it.
       primaryWhy={!ready && !pending ? { id: whyId, text: 'Enter what you paid to save this.' } : undefined}
       primary={(
-        <DrawerAction label={lot ? 'Save the correction' : 'Record it'} working="Saving…"
+        <DrawerAction label={lot ? 'Save the correction' : 'Save purchase'} working="Saving…"
                       pending={pending} disabled={!ready}
                       describedBy={!ready && !pending ? whyId : undefined} />
       )}
@@ -190,7 +191,7 @@ function PurchaseDrawer({ recordId, recordTitle, extentUnit, lot, onClose, retur
       <div className="field">
         <label htmlFor="pu-deed">Deed number &amp; SRO</label>
         <div className="row tight" style={{ gap: 8, alignItems: 'flex-start' }}>
-          <input id="pu-deed" type="text" value={deedNo} placeholder="Deed no."
+          <input id="pu-deed" type="text" value={deedNo} placeholder="Deed number"
                  onChange={(e) => setDeedNo(e.target.value)} style={{ flex: '1 1 0', minWidth: 0 }} />
           <input aria-label="SRO" type="text" value={sro} placeholder="SRO"
                  onChange={(e) => setSro(e.target.value)} style={{ flex: '1 1 0', minWidth: 0 }} />
@@ -199,6 +200,73 @@ function PurchaseDrawer({ recordId, recordTitle, extentUnit, lot, onClose, retur
       </div>
       {err && <p className="note" role="alert" style={{ margin: 0, color: 'var(--w-danger)' }}>{err}</p>}
     </Drawer>
+  );
+}
+
+/** The money tab's first read, in the page's own boxes (design.md § Loading):
+ *  the three headline cards, the Purchase table with its real headings, and
+ *  the rate card in the rail, so nothing moves when the figures land. The
+ *  `₹ / unit` heading waits for the record's unit, so it is grey too. */
+function MoneySkeleton() {
+  const heads = ['Date', 'Extent', '', 'Paid', 'Government value then', 'Seller & deed'];
+  return (
+    <div role="status" aria-busy="true" aria-label="Loading the money figures">
+      <div aria-hidden>
+        <SectionHead title="Money" sub={<Sk w="16rem" />} />
+        <div className="grid3" style={{ margin: '0 0 var(--space-lg)' }}>
+          {['What you actually paid', 'Government value today', 'Market estimate'].map((t, i) => (
+            <div key={t} className={i === 2 ? 'card accent' : 'card'}>
+              <span className="eyebrow">{t}</span>
+              <p className="num" style={{ fontSize: '2rem', margin: '0.25rem 0 0.5rem', height: '1.1em', display: 'flex', alignItems: 'center' }}>
+                <Sk w="60%" h="0.7em" />
+              </p>
+              <hr className="hr" style={{ margin: '0 0 0.5rem' }} />
+              <Sk w="75%" />
+            </div>
+          ))}
+        </div>
+        <div className="split">
+          <div className="stack lg">
+            <Card title="Purchase">
+              <div className="scroll-x edgefade">
+                <table style={{ minWidth: '40rem' }}>
+                  <thead>
+                    <tr>
+                      {heads.map((h, i) => (
+                        <th key={i} className={i > 0 && i < 5 ? 'right' : undefined}>
+                          {h || <Sk w="4rem" style={{ marginLeft: 'auto' }} />}
+                        </th>
+                      ))}
+                      <th className="menucol" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[0, 1].map((r) => (
+                      <tr key={r}>
+                        {heads.map((_, i) => (
+                          <td key={i} className={i > 0 && i < 5 ? 'right' : undefined}>
+                            <Sk w={i === 5 ? '70%' : '55%'} style={i > 0 && i < 5 ? { marginLeft: 'auto' } : undefined} />
+                          </td>
+                        ))}
+                        <td className="menucol" />
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          </div>
+          <aside className="stack">
+            <Card title="Expected rise in value" className="railcard">
+              <Sk w="8rem" h="1.75rem" />
+              <div className="row tight" style={{ marginTop: 'var(--space-sm)' }}>
+                {[0, 1, 2, 3].map((c) => <Sk key={c} w="3.25rem" h="1.75rem" r="var(--radius-pill)" style={{ flex: 'none' }} />)}
+              </div>
+            </Card>
+          </aside>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -229,7 +297,7 @@ export function RecordMoney() {
   // the land COST is a different act from recording an ongoing cost, and it
   // writes a different table (purchase_lots, not land_expenses).
   const [buying, setBuying] = useState(false);
-  const buyTrigger = useRef<HTMLButtonElement>(null);
+  const buyTrigger = useRef<HTMLButtonElement & HTMLAnchorElement>(null);
 
   const money = useMoney(rec.id, rate);
   const lastGood = useRef<NonNullable<typeof money.data> | undefined>(undefined);
@@ -244,7 +312,7 @@ export function RecordMoney() {
 
   if (!data) {
     return isPending
-      ? <Loading h="70vh" what="the money figures" />
+      ? <MoneySkeleton />
       : <Failed what="The money figures" error={error} boxed h="26rem" />;
   }
 
@@ -277,16 +345,16 @@ export function RecordMoney() {
    *  Built the way Properties' export is, down to the injection guard. */
   const costSheet = () => {
     const rows: unknown[][] = [
-      ['Record', rec.title],
+      ['Property', rec.title],
       ['Extent', num(data.extent, data.extentUnit === 'ac' ? 2 : 0), data.extentUnit],
       [],
       ['What you actually paid', paidKnown ? Math.round(data.paidTotal) : ''],
       [`Paid per ${unit}`, paidKnown ? Math.round(data.paidPerUnit) : ''],
-      ['Of that, duty and capital work', Math.round(data.extrasTotal)],
+      ['Of that, stamp duty and improvements', Math.round(data.extrasTotal)],
       ['Government value today', Math.round(data.govtTotal)],
       [`Government per ${unit}`, Math.round(data.govtPerUnit)],
       ['Market estimate', Math.round(data.marketTotal)],
-      ['Appreciation assumed, % a year', data.appreciationPct],
+      ['Expected rise in value, % a year', data.appreciationPct],
       // A gain with nothing paid is not a gain, so it is left out of the file
       // rather than exported as a zero somebody's spreadsheet would sum.
       ...(paidKnown ? [
@@ -295,15 +363,17 @@ export function RecordMoney() {
       ] : []),
     ];
     if (data.lots.length) {
-      rows.push([], ['How you bought it'],
-        ['Date', 'Extent', 'Unit', `Rate per ${unit}`, 'Paid', 'Govt then', 'Seller', 'Deed', 'SRO']);
+      // Section names are the cards' own titles ("Purchase", "Other costs"):
+      // one name per thing, on screen and in the file.
+      rows.push([], ['Purchase'],
+        ['Date', 'Extent', 'Unit', `Rate per ${unit}`, 'Paid', 'Government value then', 'Seller', 'Deed', 'SRO']);
       for (const l of data.lots) {
         rows.push([l.boughtOn, l.extent, l.extentUnit, Math.round(l.rate), Math.round(l.paid),
           Math.round(l.govtValue), l.seller, l.deedNo, l.sro]);
       }
     }
     if (data.extras.length) {
-      rows.push([], ['Everything else you put in']);
+      rows.push([], ['Other costs']);
       for (const e of data.extras) rows.push([e.label, Math.round(e.amount)]);
     }
     // The one CSV routine (ui.tsx downloadCsv), shared with the ledger's
@@ -355,7 +425,10 @@ export function RecordMoney() {
    *  (web360.py `money`), so dimming those cards would claim a recalculation
    *  that is not happening. */
   const dim = {
-    opacity: stale ? 0.55 : undefined,
+    opacity: stale ? 0.6 : undefined,
+    // Inert only while the new rate is in flight: after a failed re-read the
+    // old chart stays (dimmed) but its figures table must still open.
+    pointerEvents: money.isPlaceholderData ? 'none' as const : undefined,
     transition: 'opacity var(--dur-fast) var(--ease-out)',
   };
 
@@ -371,38 +444,46 @@ export function RecordMoney() {
             ? `Paid ${inr(data.paidTotal)}${rec.boughtYear ? ` (${rec.boughtYear})` : ''}`
             : 'Purchase price not recorded',
           data.marketTotal > 0
-            ? `Estimated value ${inr(data.marketTotal)}`
+            ? `Market estimate ${inr(data.marketTotal)}`
             : 'Value not recorded',
           // How many registrations the cost is spread over. The extent half of
           // this line moved to the header chip; the lots did not, because they
           // are the reason the table below has more than one block.
-          data.lots.length > 1 ? `${data.lots.length} purchase lots` : '',
+          data.lots.length > 1 ? `Bought in ${data.lots.length} parts` : '',
         ].filter(Boolean).join(' · ')}
-        actions={(
-          <>
-          <button type="button" className="btn" onClick={costSheet}>
-            <FileDownloadOutlined sx={{ fontSize: 16 }} /> Cost sheet
-          </button>
-          {/* Two adds, because this hanger holds two different things. "Record
-              a purchase" writes a registration lot (savePurchase → purchase_lots)
-              — what the land COST, the figures at the top of the page. "Add an
-              expense" writes an ongoing expense (saveExpense → land_expenses) —
-              what it costs to HOLD, the ledger the page links to — and it is
-              the same words the ledger's own button and drawer use, so one
-              drawer has one name. The purchase (the thing an empty page is
-              missing) is the filled lead action; the expense is outlined. */}
-          <button ref={buyTrigger} type="button" className="btn primary"
-                  aria-haspopup="dialog" aria-expanded={buying}
-                  onClick={() => setBuying(true)}>
-            <AddOutlined sx={{ fontSize: 16 }} /> Record a purchase
-          </button>
-          <button ref={addTrigger} type="button" className="btn"
-                  aria-haspopup="dialog" aria-expanded={adding}
-                  onClick={() => setAdding(true)}>
-            <AddOutlined sx={{ fontSize: 16 }} /> Add an expense
-          </button>
-          </>
-        )}
+        actions={{
+          /* Two adds, because this hanger holds two different things. "Add a
+             purchase" writes a registration lot (savePurchase → purchase_lots)
+             — what the land COST, the figures at the top of the page. "Add an
+             expense" writes an ongoing expense (saveExpense → land_expenses) —
+             what it costs to HOLD, the ledger the page links to — and it is
+             the same words the ledger's own button and drawer use, so one
+             drawer has one name. The purchase (the thing an empty page is
+             missing) is the filled lead action. Cost sheet and Add an expense
+             live in the More menu (Reddy, 13/10/2026); the cost sheet waits
+             for a new rate's figures, and the expense drawer hands focus back
+             to the menu. */
+          overflowRef: addTrigger,
+          overflowHeader: rec.title,
+          overflow: [
+            {
+              label: 'Cost sheet',
+              icon: <FileDownloadOutlined sx={{ fontSize: 17 }} />,
+              disabled: money.isPlaceholderData,
+              onClick: costSheet,
+            },
+            {
+              label: 'Add an expense',
+              icon: <AddOutlined sx={{ fontSize: 17 }} />,
+              onClick: () => setAdding(true),
+            },
+          ],
+          primary: {
+            label: 'Add a purchase', icon: <AddOutlined sx={{ fontSize: 16 }} />,
+            ref: buyTrigger, haspopup: 'dialog', expanded: buying,
+            onClick: () => setBuying(true),
+          },
+        }}
       />
 
       {adding && (
@@ -410,6 +491,7 @@ export function RecordMoney() {
           recordId={rec.id}
           recordTitle={rec.title}
           mode="expense"
+          returnFocus={addTrigger}
           onClose={() => setAdding(false)}
         />
       )}
@@ -522,11 +604,9 @@ export function RecordMoney() {
               record with no purchase looking at a page that simply ended, with
               no word anywhere about the thing that was missing. */}
           <Card title="Purchase"
-                aside={data.lots.length > 0 ? <span className="note">
-                  {data.lots.length > 1
-                    ? `${data.lots.length} lots, one registration summary`
-                    : 'One registration'}
-                </span> : undefined}>
+                aside={data.lots.length > 0
+                  ? <span className="note">{plural(data.lots.length, 'registration')}</span>
+                  : undefined}>
             {data.lots.length > 0 ? (
               /* Six columns of registration detail: it scrolls inside the
                  card rather than taking the page sideways on a phone, and the
@@ -537,7 +617,7 @@ export function RecordMoney() {
                   <tr>
                     <th>Date</th><th className="right">Extent</th>
                     <th className="right">₹ / {unit}</th>
-                    <th className="right">Paid</th><th className="right">Govt then</th><th>Seller &amp; deed</th>
+                    <th className="right">Paid</th><th className="right">Government value then</th><th>Seller &amp; deed</th>
                     <th className="menucol" aria-label="Actions" />
                   </tr>
                 </thead>
@@ -588,9 +668,13 @@ export function RecordMoney() {
                       </td>
                     </tr>
                   ))}
-                  {data.lots.length > 1 && (
+                </tbody>
+                {/* The blend is the table's total row (the table standard):
+                    a footer, so it is never sorted or counted as a lot. */}
+                {data.lots.length > 1 && (
+                  <tfoot>
                     <tr className="total">
-                      <td className="accent">Together</td>
+                      <th scope="row" className="accent">Together</th>
                       <td className="right num">
                         {num(data.extent, data.extentUnit === 'ac' ? 2 : 0)} {data.extentUnit}
                       </td>
@@ -599,11 +683,11 @@ export function RecordMoney() {
                       <td className="right num" style={{ color: 'var(--w-info)' }}>
                         {data.blendedGovt > 0 ? inr(data.blendedGovt) : '—'}
                       </td>
-                      <td className="note">Blended rate</td>
+                      <td className="note">Average per {unit}</td>
                       <td className="menucol" />
                     </tr>
-                  )}
-                </tbody>
+                  </tfoot>
+                )}
               </table>
               </div>
             ) : (
@@ -656,7 +740,7 @@ export function RecordMoney() {
                     read a line off a picture — a screen reader heard only
                     "Value over time" — and for anyone who wants the number. */}
                 <details className="chart-figures">
-                  <summary>The figures by year</summary>
+                  <summary>Figures by year</summary>
                   <div className="scroll-x">
                     <table>
                       <thead>
@@ -690,13 +774,13 @@ export function RecordMoney() {
 
           {/* The ledger, by the name its own page carries. It opens inside
               this property's frame, with Money still the tab you are on. */}
-          <Link to={`/app/records/${rec.id}/expenses`} className="btn">
+          <Link to={`/properties/${rec.id}/expenses`} className="btn">
             See the expenses ›
           </Link>
         </div>
 
         <aside className="stack">
-          <Card title="Appreciation rate" className="railcard">
+          <Card title="Expected rise in value" className="railcard">
             <p style={{ margin: 0 }}>
               {/* While the newly chosen rate is still loading the payload on
                   screen is the old one, and printing its `appreciationPct`
@@ -705,7 +789,7 @@ export function RecordMoney() {
               <span className="num accent" style={{ fontSize: '1.75rem' }}>
                 {stale ? rate : data.appreciationPct}%
               </span>{' '}
-              <span className="note">a year, compounding</span>
+              <span className="note">a year, on last year's value</span>
             </p>
             <div className="row tight" style={{ marginTop: 'var(--space-sm)' }}>
               {/* Washed when pressed: the rate is a view setting, not an
@@ -745,7 +829,7 @@ export function RecordMoney() {
                          }
                        }} />
                 <p className="note" style={{ margin: 0 }}>
-                  0 to {RATE_MAX}. Not saved with the record.
+                  0 to {RATE_MAX}. Not saved with this property.
                 </p>
               </div>
             )}
@@ -797,9 +881,9 @@ export function RecordMoney() {
                 </div>
                 <div>
                   <span className="grow">
-                    Less depreciation
+                    Less building wear
                     <span className="note mono" style={{ display: 'block' }}>
-                      {data.depreciationYears} years, structure only
+                      {data.depreciationYears} years · building only
                     </span>
                   </span>
                   <span className="num down">−{inr(data.depreciation)}</span>

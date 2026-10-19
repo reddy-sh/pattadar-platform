@@ -19,7 +19,7 @@ test('recipient opens only selected files without signing in', async ({ page }) 
   await page.getByRole('button', { name: 'Open', exact: true }).click();
   await expect(page.getByRole('img', { name: 'Selected deed' })).toBeVisible();
   const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Download boundary GeoJSON' }).click();
+  await page.getByRole('button', { name: 'Download boundary (map file, GeoJSON)' }).click();
   expect((await download).suggestedFilename()).toBe('shared-boundary.geojson');
 });
 

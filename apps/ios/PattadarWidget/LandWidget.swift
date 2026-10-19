@@ -126,7 +126,7 @@ struct LandWidgetView: View {
                     Image(systemName: s.verdict == .ready ? "checkmark.seal.fill" : "exclamationmark.circle.fill")
                         .foregroundStyle(Palette.tint(for: s.verdict))
                     Text(s.worst.isEmpty
-                         ? "Every property would stand up to scrutiny today."
+                         ? "Every property on file is in order today."
                          : s.worst)
                         .font(.bodyCopy)
                         .foregroundStyle(Palette.ink)
@@ -185,7 +185,7 @@ struct LandWidgetView: View {
             return "\(s.waiting) reading\(s.waiting == 1 ? "" : "s") waiting"
         }
         if s.blocking > 0 {
-            return "\(s.blocking) can’t be sold yet"
+            return "\(s.blocking) to fix before selling"
         }
         if s.unpinned > 0 {
             return "\(s.unpinned) not on the map"
@@ -194,7 +194,7 @@ struct LandWidgetView: View {
     }
 
     private func vaultLine(_ s: LandSnapshot) -> String {
-        let papers = "\(s.documents) paper\(s.documents == 1 ? "" : "s") in the vault"
+        let papers = s.documents == 1 ? "1 document" : "\(s.documents) documents"
         return s.waiting > 0 ? papers + " · \(s.waiting) waiting on you" : papers
     }
 }

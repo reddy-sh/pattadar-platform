@@ -37,7 +37,7 @@ export function ForgotPasswordPage() {
   const [submitting, setSubmitting] = useState(false);
 
   // Already signed in (includes mock mode) — same behaviour as /login.
-  if (isAuthenticated) return <Navigate to="/app" replace />;
+  if (isAuthenticated) return <Navigate to="/home" replace />;
 
   const onRequest = async (e: FormEvent) => {
     e.preventDefault();

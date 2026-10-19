@@ -1,6 +1,6 @@
 # Pattadar Agent Skills Catalog
 
-Canonical Kiro portfolio following the [Agent Skills specification](https://agentskills.io/specification). Each skill is one coherent workflow; invariants live in steering, deterministic gates in CI/hooks, and conditional detail in one-level `references/`.
+Canonical Kiro portfolio following the [Agent Skills specification](https://agentskills.io/specification). Each skill is one coherent workflow; invariants live in steering (`.kiro/steering/*.md`), deterministic gates in CI/hooks, and conditional detail in one-level `references/`.
 
 ## Portfolio
 
@@ -20,7 +20,6 @@ Canonical Kiro portfolio following the [Agent Skills specification](https://agen
 | `incident-triage` | live-symptom diagnosis and safest next check only |
 | `web-feature-delivery` | active `apps/web` feature architecture and test choice |
 | `mobile-feature-delivery` | Expo compatibility client and EAS/store readiness |
-| `web-next-cutover` | staged Next parity and explicit cutover |
 | `sync-ios` | web/core/root-schema/gateway adaptation to native iOS |
 | `design-system-governance` | cross-client tokens, the one web face and weights, shared-component reuse, accessibility, motion, icons and brand |
 | `heuristic-ux-audit` | analysis-only heuristic UX audit of an existing web screen against design.md's Material 3 principles, delivered as side-by-side CURRENT versus standard images (chat-sized `compare.png`, full `board.png`) ahead of a short summary of what changes |
@@ -31,34 +30,42 @@ Canonical Kiro portfolio following the [Agent Skills specification](https://agen
 | `test-governance` | test harness, fixture, CI coverage and flake policy |
 | `provider-activation` | Cognito/email/SMS/WA/payment/Anthropic/push/store activation |
 | `compliance-evidence` | SOC2/DPDP/GDPR evidence without overclaiming |
-| `reference-data-ingestion` | AP-IGRS/village/KML/FMB/public-record ingestion quality |
+| `reference-data-ingestion` | LGD geography, AP-IGRS registration CSVs, village-map archives and public-record corpus ingestion quality |
 | `runbook-consistency` | documentation/executable-behavior drift |
 | `typesafe-ai` | advisory TypeSafe System One (Jev) typed-decision design within Pattadar boundaries; adapted external skill |
 
 ## Always-on watches
 
-`pattadar-standards.md`, `pattadar-safety.md`, `change-governance.md`, and
-`reddy-authority.md` require every task to assess documentation, architecture,
-security/privacy, testing/evidence, cleanup and reserved human decisions.
+The four always-on steering files (`pattadar-standards.md`, `pattadar-safety.md`,
+`change-governance.md`, `reddy-authority.md`) require every task to assess
+documentation, architecture, security/privacy, testing/evidence, cleanup and
+reserved human decisions.
 Specialist skills own detailed workflows.
 
 ## Portfolio status
 
 **Provisional.** Static validation proves package/fixture shape only. It does not
-prove Kiro discovery, trigger accuracy or output benefit. Freeze additions,
-deletions and merges until fresh-session pilot evidence exists.
-`heuristic-ux-audit` was added on explicit request on 27/09/2026 while this
-freeze stands; like the rest of the portfolio, it is unproven until its pilot
-runs.
+prove discovery, trigger accuracy or output benefit. Freeze additions,
+deletions and merges until fresh-session pilot evidence exists. Exceptions
+made while this freeze (07944a0, 16/09/2026) stands:
+
+- `functional-acceptance` added 17/09/2026 (d707d59), `heuristic-ux-audit` on
+  explicit request on 27/09/2026 and `typesafe-ai` on 30/09/2026 (both landed in
+  40ac200); like the rest of the portfolio, they are unproven until their pilots run.
+- `web-next-cutover` retired on 09/10/2026 at Reddy's request (removed from
+  `.kiro` on 18/10/2026): `apps/web-next`, its deploy branch and `WEB_ORIGIN`
+  were removed in c776cf0 (20/09/2026). Its one live rule, keeping the shipped iOS
+  `/app/tickets/<id>/pay` link working through the `tickets/:id/pay` redirect,
+  belongs to `web-feature-delivery` (that redirect was removed on 11/10/2026;
+  see its drift note).
 
 ## Evaluation and maintenance
 
-- Static structure: `python3 scripts/validate-agent-skills.py --strict`.
-- Portfolio trigger/output fixtures: `python3 scripts/validate-skill-evals.py`.
-- Actual trigger quality requires fresh Kiro sessions; run each positive/negative prompt repeatedly and record whether the skill loaded.
+- Static structure: `python3 scripts/validate-agent-skills.py --strict`; portfolio fixtures: `python3 scripts/validate-skill-evals.py`; `python3 scripts/validate-agent-governance.py` runs both plus the catalog, steering, hook and reference checks (the Kiro PostFileSave hook runs it after agent edits). All read `.kiro` only.
+- Actual trigger quality requires fresh Kiro sessions; run each positive/negative prompt repeatedly and record whether the skill loaded. Claude Code runs use the untracked `.claude` copy; keep Kiro and Claude Code results apart (`agent-skill-maintenance` `references/evaluation-method.md`).
 - Output quality follows with-skill versus no-skill/old-skill runs, objective assertions after first outputs, timing/tokens, evidence-based grading, and human feedback. See `agent-skill-maintenance`.
 - New skills activate after a new Kiro session/index refresh. Static validation cannot prove discovery.
-- Keep `.kiro/skills` canonical. Cross-tool copies are thin adapters only.
+- Keep `.kiro/skills` canonical. Cross-tool copies are thin adapters, except the untracked Claude Code copy in `.claude/`, which `python3 scripts/sync-claude-from-kiro.py` regenerates from `.kiro` (wording rules in `scripts/claude-adaptations.txt`; `agent-skill-maintenance` step 4).
 - Ground changes in real code/runbooks/incidents; update `metadata.verified`, catalog, eval manifest and validators together.
 
 ## Upstream provenance

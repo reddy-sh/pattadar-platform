@@ -3,7 +3,7 @@
 import { Suspense, lazy } from 'react';
 import type { Ref } from 'react';
 import type { VillageCanvasHandle, VillageCanvasProps } from './VillageCanvas';
-import { Loading } from './ui';
+import { SkMap } from './skeletons';
 
 const Impl = lazy(() => import('./VillageCanvas'));
 
@@ -12,7 +12,7 @@ export { BANDS, bandOf } from './VillageCanvas';
 
 export function VillageCanvas(props: VillageCanvasProps & { ref?: Ref<VillageCanvasHandle> }) {
   return (
-    <Suspense fallback={<Loading h="100%" />}>
+    <Suspense fallback={<SkMap label="Loading the map" />}>
       <Impl {...props} />
     </Suspense>
   );

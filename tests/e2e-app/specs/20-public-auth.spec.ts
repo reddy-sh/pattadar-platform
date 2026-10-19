@@ -854,10 +854,10 @@ test.describe('a deep link followed without an account', () => {
    *  RequireAuth.tsx:28 preserves pathname + search and dropping the search
    *  would land a shared, filtered list on the unfiltered one. */
   const AIMED_AT = [
-    '/app',
-    '/app/papers',
-    `/app/records/${ID.parcel}`,
-    '/app/properties?kind=parcel',
+    '/home',
+    '/papers',
+    `/properties/${ID.parcel}`,
+    '/properties?kind=parcel',
   ];
 
   for (const deep of AIMED_AT) {
@@ -878,16 +878,16 @@ test.describe('a deep link followed without an account', () => {
   }
 
   test('the bounce replaces the guarded URL rather than stacking it, so Back does not loop', async ({ page }) => {
-    await page.goto(`/app/records/${ID.parcel}`);
+    await page.goto(`/properties/${ID.parcel}`);
     await expect(page).toHaveURL(/\/login$/);
     await page.goBack();
     await expect(page, 'Back returned to the guarded URL, which bounces again').not.toHaveURL(
-      /\/app\/records/,
+      /\/properties\//,
     );
   });
 
   test('a signed-out deep link never asks the API for the record it could not show', async ({ page, world }) => {
-    await page.goto(`/app/records/${ID.parcel}`);
+    await page.goto(`/properties/${ID.parcel}`);
     await expect(page).toHaveURL(/\/login$/);
     expect(
       world.askedFields(),
@@ -945,7 +945,7 @@ test.describe('the social sign-in redirect', () => {
     const authorized = await stubHostedUi(page, env.VITE_COGNITO_AUTHORITY);
 
     // Arrive the way somebody following a shared link arrives.
-    await page.goto(`/app/records/${ID.parcel}`);
+    await page.goto(`/properties/${ID.parcel}`);
     await expect(page).toHaveURL(/\/login$/);
     await page.getByRole('button', { name: `Continue with ${socials[0]}` }).click();
 
@@ -971,7 +971,7 @@ test.describe('the social sign-in redirect', () => {
         .join('\n'),
     );
     expect(stored, 'the aim was dropped on the way to the provider').toContain(
-      `/app/records/${ID.parcel}`,
+      `/properties/${ID.parcel}`,
     );
   });
 });
@@ -1480,7 +1480,7 @@ test.describe('the legal pages', () => {
     const aim = await page.evaluate(
       () => (window.history.state as { usr?: { returnTo?: string } } | null)?.usr?.returnTo ?? null,
     );
-    expect(aim, 'the reader must land back on their settings after signing in').toBe('/app/account');
+    expect(aim, 'the reader must land back on their settings after signing in').toBe('/account');
   });
 
   test('@phone the privacy notice reflows onto a phone', async ({ page }) => {
@@ -1507,6 +1507,14 @@ test.describe('public family capability links', () => {
     const asked: string[] = [];
     await page.route(/\/graphql$/, (route) => {
       const body = route.request().postData() ?? '';
+      // These tests are about the verify-only path, which InvitePage draws
+      // when the invitation preview cannot be read (InvitePage.tsx "an older
+      // server, or offline"). The sealed world does not answer `invitePreview`
+      // and would 400 it, which the console guard fails on; answer it the way
+      // a server without the field does — a GraphQL error on an HTTP 200.
+      if (body.includes('invitePreview')) {
+        return route.fulfill({ json: { errors: [{ message: 'Cannot query field "invitePreview" on type "Query".' }] } });
+      }
       if (!body.includes(operation)) return route.fallback();
       asked.push(body);
       return route.fulfill({ json: { data: { [operation]: answer } } });
@@ -1517,21 +1525,21 @@ test.describe('public family capability links', () => {
   test('/verify opens publicly, verifies deliberately, and never prints the token', async ({ page }) => {
     const asked = await watchMutation(page, 'verifyBeneficiary', { id: 'member-a' });
     await page.goto(`/verify/${TOKEN}`);
-    await expect(page.getByRole('heading', { name: 'Verify membership' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Confirm how you are listed' })).toBeVisible();
     await expect(page.getByText(TOKEN)).toHaveCount(0);
     await expect.poll(() => asked.length).toBe(0);
 
-    await page.getByRole('button', { name: 'Verify membership' }).click();
+    await page.getByRole('button', { name: 'Confirm my details' }).click();
     await expect.poll(() => asked.length).toBe(1);
     expect(asked[0]).toContain(TOKEN);
-    await expect(page.getByText('Your membership details are verified.')).toBeVisible();
+    await expect(page.getByText('Your details are confirmed.')).toBeVisible();
   });
 
   test('/verify records optional safeguard-email consent explicitly', async ({ page }) => {
     const asked = await watchMutation(page, 'verifyBeneficiary', { id: 'member-a' });
     await page.goto(`/verify/${TOKEN}`);
-    await page.getByRole('checkbox', { name: /receive household inactivity safeguard emails/i }).check();
-    await page.getByRole('button', { name: 'Verify membership' }).click();
+    await page.getByRole('checkbox', { name: /receive family inactivity safeguard emails/i }).check();
+    await page.getByRole('button', { name: 'Confirm my details' }).click();
     await expect.poll(() => asked.length).toBe(1);
     expect(asked[0]).toContain('"consent":true');
   });
@@ -1539,7 +1547,7 @@ test.describe('public family capability links', () => {
   test('/verify reports a spent or invalid credential', async ({ page }) => {
     await watchMutation(page, 'verifyBeneficiary', null);
     await page.goto('/verify/not-a-real-token');
-    await page.getByRole('button', { name: 'Verify membership' }).click();
+    await page.getByRole('button', { name: 'Confirm my details' }).click();
     await expect(page.getByText(/invalid, expired, or has already been used/i)).toBeVisible();
   });
 
@@ -1785,10 +1793,16 @@ test.describe('an address that matches nothing', () => {
 
 test.describe('somebody who is already signed in', () => {
   test.use({ signedIn: true });
+  // Every door here hands over to Home, whose Recent activity reads the
+  // cross-client `auditTrail` root query (data/hooks.ts), which
+  // fixtures/seed.ts does not answer yet; unanswered it 400s and the console
+  // guard fails whichever test is still open when it lands. Answered empty
+  // here, as 01-shell and 02-dashboard do, until the seed carries it.
+  test.beforeEach(({ world }) => { world.set('root.auditTrail', []); });
 
   test('typing pattadar.com goes straight to their own records, not the pitch again', async ({ page }) => {
     await page.goto('/');
-    await expect(page).toHaveURL(/\/app$/);
+    await expect(page).toHaveURL(/\/home$/);
     // The rail is behind React.lazy and the app chunk is the biggest one Vite
     // has to build; on a laptop that is also running the founder's stack this
     // is the first request that pays for it, and ten seconds is not always
@@ -1800,20 +1814,20 @@ test.describe('somebody who is already signed in', () => {
 
   test('/login does not ask them to sign in twice', async ({ page }) => {
     await page.goto('/login');
-    await expect(page).toHaveURL(/\/app$/);
+    await expect(page).toHaveURL(/\/home$/);
     await expect(page.getByRole('heading', { level: 1, name: 'Sign in' })).toHaveCount(0);
   });
 
   test('/forgot-password does not offer to reset a password they are signed in with', async ({ page }) => {
     await page.goto('/forgot-password');
-    await expect(page).toHaveURL(/\/app$/);
+    await expect(page).toHaveURL(/\/home$/);
   });
 
   test('/signup sends them to their account settings, welcomed rather than signed up again', async ({ page }) => {
     await page.goto('/signup');
-    await expect(page).toHaveURL(/\/app\/account\?welcome=1$/);
+    await expect(page).toHaveURL(/\/account\?welcome=1$/);
     // Generous for the same reason as the rail above: first build of the app chunk.
-    await expect(page.getByRole('heading', { level: 1, name: 'Your account and data' })).toBeVisible({ timeout: 45_000 });
+    await expect(page.getByRole('heading', { level: 1, name: 'Privacy & your data' })).toBeVisible({ timeout: 45_000 });
     await expect(page.getByText('Welcome to Pattadar', { exact: false })).toBeVisible();
   });
 
@@ -1822,6 +1836,6 @@ test.describe('somebody who is already signed in', () => {
     await page.goto('/auth/callback');
     await expect(page.getByRole('heading', { name: 'Sign-in could not be completed' })).toBeVisible();
     await page.getByRole('button', { name: 'Back to home' }).click();
-    await expect(page).toHaveURL(/\/app$/);
+    await expect(page).toHaveURL(/\/home$/);
   });
 });

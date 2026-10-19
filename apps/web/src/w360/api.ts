@@ -7,7 +7,7 @@
  * the fields it draws, which keeps the payloads honest and makes it obvious in
  * review which screen is responsible for which field.
  */
-import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { useQuery, useQueries, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { apiFetch, gql } from '../api/client';
 import { useToast } from './Toast';
 
@@ -46,6 +46,27 @@ export interface RecordCard {
   /** An image scan to show when there is no photograph. Never a PDF — the
    *  gateway cannot thumbnail one. See _paper_heroes in web360.py. */
   paperFileRef: string;
+  /** WHO holds it (decision memo 06/10/2026): the family or group's name, or
+   *  '' when it is held in your own name. */
+  groupName: string;
+  /** What the "Held by" column prints: the group's name, or "In your own name". */
+  holderLabel: string;
+  /** WHICH holding it is part of, or '' when it stands alone. */
+  holdingId: string; holdingName: string;
+  /** The government's Land Parcel number (LP / survey number, "456/3"); '' when none. */
+  surveyNo: string;
+  /** The deed: registrar's number ("1234/2019"), office, and registration
+   *  date (ISO as stored). '' when not recorded. */
+  docNo: string; sro: string; regDate: string;
+  /** The register's facts (RecordCard in web360.py). '' / 0 is "not recorded".
+   *  The provenance and people fields are filled on the Properties list only. */
+  parentage: string; coOwnerCount: number;
+  managerLine: string; managerCount: number;
+  purchasePrice: number; purchaseDate: string;
+  mutationStatus: string; ecStatus: string;
+  /** UTC ISO timestamps, as stored. */
+  createdAt: string;
+  lastActivityAt: string; lastActivityBy: string; lastActivityAction: string;
 }
 export interface Portfolio {
   displayName: string;
@@ -53,7 +74,7 @@ export interface Portfolio {
   builtExtent: number; builtFlats: number; builtShops: number; invested: number;
   worthNow: number; gain: number; loans: number; managedCount: number; watchedCount: number;
   waitingCount: number; runningCosts: number; paperCount: number; backupVerifiedOn: string;
-  /** Whether this account may open /app/desk, and its associate row if it has
+  /** Whether this account may open /desk, and its associate row if it has
    *  one. Both ride on the portfolio rather than on a query of their own:
    *  Shell.tsx mounts exactly two queries — usePortfolio and useOrders — and
    *  anything added there is paid for on every screen in the app, forever, to
@@ -102,12 +123,16 @@ export interface RecordDetail {
   marketValue: number; perUnitValue: number; perUnitLabel: string; boughtYear: string;
   lat: number; lon: number; ring: number[]; mapCaption: string;
   paperCount: number; featureCount: number;
-  peopleCount: number; serviceCount: number; photoCount: number; photoNote: string;
+  peopleCount: number; serviceCount: number; photoCount: number; mediaCount: number; photoNote: string;
   tags: string[]; noteBody: string; noteAuthor: string; noteAt: string;
   /** The holding this record is part of, or '' when it stands alone. A record
    *  belongs to at most one — the API enforces that cardinality with two partial
    *  unique indexes, so this is a pair of strings rather than a list. */
   combinedId: string; combinedName: string;
+  /** Who holds it — "Held by {holderLabel}". `groupId` '' = in your own name. */
+  groupId: string; groupName: string; holderLabel: string;
+  /** The LP number and the deed, for the edit drawer to show what it edits. */
+  surveyNo: string; docNo: string; sro: string; regDate: string;
 }
 export interface Paper {
   id: string; title: string; detail: string; shelf: string; icon: string;
@@ -121,6 +146,15 @@ export interface Paper {
   /** A kept Aadhaar card, filed under <person> › Aadhaar. Only the
    *  `vaultPapers` read selects it. */
   aadhaarCard?: boolean;
+  /** Deed details the owner (or a reading) set: the deed number, the
+   *  registration date as DD/MM/YYYY and the registration office. Optional:
+   *  only the vault reads select them. */
+  docNo?: string; registeredOn?: string; office?: string;
+  /** The owner chose this name (Rename); otherwise Documents names the file
+   *  by what it is (paperTitle.ts). */
+  nameSet?: boolean;
+  /** The name the file was uploaded with. */
+  fileName?: string;
 }
 /** One of the owner's own folders in Documents, sent flat with its parent. */
 export interface VaultFolder {
@@ -129,10 +163,9 @@ export interface VaultFolder {
    *  family member's id); '' for a folder the owner made. */
   personId?: string;
 }
-/** A note filed against a record. Append-only on the server — there is no
- *  update or delete resolver for `notes` — which is the whole point of it:
- *  what an owner wrote down about a visit is not editable after the fact, and
- *  filing one writes an audit line saying so. */
+/** A note filed against a record. `body` is Markdown (RichText.tsx), its first
+ *  line the headline. Editable in place through `updateNote` (13/10/2026);
+ *  adding or editing one writes an audit line on the record's Activity. */
 export interface RecordNote {
   id: string; body: string; createdAt: string;
 }
@@ -278,6 +311,8 @@ export interface DocumentView {
   office: string; buyer: string; seller: string; consideration: number;
   readerSummary: string; readerFlag: string; readerFlagPage: number; tags: string[];
   shared: boolean;
+  /** The deed number; the owner sets it in Edit details. */
+  docNo?: string; nameSet?: boolean;
   versions: { id: string; version: number; label: string; madeOn: string; madeBy: string; note: string }[];
   link: ShareLink | null;
 }
@@ -315,6 +350,33 @@ export interface GovernancePolicy {
 export interface GovernancePolicyEvent {
   id: string; policyId: string; scopeKey: string; revision: number;
   actor: string; action: string; detail: string; sourceDigest: string; createdAt: string;
+}
+
+/** One revision of a scope's service price and availability overrides
+ *  (spec 2026-10-09 §7). `document` is the override JSON. */
+export interface CatalogueSet {
+  id: string; scopeKey: string; stateCode: string; districtCode: string; revision: number; status: string;
+  document: string; sourceDigest: string; createdBy: string; createdAt: string;
+  publishedBy: string; publishedAt: string;
+}
+/** A service as owners at a scope are offered it; `source` is the scope that
+ *  last changed it ('' = the code baseline). */
+export interface CatalogueEntry {
+  key: string; label: string; group: string; blurb: string; price: number; days: number;
+  enabled: boolean; source: string;
+  /** What the owner receives ("You get …"). */
+  deliverable: string;
+  /** Where it is offered: no states = everywhere; a chosen state with
+   *  districts listed ("AP/GUNTUR") is limited to them. */
+  states: string[]; districts: string[];
+}
+export interface CatalogueAdmin {
+  scopeKey: string; stateCode: string; districtCode: string; current: CatalogueSet | null;
+  services: CatalogueEntry[]; inherited: CatalogueEntry[]; scopes: CatalogueSet[];
+}
+export interface CatalogueEvent {
+  id: string; setId: string; scopeKey: string; revision: number; actor: string;
+  action: string; detail: string; sourceDigest: string; createdAt: string;
 }
 
 export interface GovernanceItem {
@@ -372,7 +434,7 @@ export interface AssignedTrainingCertificate {
 }
 export interface AssignedResourceTrust {
   associateId: string; name: string; firm: string; initials: string; role: string;
-  ratingAverage: number; ratingCount: number; jobsOpen: number; professionalVerified: boolean;
+  ratingAverage: number; ratingCount: number; professionalVerified: boolean;
   professionalCredentials: AssignedProfessionalCredential[];
   trainingCertificates: AssignedTrainingCertificate[];
 }
@@ -381,9 +443,10 @@ export interface Order {
   cost: number; stage: number; stageLabel: string; needsYou: boolean;
   dueDate: string; recordId: string; recordTitle: string; params: string;
   /** The eight-valued truth behind the four-valued `stage`. `stageLabel` still
-   *  says Placed / Assigned / On site / Delivered; `statusLabel` is allowed to
-   *  say "Sent out" or "Waiting on you", which is what the row is actually
-   *  about. Both are sent because the Rail draws one and the pill the other. */
+   *  says Placed / Assigned / On site / Delivered; `statusLabel` is the
+   *  owner's word — "In progress", "Waiting on you", and "Placed" for an order
+   *  the desk has sent out — which is what the row is actually about. Both are
+   *  sent because the Rail draws one and the pill the other. */
   status: string; statusLabel: string; statusState: string; ref: string;
   /** The associate behind `assignee`, or '' when that name was typed by hand.
    *  A free-text reassignment clears it on the server, so a row can never
@@ -408,12 +471,34 @@ export interface Order {
  *  what gets mapped. */
 export interface Pair { k: string; v: string }
 
+/** A file sent with a message: a storage node id (open it the way any stored
+ *  file is opened) and what it is called. */
+export interface TicketAttachment {
+  fileRef: string; fileName: string; mimeType: string; sizeBytes: number;
+}
+
 /** One line of a ticket's trail. `headline` is composed at write time, so a
- *  2027 rewording cannot re-word a 2026 event. */
+ *  2027 rewording cannot re-word a 2026 event, and new lines are already in
+ *  the requester's words ("You placed this order", "Ravi Kumar started work").
+ *
+ *  On the OWNER's ticket the server has already cut the desk's working:
+ *  no `dispatch` or `payment` rows, no status rows for the desk's offer moves
+ *  (`dispatch`/`withdraw`), no refused move that was not the owner's own, and
+ *  `detail` is '' on every kind but `message` and `refused` — so an old row's
+ *  "BR-5388 · ordered from rec-…" never reaches the page. `kind` is one of
+ *  status · message · nudge · deliverable · filed (plus dispatch · payment ·
+ *  refused on the desk's read). `actorKind` is owner · worker · system: the
+ *  page labels owner "You", worker "{name} · Provider", system "Pattadar desk". */
 export interface TicketEvent {
   id: string; kind: string; action: string; headline: string; detail: string;
   actorLabel: string; actorKind: string; tone: string; at: string; atLabel: string;
+  attachments: TicketAttachment[];
 }
+
+/** One of the owner's own files that went with the order, as its manifest froze
+ *  it when the order was placed. `kind` is document · parcel_photo ·
+ *  property_photo. */
+export interface TicketFile { id: string; kind: string; title: string; fileRef: string }
 
 /** Something that came back on a ticket and is not yet a paper, a photo, a
  *  boundary or a feature. It becomes one when the owner accepts it — `goesTo`
@@ -462,7 +547,7 @@ export interface TicketMoney {
  *  the "Who is on it" card has three branches and the server decides which one
  *  by whether it sends this at all. `contact` is the real number, and it
  *  arrives filled in only when every condition in the spec holds at once: the
- *  ticket is live or lately accepted, the caller owns it, the assignee is a
+ *  order is open (never after it is accepted or cancelled), the caller owns it, the assignee is a
  *  real associate, and that associate agreed at enrolment that an owner may
  *  see their number. Otherwise `contact` is '' and `contactShown` is false,
  *  with `contactWhy` giving the sentence to print instead. The client never
@@ -472,11 +557,22 @@ export interface AssignedPerson {
   associateId: string; name: string; firm: string; initials: string;
   discipline: string; disciplineLabel: string;
   contact: string; contactShown: boolean; contactWhy: string;
-  jobsOpen: number; assignedAt: string; via: string;
+  assignedAt: string; via: string;
 }
 
-/** Everything the ticket page draws, in one read. `can` is the server's list
- *  of legal moves, so a screen can never offer a button the API will refuse. */
+/** Everything the OWNER's order page draws, in one read: a requester view
+ *  (service order spec §7). It carries no dispatch data at all — no
+ *  dispatches, no dispatch state, no provider workload; those are on
+ *  `DeskTicket`.
+ *
+ *  `statusLabel` is the requester's word: `sent` reads "Placed", `on_site`
+ *  reads "In progress". `can` is the owner's legal actions and only ever a
+ *  subset of cancel · accept · send_back · message · nudge · rate, so a screen
+ *  can never offer a button the API will refuse. `overdueDays` is whole days
+ *  past `dueDate` (dd/mm/yyyy) while open, else 0. `askedAt` is the ISO time of
+ *  the owner's last "Ask for an update" ('' when never); `nudge` leaves `can`
+ *  for 24 hours after it. `files` are the owner's own files sent with the
+ *  order. */
 export interface TicketView {
   id: string; ref: string; kind: string; title: string; detail: string;
   recordId: string; recordTitle: string; recordPlace: string;
@@ -485,14 +581,14 @@ export interface TicketView {
   assignee: string; dueDate: string; quietDays: number; quiet: boolean;
   outcomeNote: string; acceptedAt: string; createdAt: string;
   can: string[]; answers: Pair[]; money: TicketMoney;
-  /** Who is on it, and where the job stands with the desk. `dispatchState` is
-   *  a word — nobody yet, on somebody, asked and waiting — and is deliberately
-   *  not another status: `status`/`stage` are untouched by any of this. */
-  assignedTo: AssignedPerson | null; assignedResource: AssignedResourceTrust | null;
-  dispatchState: string;
+  /** Only what the order page draws: Verified and the rating. Credentials stay
+   *  on the desk and in the Services list's proof panel (spec §7, §13). */
+  assignedTo: AssignedPerson | null;
+  assignedResource: Pick<AssignedResourceTrust, 'professionalVerified' | 'ratingAverage' | 'ratingCount'> | null;
   myRating: number; myRatingNote: string;
   events: TicketEvent[]; deliverables: TicketDeliverable[];
-  dispatches: TicketDispatch[]; ledger: TicketLedgerRow[];
+  ledger: TicketLedgerRow[];
+  overdueDays: number; askedAt: string; files: TicketFile[];
 }
 
 export interface WalletJob {
@@ -521,6 +617,27 @@ export interface ServiceOffer {
   key: string; label: string; price: number; group: string;
   blurb: string; days: number; shelves: string[]; fields: ServiceField[];
   visual: ServiceVisual;
+  /** What lands in the owner's hands ("You get …"). */
+  deliverable: string;
+  /** The shelf a delivered paper is filed on. */
+  filesTo: string;
+  /** Legacy `work_requests.kind` values that mean this service. */
+  aliases: string[];
+  /** Its answers belong to one record, so it is never ordered for a set. */
+  perRecord: boolean;
+  /** The field to answer when the land is not on the map; '' when none. */
+  directionsField: string;
+  guides: ServiceGuide[];
+  /** Words owners use for it, for free-text matching. */
+  synonyms: string[];
+  alsoCalled: string;
+  flatPriceNote: string;
+  featured: boolean;
+}
+/** A University page for a service in one state: a record guide (`slug`) or
+ *  a topic on the state guide (`topic` + `title`). */
+export interface ServiceGuide {
+  state: string; slug: string; topic: string; title: string; ownPaper: boolean;
 }
 
 export interface ServiceBatchReceipt {
@@ -532,7 +649,10 @@ export interface ServiceBatchReceipt {
 const CARD = `id kind title passbookId groupId subtitle classification status stake khataNo ownerName
   village mandal district placeLine extent extentUnit extentAlt marketValue tags
   lat lon ring coverFileRef
-  extentDetail paperCount photoCount featureCount deedLine litigation paperFileRef`;
+  extentDetail paperCount photoCount featureCount deedLine litigation paperFileRef
+  groupName holderLabel holdingId holdingName surveyNo docNo sro regDate
+  parentage coOwnerCount managerLine managerCount purchasePrice purchaseDate
+  mutationStatus ecStatus createdAt lastActivityAt lastActivityBy lastActivityAction`;
 
 const Q_PORTFOLIO = `{ web { portfolio {
   displayName
@@ -545,8 +665,8 @@ const Q_PORTFOLIO = `{ web { portfolio {
   recent { ${CARD} }
 } } }`;
 
-const Q_PROPERTIES = `query P($kinds:[String!],$statuses:[String!],$stakes:[String!],$villages:[String!],$khatas:[String!],$owners:[String!],$tags:[String!],$groups:[String!]) {
-  web { properties(kinds:$kinds,statuses:$statuses,stakes:$stakes,villages:$villages,khatas:$khatas,owners:$owners,tags:$tags,groups:$groups) {
+const Q_PROPERTIES = `query P($kinds:[String!],$statuses:[String!],$stakes:[String!],$villages:[String!],$khatas:[String!],$owners:[String!],$tags:[String!],$groups:[String!],$holdings:[String!]) {
+  web { properties(kinds:$kinds,statuses:$statuses,stakes:$stakes,villages:$villages,khatas:$khatas,owners:$owners,tags:$tags,groups:$groups,holdings:$holdings) {
     shown total hidden filterSummary hiddenPlaces activeCount
     cards { ${CARD} }
     facets { key label options { key label count active } }
@@ -557,7 +677,8 @@ const Q_RECORD = `query R($id:String!) { web { record(id:$id) {
   village mandal district placeLine
   placeLineTe state extent extentUnit extentDetail marketValue perUnitValue perUnitLabel
   boughtYear lat lon ring mapCaption paperCount featureCount peopleCount serviceCount
-  photoCount photoNote tags noteBody noteAuthor noteAt combinedId combinedName
+  photoCount mediaCount photoNote tags noteBody noteAuthor noteAt combinedId combinedName
+  groupId groupName holderLabel surveyNo docNo sro regDate
 } } }`;
 
 const Q_PAPERS = `query D($id:String!) { web { papers(recordId:$id) {
@@ -640,7 +761,7 @@ const Q_VAULT = `{ web { vault {
 
 const Q_DOCUMENT = `query DOC($id:String!) { web { document(id:$id) {
   id title subtitle shelf recordId recordTitle pageCount sizeLabel registeredOn office
-  fileRef mimeType
+  fileRef mimeType docNo nameSet
   buyer seller consideration readerSummary readerFlag readerFlagPage tags shared
   versions { id version label madeOn madeBy note }
   link { id audience subject terms docCount openedCount lastOpenedAt expiresOn daysLeft initials }
@@ -691,6 +812,9 @@ export function useGeographyReference(
   stateId: string, districtId: string, mandalId: string, enabled = true,
 ) {
   return useQuery({
+    // A new scope, toggle or id keeps the last answer on screen, dimmed,
+    // instead of blanking (design.md § Loading).
+    placeholderData: keepPreviousData,
     enabled,
     queryKey: [KEY, 'geographyReference', stateId, districtId, mandalId],
     staleTime: 15 * 60 * 1000,
@@ -772,11 +896,49 @@ export function useGovernancePolicy(
   });
 }
 
+/** Intelligence (super-admin): which AI reads documents. `providers` is the
+ *  server's registry, so a new provider appears with no client change.
+ *  Credentials are write-only; the server says only where one comes from. */
+export type IntelligenceProviderId = string;
+/** `unreadable`: saved, but it no longer decrypts; Claude reads meanwhile. */
+export interface IntelligenceCredential { source: '' | 'form' | 'server' | 'unreadable'; updatedAt: string }
+export interface IntelligenceProvider {
+  id: IntelligenceProviderId; name: string; vendor: string; model: string;
+  models: { id: string; name: string }[]; modelsCheckedAt: string; key: IntelligenceCredential;
+  /** Why it cannot read documents yet; '' = ready. */
+  needs: string;
+}
+export interface IntelligenceSettings {
+  reader: IntelligenceProviderId; activeReader: IntelligenceProviderId;
+  providers: IntelligenceProvider[];
+  ocr: { enabled: boolean; processor: string; account: IntelligenceCredential };
+  updatedAt: string;
+  /** False: the server has no PLATFORM_SECRETS_KEY, so keys come from its env only. */
+  canStoreCredentials: boolean;
+}
+const INTELLIGENCE_FIELDS = `reader activeReader updatedAt canStoreCredentials
+  providers { id name vendor model models { id name } modelsCheckedAt key { source updatedAt } needs }
+  ocr { enabled processor account { source updatedAt } }`;
+
+/** Null for anyone but a super-admin (the server decides). */
+export function useIntelligenceSettings(enabled = true) {
+  return useQuery({
+    enabled,
+    queryKey: [KEY, 'intelligence'],
+    queryFn: async () => (await gql<Wrapped<'intelligenceSettings', IntelligenceSettings | null>>(
+      `query IS { web { intelligenceSettings { ${INTELLIGENCE_FIELDS} } } }`,
+    )).web.intelligenceSettings,
+  });
+}
+
 export function useGovernanceAdminPolicy(
   countryCode = 'IN', stateCode = '*', districtCode = '*',
   mandalCode = '*', villageCode = '*', enabled = true,
 ) {
   return useQuery({
+    // A new scope, toggle or id keeps the last answer on screen, dimmed,
+    // instead of blanking (design.md § Loading).
+    placeholderData: keepPreviousData,
     enabled,
     queryKey: [KEY, 'governanceAdmin', countryCode, stateCode, districtCode, mandalCode, villageCode],
     queryFn: async () => (await gql<Wrapped<'governanceAdminPolicy', GovernancePolicy | null>>(
@@ -788,6 +950,55 @@ export function useGovernanceAdminPolicy(
         } }
       }`, { countryCode, stateCode, districtCode, mandalCode, villageCode },
     )).web.governanceAdminPolicy,
+  });
+}
+
+const CATALOGUE_SET = `id scopeKey stateCode districtCode revision status document sourceDigest
+  createdBy createdAt publishedBy publishedAt`;
+const CATALOGUE_ENTRY = 'key label group blurb deliverable price days enabled source states districts';
+
+export function useServiceCatalogueAdmin(stateCode = '*', districtCode = '*', enabled = true) {
+  return useQuery({
+    // A new scope, toggle or id keeps the last answer on screen, dimmed,
+    // instead of blanking (design.md § Loading).
+    placeholderData: keepPreviousData,
+    enabled,
+    queryKey: [KEY, 'serviceCatalogueAdmin', stateCode, districtCode],
+    queryFn: async () => (await gql<Wrapped<'serviceCatalogueAdmin', CatalogueAdmin | null>>(
+      `query SCA($stateCode:String!,$districtCode:String!) { web {
+        serviceCatalogueAdmin(stateCode:$stateCode,districtCode:$districtCode) {
+        scopeKey stateCode districtCode current { ${CATALOGUE_SET} }
+        services { ${CATALOGUE_ENTRY} } inherited { ${CATALOGUE_ENTRY} }
+        scopes { ${CATALOGUE_SET} }
+      } } }`, { stateCode, districtCode },
+    )).web.serviceCatalogueAdmin,
+  });
+}
+
+/** Every revision at one place, newest first: the versions to reopen,
+ *  restore as a new draft, or publish. */
+export function useServiceCatalogueRevisions(stateCode = '*', districtCode = '*', enabled = true) {
+  return useQuery({
+    enabled,
+    queryKey: [KEY, 'serviceCatalogueRevisions', stateCode, districtCode],
+    queryFn: async () => (await gql<Wrapped<'serviceCatalogueRevisions', CatalogueSet[]>>(
+      `query SCR($stateCode:String!,$districtCode:String!) { web {
+        serviceCatalogueRevisions(stateCode:$stateCode,districtCode:$districtCode) { ${CATALOGUE_SET} }
+      } }`, { stateCode, districtCode },
+    )).web.serviceCatalogueRevisions,
+  });
+}
+
+export function useServiceCatalogueHistory(stateCode = '*', districtCode = '*', enabled = true) {
+  return useQuery({
+    enabled,
+    queryKey: [KEY, 'serviceCatalogueHistory', stateCode, districtCode],
+    queryFn: async () => (await gql<Wrapped<'serviceCatalogueHistory', CatalogueEvent[]>>(
+      `query SCH($stateCode:String!,$districtCode:String!) { web {
+        serviceCatalogueHistory(stateCode:$stateCode,districtCode:$districtCode) {
+        id setId scopeKey revision actor action detail sourceDigest createdAt
+      } } }`, { stateCode, districtCode },
+    )).web.serviceCatalogueHistory,
   });
 }
 
@@ -805,6 +1016,9 @@ export function useGovernanceAdminPolicies(countryCode = 'IN', enabled = true) {
 
 export function useGovernancePolicyHistory(scopeKey: string, enabled = true) {
   return useQuery({
+    // A new scope, toggle or id keeps the last answer on screen, dimmed,
+    // instead of blanking (design.md § Loading).
+    placeholderData: keepPreviousData,
     enabled: enabled && !!scopeKey,
     queryKey: [KEY, 'governancePolicyHistory', scopeKey],
     queryFn: async () => (await gql<Wrapped<'governancePolicyHistory', GovernancePolicyEvent[]>>(
@@ -829,12 +1043,20 @@ export interface PropertyFilter {
    *  This is what Families & Groups deep-links into: one filter on the real
    *  Properties screen rather than a second list screen of its own. */
   groups: string[];
+  /** Holding ids, plus `'none'` (NOT_IN_HOLDING) for properties in no holding.
+   *  The "Holding" facet, next to "Holder" (facet key `group`). */
+  holdings: string[];
 }
 
 /** The facet key for "in your own name" — mirrors PERSONAL in web360.py. */
 export const PERSONAL_GROUP = 'personal';
+/** The facet key for "Not in a holding" — mirrors NOT_IN_HOLDING in web360.py. */
+export const NOT_IN_HOLDING = 'none';
+/** What a property held by no family or group says — mirrors OWN_NAME. */
+export const OWN_NAME = 'In your own name';
 export const EMPTY_FILTER: PropertyFilter = {
   kinds: [], statuses: [], stakes: [], villages: [], khatas: [], owners: [], tags: [], groups: [],
+  holdings: [],
 };
 
 export function useProperties(filter: PropertyFilter) {
@@ -899,6 +1121,15 @@ export const useAddNote = (reportError = true) =>
     reportError,
   );
 
+/** Rewrites a note in place. `updateNote` answers null when the note is not
+ *  the caller's or is gone, which the screen reports itself. */
+export const useUpdateNote = (reportError = true) =>
+  useW360Mutation<{ id: string; body: string }, { updateNote: { id: string } | null }>(
+    `mutation UN($id:String!,$body:String!) { updateNote(id:$id,body:$body) { id } }`,
+    'That note',
+    reportError,
+  );
+
 export function useFeatures(id: string | undefined) {
   return useQuery({
     enabled: !!id,
@@ -932,6 +1163,168 @@ export function useTransfers(id: string | undefined) {
   });
 }
 
+// ── The master record (Overview tab) ──────────────────────────────────
+// docs/specs/2026-10-11-property-overview.md §3. One query of its own, so the
+// other tabs do not pay for the claims and the summary.
+
+/** Who said a field's value: a deed reading, the public record, a passbook
+ *  reading, the owner, or a value from before sources were kept. */
+export interface RecordFieldSource {
+  source: string; label: string; sourceRef: string; documentId: string; setAt: string; confidence: string;
+}
+export interface RecordFieldClaim { id: string; value: string; display: string; source: RecordFieldSource }
+export interface RecordField {
+  key: string;
+  /** identity | physical | title | status */
+  group: string;
+  label: string; value: string; display: string;
+  important: boolean; howToFill: string;
+  /** null = not set. */
+  source: RecordFieldSource | null;
+  /** Later claims that disagree with the value shown. */
+  conflicts: RecordFieldClaim[];
+}
+export interface AcquisitionParty {
+  name: string; parentage: string; role: string; relationship: string;
+  shareNum: number; shareDen: number; isGpa: boolean;
+}
+export interface RecordAcquisition {
+  mode: string; modeLabel: string; registered: string;
+  docNo: string; regDate: string; execDate: string; sro: string;
+  consideration: number; govtValue: number; stampDuty: number;
+  proofNo: string; transferId: string; deedDocumentId: string;
+  fromParties: AcquisitionParty[]; toParties: AcquisitionParty[];
+  chainLength: number; source: RecordFieldSource | null;
+}
+export interface RecordSummary {
+  paperCount: number; newestPaper: string; newestPaperAt: string;
+  featureCount: number; featureAttention: number; ownerCount: number;
+  hasPin: boolean; hasOutline: boolean; photoCount: number; mediaCount: number;
+  noteCount: number; newestNoteAt: string;
+  servicesOpen: number; servicesDone: number;
+  paidTotal: number; marketTotal: number;
+  newestActivity: string; newestActivityAt: string;
+}
+export interface RecordOverview {
+  id: string; fields: RecordField[]; acquisition: RecordAcquisition | null;
+  summary: RecordSummary; conflictCount: number; missing: RecordField[];
+  /** 'parcel' when a property reads as farmland saved as a plot (Reddy,
+   *  12/10/2026, D1), with the reason in words; '' otherwise. */
+  suggestKind: string; suggestReason: string;
+  /** What changing this property to agricultural land would do, worked out by
+   *  the server's own conversion code; null on farmland, or when its unit
+   *  cannot convert (the change then says why). */
+  convertTarget: ConvertTarget | null;
+  /** The Compliance check, run on every read (services/api/src/compliance.py). */
+  compliance: RecordCompliance | null;
+}
+export interface ComplianceCheck {
+  key: string; label: string;
+  status: 'pass' | 'warn' | 'fail' | 'unknown' | string;
+  /** One line: what was found, or why it cannot be told. */
+  detail: string;
+  /** add: the field `fieldKey`'s drawer · upload: a document · order: the service `serviceKind`. */
+  action: 'add' | 'upload' | 'order' | 'none' | string;
+  fieldKey: string; serviceKind: string;
+}
+export interface RecordCompliance {
+  /** UTC, ISO. */
+  checkedAt: string; passed: number; total: number; checks: ComplianceCheck[];
+}
+export interface ConvertTarget {
+  /** true: it joins the khata `khataNo` the owner already has in `village`. */
+  reuse: boolean; khataNo: string; village: string;
+  fromArea: number; fromUnit: string; acres: number;
+}
+export interface AcquisitionPartyInput {
+  name: string; parentage?: string; relationship?: string; role?: string; shareNum?: number; shareDen?: number;
+}
+export interface AcquisitionInput {
+  mode: string; registered?: string; docNo?: string; regDate?: string; execDate?: string; sro?: string;
+  consideration?: number; govtValue?: number; stampDuty?: number; proofNo?: string;
+  fromParties?: AcquisitionPartyInput[];
+}
+
+const SOURCE = 'source label sourceRef documentId setAt confidence';
+const FIELD = `key group label value display important howToFill
+  source { ${SOURCE} } conflicts { id value display source { ${SOURCE} } }`;
+const PARTY = 'name parentage role relationship shareNum shareDen isGpa';
+const OVERVIEW = `id conflictCount suggestKind suggestReason
+  convertTarget { reuse khataNo village fromArea fromUnit acres }
+  fields { ${FIELD} }
+  missing { ${FIELD} }
+  acquisition { mode modeLabel registered docNo regDate execDate sro consideration govtValue stampDuty
+    proofNo transferId deedDocumentId chainLength
+    fromParties { ${PARTY} } toParties { ${PARTY} } source { ${SOURCE} } }
+  compliance { checkedAt passed total checks { key label status detail action fieldKey serviceKind } }
+  summary { paperCount newestPaper newestPaperAt featureCount featureAttention ownerCount
+    hasPin hasOutline photoCount mediaCount noteCount newestNoteAt servicesOpen servicesDone
+    paidTotal marketTotal newestActivity newestActivityAt }`;
+
+const Q_RECORD_OVERVIEW = `query RO($id:String!) { web { recordOverview(id:$id) { ${OVERVIEW} } } }`;
+
+export function useRecordOverview(id: string | undefined) {
+  return useQuery({
+    enabled: !!id,
+    queryKey: [KEY, 'recordOverview', id],
+    queryFn: async () =>
+      (await gql<Wrapped<'recordOverview', RecordOverview | null>>(Q_RECORD_OVERVIEW, { id })).web.recordOverview,
+  });
+}
+
+/** The owner's own entry for one or more fields (a `manual` claim each). */
+export const useSetRecordFields = (reportError = false) =>
+  useW360Mutation<
+    { recordId: string; fields: { key: string; value: string }[] },
+    Wrapped<'setRecordFields', RecordOverview>
+  >(
+    `mutation SRF($recordId:String!,$fields:[FieldValueInput!]!) {
+       web { setRecordFields(recordId:$recordId, fields:$fields) { id } } }`,
+    'Those details',
+    reportError,
+  );
+
+/** How the land was acquired, as the owner tells it. */
+export const useSetAcquisition = () =>
+  useW360Mutation<{ recordId: string; input: AcquisitionInput }, Wrapped<'setAcquisition', RecordOverview>>(
+    `mutation SA($recordId:String!,$input:AcquisitionInput!) {
+       web { setAcquisition(recordId:$recordId, input:$input) { id } } }`,
+    'Title',
+    false,
+  );
+
+/** "Use this" on a disagreeing claim: the owner adopts it as their own.
+ *  `claimId: 'keep'` is "Keep mine": the value shown becomes the owner's own
+ *  entry and the conflict clears. */
+export const useChooseFieldClaim = () =>
+  useW360Mutation<{ recordId: string; key: string; claimId: string }, Wrapped<'chooseFieldClaim', RecordOverview>>(
+    `mutation CFC($recordId:String!,$key:String!,$claimId:String!) {
+       web { chooseFieldClaim(recordId:$recordId, key:$key, claimId:$claimId) { id } } }`,
+    'That choice',
+  );
+
+/** Move a property to the farmland register: same id and address, the extent
+ *  in acres, under a khata (D1). The server refuses one with a building. */
+export const useConvertRecordKind = () =>
+  useW360Mutation<{ recordId: string; to: 'parcel' }, Wrapped<'convertRecordKind', RecordOverview>>(
+    `mutation CRK($recordId:String!,$to:String!) {
+       web { convertRecordKind(recordId:$recordId, to:$to) { id } } }`,
+    'The change to agricultural land',
+    false,
+  );
+
+/** File a deed reading onto the record: the server loads the caller's own
+ *  read job and writes the acquisition and its claims in one transaction.
+ *  It refreshes the tree like every other write: with the refresh off, the
+ *  Overview kept its pre-deed read after "Upload the deed" had filed it. */
+export const useFileDeedReading = () =>
+  useW360Mutation<{ recordId: string; paperId: string; jobId: string }, Wrapped<'fileDeedReading', RecordOverview>>(
+    `mutation FDR($recordId:String!,$paperId:String!,$jobId:String!) {
+       web { fileDeedReading(recordId:$recordId, paperId:$paperId, jobId:$jobId) { id } } }`,
+    'The deed reading',
+    false,
+  );
+
 export function useBoundary(id: string | undefined) {
   return useQuery({
     enabled: !!id,
@@ -939,6 +1332,86 @@ export function useBoundary(id: string | undefined) {
     queryFn: async () =>
       (await gql<Wrapped<'boundary', BoundaryView | null>>(Q_BOUNDARY, { id })).web.boundary,
   });
+}
+
+/** The Hydrogeology layer's answer for one elevation map (services/api/src/terrain.py).
+ *  Lines run downstream; coordinates are GeoJSON [lon, lat]. */
+export type FlowConfidence = 'high' | 'medium' | 'low';
+export type FlowMap = 'combined' | 'srtm' | 'nasadem' | 'aw3d30' | 'copernicus';
+type GeoPolygon = { type: 'Polygon'; coordinates: Array<Array<[number, number]>> };
+export interface FlowArea { area_ha: number; geometry: GeoPolygon }
+export interface FlowPin {
+  rank: number; lat: number; lon: number; confidence: FlowConfidence; upslope_ha: number;
+  junction: boolean; agree: number; families: Record<string, boolean>; moved_m: number;
+  elevation_m: number; reason: string; catchment: FlowArea | null;
+}
+export interface WaterFlowData {
+  parcel: { centroid: [number, number]; area_ha: number; relief_1km_m: number; terrain: string };
+  map: FlowMap;
+  lines: { features: Array<{ properties: { upslope_ha: number; agree: number };
+    geometry: { coordinates: Array<[number, number]> } }> };
+  points: FlowPin[];
+  main_stream: { upslope_ha: number; distance_m: number; bearing: string; agree: number;
+    crosses_parcel: boolean; catchment: FlowArea | null } | null;
+  summary: Array<{ map: FlowMap; confidence: FlowConfidence | null; upslope_ha: number | null; agree: number | null }>;
+}
+export interface WaterFlowView {
+  status: 'ready' | 'computing' | 'unavailable' | 'failed';
+  reason: string;
+  data: WaterFlowData | null;
+}
+
+/** How often a computing reading is asked about again. */
+const POLL_SECONDS = 4;
+
+const Q_WATER_FLOW = `query WF($id:String!,$source:String!,$retry:Boolean!) { web { waterFlow(recordId:$id,source:$source,retry:$retry) {
+  status reason data
+} } }`;
+
+async function fetchWaterFlow(id: string | undefined, source: FlowMap, retry = false): Promise<WaterFlowView | null> {
+  const v = (await gql<Wrapped<'waterFlow', (Omit<WaterFlowView, 'data'> & { data: string }) | null>>(
+    Q_WATER_FLOW, { id, source, retry })).web.waterFlow;
+  return v && { ...v, data: v.data ? (JSON.parse(v.data) as WaterFlowData) : null };
+}
+
+/** The other maps' answers, for drawing their lines faintly beside the chosen
+ *  one. Same cache entries as useWaterFlow, so switching to one is instant. */
+export function useWaterFlowOthers(id: string | undefined, sources: FlowMap[], enabled: boolean) {
+  return useQueries({
+    queries: sources.map((source) => ({
+      enabled: !!id && enabled,
+      queryKey: [KEY, 'waterFlow', id, source],
+      queryFn: () => fetchWaterFlow(id, source),
+      staleTime: 10 * 60_000,
+      refetchInterval: (q: { state: { data?: WaterFlowView | null } }) =>
+        (q.state.data?.status === 'computing' ? POLL_SECONDS * 1000 : false),
+    })),
+  });
+}
+
+/** A first reading takes about half a minute, so it is asked again every few
+ *  seconds while the server says it is computing, and never otherwise. */
+export function useWaterFlow(id: string | undefined, source: FlowMap, enabled: boolean) {
+  return useQuery({
+    enabled: !!id && enabled,
+    queryKey: [KEY, 'waterFlow', id, source],
+    queryFn: () => fetchWaterFlow(id, source),
+    placeholderData: keepPreviousData,
+    staleTime: 10 * 60_000,
+    refetchInterval: (q) => (q.state.data?.status === 'computing' ? POLL_SECONDS * 1000 : false),
+    refetchIntervalInBackground: false,
+  });
+}
+
+/** Try again on a failed reading. A plain refetch is served the cached
+ *  failure for STALE_MINUTES (services/api/src/terrain.py); this asks the
+ *  server to read it again now, and the answer ("computing") starts the poll. */
+export function useRetryWaterFlow(id: string | undefined, source: FlowMap) {
+  const qc = useQueryClient();
+  const key = [KEY, 'waterFlow', id, source];
+  return () => fetchWaterFlow(id, source, true)
+    .then((v) => { qc.setQueryData(key, v); })
+    .catch(() => qc.invalidateQueries({ queryKey: key }));
 }
 
 export function usePhotos(id: string | undefined, featureId?: string) {
@@ -1015,6 +1488,9 @@ export function useSharedKits() {
 
 export function useSharedKit(id: string | undefined) {
   return useQuery({
+    // A new scope, toggle or id keeps the last answer on screen, dimmed,
+    // instead of blanking (design.md § Loading).
+    placeholderData: keepPreviousData,
     enabled: !!id,
     queryKey: [KEY, 'kit', id],
     queryFn: async () =>
@@ -1030,7 +1506,7 @@ const Q_SEARCH = `query S($q:String!) { web { search(q:$q) {
  *  short staleTime keeps typing snappy without hammering the API. */
 const Q_VAULT_PAPERS = `query VP($shelf:String!) { web { vaultPapers(shelf:$shelf) {
   id title detail shelf icon tags shared pageCount fileRef mimeType recordId recordTitle createdAt jointFmbId
-  folderId sizeBytes aadhaarCard
+  folderId sizeBytes aadhaarCard docNo registeredOn office nameSet fileName
   linkedProperties { id title kind documentId }
 } } }`;
 
@@ -1130,7 +1606,7 @@ const Q_ORDERS = `query O($recordId:String,$includeClosed:Boolean) { web {
   id kind serviceKey title detail assignee cost stage stageLabel needsYou dueDate recordId recordTitle params
   status statusLabel statusState ref assigneeRef held pendingReview batchId batchRef
   recordKind recordClassification recordLocation
-  assignedResource { associateId name firm initials role ratingAverage ratingCount jobsOpen professionalVerified
+  assignedResource { associateId name firm initials role ratingAverage ratingCount professionalVerified
     professionalCredentials { kind numberMasked authority issuedOn expiresOn state }
     trainingCertificates { certificateNo courseTitle courseCode issuedOn validUntil verificationState verificationCode } }
 } } }`;
@@ -1138,25 +1614,26 @@ const Q_ORDERS = `query O($recordId:String,$includeClosed:Boolean) { web {
 /** The whole ticket in one round trip. It is a lot of fields, but they are all
  *  drawn on the one page, and splitting them would mean the trail, the money
  *  and the deliverables could disagree about which moment they describe. */
+const TICKET_EVENT = `id kind action headline detail actorLabel actorKind tone at atLabel
+  attachments { fileRef fileName mimeType sizeBytes }`;
+
+const TICKET_DELIVERABLE = `id kind label note fileRef fileName mimeType sizeBytes payload
+  submittedBy submittedAt fileAs fileTargets { k v } goesTo
+  review reviewNote filedTable filedId filedAt`;
+
 const Q_TICKET = `query TKT($id:String!) { web { ticket(id:$id) {
   id ref kind title detail recordId recordTitle recordPlace
   status statusLabel statusState stage stageLabel needsYou closed
   assignee dueDate quietDays quiet outcomeNote acceptedAt createdAt
+  overdueDays askedAt files { id kind title fileRef }
   can answers { k v }
-  dispatchState
   myRating myRatingNote
   assignedTo { associateId name firm initials discipline disciplineLabel
-               contact contactShown contactWhy jobsOpen assignedAt via }
-  assignedResource { associateId name firm initials role ratingAverage ratingCount jobsOpen professionalVerified
-    professionalCredentials { kind numberMasked authority issuedOn expiresOn state }
-    trainingCertificates { certificateNo courseTitle courseCode issuedOn validUntil verificationState verificationCode } }
+               contact contactShown contactWhy assignedAt via }
+  assignedResource { professionalVerified ratingAverage ratingCount }
   money { quoted held released fee returned payeeShare provider live funded headline honesty }
-  events { id kind action headline detail actorLabel actorKind tone at atLabel }
-  deliverables { id kind label note fileRef fileName mimeType sizeBytes payload
-                 submittedBy submittedAt fileAs fileTargets { k v } goesTo
-                 review reviewNote filedTable filedId filedAt }
-  dispatches { id purpose channel contactMasked personName subject body provider live
-               status statusWord error expiresOn daysLeft revoked revokeReason sentAt }
+  events { ${TICKET_EVENT} }
+  deliverables { ${TICKET_DELIVERABLE} }
   ledger { id entry label amount fromBucket toBucket payee provider simulated status note ticketId ticketRef at }
 } } }`;
 
@@ -1166,16 +1643,42 @@ const Q_WALLET = `query WAL($limit:Int) { web { wallet(limit:$limit) {
   rows { id entry label amount fromBucket toBucket payee provider simulated status note ticketId ticketRef at }
 } } }`;
 
-const Q_SERVICES = `query SO($q:String,$key:String,$recordId:String) { web { servicesOffered(q:$q,key:$key,recordId:$recordId) {
-  key label price group blurb days shelves fields { name label kind required options help }
+/** Every field of a ServiceOffer, read the same way wherever the catalogue is. */
+const SERVICE_OFFER_FIELDS = `key label price group blurb days shelves fields { name label kind required options help }
   visual { assetKey src alt caption sourceScope }
+  deliverable filesTo aliases perRecord directionsField
+  guides { state slug topic title ownPaper }
+  synonyms alsoCalled flatPriceNote featured`;
+
+const Q_SERVICES = `query SO($q:String,$key:String,$recordId:String) { web { servicesOffered(q:$q,key:$key,recordId:$recordId) {
+  ${SERVICE_OFFER_FIELDS}
 } } }`;
+
+/** What each chosen property can order, priced for its own state and
+ *  district (the order page's second step). Off until something is chosen. */
+export function useServicesForRecords(recordIds: string[]) {
+  return useQuery({
+    enabled: recordIds.length > 0,
+    queryKey: [KEY, 'servicesForRecords', [...recordIds].sort().join(',')],
+    // Adding or dropping a property keeps the last answer on screen (dimmed)
+    // instead of blanking the table while the new prices load.
+    placeholderData: keepPreviousData,
+    queryFn: async () => (await gql<Wrapped<'servicesForRecords', { recordId: string; offers: ServiceOffer[] }[]>>(
+      `query SFR($recordIds:[String!]!) { web { servicesForRecords(recordIds:$recordIds) {
+        recordId offers { ${SERVICE_OFFER_FIELDS} }
+      } } }`, { recordIds },
+    )).web.servicesForRecords,
+  });
+}
 
 /** No `enabled`: the Shell asks for this on every route to count what is
  *  waiting on you. `includeClosed` defaults false so every caller that was
  *  written before tickets existed asks for, and gets, exactly what it did. */
 export function useOrders(recordId?: string, includeClosed = false, alwaysFresh = false) {
   return useQuery({
+    // A new scope, toggle or id keeps the last answer on screen, dimmed,
+    // instead of blanking (design.md § Loading).
+    placeholderData: keepPreviousData,
     queryKey: [KEY, 'orders', recordId ?? '', includeClosed],
     staleTime: alwaysFresh ? 0 : BADGE_STALE,
     refetchOnMount: alwaysFresh ? 'always' : true,
@@ -1340,7 +1843,7 @@ export const useUpdateCaption = () =>
  *  the caller's or the ref is empty. */
 /** `invalidate: false` is for the batch filer, which refreshes once at the end
  *  of the pick rather than after every file in it. */
-export const useAddPhoto = (invalidate = true) =>
+export const useAddPhoto = (invalidate = true, reportError = true) =>
   useW360Mutation<{
     recordId: string; fileRef: string; fileName: string; caption: string;
     category: string; mediaKind: string; width: number; height: number;
@@ -1353,7 +1856,7 @@ export const useAddPhoto = (invalidate = true) =>
                       category:$category,mediaKind:$mediaKind,width:$width,height:$height,
                       sha256:$sha256,capturedAt:$capturedAt) } }`,
     'That photo',
-    true,
+    reportError,
     invalidate,
   );
 
@@ -1500,10 +2003,11 @@ export const useLinkTransferPrior = () =>
     false,
   );
 
-export const useDeletePhoto = () =>
+export const useDeletePhoto = (reportError = true) =>
   useW360Mutation<{ photoId: string }, Wrapped<'deletePhoto', boolean>>(
     `mutation DPh($photoId:String!) { web { deletePhoto(photoId:$photoId) } }`,
     'Deleting that photo',
+    reportError,
   );
 
 export const useSetCoverPhoto = () =>
@@ -1518,6 +2022,17 @@ export const useUpdatePaper = (reportError = true) =>
        web { updatePaper(paperId:$paperId,name:$name,shelf:$shelf) } }`,
     'That document',
     reportError,
+  );
+
+/** A document's details: its type, deed number, registration date
+ *  (DD/MM/YYYY) and office. Every field is sent every time — the server
+ *  replaces all four, so an omitted one would be erased. */
+export const useUpdatePaperDetails = () =>
+  useW360Mutation<{ paperId: string; shelf: string; docNo: string; registeredOn: string; office: string },
+                   Wrapped<'updatePaperDetails', boolean>>(
+    `mutation UPD($paperId:String!,$shelf:String!,$docNo:String!,$registeredOn:String!,$office:String!) {
+       web { updatePaperDetails(paperId:$paperId,shelf:$shelf,docNo:$docNo,registeredOn:$registeredOn,office:$office) } }`,
+    'Those details',
   );
 
 export const useDeleteExpense = () =>
@@ -1666,6 +2181,13 @@ export interface RecordInput {
   status?: string; stake?: string; khataNo?: string; ownerName?: string;
   village?: string; mandal?: string; district?: string; extent?: number;
   extentUnit?: string; marketValue?: number; purchasePrice?: number;
+  /** The title deed (RecordInput doc_no / sro / reg_date, ISO yyyy-mm-dd). */
+  docNo?: string; sro?: string; regDate?: string;
+  /** Master-record fields (property-overview spec §3), all optional. */
+  acquisitionMode?: string; execDate?: string; govtValue?: number;
+  plotNo?: string; doorNo?: string; landClass?: string; lpNo?: string;
+  /** The caller's own read job, so the server can label its claims. */
+  readingJobId?: string;
 }
 
 /** Create or partially update one record. Resolves to the record's id either
@@ -1674,7 +2196,7 @@ export interface RecordInput {
 export const useSaveRecord = (reportError = true, invalidate = true) =>
   useW360Mutation<{ input: RecordInput }, Wrapped<'saveRecord', string>>(
     `mutation SR($input:RecordInput!) { web { saveRecord(input:$input) } }`,
-    'That record',
+    'That property',
     reportError,
     invalidate,
   );
@@ -1734,15 +2256,103 @@ export const useMarksFromBoundary = () =>
 export const useDeleteRecords = (reportError = true) =>
   useW360Mutation<{ ids: string[] }, Wrapped<'deleteRecords', number>>(
     `mutation DR($ids:[String!]!) { web { deleteRecords(ids:$ids) } }`,
-    'Deleting those records',
+    'Deleting those properties',
     reportError,
   );
+
+// ── Holder: WHO holds a property ──────────────────────────────────────
+//
+// Decision memo 06/10/2026. A built property moves alone; a parcel is held
+// through its khata, so setting its holder moves every parcel on that khata.
+// `useHolderChange` previews exactly that list (writes nothing), so "Set
+// holder" can name the parcels that move too before anything happens; the
+// write answers with the same shape.
+
+export interface HolderChangeRecord {
+  id: string; kind: string; title: string;
+  passbookId: string; khataNo: string;
+  /** false = not chosen, moves only because it shares the khata. */
+  requested: boolean;
+  /** Who held it before ('' / "In your own name" for nobody). */
+  fromGroupId: string; fromHolderLabel: string;
+}
+/** A member's share tied to a parcel the change takes out of the member's
+ *  group. The share stays with the member; the group no longer holds the land. */
+export interface HolderChangeShare {
+  memberId: string; memberName: string;
+  groupId: string; groupName: string;
+  recordId: string; recordTitle: string;
+  sharePct: number;
+}
+export interface HolderChange {
+  /** '' = in your own name. */
+  groupId: string;
+  holderLabel: string;
+  records: HolderChangeRecord[];
+  /** Parcels carried along by their khata. */
+  siblingCount: number;
+  memberShares: HolderChangeShare[];
+}
+
+const HOLDER_CHANGE = `groupId holderLabel siblingCount
+  records { id kind title passbookId khataNo requested fromGroupId fromHolderLabel }
+  memberShares { memberId memberName groupId groupName recordId recordTitle sharePct }`;
+
+/** Preview of a holder change. `groupId` '' (or 'personal') = in your own name. */
+export function useHolderChange(recordIds: string[], groupId: string, enabled = true) {
+  return useQuery({
+    enabled: enabled && recordIds.length > 0,
+    queryKey: [KEY, 'holder-change', recordIds, groupId],
+    queryFn: async () => (await gql<Wrapped<'holderChange', HolderChange>>(
+      `query HC($recordIds:[String!]!,$groupId:String!) {
+         web { holderChange(recordIds:$recordIds,groupId:$groupId) { ${HOLDER_CHANGE} } } }`,
+      { recordIds, groupId },
+    )).web.holderChange,
+    staleTime: 0,
+  });
+}
+
+/** Set who holds these properties. Rejects with the owner's sentence. */
+export async function setRecordHolder(recordIds: string[], groupId: string): Promise<HolderChange> {
+  return (await gql<Wrapped<'setRecordHolder', HolderChange>>(
+    `mutation SRH($recordIds:[String!]!,$groupId:String!) {
+       web { setRecordHolder(recordIds:$recordIds,groupId:$groupId) { ${HOLDER_CHANGE} } } }`,
+    { recordIds, groupId },
+  )).web.setRecordHolder;
+}
+
+/** "Set holder" on a Properties selection. Refreshes every w360 read —
+ *  the cards, the record, the holding's "Held by" and the group pages. */
+export const useSetRecordHolder = (reportError = true) =>
+  useW360Mutation<{ recordIds: string[]; groupId: string }, Wrapped<'setRecordHolder', HolderChange>>(
+    `mutation SRH($recordIds:[String!]!,$groupId:String!) {
+       web { setRecordHolder(recordIds:$recordIds,groupId:$groupId) { ${HOLDER_CHANGE} } } }`,
+    'That holder',
+    reportError,
+  );
+
+/** A holding a delete would empty — and so delete, shared expenses and all. */
+export interface EmptiedHolding { id: string; name: string; expenseTotal: number; expenseCount: number }
+
+/** Which holdings deleting exactly these properties would take with them
+ *  (web360 `deleteImpact`). Writes nothing; the delete dialogs say it first. */
+export function useDeleteImpact(ids: string[], enabled = true) {
+  return useQuery({
+    enabled: enabled && ids.length > 0,
+    queryKey: [KEY, 'delete-impact', ids],
+    queryFn: async () => (await gql<Wrapped<'deleteImpact', EmptiedHolding[]>>(
+      `query DI($ids:[String!]!) { web { deleteImpact(ids:$ids) { id name expenseTotal expenseCount } } }`,
+      { ids },
+    )).web.deleteImpact,
+    staleTime: 0,
+  });
+}
 
 export const useArchiveRecords = (reportError = true) =>
   useW360Mutation<{ ids: string[]; archived: boolean }, Wrapped<'archiveRecords', number>>(
     `mutation AR($ids:[String!]!,$archived:Boolean!) {
        web { archiveRecords(ids:$ids,archived:$archived) } }`,
-    'Archiving those records',
+    'Archiving those properties',
     reportError,
   );
 
@@ -1764,23 +2374,6 @@ export const useCreateRequest = () =>
     'That request',
   );
 
-export const useAssignRequest = () =>
-  useW360Mutation<{ requestId: string; assignee: string },
-                   Wrapped<'assignRequest', boolean>>(
-    `mutation AR($requestId:String!,$assignee:String!) {
-       web { assignRequest(requestId:$requestId,assignee:$assignee) } }`,
-    'That assignment',
-  );
-
-/** Names a request can be handed to — people this account has worked with. */
-export function useAssignable() {
-  return useQuery({
-    queryKey: [KEY, 'assignable'],
-    queryFn: async () =>
-      (await gql<Wrapped<'assignable', string[]>>(`{ web { assignable } }`)).web.assignable,
-  });
-}
-
 export const useCreateShareLink = (reportError = true) =>
   useW360Mutation<{ recordId: string; audience: string; terms: string; days: number; documentIds?: string[]; includeBoundary?: boolean },
                    Wrapped<'createShareLink', string>>(
@@ -1788,6 +2381,18 @@ export const useCreateShareLink = (reportError = true) =>
        web { createShareLink(recordId:$recordId,audience:$audience,terms:$terms,days:$days,documentIds:$documentIds,includeBoundary:$includeBoundary) } }`,
     'That share link',
     reportError,
+  );
+
+/** A link to chosen documents, wherever they are filed — not to a property.
+ *  Same expiry and terms as a property link. Answers the recipient path, or
+ *  '' when the server refused (a document that is not the owner's, an
+ *  Aadhaar card). */
+export const useCreateDocumentShareLink = () =>
+  useW360Mutation<{ documentIds: string[]; audience: string; terms: string; days: number },
+                   Wrapped<'createDocumentShareLink', string>>(
+    `mutation CDSL($documentIds:[String!]!,$audience:String!,$terms:String!,$days:Int!) {
+       web { createDocumentShareLink(documentIds:$documentIds,audience:$audience,terms:$terms,days:$days) } }`,
+    'That share link',
   );
 
 /** One value that was changed on a record, and what it used to be. */
@@ -1815,6 +2420,9 @@ export function useCorrections(id: string | undefined) {
 export interface HistoryEvent {
   id: string; action: string; detail: string; at: string; by: string;
   field: string; was: string; now: string;
+  /** "Created from deed.pdf", "Created from public record · RID … · schedule 3",
+   *  "Deed … filed as the title deed" (D2); '' otherwise. */
+  source: string;
 }
 
 /** The trail stops at this many events (services/api web360.py `_trail`,
@@ -1822,7 +2430,7 @@ export interface HistoryEvent {
 export const HISTORY_CAP = 200;
 
 const Q_HISTORY = `query H($id:String!) { web { recordHistory(recordId:$id) {
-  id action detail at by field was now } } }`;
+  id action detail at by field was now source } } }`;
 
 export function useRecordHistory(id: string | undefined) {
   return useQuery({
@@ -1896,6 +2504,31 @@ export const usePublishGovernancePolicy = (reportError = true) =>
     'Publishing that policy', reportError,
   );
 
+export const useSaveServiceCatalogue = (reportError = true) =>
+  useW360Mutation<{ stateCode: string; districtCode: string; document: string; reason: string;
+                    expectedRevision: number },
+                  Wrapped<'saveServiceCatalogue', CatalogueSet | null>>(
+    `mutation SSC($stateCode:String!,$districtCode:String!,$document:String!,$reason:String!,
+                  $expectedRevision:Int!) {
+       web { saveServiceCatalogue(stateCode:$stateCode,districtCode:$districtCode,document:$document,
+             reason:$reason,expectedRevision:$expectedRevision) { ${CATALOGUE_SET} } } }`,
+    'That price draft', reportError,
+  );
+
+export const usePublishServiceCatalogue = (reportError = true) =>
+  useW360Mutation<{ setId: string; reason: string }, Wrapped<'publishServiceCatalogue', CatalogueSet | null>>(
+    `mutation PSC($setId:String!,$reason:String!) {
+       web { publishServiceCatalogue(setId:$setId,reason:$reason) { ${CATALOGUE_SET} } } }`,
+    'Publishing those prices', reportError,
+  );
+
+export const useArchiveServiceCatalogue = (reportError = true) =>
+  useW360Mutation<{ setId: string; reason: string }, Wrapped<'archiveServiceCatalogue', boolean>>(
+    `mutation ASC($setId:String!,$reason:String!) {
+       web { archiveServiceCatalogue(setId:$setId,reason:$reason) } }`,
+    'Archiving those prices', reportError,
+  );
+
 export const useArchiveGovernancePolicy = (reportError = true) =>
   useW360Mutation<{ policyId: string; reason: string }, Wrapped<'archiveGovernancePolicy', boolean>>(
     `mutation AGP($policyId:String!,$reason:String!) {
@@ -1903,11 +2536,65 @@ export const useArchiveGovernancePolicy = (reportError = true) =>
     'Archiving that policy', reportError,
   );
 
+type IntelligenceSaved<K extends string> = Wrapped<K, IntelligenceSettings | null>;
+
+/** Null = refused and nothing changed. */
+export const useSetIntelligenceReader = () =>
+  useW360Mutation<{ provider: IntelligenceProviderId }, IntelligenceSaved<'setIntelligenceReader'>>(
+    `mutation SIR($provider:String!) { web { setIntelligenceReader(provider:$provider) { ${INTELLIGENCE_FIELDS} } } }`,
+    'That reader switch',
+  );
+
+/** A blank `apiKey` keeps the saved key; `forgetKey` removes it. */
+export const useSaveIntelligenceProvider = () =>
+  useW360Mutation<{ provider: IntelligenceProviderId; model: string; apiKey: string; forgetKey: boolean },
+                   IntelligenceSaved<'saveIntelligenceProvider'>>(
+    `mutation SIP($provider:String!,$model:String!,$apiKey:String!,$forgetKey:Boolean!) {
+       web { saveIntelligenceProvider(provider:$provider,model:$model,apiKey:$apiKey,forgetKey:$forgetKey) {
+         ${INTELLIGENCE_FIELDS} } } }`,
+    'Those provider settings',
+  );
+
+export const useSaveIntelligenceOcr = () =>
+  useW360Mutation<{ enabled: boolean; processor: string; serviceAccount: string; forgetServiceAccount: boolean },
+                   IntelligenceSaved<'saveIntelligenceOcr'>>(
+    `mutation SIO($enabled:Boolean!,$processor:String!,$serviceAccount:String!,$forgetServiceAccount:Boolean!) {
+       web { saveIntelligenceOcr(enabled:$enabled,processor:$processor,serviceAccount:$serviceAccount,
+             forgetServiceAccount:$forgetServiceAccount) { ${INTELLIGENCE_FIELDS} } } }`,
+    'Those Document AI settings',
+  );
+
+/** Lists the provider's models with its key: the connection check. */
+export const useCheckIntelligenceProvider = () =>
+  useW360Mutation<{ provider: IntelligenceProviderId },
+                   Wrapped<'checkIntelligenceProvider', { ok: boolean; message: string; count: number } | null>>(
+    `mutation CIP($provider:String!) { web { checkIntelligenceProvider(provider:$provider) { ok message count } } }`,
+    'That connection check', false,
+  );
+
+/** A file already in storage (`uploadToDrive`'s node), sent with a message.
+ *  `fileRef` must be the storage node id; anything else refuses the message. */
+export interface MessageFile { fileRef: string; fileName?: string; mimeType?: string; sizeBytes?: number }
+
+/** The owner writing on their order's thread. Text, files (at most ten), or
+ *  both; both empty is refused. Pattadar desk reads every thread, and the
+ *  provider reads it on their work link. Resolves false on a refusal. */
 export const usePostTicketMessage = (reportError = true) =>
-  useW360Mutation<{ ticketId: string; message: string }, Wrapped<'postTicketMessage', boolean>>(
-    `mutation PTM($ticketId:String!,$message:String!) {
-       web { postTicketMessage(ticketId:$ticketId,message:$message) } }`,
+  useW360Mutation<{ ticketId: string; message: string; attachments?: MessageFile[] },
+                   Wrapped<'postTicketMessage', boolean>>(
+    `mutation PTM($ticketId:String!,$message:String!,$attachments:[MessageFile!]) {
+       web { postTicketMessage(ticketId:$ticketId,message:$message,attachments:$attachments) } }`,
     'That message',
+    reportError,
+  );
+
+/** "Ask for an update": tells Pattadar desk an order has gone quiet or is
+ *  late. Offered only while `can` has `nudge` (quiet 4 days or overdue, before
+ *  delivery, not while unpaid, once a day); false when refused. */
+export const useNudgeTicket = (reportError = true) =>
+  useW360Mutation<{ ticketId: string }, Wrapped<'nudgeTicket', boolean>>(
+    `mutation NTK($ticketId:String!) { web { nudgeTicket(ticketId:$ticketId) } }`,
+    'Asking for an update',
     reportError,
   );
 
@@ -1972,56 +2659,6 @@ export function usePaymentConfig() {
   });
 }
 
-/** Records a dispatch with an expiring worker link. A live provider sends it;
- * the owner can also copy the recorded link, with the same revocation rules. */
-export const useDispatchTicket = () =>
-  useW360Mutation<{ ticketId: string; contact: string; personName: string;
-                    channel: string; purpose: string; note: string; expiresDays: number },
-                   Wrapped<'dispatchTicket', string>>(
-    `mutation DTK($ticketId:String!,$contact:String!,$personName:String!,$channel:String!,
-                  $purpose:String!,$note:String!,$expiresDays:Int!) {
-       web { dispatchTicket(ticketId:$ticketId,contact:$contact,personName:$personName,
-                            channel:$channel,purpose:$purpose,note:$note,
-                            expiresDays:$expiresDays) } }`,
-    'Sending that out',
-  );
-
-/** Takes a dispatch back. The person is told it is off, and when nothing live
- *  is left the ticket goes back to being unsent. */
-export const useRevokeDispatch = () =>
-  useW360Mutation<{ dispatchId: string; reason: string }, Wrapped<'revokeDispatch', boolean>>(
-    `mutation RVK($dispatchId:String!,$reason:String!) {
-       web { revokeDispatch(dispatchId:$dispatchId,reason:$reason) } }`,
-    'Revoking that dispatch',
-  );
-
-export const useStartTicket = () =>
-  useW360Mutation<{ ticketId: string; note: string }, Wrapped<'startTicket', boolean>>(
-    `mutation STK($ticketId:String!,$note:String!) {
-       web { startTicket(ticketId:$ticketId,note:$note) } }`,
-    'Starting that job',
-  );
-
-/** Records one thing that came back. `fileRef` is a node id from a separate
- *  multipart upload (see uploadToDrive), the way addPaper and addPhoto already
- *  work; `payload` is JSON text for the kinds that carry more than a file —
- *  a ring for a boundary, a condition for a feature. Nothing here touches the
- *  record: filing happens on acceptance. Returns the deliverable's id. */
-export const useAddDeliverable = () =>
-  useW360Mutation<{ ticketId: string; kind: string; label: string; note: string;
-                    fileRef: string; fileName: string; mimeType: string; sizeBytes: number;
-                    payload: string; fileAs: string; submittedBy: string },
-                   Wrapped<'addDeliverable', string>>(
-    `mutation ADV($ticketId:String!,$kind:String!,$label:String!,$note:String!,
-                  $fileRef:String!,$fileName:String!,$mimeType:String!,$sizeBytes:Int!,
-                  $payload:String!,$fileAs:String!,$submittedBy:String!) {
-       web { addDeliverable(ticketId:$ticketId,kind:$kind,label:$label,note:$note,
-                            fileRef:$fileRef,fileName:$fileName,mimeType:$mimeType,
-                            sizeBytes:$sizeBytes,payload:$payload,fileAs:$fileAs,
-                            submittedBy:$submittedBy) } }`,
-    'Submitted work',
-  );
-
 /** Says yes or no to one item on its own. A survey that comes back with a good
  *  sketch and two photos of the wrong field must not be an all-or-nothing
  *  decision, or the owner accepts rubbish rather than lose the sketch. */
@@ -2061,7 +2698,7 @@ export const useCancelTicket = () =>
                    Wrapped<'cancelTicket', boolean>>(
     `mutation CTK($ticketId:String!,$reason:String!,$payAnyway:Float!) {
        web { cancelTicket(ticketId:$ticketId,reason:$reason,payAnyway:$payAnyway) } }`,
-    'Cancelling that job',
+    'Cancelling that order',
   );
 
 // ── The desk and the associates roster ─────────────────────────────────
@@ -2074,19 +2711,19 @@ export const useCancelTicket = () =>
 // Two rules hold this whole surface up, and a hook added here later must not
 // quietly break either of them:
 //
-//  • Every read below except `disciplines` and `associatesForTicket` is
-//    admin-only. `desk`, `associates`, `coverage` and `deskTasks` are the only
+//  • Every read below except `disciplines` is admin-only, and the owner's
+//    order page reads none of them (service order spec §7). `desk`,
+//    `deskTicket`, `candidates`, `associates`, `coverage` and `deskTasks` are the only
 //    reads in the API that see other people's jobs at all; each one is guarded
 //    server-side and each one leaves an audit row behind. A non-admin gets
 //    null or an empty list rather than an error, and the rail simply never
-//    draws /app/desk for them — see `Portfolio.isPlatformAdmin`.
+//    draws /desk for them — see `Portfolio.isPlatformAdmin`.
 //
 //  • Contact numbers are masked everywhere except two places: the admin roster,
 //    which exists in order to be phoned from, and one owner looking at the one
 //    person on their own live job (`TicketView.assignedTo`, and only when that
-//    associate agreed to it). That is why `AssociateCard` — the picker the
-//    OWNER sees — has no contact field at all, and why no query below asks it
-//    for one. A screenshot of a desk page must not be a phone book.
+//    associate agreed to it). The owner has no picker and no roster at all.
+//    A screenshot of a desk page must not be a phone book.
 //
 // There are no offer hooks here, and no dispatcher. Offers and the accept race
 // come later; the columns exist in the database but nothing reads them yet, so
@@ -2159,16 +2796,16 @@ export interface Associate {
   note: string; createdAt: string;
 }
 
-/** The same person as the OWNER may see them, when they pick somebody for
- *  their own job. No contact, no state reason, no counts of other owners'
- *  work — `jobsOpen` and `jobsDone` are totals, which is what "they are busy"
- *  honestly means, and `why` is the server's sentence for why this name is on
- *  the list at all. */
-export interface AssociateCard {
-  id: string; name: string; firm: string; initials: string;
-  disciplines: string[]; disciplineLabels: string[]; areas: string[];
-  verified: boolean; jobsOpen: number; jobsDone: number;
-  acceptsMore: boolean; why: string[];
+/** Somebody who could take one particular order, best first, as the desk sees
+ *  them (`candidates`, admin-only, place-matched). An ineligible person is
+ *  listed with `whyNot` rather than dropped. `contact` is unmasked: the desk
+ *  phones from this list. */
+export interface Candidate {
+  associateId: string; name: string; initials: string; contact: string;
+  discipline: string; areaMatch: string; openCount: number; capacity: number;
+  acceptRate: number; lastOfferedAt: string; rank: number;
+  why: string[]; eligible: boolean; whyNot: string[];
+  alreadyOffered: boolean; alreadyDeclined: boolean;
 }
 
 /** One line of an associate's trail. `headline` is composed at write time, the
@@ -2232,6 +2869,19 @@ export interface DeskJob {
   dispatchState: string; dispatchRound: number; nextRoundAt: string;
   offersOut: number; offersDeclined: number; lastResponse: string;
   candidateCount: number; stuck: boolean;
+  /** When the owner last asked for an update (dd/mm/yyyy), '' when never. */
+  askedAt: string;
+}
+
+/** One order as the desk works it (`deskTicket`, admin-only, cross-owner):
+ *  its desk row, the desk's moves, the whole trail with every detail —
+ *  dispatch, payment and refused rows included — what came back, and every
+ *  time it left the building. `can` is the desk's (`system`) moves: dispatch ·
+ *  withdraw · assign · unassign · start · deliver as the status allows, plus
+ *  `message` while it is not cancelled. No record id, owner, answers or ledger. */
+export interface DeskTicket {
+  job: DeskJob; can: string[];
+  events: TicketEvent[]; deliverables: TicketDeliverable[]; dispatches: TicketDispatch[];
 }
 
 /** The desk in one read. `jobs` is what nobody is on; `silent` is what somebody
@@ -2272,7 +2922,7 @@ const ASSOCIATE = `id name firm initials contact contactMasked contactVisible
 const DESK_JOB = `ticketId ref kind serviceLabel place status statusLabel statusState
   assignee assigneeRef assigneeContact orderedAt ageDays dueDate overdue quiet quietDays
   quoted held dispatchState dispatchRound nextRoundAt offersOut offersDeclined
-  lastResponse candidateCount stuck`;
+  lastResponse candidateCount stuck askedAt`;
 
 export const TRAINING_CERTIFICATE = `id certificateNo associateId recipientName courseCode
   courseTitle courseVersion trainerName trainerRef completedOn issuedOn validUntil hours skills
@@ -2321,11 +2971,19 @@ const Q_DISCIPLINES = `{ web { disciplines {
   key label blurb kinds areaGrain credential fanout
 } } }`;
 
-const Q_ASSOCIATES_FOR_TICKET = `query AFT($ticketId:String!) {
-  web { associatesForTicket(ticketId:$ticketId) {
-    id name firm initials disciplines disciplineLabels areas
-    verified jobsOpen jobsDone acceptsMore why
-  } } }`;
+const Q_DESK_TICKET = `query DTKT($id:String!) { web { deskTicket(id:$id) {
+  job { ${DESK_JOB} }
+  can
+  events { ${TICKET_EVENT} }
+  deliverables { ${TICKET_DELIVERABLE} }
+  dispatches { id purpose channel contactMasked personName subject body provider live
+               status statusWord error expiresOn daysLeft revoked revokeReason sentAt }
+} } }`;
+
+const Q_CANDIDATES = `query CND($ticketId:String!) { web { candidates(ticketId:$ticketId) {
+  associateId name initials contact discipline areaMatch openCount capacity acceptRate
+  lastOfferedAt rank why eligible whyNot alreadyOffered alreadyDeclined
+} } }`;
 
 // ── Desk reads ─────────────────────────────────────────────────────────
 
@@ -2431,6 +3089,9 @@ export function useAssociateTrainingCertificates(id?: string) {
  *  list survives a place with no records and a discipline with nobody in it. */
 export function useCoverage(level = 'state', stateKey = '', districtKey = '') {
   return useQuery({
+    // A new scope, toggle or id keeps the last answer on screen, dimmed,
+    // instead of blanking (design.md § Loading).
+    placeholderData: keepPreviousData,
     queryKey: [KEY, 'coverage', level, stateKey, districtKey],
     queryFn: async () =>
       (await gql<Wrapped<'coverage', CoverageCell[]>>(
@@ -2478,22 +3139,27 @@ export function useDisciplines() {
   });
 }
 
-/** The names the OWNER of one ticket may put on it. Owner-scoped, not
- *  admin-scoped: the roster query is admin-only, so without this the picker on
- *  the owner's own ticket would have had nothing behind it and "who is on it"
- *  would only ever work on jobs the desk had assigned.
- *
- *  An empty array is a real answer — nobody covers that place for that kind of
- *  work yet — and the picker must tell the owner so. `undefined` is the read
- *  still being in flight; the two are not the same and the page is required to
- *  distinguish them. */
-export function useAssociatesForTicket(ticketId?: string) {
+/** One order as the desk works it. Null for a non-admin and for an id that
+ *  does not exist — the same answer on purpose. Replaces finding the row in
+ *  `useDesk('all')`, which could not show a closed order. */
+export function useDeskTicket(id?: string) {
+  return useQuery({
+    enabled: !!id,
+    queryKey: [KEY, 'deskTicket', id],
+    queryFn: async () =>
+      (await gql<Wrapped<'deskTicket', DeskTicket | null>>(Q_DESK_TICKET, { id })).web.deskTicket,
+  });
+}
+
+/** Who could take this order, best first, eligibility reasons included — the
+ *  roster the owner's page used to show, now the desk's alone. [] for a
+ *  non-admin. */
+export function useDeskCandidates(ticketId?: string) {
   return useQuery({
     enabled: !!ticketId,
-    queryKey: [KEY, 'associatesForTicket', ticketId],
+    queryKey: [KEY, 'candidates', ticketId],
     queryFn: async () =>
-      (await gql<Wrapped<'associatesForTicket', AssociateCard[]>>(
-        Q_ASSOCIATES_FOR_TICKET, { ticketId })).web.associatesForTicket,
+      (await gql<Wrapped<'candidates', Candidate[]>>(Q_CANDIDATES, { ticketId })).web.candidates,
   });
 }
 
@@ -2674,22 +3340,14 @@ export const useDeleteUnclaimedAssociate = () =>
     'Removing that associate',
   );
 
-/** The OWNER putting an associate on their own job. False when the job is not
- *  theirs or the state does not allow it — read the value: a picker that
- *  awaits this and closes regardless is how a select comes to show a name the
- *  server never accepted. */
-export const useAssignAssociate = (reportError = true) =>
-  useW360Mutation<{ requestId: string; associateId: string },
-                   Wrapped<'assignAssociate', boolean>>(
-    `mutation ASA($requestId:String!,$associateId:String!) {
-       web { assignAssociate(requestId:$requestId,associateId:$associateId) } }`,
-    'That assignment',
-    reportError,
-  );
-
 /** The desk putting somebody on somebody else's job. This is the phase-1
  *  product: one click, cross-owner, and the owner sees the name and the number
- *  on their ticket the moment it lands. */
+ *  on their ticket the moment it lands.
+ *
+ *  For an admin a refusal RAISES with the reason the desk can print (order
+ *  closed, not on the roster, not taking work: "Already holds 3", status past
+ *  assigning, not paid while payments are on); the toast carries it. A
+ *  non-admin still gets a bare false. */
 export const useDeskAssign = () =>
   useW360Mutation<{ ticketId: string; associateId: string; note?: string },
                    Wrapped<'deskAssign', boolean>>(
@@ -2706,6 +3364,68 @@ export const useDeskUnassign = () =>
     `mutation DUN($ticketId:String!,$reason:String!) {
        web { deskUnassign(ticketId:$ticketId,reason:$reason) } }`,
     'Taking them off that job',
+  );
+
+/** Pattadar desk sends an order to a provider (purpose `invite`), or writes to
+ *  them again (`nudge`, `message`, `changes`). Records the message with an
+ *  expiring work link. Resolves to the dispatch id, '' when refused; RAISES
+ *  "This order is not paid yet, so nothing was sent." for an invite while
+ *  payments are on and nothing is held. */
+export const useDeskDispatchTicket = () =>
+  useW360Mutation<{ ticketId: string; contact: string; personName: string;
+                    channel: string; purpose: string; note: string; expiresDays: number },
+                   Wrapped<'deskDispatchTicket', string>>(
+    `mutation DDT($ticketId:String!,$contact:String!,$personName:String!,$channel:String!,
+                  $purpose:String!,$note:String!,$expiresDays:Int!) {
+       web { deskDispatchTicket(ticketId:$ticketId,contact:$contact,personName:$personName,
+                                channel:$channel,purpose:$purpose,note:$note,
+                                expiresDays:$expiresDays) } }`,
+    'Sending that to a provider',
+  );
+
+/** Pattadar desk takes an offer back. The provider is told; when nothing is
+ *  left out the order goes back to Placed. */
+export const useDeskRevokeDispatch = () =>
+  useW360Mutation<{ dispatchId: string; reason: string }, Wrapped<'deskRevokeDispatch', boolean>>(
+    `mutation DRV($dispatchId:String!,$reason:String!) {
+       web { deskRevokeDispatch(dispatchId:$dispatchId,reason:$reason) } }`,
+    'Withdrawing that offer',
+  );
+
+/** Pattadar desk records that the provider has started (they phoned it in). */
+export const useDeskStartTicket = () =>
+  useW360Mutation<{ ticketId: string; note: string }, Wrapped<'deskStartTicket', boolean>>(
+    `mutation DST($ticketId:String!,$note:String!) {
+       web { deskStartTicket(ticketId:$ticketId,note:$note) } }`,
+    'Marking that started',
+  );
+
+/** Pattadar desk records one thing a provider handed in by another route.
+ *  `fileRef` is a storage node id; `payload` is JSON text for a boundary ring
+ *  or a feature's condition. Nothing is filed until the owner accepts. Moves
+ *  the order to Waiting on you. Resolves to the deliverable id, '' if refused. */
+export const useDeskAddDeliverable = () =>
+  useW360Mutation<{ ticketId: string; kind: string; label: string; note: string;
+                    fileRef: string; fileName: string; mimeType: string; sizeBytes: number;
+                    payload: string; fileAs: string; submittedBy: string },
+                   Wrapped<'deskAddDeliverable', string>>(
+    `mutation DAD($ticketId:String!,$kind:String!,$label:String!,$note:String!,
+                  $fileRef:String!,$fileName:String!,$mimeType:String!,$sizeBytes:Int!,
+                  $payload:String!,$fileAs:String!,$submittedBy:String!) {
+       web { deskAddDeliverable(ticketId:$ticketId,kind:$kind,label:$label,note:$note,
+                                fileRef:$fileRef,fileName:$fileName,mimeType:$mimeType,
+                                sizeBytes:$sizeBytes,payload:$payload,fileAs:$fileAs,
+                                submittedBy:$submittedBy) } }`,
+    'Recording that work',
+  );
+
+/** Pattadar desk answers on an order's thread (text only); the owner reads it
+ *  as "Pattadar desk", the provider on their work link. */
+export const useDeskPostTicketMessage = () =>
+  useW360Mutation<{ ticketId: string; message: string }, Wrapped<'deskPostTicketMessage', boolean>>(
+    `mutation DPM($ticketId:String!,$message:String!) {
+       web { deskPostTicketMessage(ticketId:$ticketId,message:$message) } }`,
+    'That reply',
   );
 
 /** Grants or removes the one boolean this subsystem has. There is no other
@@ -2760,6 +3480,20 @@ export interface HoldingMember {
   sheetId: string;
   archived: boolean;
   sort: number;
+  /** Who holds this member: its family or group, '' = in your own name. */
+  groupId: string;
+  /** The group's name, or "In your own name". */
+  holderLabel: string;
+}
+
+/** One line of a holding's "Held by" — a holder and how many of the
+ *  holding's properties it holds. Read-only; largest first. */
+export interface HoldingHolder {
+  /** '' for properties held in your own name. */
+  groupId: string;
+  /** The group's name, or "In your own name". */
+  name: string;
+  count: number;
 }
 
 export interface HoldingCard {
@@ -2790,6 +3524,8 @@ export interface HoldingCard {
   createdAt: string;
   updatedAt: string;
   members: HoldingMember[];
+  /** "Held by" — only `useHolding` (one holding) selects it. */
+  heldBy?: HoldingHolder[];
 }
 
 export interface HoldingPaper {
@@ -2933,13 +3669,14 @@ const HOLDING_FIELDS = `id name note memberCount parcelCount propertyCount
 
 const HOLDING_MEMBER_FIELDS = `id recordId recordKind title placeLine khataNo
   ownerName status extent extentUnit extentDetail marketValue paperCount ground
-  sheetTitle sheetId archived sort`;
+  sheetTitle sheetId archived sort groupId holderLabel`;
 
 const Q_HOLDING_LIST = `{ web { combinedProperties {
   ${HOLDING_FIELDS} members { ${HOLDING_MEMBER_FIELDS} } } } }`;
 
 const Q_HOLDING = `query CP($id:String!) { web { combinedProperty(id:$id) {
-  ${HOLDING_FIELDS} members { ${HOLDING_MEMBER_FIELDS} } } } }`;
+  ${HOLDING_FIELDS} members { ${HOLDING_MEMBER_FIELDS} }
+  heldBy { groupId name count } } } }`;
 
 const Q_HOLDING_PAPERS = `query CPP($id:String!) { web { combinedPapers(id:$id) {
   id title detail shelf icon tags shared pageCount fileRef recordId recordTitle } } }`;
@@ -3037,6 +3774,9 @@ export type HoldingOrder = Pick<Order,
  *  against the aggregate. */
 export function useHoldingOrders(id: string | undefined, includeClosed = false) {
   return useQuery({
+    // A new scope, toggle or id keeps the last answer on screen, dimmed,
+    // instead of blanking (design.md § Loading).
+    placeholderData: keepPreviousData,
     enabled: !!id,
     queryKey: [KEY, 'combined-orders', id, includeClosed],
     queryFn: async () =>
@@ -3074,7 +3814,18 @@ export const useSetHoldingMembers = (reportError = true) =>
                    Wrapped<'setCombinedMembers', boolean>>(
     `mutation SCM($id:String!,$recordIds:[String!]!) {
        web { setCombinedMembers(id:$id,recordIds:$recordIds) } }`,
-    'Those records',
+    'Those properties',
+    reportError,
+  );
+
+/** Every member of the holding to one stake, Mine or I manage it, in one write
+ *  (a member's stake cannot change on its own while it is in a holding). */
+export const useSetHoldingStake = (reportError = true) =>
+  useW360Mutation<{ id: string; stake: 'owned' | 'managed' },
+                   Wrapped<'setCombinedStake', boolean>>(
+    `mutation SCS($id:String!,$stake:String!) {
+       web { setCombinedStake(id:$id,stake:$stake) } }`,
+    'That stake',
     reportError,
   );
 
@@ -3135,7 +3886,7 @@ export const useDeleteJointFmb = (reportError = true) =>
     reportError,
   );
 
-// ── Profile (/app/profile) ─────────────────────────────────────────────
+// ── Profile (/profile) ─────────────────────────────────────────────
 //
 // The one screen here that reads through the ROOT schema rather than
 // `Query.web`: `me`, `updateMe` and `updateProfile` are the cross-client
@@ -3149,6 +3900,8 @@ export interface Me {
   id: string; name: string; email: string; address: string; language: string;
   districtsOfInterest: string; notificationPrefs: string; kycRefMasked: string;
   mfaEnabled: boolean;
+  /** When the PREVIOUS visit began (the `me` read writes this one's), ISO. */
+  lastActiveAt: string;
 }
 export interface District { id: string; name: string }
 
@@ -3158,7 +3911,7 @@ export function useMe() {
     queryFn: async () => {
       const d = await gql<{ me: Me | null }>(
         `query Me { me { id name email address language districtsOfInterest
-                         notificationPrefs kycRefMasked mfaEnabled } }`,
+                         notificationPrefs kycRefMasked mfaEnabled lastActiveAt } }`,
       );
       if (!d.me) throw new Error('The server returned no profile.');
       return d.me;

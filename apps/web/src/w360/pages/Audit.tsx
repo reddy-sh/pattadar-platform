@@ -1,4 +1,4 @@
-/** The owner's audit trail (W16 — the redrawn /app/audit).
+/** The owner's audit trail (W16 — the redrawn /audit).
  *
  *  This replaces the "Not yet redrawn" signpost. It reads the centralized
  *  audit trail (audit_events_v2) through `useAuditTrail`, which is scoped
@@ -16,7 +16,12 @@ import type { AuditEventV2 } from '@pattadar/core';
 
 import { useAuditTrail } from '../../data/hooks';
 import { fmtLocal } from '../../lib/format';
-import { Empty, Loading, PageHead, Tag, plural } from '../ui';
+import { Sk, SkRows } from '../skeletons';
+import { Empty, Failed, PageHead, Tag, num, plural } from '../ui';
+
+/** The trail stops at this many events (services/api main.py `audit_trail`,
+ *  limit 200), so a list this long says it is the latest ones, not all. */
+const TRAIL_CAP = 200;
 
 /** Who acted, in words rather than a principal id. The owner's own actions are
  *  simply "You"; everything else names the kind of actor, because "an admin
@@ -83,7 +88,7 @@ export function ActivityRow({ e }: { e: AuditEventV2 }) {
 }
 
 export function Audit() {
-  const { data, isLoading } = useAuditTrail();
+  const { data, isLoading, error, refetch } = useAuditTrail();
   const events = data ?? [];
   return (
     <main>
@@ -93,32 +98,36 @@ export function Audit() {
           recorded yet, and the third was a claim no control backed. Overstating
           an audit surface is worse than a modest one: it is the sentence an
           auditor quotes back at you. */}
-      <PageHead eyebrow="Account" title="Activity">
-        <p className="lede" style={{ maxWidth: '46rem' }}>
-          Changes to your properties, documents, identity access and share links, including access
-          by Pattadar staff.
-        </p>
-        <p className="note" style={{ maxWidth: '46rem', marginTop: '0.5rem' }}>
-          Sign-ins and file downloads are not recorded.
-        </p>
-      </PageHead>
+      <PageHead
+        title="Activity"
+        info={(
+          <>
+            Changes to your properties, documents, identity access and share links, including access
+            by Pattadar staff. Sign-ins and file downloads are not recorded.
+          </>
+        )}
+        summary={isLoading
+          ? <Sk w="18rem" h="1rem" r="var(--radius-xs)" />
+          : events.length >= TRAIL_CAP
+            ? `Latest ${num(TRAIL_CAP)} events · Newest first`
+            : events.length > 0 ? `${plural(events.length, 'event')} · Newest first` : undefined}
+      />
       {isLoading ? (
-        <Loading h="12rem" />
+        <SkRows rows={6} label="Loading your activity" />
+      ) : events.length === 0 && error ? (
+        // A failed read zero-fills to [], and "No activity recorded yet" would
+        // tell the owner of a compliance surface their trail is empty.
+        <Failed what="Your activity" error={error} onRetry={refetch} boxed />
       ) : events.length === 0 ? (
         <Empty boxed title="No activity recorded yet" />
       ) : (
-        <>
-          <p className="note" style={{ margin: '0 0 var(--space-md)' }}>
-            {plural(events.length, 'event')} · Newest first
-          </p>
-          <div className="card" style={{ padding: 0 }}>
-            <div className="rows boxed">
-              {events.map((e) => (
-                <ActivityRow key={e.id} e={e} />
-              ))}
-            </div>
+        <div className="card" style={{ padding: 0 }}>
+          <div className="rows boxed">
+            {events.map((e) => (
+              <ActivityRow key={e.id} e={e} />
+            ))}
           </div>
-        </>
+        </div>
       )}
     </main>
   );

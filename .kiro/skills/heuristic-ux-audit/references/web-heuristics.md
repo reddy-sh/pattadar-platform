@@ -1,7 +1,8 @@
 # Web heuristics for Pattadar audits
 
-Checked against `design.md` and the sources below on 02/10/2026. Rules are
-paraphrased and linked, never copied.
+Checked against `design.md` and the sources below on 09/10/2026. Rules are
+paraphrased and linked, never copied. Where design.md sets a value (a count,
+an offset, a colour), cite its section and read the value there.
 
 ## Precedence and labels
 
@@ -32,7 +33,7 @@ brand: no four-colour system, product icons or sparkle branding (§ Provenance).
 | Type | Routes | Owning source | Governing design.md sections | Frozen |
 |---|---|---|---|---|
 | Marketing | `/`, `/pricing` | `apps/web/src/pages/landing/`, `apps/web/src/pages/pricing/`, `apps/web/src/styles/site.css` | § Macrostructure family (marketing), § Motion, § CTA voice, § Per-page allowances, § What pages MUST share | `landingContent.ts`, `pricingContent.ts` (§ Copy freeze) |
-| W360 app | `/app/*` | `apps/web/src/w360/` (primitives in `ui.tsx`, styles in `w360.css`, screens in `pages/`) | § Macrostructure family (app), § App vocabulary, § App-surface rules, § Data provenance, § Theme choice and persistence | vocabulary table (founder decision) |
+| W360 app | `/home`, `/properties`, … (top level, no `/app`) | `apps/web/src/w360/` (primitives in `ui.tsx`, styles in `w360.css`, screens in `pages/`) | § Macrostructure family (app), § App vocabulary, § App-surface rules, § Data provenance, § Theme choice and persistence | vocabulary table (founder decision) |
 | Content, legal, auth | `/privacy`, `/terms`, `/login`, `/signup`, `/forgot-password` | `apps/web/src/pages/legal/`, `apps/web/src/pages/auth/` | § Macrostructure family (content/legal), § Per-page allowances (typography only) | as the page's spec says |
 
 Routes live in `apps/web/src/routes.tsx`. `/legacy/*` keeps its older copy
@@ -66,9 +67,10 @@ what to count first, then the rules that judge the count.
   header, hero and footer; what disappears at 390 and whether it is reachable
   another way.
 - Rules: design.md § Macrostructure family records the approved landing nav
-  (brand, 8 section links, one Pricing route link, one CTA). A count within it
-  is compliant, and proposing fewer is a Reddy decision. W360: rail groups and
-  titles follow § App vocabulary, and a page title matches its rail label.
+  (brand, section links, one Pricing route link, one CTA; the section links
+  are `NAV_LINKS` in `landingContent.ts`). A count within it is compliant,
+  and proposing fewer is a Reddy decision. W360: rail groups and titles
+  follow § App vocabulary, and a page title matches its rail label.
   Audit: every destination must stay reachable at every width.
 - Nielsen coverage: 6, 7, 8.
 
@@ -97,8 +99,7 @@ what to count first, then the rules that judge the count.
   facet counts, a head line and a strip), and the source each one reads.
 - Rules: audit, one telling per fact, placed where it is used. Repetition must
   be real structure such as categories or scopes, not filler
-  (`design-system-governance` step 4). design.md § Motion adds that a scene
-  swappable for any other product's diagram is not carrying its weight.
+  (`design-system-governance`, "Audit the interaction before the paint").
   Audit: two figures for the same quantity read one source or are shown to
   agree. When the code lets them disagree, that is a finding, or drift where a
   comment or doc says they match.
@@ -123,11 +124,11 @@ what to count first, then the rules that judge the count.
   design.md § App-surface rules says fill means act, so counts and
   classifications stay outlined, and progress tracks stay neutral.
   § Data provenance requires shape-correct emptiness and one sentence for a
-  failed read (`UNREACHABLE_NOTE`, `apps/web/src/data/useLiveOrSample.ts`). The
-  project guard in `scripts/ux-guards.ts` (CL-563) says a missing value must
-  read as missing, never as zero. M3 progress indicators show an ongoing
-  process, determinate or indeterminate, and carry a name. Audit: a status is a
-  chip, never a band or a sentence, and one state has one word.
+  failed read (`UNREACHABLE_NOTE`, `apps/web/src/data/useLiveOrSample.ts`).
+  § Property tabs has a missing value read as missing, in the words it lists.
+  M3 progress indicators show an ongoing process, determinate or
+  indeterminate, and carry a name. Audit: a status is a chip, never a band or
+  a sentence, and one state has one word.
 - Nielsen coverage: 1, 2.
 
 ### 7. Motion
@@ -142,7 +143,8 @@ what to count first, then the rules that judge the count.
   own, lasts over five seconds and sits beside other content needs a way to
   pause, stop or hide it. Auto-updating content needs one at any duration, and
   pausing only while hovered or focused does not count as that mechanism.
-  § Microinteractions stance allows a −1px hover lift, never scale or glow.
+  § Microinteractions stance sets the card hover lift and bans scale and
+  glow.
 - Flag WCAG risks only. Proof belongs to `design-system-governance`.
 - Nielsen coverage: 3, 8.
 
@@ -195,8 +197,8 @@ what to count first, then the rules that judge the count.
   shift file, compare each state with `resting` from the same load and
   scheme by `pageX`, `pageY`, `width` and `height` (by the viewport `x` and
   `y` for a sticky or fixed instrument), so a scroll into view is not a move.
-  A change of 1px or more is a finding. The High Contrast state comes from
-  another load and is not compared. M3 menus show transient choices on a
+  A change of 1px or more is a finding. The other-scheme states come from
+  another load and are not compared. M3 menus show transient choices on a
   temporary surface placed against an anchor, so matches and suggestions open
   on one, anchored to their field, instead of pushing the page down. Audit: a
   list capped in height shows that it scrolls, with a cut-off row, a fade or a
@@ -234,14 +236,16 @@ what to count first, then the rules that judge the count.
   only state signal; skipped heading levels; focus traps; text inside images;
   motion without reduced-motion handling (from pass 7); for every focusable
   control, the rule that draws its focus ring in each scheme.
-- Rules: the design-system-governance quality gates (4.5:1 body text, 3:1
+- Rules: the design-system-governance quality gates (text contrast at each
+  scheme's `textLevel` in `packages/tokens/src/palette/registry.ts`, 3:1
   non-text UI, visible focus, 44px web targets, colour never the only signal)
-  and design.md § Microinteractions stance (2px focus ring, 3px in High
-  Contrast). M3 icon buttons carry supplementary actions and need a name.
+  and design.md § Microinteractions stance (focus ring widths). M3 icon
+  buttons carry supplementary actions and need a name.
 - Focus rings: audit, find the rule that wins for each control in each scheme
   by tracing the cascade (specificity, then source order), remembering that
-  W360's High Contrast `!important` focus block in `w360.css` overrides both,
-  and check it against the recorded `outline-*`
+  the High Contrast `!important` focus block in MUI CssBaseline
+  (`apps/web/src/theme.ts`; `w360.css` moves it, never reduces it) overrides
+  both, and check it against the recorded `outline-*`
   (`references/evidence-capture.md` § Interaction states). The ring follows
   the visible control: a pill's ring is the pill, not the bare input inside
   it, and M3 text fields show focus on the field container (the filled
@@ -294,7 +298,7 @@ heuristic with no finding.
   need tests or source semantics.
 - Every state in `references/evidence-capture.md` § Interaction states, and
   every state and width not seen (loading, error, empty, phone), is captured
-  or listed by name as not verified. High Contrast off W360 is listed as not
+  or listed by name as not verified. Other schemes off W360 are listed as not
   applicable.
 
 ## Proposal rules

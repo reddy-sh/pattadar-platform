@@ -65,7 +65,7 @@ struct SignInScreen: View {
                         Text("🙏").font(.scaled(40))
                         VStack(alignment: .leading, spacing: Space.hair) {
                             Text("Namaste").font(.title2.weight(.semibold))
-                            Text("Your land, your records.")
+                            Text("Your land, your documents.")
                                 .font(.subheadline).foregroundStyle(.secondary)
                         }
                     }
@@ -77,7 +77,7 @@ struct SignInScreen: View {
                         Task { await signInWithCognito() }
                     }
                 } footer: {
-                    Text("Opens auth.pattadar.com — sign in with Google or your email. Use the account whose email your records belong to.")
+                    Text("Opens Pattadar’s sign-in page — sign in with Google or your email. Use the account your data belongs to.")
                 }
 
                 if !problem.isEmpty {

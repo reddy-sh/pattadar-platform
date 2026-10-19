@@ -86,7 +86,7 @@ func blurbNamesTheProblem() {
 func emptyAndPerfectAreNotTheSame() {
     #expect(readinessBlurb([]) == "Nothing recorded yet.")
     let allGood = readinessBlurb([("A", assessReadiness(complete(), thisYear: 2026))])
-    #expect(allGood.contains("stand up to scrutiny"))
+    #expect(allGood == "Every property on file is in order today.")
 }
 
 @Test("One verdict, so two screens cannot disagree about one holding")

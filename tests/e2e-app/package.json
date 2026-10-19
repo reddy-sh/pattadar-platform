@@ -9,7 +9,7 @@
     "test:phone": "playwright test --project=phone",
     "test:live": "playwright test --project=live",
     "report": "playwright show-report",
-    "codegen": "playwright codegen http://localhost:5180/app"
+    "codegen": "playwright codegen http://localhost:5180/home"
   },
   "devDependencies": {
     "@playwright/test": "1.62.0"

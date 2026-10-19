@@ -1,5 +1,5 @@
 /**
- * Help & support, at /app/help — the rail's "Help & resources" group opens it.
+ * Help & support, at /help — the rail's "Help & resources" group opens it.
  *
  * Every way to get an answer that already exists, in one place: the in-app
  * assistant, the support inbox the iOS and Expo apps already offer, the
@@ -24,11 +24,11 @@ export function Help() {
       <PageHead title="Help & support" />
       <div style={{
         display: 'grid', gap: 'var(--space-md)',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 20rem), 1fr))', maxWidth: '64rem',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 20rem), 1fr))',
       }}>
         <Card title="Ask the assistant">
           <p className="note" style={{ marginTop: 0 }}>
-            Questions about your records, documents and how Pattadar works, answered in the app.
+            Questions about your properties, documents and how Pattadar works, answered in the app.
           </p>
           <button type="button" className="btn primary" onClick={() => shell?.openAssistant()}
                   disabled={!shell}>
@@ -38,7 +38,7 @@ export function Help() {
 
         <Card title="Contact support">
           <p className="note" style={{ marginTop: 0 }}>
-            For a problem with your records, a service you ordered or your account. Include the
+            For a problem with your properties, a service you ordered or your account. Include the
             reference shown on the screen. Never email a password or a full Aadhaar number.
           </p>
           <a className="btn" href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('Pattadar help')}`}>
@@ -60,7 +60,7 @@ export function Help() {
         <Card title="Privacy, data and grievances">
           <p className="note" style={{ marginTop: 0 }}>
             Export your data, manage consent or request deletion from{' '}
-            <Link to="/app/account">Privacy &amp; your data</Link>. For a privacy concern or a
+            <Link to="/account">Privacy &amp; your data</Link>. For a privacy concern or a
             complaint, write to the grievance officer at{' '}
             <a href={`mailto:${GRIEVANCE_EMAIL}`}>{GRIEVANCE_EMAIL}</a>.
           </p>

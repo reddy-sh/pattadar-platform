@@ -22,9 +22,18 @@ async function openVillage(page: Page) {
       geometry: { type: 'Polygon', coordinates: [[...ring, ring[0]].map(([lat, lon]) => [lon, lat])] },
     })),
   } }));
-  await page.goto('/app/maps');
-  await page.getByRole('textbox', { name: 'Search all villages' }).fill(village);
-  await page.getByRole('button', { name: new RegExp(`^${village}`) }).click();
+  await page.goto('/maps');
+  // One search, the Filter's own: villages are found by name there (listed
+  // only once something is typed), then ticked like any other option.
+  await page.getByRole('button', { name: '+ Filter', exact: true }).click();
+  const pop = page.getByRole('group', { name: 'Narrow the cadastral map' });
+  await expect(pop.getByRole('button', { name: new RegExp(`^${village}`) })).toHaveCount(0);
+  await pop.getByRole('textbox', { name: 'Search areas, villages or properties' }).fill(village);
+  await pop.getByRole('button', { name: new RegExp(`^${village}`) }).click();
+  // Exactly one village picked opens it; put the popover away so it does not
+  // sit over the map the tests click on.
+  const closeFilters = page.getByRole('button', { name: 'Close filters', exact: true });
+  if (await closeFilters.isVisible()) await closeFilters.click();
   await expect(page.locator('.vc-badge')).toContainText(village);
   await expect(page.locator('.vc-label').first()).toBeVisible();
 }
@@ -113,7 +122,8 @@ test('village street tiles report failure after imagery loaded and can be retrie
   await page.getByRole('button', { name: 'Retry map', exact: true }).click();
   await expect(page.locator('.vc-tile-error')).toHaveCount(0);
   await expect(page.locator('.leaflet-tile-loaded').first()).toBeVisible();
-  await page.getByRole('link', { name: 'Properties map', exact: true }).click();
+  // The header link to the Properties map is gone; the map is still one URL away.
+  await page.goto('/properties?view=map');
   await expect(page).toHaveURL(/\/properties\?view=map$/);
 });
 

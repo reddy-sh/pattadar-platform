@@ -29,8 +29,9 @@ import {
 } from '../api';
 import type { Associate, AssociateArea, AssociateCredential, TrainingCertificate } from '../api';
 import { Dialog } from '../Dialog';
+import { Sk, SkRowItems } from '../skeletons';
 import {
-  Card, Chip, Crumbs, Empty, Failed, Loading, Menu, State, Tag, ddmmyyyy, plural,
+  Card, Chip, Empty, Failed, PageHead, State, Tag, ddmmyyyy, plural,
 } from '../ui';
 
 /** The review vocabulary, which is `ticket_deliverables`' vocabulary — the same
@@ -334,7 +335,7 @@ function DeleteDialog({ id, name, kinds, places, papers, onClose, onGone }: {
       footer={(
         <div className="row" style={{ justifyContent: 'flex-end' }}>
           <button type="button" className="btn" onClick={onClose} disabled={del.isPending}>
-            Keep them
+            Cancel
           </button>
           <button type="button" className="btn danger" disabled={del.isPending}
                   onClick={() => { void commit(); }}>
@@ -347,7 +348,7 @@ function DeleteDialog({ id, name, kinds, places, papers, onClose, onGone }: {
         <p>
           This deletes their name, their number, {plural(kinds, 'kind')} of work,
           {' '}{plural(places, 'place')} they cover, {plural(papers, 'document')} on file and
-          every line of their trail.
+          every line of their activity.
         </p>
         <p className="note">This cannot be undone.</p>
         {err && <Refused>{err}</Refused>}
@@ -406,7 +407,24 @@ function DisciplinesEditor({ id, current, onClose }: {
 
   return (
     <div className="stack sm" style={{ marginTop: 'var(--space-sm)' }}>
-      {catalogue.isLoading ? <Loading h="8rem" what="the kinds of work" />
+      {catalogue.isLoading ? (
+        // The same .checks rows the catalogue draws: tick, name, blurb.
+        <div role="status" aria-busy="true" aria-label="Loading the kinds of work">
+          <div className="checks" aria-hidden>
+            {[9, 7, 11, 8].map((w, i) => (
+              <div key={i} className="row" style={{ flexWrap: 'nowrap', gap: 'var(--space-sm)' }}>
+                <span className="check grow">
+                  <Sk w="0.9375rem" h="0.9375rem" style={{ flex: 'none' }} />
+                  <span className="grow">
+                    <Sk w={`${w}rem`} h="0.8125rem" />
+                    <Sk w={`${w + 5}rem`} h="0.75rem" style={{ display: 'block', marginTop: '0.25rem' }} />
+                  </span>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )
         : !catalogue.data ? <Failed what="The kinds of work" error={catalogue.error} boxed h="8rem" />
           : (
             <div className="checks">
@@ -861,7 +879,7 @@ function RevokeTrainingCertificate({ certificate, onClose }: {
             dismissable={false} footer={(
               <div className="row" style={{ justifyContent: 'flex-end' }}>
                 {!reason.trim() && <Why>Record the revocation reason first.</Why>}
-                <button type="button" className="btn" onClick={onClose}>Keep it active</button>
+                <button type="button" className="btn" onClick={onClose}>Cancel</button>
                 <button type="button" className="btn danger" disabled={!reason.trim() || revoke.isPending}
                         onClick={() => { void commit(); }}>Revoke certificate</button>
               </div>
@@ -945,26 +963,21 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
 
   return (
     <>
-      <header className="pagehead">
-        {/* `.grow` has to ride on the pagehead's own child — `.pagehead .grow`
-            is what claims the leftover width — so the avatar and the name sit
-            inside it rather than beside it. */}
-        <div className="row grow" style={{ flexWrap: 'nowrap', gap: 'var(--space-md)' }}>
-          <span className="avatarlg">{a.initials}</span>
-          <div style={{ minWidth: 0 }}>
-            <h1>{a.name}</h1>
-            <p className="lede" style={{ marginTop: '0.25rem' }}>
-              {[roles, a.addressLabel || 'Full address not recorded',
-                a.createdAt ? `with us since ${ddmmyyyy(a.createdAt)}` : '']
-                .filter(Boolean).join(' · ')}
-            </p>
-          </div>
-        </div>
-        <div className="actions">
-          <State state={a.stateState}>{a.stateWord}</State>
-          {menu.length > 0 && <Menu label={`What to do about ${a.name}`} header={a.name} items={menu} />}
-        </div>
-      </header>
+      {/* A detail page's head (design.md § Page head): the crumbs, the
+          avatar before the name, the state as its pill, the facts in the
+          meta row and only the ⋮ on the right. */}
+      <PageHead
+        crumbs={[{ label: 'Company members', to: '/admin/members' }, { label: a.name }]}
+        glyph={<span className="avatarlg">{a.initials}</span>}
+        title={a.name}
+        pill={<State state={a.stateState}>{a.stateWord}</State>}
+        meta={[roles, a.addressLabel || 'Full address not recorded',
+          a.createdAt ? `with us since ${ddmmyyyy(a.createdAt)}` : '']
+          .filter(Boolean).join(' · ')}
+        actions={menu.length > 0
+          ? { overflow: menu, overflowLabel: `What to do about ${a.name}`, overflowHeader: a.name }
+          : undefined}
+      />
 
       {/* The reason somebody is paused or stopped belongs beside the word, not
           buried in the trail: an operator who cannot see why will undo it. */}
@@ -1130,7 +1143,7 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
               </button>
             )}
           >
-            {certificates.isLoading ? <Loading h="7rem" what="training certificates" />
+            {certificates.isLoading ? <SkCardRows label="Loading their training certificates" />
               : !certificates.data ? (
                 <Failed what="Training certificates" error={certificates.error} boxed h="7rem" />
               ) : certificates.data.length === 0 ? (
@@ -1175,7 +1188,7 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
               </span>
             )}
           >
-            {jobs.isLoading ? <Loading h="7rem" what="their jobs" />
+            {jobs.isLoading ? <SkCardRows label="Loading their jobs" />
               : !jobs.data ? <Failed what="Their jobs" error={jobs.error} boxed h="7rem" />
                 : jobs.data.length === 0 ? (
                   <p className="note">
@@ -1274,8 +1287,8 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
           {memberError && <Refused>{memberError}</Refused>}
 
           <Card title="Activity">
-            {events.isLoading ? <Loading h="8rem" what="their trail" />
-              : !events.data ? <Failed what="Their trail" error={events.error} boxed h="8rem" />
+            {events.isLoading ? <SkCardRows label="Loading their activity" />
+              : !events.data ? <Failed what="Their activity" error={events.error} boxed h="8rem" />
                 : events.data.length === 0 ? (
                   <p className="note">
                     Nothing yet.
@@ -1341,6 +1354,47 @@ function Person({ a, onGone }: { a: Associate; onGone: () => void }) {
   );
 }
 
+// ── Loading ────────────────────────────────────────────────────────────
+
+/** Grey rows inside a card that already owns its title, in the same `.rows`
+ *  list the answer draws, so the card does not change height when it lands. */
+function SkCardRows({ label, rows = 3 }: { label: string; rows?: number }) {
+  return (
+    <div role="status" aria-busy="true" aria-label={label}>
+      <div className="rows"><SkRowItems rows={rows} /></div>
+    </div>
+  );
+}
+
+/** The member page's first read: the same split and the same card titles
+ *  Person draws (they are constants), with grey where the values will be.
+ *  The route's own PageHead already stands above it. */
+function SkPerson() {
+  const card = (title: string, rows: number) => (
+    <Card title={title}><div className="rows"><SkRowItems rows={rows} /></div></Card>
+  );
+  return (
+    <div role="status" aria-busy="true" aria-label="Loading this member">
+      <div className="split" aria-hidden style={{ marginTop: 'var(--space-md)' }}>
+        <div className="stack">
+          {card('Services they provide', 3)}
+          {card('Postal address', 1)}
+          {card('Service areas', 1)}
+          {card('Documents', 2)}
+          {card('Training', 2)}
+          {card('Jobs', 2)}
+        </div>
+        <aside className="stack">
+          {card('Contact', 1)}
+          {card('Performance', 2)}
+          {card('Message from Pattadar', 2)}
+          {card('Activity', 3)}
+        </aside>
+      </div>
+    </div>
+  );
+}
+
 // ── The route ──────────────────────────────────────────────────────────
 
 export function DeskAssociate() {
@@ -1353,17 +1407,21 @@ export function DeskAssociate() {
    *  whether it went through. */
   const [gone, setGone] = useState(false);
 
+  // The loaded page draws its own head; the other three states draw this one,
+  // with the way back (design.md § Page head, "Every state has the head").
+  const loaded = !gone && !isLoading && !!data;
   return (
     <main>
-      <Crumbs trail={[{ label: 'Administration', to: '/app/admin/members' },
-                      { label: 'Company members', to: '/app/admin/members' },
-                      ...(data && !gone ? [{ label: data.name }] : [])]} />
+      {!loaded && (
+        <PageHead crumbs={[{ label: 'Company members', to: '/admin/members' }, { label: gone ? 'Removed' : 'Member' }]}
+                  title={gone ? 'This member has been removed' : 'Member'} />
+      )}
       {gone ? (
         <Empty
-          boxed h="18rem" icon="person" title="This member has been removed"
-          action={<Link className="btn" to="/app/admin/members">Back to the roster</Link>}
+          boxed h="18rem" icon="person"
+          action={<Link className="btn" to="/admin/members">Back to Company members</Link>}
         />
-      ) : isLoading ? <Loading h="20rem" what="this member" />
+      ) : isLoading ? <SkPerson />
         : !data ? <Failed what="This member" error={error} boxed h="20rem" />
           : <Person a={data} onGone={() => setGone(true)} />}
     </main>

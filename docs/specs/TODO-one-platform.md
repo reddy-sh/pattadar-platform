@@ -131,7 +131,7 @@ PDF exports.
   Pattadar Gold · High Contrast), from the appearance study's anchors, with a
   charcoal header and a 2px gold rule that W360's top bar and the previous
   app's AppBar both read from the scheme's `chrome` roles. Charts read the
-  active scheme. `/app?scheme=pattadar` opens it for review; `/theme-samples`
+  active scheme. `/home?scheme=pattadar` opens it for review; `/theme-samples`
   is retired. Android's half lands with the Android themes below.
 - [x] University on the pack, 03/10/2026. `apps/university/tokens.css`
   declares no colour; its `--color-*` names alias the MUI variables of

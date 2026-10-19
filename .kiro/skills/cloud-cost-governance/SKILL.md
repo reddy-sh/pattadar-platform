@@ -1,48 +1,63 @@
 ---
 name: cloud-cost-governance
-description: Use this skill for Pattadar AWS cost analysis, idle-resource review, stale snapshots, allocation tags, Cloud Custodian policy/findings/schedule questions, parked-versus-running platform cost, or safe cost-reduction options. Default to static/report-only evidence; never make AWS calls or run Terraform/Custodian/workflows without explicit approval.
+description: "Use this skill for Pattadar AWS and platform spend: cost analysis, idle resources, stale snapshots, allocation tags, Cloud Custodian policy/findings/schedules, parked-versus-running cost, or safe cost-reduction options. Analysis only, from static evidence; never make AWS calls or run Terraform/Custodian/workflows without Reddy's approval. Not for running park/up/down or restores (platform-lifecycle) or AI coding-assistant token spend."
 compatibility: Requires pattadar-platform repository context. Optional live analysis requires explicitly approved AWS/Terraform/Cloud Custodian access.
 metadata:
   project: pattadar-platform
   standard: agentskills.io
-  verified: "2026-09-16"
+  verified: "2026-10-09"
 ---
 
 # Cloud Cost Governance
 
 Analyze repository configuration first. Do not query AWS, install tools,
 initialize Terraform, run Custodian, dispatch workflows, or mutate resources
-unless the user separately approves the exact command.
+unless Reddy separately approves the exact command.
 
 ## Workflow
 
 1. Clarify environment, region, time range, currency, and decision needed.
-2. Label evidence as static config, historical estimate, generated local
-   artifact, or explicitly approved live billing/inventory data.
+2. Label evidence as static config, dated recorded state, historical estimate,
+   generated local artifact, or explicitly approved live billing/inventory data.
+   Code is not live state: `docs/specs/TODO-prod-persistent-pending.md` lists
+   prod persistent changes still unapplied, so never credit them as savings.
 3. For Custodian policies/findings, tagging coverage, schedule, role, or summary
    behavior, read `references/custodian-governance.md`. For running/parked cost
-   architecture or estimates, read `references/cost-architecture.md`. Load
-   neither for a simple question about this skill's approval boundary.
-4. Separate runtime, persistent/parked, and usage-variable costs.
+   architecture, recorded state or estimates, read
+   `references/cost-architecture.md`. Load neither for a simple question about
+   this skill's approval boundary.
+4. Separate runtime, persistent/parked, standalone University, and
+   usage-variable costs.
 5. Correlate findings with configured architecture; findings are evidence to
-   investigate, never permission to remediate.
+   investigate, never permission to remediate. Never list the newest
+   `pattadar-<env>-pg-final-*` snapshot per environment as a quick win or
+   cleanup candidate: `scripts/platform-up.sh` restores from it and creates an
+   empty database when none exists. Older ones are pruned only with Reddy's
+   approval, through platform-lifecycle. Send `security.yml` findings to
+   security-review.
 6. Rank options by value, confidence, effort, reversibility, dependencies, and
-   evidence required. Prefer reviewed runbooks over ad-hoc commands.
+   evidence required, and state user-facing effects (parking takes prod
+   offline; see the reference). Prefer reviewed runbooks over ad-hoc commands.
 
 ## Approval gate
 
 Before anything that contacts AWS/GitHub or invokes Terraform/Custodian, show
-the exact command, account/environment, region(s), date range, scope, API/network
-effects, expected output, and why it is non-mutating; then wait for approval.
+Reddy the exact command, scope, environment (never the account ID), region(s),
+date range, side effects and API/network calls, data exposure, reversibility,
+expected evidence, and why it is non-mutating; then wait for his approval.
 Custodian `--dryrun` still calls AWS. Terraform `init` downloads providers and
-`plan` reads live state.
+`plan` reads live state. An approval never covers a later mutating step; that
+needs a fresh confirmation immediately before execution.
 
 ## Hard prohibitions
 
 Never add Custodian actions/Lambda remediation; run platform up/down, destroy,
-delete, resize, unassociate, retag, or transition resources as an audit action;
-use stale `-target` down-flow guidance; or expose account/resource/billing data
-unnecessarily. Estimates must state assumptions and evidence class.
+delete, resize, unassociate, retag, or transition resources (execution belongs
+to platform-lifecycle, IaC edits to infrastructure-change); follow the stale
+`-target` down-flow text named in `references/cost-architecture.md`; or expose
+secrets, tokens, account IDs, unnecessary resource identifiers, or billing data
+beyond what the analysis needs. Estimates must state assumptions and evidence
+class.
 
 ## Output
 

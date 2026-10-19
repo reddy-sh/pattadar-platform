@@ -23,7 +23,7 @@ struct WelcomeState: View {
                 VStack(spacing: Space.sm) {
                     Text(name.isEmpty ? "Namaste" : "Namaste, \(name)")
                         .font(.title2.weight(.semibold))
-                    Text("Your land, your records — in one place, and yours alone.")
+                    Text("Your land, your documents — in one place, and yours alone.")
                         .font(.subheadline).foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                 }
@@ -35,7 +35,7 @@ struct WelcomeState: View {
                      detail: "The survey numbers, extent and village are read for you.")
                 Step(icon: "mappin.and.ellipse", tint: Palette.success,
                      title: "Pin where the land actually is",
-                     detail: "So it can be found again by someone who has never stood on it.")
+                     detail: "So it can be found again by a person who has never stood on it.")
                 Step(icon: "person.2.fill", tint: Palette.Category.home,
                      title: "Record who inherits",
                      detail: "Land with no stated succession is the argument that follows.")

@@ -14,7 +14,7 @@ function run(
   opts: { prefersDark?: boolean; brokenStorage?: boolean; url?: string } = {},
 ) {
   const store: Store = { ...initial };
-  const href = opts.url ?? 'https://app.test/app';
+  const href = opts.url ?? 'https://app.test/home';
   const replaced: string[] = [];
   const attrs: Record<string, string> = {};
   const styles: Array<{ attrs: Record<string, string>; textContent: string }> = [];
@@ -114,30 +114,30 @@ describe('theme-init.js on the web', () => {
   });
 
   test('?scheme= opens a registered scheme, saves it, and leaves the address', () => {
-    const r = run('web', { [MODE]: 'dark', [DARK]: 'dark' }, { url: 'https://app.test/app/papers?scheme=pattadar&q=sy#top' });
+    const r = run('web', { [MODE]: 'dark', [DARK]: 'dark' }, { url: 'https://app.test/papers?scheme=pattadar&q=sy#top' });
     expect(r.scheme).toBe('pattadar');
     expect(r.store[MODE]).toBe('light');
     expect(r.store[LIGHT]).toBe('pattadar');
     // Taken off, everything else kept, so a reload shows the saved choice.
-    expect(r.replaced).toEqual(['/app/papers?q=sy#top']);
+    expect(r.replaced).toEqual(['/papers?q=sy#top']);
   });
 
   test('?scheme= with anything but a registered id is ignored, and the address is left alone', () => {
     for (const asked of ['toString', '"><script>', 'constructor', 'gold', '']) {
-      const r = run('web', { [MODE]: 'light', [LIGHT]: 'light' }, { url: `https://app.test/app?scheme=${encodeURIComponent(asked)}` });
+      const r = run('web', { [MODE]: 'light', [LIGHT]: 'light' }, { url: `https://app.test/home?scheme=${encodeURIComponent(asked)}` });
       expect({ asked, scheme: r.scheme, replaced: r.replaced }).toEqual({ asked, scheme: 'light', replaced: [] });
       expect(r.store[LIGHT]).toBe('light');
     }
   });
 
   test('no ?scheme= leaves the address alone', () => {
-    expect(run('web', {}, { url: 'https://app.test/app?q=sy' }).replaced).toEqual([]);
+    expect(run('web', {}, { url: 'https://app.test/home?q=sy' }).replaced).toEqual([]);
   });
 
   test('?scheme= still shows when storage is refused, for that page only', () => {
-    const r = run('web', {}, { brokenStorage: true, url: 'https://app.test/app?scheme=highContrast' });
+    const r = run('web', {}, { brokenStorage: true, url: 'https://app.test/home?scheme=highContrast' });
     expect(r.scheme).toBe('highContrast');
-    expect(r.replaced).toEqual(['/app']);
+    expect(r.replaced).toEqual(['/home']);
   });
 });
 

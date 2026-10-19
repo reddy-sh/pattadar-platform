@@ -114,7 +114,7 @@ def test_a_failed_reading_is_announced_as_failed():
             await jobs.submit(request(), upload(), 'import-registered-document')
             assert await jobs.run_one()
             item = (await inbox.list_inbox(request()))['items'][0]
-            assert not item['ok'] and item['title'] == "Document couldn't be read"
+            assert not item['ok'] and item['title'] == "Document could not be read"
     asyncio.run(run())
 
 

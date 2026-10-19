@@ -34,7 +34,7 @@ export function PricingPage() {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
   const [scrolled, setScrolled] = useState(false);
-  const startSignIn = () => navigate(isAuthMocked || isAuthenticated ? '/app' : '/login');
+  const startSignIn = () => navigate(isAuthMocked || isAuthenticated ? '/home' : '/login');
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });

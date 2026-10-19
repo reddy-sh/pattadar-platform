@@ -186,14 +186,20 @@ def test_a_holding_is_made_of_records_and_refuses_anything_else():
         async with database() as pool:
             m, q = w.WebMutation(), w.WebQuery()
 
-            # One record is not a holding; fifty-one is not one either.
-            assert await m.create_combined_property("owner-a", "Estate", ["rec-one"], "") == ""
-            assert await m.create_combined_property("owner-a", "", ["rec-one", "rec-two"], "") == ""
-            # Another owner's record, and land this account only manages.
-            assert await m.create_combined_property(
-                "owner-a", "Estate", ["rec-one", "rec-theirs"], "") == ""
-            assert await m.create_combined_property(
-                "owner-a", "Estate", ["rec-one", "rec-managed"], "") == ""
+            # One record is not a holding; a nameless one is not either. Each
+            # refusal is a sentence, never a silent "".
+            with pytest.raises(ValueError, match="at least two"):
+                await m.create_combined_property("owner-a", "Estate", ["rec-one"], "")
+            with pytest.raises(ValueError, match="name"):
+                await m.create_combined_property("owner-a", "", ["rec-one", "rec-two"], "")
+            # Another owner's record reads exactly like one that does not exist.
+            with pytest.raises(ValueError, match="no longer in your account"):
+                await m.create_combined_property(
+                    "owner-a", "Estate", ["rec-one", "rec-theirs"], "")
+            # Mine beside I manage it: one stake per holding (04/10/2026).
+            with pytest.raises(ValueError, match="same stake"):
+                await m.create_combined_property(
+                    "owner-a", "Estate", ["rec-one", "rec-managed"], "")
             # Nothing was written by any of those refusals.
             async with pool.connection() as conn:
                 left = await (await conn.execute(
@@ -242,8 +248,9 @@ def test_one_record_belongs_to_one_holding():
             # rec-two is taken, so the second holding is refused outright rather
             # than created without it — two holdings each counting the same
             # thirty acres is the one thing this must never allow.
-            assert await m.create_combined_property(
-                "owner-a", "Second", ["rec-two", "rec-far"], "") == ""
+            with pytest.raises(ValueError, match="already part of the holding “First”"):
+                await m.create_combined_property(
+                    "owner-a", "Second", ["rec-two", "rec-far"], "")
             async with pool.connection() as conn:
                 rows = await (await conn.execute(
                     "SELECT count(*) AS n FROM combined_properties")).fetchone()
@@ -258,10 +265,11 @@ def test_one_record_belongs_to_one_holding():
             # A flat's slab and a parcel's acres are reported apart, never added.
             assert view.farm_extent == pytest.approx(30.0)
             assert view.built_extent == pytest.approx(1450.0)
-            assert view.extent_line == "30.00 ac · 1,450 Sq.ft built"
+            assert view.extent_line == "30.00 ac · 1,450 sq.ft built"
 
             # A replacement that is refused leaves the holding exactly as it was.
-            assert await m.set_combined_members("owner-a", cid, ["rec-one", "rec-theirs"]) is False
+            with pytest.raises(ValueError):
+                await m.set_combined_members("owner-a", cid, ["rec-one", "rec-theirs"])
             assert [mem.record_id for mem in (await q.combined_property("owner-a", cid)).members] \
                 == ["rec-one", "rec-far"]
     asyncio.run(run())
@@ -628,4 +636,152 @@ def test_every_change_to_a_holding_is_on_the_trail():
             assert {r["resource_id"] for r in rows} == {cid}
             assert {r["resource_type"] for r in rows} == {"combined_property"}
             assert rows[1]["metadata"].get("label") == "Kondapur Estate"
+    asyncio.run(run())
+
+
+def test_a_holding_is_one_stake_mine_or_managed_never_watching():
+    """Founder override of rule 3 (04/10/2026): every member shares one stake,
+    all Mine or all I manage it; Watching never joins; never a mix."""
+    async def run():
+        async with database() as pool:
+            m, q = w.WebMutation(), w.WebQuery()
+            async with pool.connection() as conn:
+                await conn.execute(
+                    "INSERT INTO parcels (id,passbook_id,survey_no,extent,stake,created_at)"
+                    " VALUES ('rec-managed2','pb-a','93',3,'managed','2026-01-07T00:00:00'),"
+                    " ('rec-watch','pb-a','94',1,'watch','2026-01-08T00:00:00')")
+            # Land the account manages for somebody can now be grouped.
+            mid = await m.create_combined_property(
+                "owner-a", "Ranga Subba Reddy — Guntur (managed)",
+                ["rec-managed", "rec-managed2"], "")
+            assert mid.startswith("cp-")
+            assert (await q.combined_property("owner-a", mid)).member_count == 2
+            # Watching never joins, with either stake beside it.
+            with pytest.raises(ValueError, match="watching"):
+                await m.create_combined_property("owner-a", "W", ["rec-one", "rec-watch"], "")
+            with pytest.raises(ValueError, match="watching"):
+                await m.set_combined_members("owner-a", mid,
+                                             ["rec-managed", "rec-managed2", "rec-watch"])
+            # A Mine record cannot be added to the managed holding.
+            with pytest.raises(ValueError, match="same stake"):
+                await m.set_combined_members("owner-a", mid,
+                                             ["rec-managed", "rec-managed2", "rec-one"])
+            assert [x.record_id for x in (await q.combined_property("owner-a", mid)).members] \
+                == ["rec-managed", "rec-managed2"]
+            async with pool.connection() as conn:
+                n = await (await conn.execute(
+                    "SELECT count(*) AS n FROM combined_properties")).fetchone()
+                assert n["n"] == 1
+    asyncio.run(run())
+
+
+def test_creating_the_same_holding_twice_returns_the_first():
+    """Idempotent by membership: exactly the same records give back the same
+    holding (no second row, no rename); a different set is still refused."""
+    async def run():
+        async with database() as pool:
+            m = w.WebMutation()
+            cid = await m.create_combined_property("owner-a", "Estate", ["rec-one", "rec-two"], "")
+            again = await m.create_combined_property("owner-a", "Other name",
+                                                     ["rec-two", "rec-one", "rec-one"], "")
+            assert again == cid
+            with pytest.raises(ValueError, match="already part of the holding"):
+                await m.create_combined_property("owner-a", "Bigger",
+                                                 ["rec-one", "rec-two", "rec-far"], "")
+            async with pool.connection() as conn:
+                rows = await (await conn.execute(
+                    "SELECT name FROM combined_properties")).fetchall()
+                assert [r["name"] for r in rows] == ["Estate"]
+            # Another owner sending the same ids finds nothing of theirs.
+            with pytest.raises(ValueError):
+                await m.create_combined_property("owner-b", "Estate", ["rec-one", "rec-two"], "")
+    asyncio.run(run())
+
+
+def test_a_member_stake_cannot_change_while_it_is_in_a_holding():
+    """Blocked rather than silently removed: the holding stays exactly as it
+    was and the sentence names it. Out of the holding, the change goes through."""
+    async def run():
+        async with database() as pool:
+            m = w.WebMutation()
+            cid = await m.create_combined_property("owner-a", "Estate", ["rec-one", "rec-two"], "")
+            async with pool.connection() as conn:
+                for stake in ("managed", "watch"):
+                    with pytest.raises(ValueError, match="part of the holding “Estate”"):
+                        async with conn.transaction():
+                            await w._guard_holding_stake(conn, "owner-a", "rec-one", stake)
+                # Same stake, an invalid one, or a record outside any holding: no refusal.
+                async with conn.transaction():
+                    await w._guard_holding_stake(conn, "owner-a", "rec-one", "owned")
+                    await w._guard_holding_stake(conn, "owner-a", "rec-one", "bogus")
+                    await w._guard_holding_stake(conn, "owner-a", "rec-far", "watch")
+                    # Somebody else's id is not theirs to probe.
+                    await w._guard_holding_stake(conn, "owner-b", "rec-one", "watch")
+            assert await m.set_combined_members("owner-a", cid, ["rec-two", "rec-far"])
+            async with pool.connection() as conn, conn.transaction():
+                await w._guard_holding_stake(conn, "owner-a", "rec-one", "watch")
+    asyncio.run(run())
+
+
+def test_a_whole_holding_changes_stake_in_one_act_and_keeps_its_costs():
+    """setCombinedStake moves every member together (no ungrouping, so the
+    holding's combined costs stay); Watching is refused."""
+    async def run():
+        async with database() as pool:
+            m, q = w.WebMutation(), w.WebQuery()
+            cid = await m.create_combined_property("owner-a", "Estate", ["rec-one", "rec-two"], "")
+            async with pool.connection() as conn:
+                await conn.execute(
+                    "INSERT INTO combined_property_expenses (id,owner_user_id,combined_property_id,"
+                    "amount) VALUES ('cx-1','owner-a',%s,5000)", (cid,))
+            with pytest.raises(ValueError, match="watched"):
+                await m.set_combined_stake("owner-a", cid, "watch")
+            assert not await m.set_combined_stake("owner-b", cid, "managed")
+            assert await m.set_combined_stake("owner-a", cid, "managed")
+            async with pool.connection() as conn:
+                rows = await (await conn.execute(
+                    "SELECT id, stake FROM parcels WHERE id IN ('rec-one','rec-two') ORDER BY id")).fetchall()
+                assert [r["stake"] for r in rows] == ["managed", "managed"]
+                spent = await (await conn.execute(
+                    "SELECT count(*) AS n FROM combined_property_expenses")).fetchone()
+                assert spent["n"] == 1
+            assert (await q.combined_property("owner-a", cid)).member_count == 2
+    asyncio.run(run())
+
+
+def test_a_legacy_mixed_holding_can_be_put_right_one_record_at_a_time():
+    """Before the amendment a member's stake could change after combining, so
+    an old holding may be mixed. A change that makes it one stake is allowed;
+    one that keeps it mixed, or watches a member, is not."""
+    async def run():
+        async with database() as pool:
+            m = w.WebMutation()
+            cid = await m.create_combined_property("owner-a", "Estate",
+                                                   ["rec-one", "rec-two", "rec-far"], "")
+            async with pool.connection() as conn:
+                # What an older build allowed: one member flipped after combining.
+                await conn.execute("UPDATE parcels SET stake='managed' WHERE id='rec-two'")
+                with pytest.raises(ValueError, match="whole holding"):
+                    async with conn.transaction():
+                        await w._guard_holding_stake(conn, "owner-a", "rec-one", "managed")
+                with pytest.raises(ValueError):
+                    async with conn.transaction():
+                        await w._guard_holding_stake(conn, "owner-a", "rec-two", "watch")
+                async with conn.transaction():
+                    await w._guard_holding_stake(conn, "owner-a", "rec-two", "owned")
+            assert cid
+    asyncio.run(run())
+
+
+def test_two_presses_racing_for_the_same_records_both_get_the_one_holding():
+    async def run():
+        async with database() as pool:
+            m = w.WebMutation()
+            first, second = await asyncio.gather(
+                m.create_combined_property("owner-a", "Estate", ["rec-one", "rec-two"], ""),
+                m.create_combined_property("owner-a", "Estate", ["rec-two", "rec-one"], ""))
+            assert first == second
+            async with pool.connection() as conn:
+                n = await (await conn.execute("SELECT count(*) AS n FROM combined_properties")).fetchone()
+                assert n["n"] == 1
     asyncio.run(run())

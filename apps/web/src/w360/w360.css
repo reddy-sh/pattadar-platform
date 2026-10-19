@@ -107,7 +107,6 @@
   margin: 0;
 }
 
-.w360 .lede { color: var(--w-ink-2); font-size: 0.9375rem; line-height: 1.5; margin: 0; }
 .w360 .muted { color: var(--w-ink-3); }
 .w360 .note { color: var(--w-ink-3); font-size: 0.8125rem; line-height: 1.5; }
 /* Figures and references line up through the one face's tabular figures —
@@ -269,7 +268,7 @@
 }
 .w360 .iconbtn:hover { background: var(--w-surface-2); color: var(--w-ink); }
 
-/* The topbar bell. A NavLink, so it carries `.active` on /app/notifications
+/* The topbar bell. A NavLink, so it carries `.active` on /notifications
    and gets the rail's pressed wash; the badge pins to its top-right corner. */
 .w360 .notify-btn { position: relative; text-decoration: none; }
 .w360 .notify-btn.active { background: var(--w-accent-wash); color: var(--w-accent-wash-ink); }
@@ -328,11 +327,12 @@
 /* Rail collapsed at desktop: it narrows to its icons rather than vanishing —
    every section stays one click away, named by its tooltip. Counts shrink to
    corner badges. Scoped above the drawer breakpoint so the phone keeps its
-   drawer. */
-@media (min-width: 901px) {
+   drawer; from 600 to 900px Shell holds the rail collapsed unless asked. */
+@media (min-width: 600px) {
   .w360[data-rail='hidden'] .body { grid-template-columns: 4rem minmax(0, 1fr); }
   .w360[data-rail='hidden'] .topbar { grid-template-columns: auto minmax(0, 1fr) auto; }
-  .w360[data-rail='hidden'] .nav { padding: var(--space-md) 0.5rem; }
+  .w360[data-rail='hidden'] .nav .navscroll,
+  .w360[data-rail='hidden'] .nav .navsec.foot { padding-inline: 0.5rem; }
   .w360[data-rail='hidden'] .nav a { justify-content: center; gap: 0; padding: 0.5625rem; }
   .w360[data-rail='hidden'] .nav .lbl { display: none; }
   /* A four-rem rail has no room for "MONEY & HELP", and a truncated eyebrow is
@@ -345,7 +345,7 @@
     padding-top: var(--space-sm);
     border-top: 1px solid var(--w-line);
   }
-  .w360[data-rail='hidden'] .nav .navsec + .navsec.foot { margin-top: auto; }
+  .w360[data-rail='hidden'] .nav .navsec.foot { margin-top: var(--space-sm); padding-top: var(--space-sm); }
   .w360[data-rail='hidden'] .nav .ext { display: none; }
   .w360[data-rail='hidden'] .nav .count {
     position: absolute;
@@ -354,6 +354,8 @@
     margin: 0;
     font-size: 0.5625rem;
     padding: 0.0625rem 0.3125rem;
+    /* Here the badge sits on the icon's corner, so it needs a ground. */
+    background: var(--w-bg);
   }
   .w360[data-rail='hidden'] .nav .dot {
     position: absolute;
@@ -365,15 +367,32 @@
 
 .w360 .nav {
   border-right: 1px solid var(--w-line);
-  padding: var(--space-md) var(--space-sm);
+  padding: var(--space-md) 0;
   display: flex;
   flex-direction: column;
-  gap: 0.125rem;
-  align-content: start;
   position: sticky;
   top: 3.5rem;
   height: calc(100vh - 3.5rem);
+  background-color: var(--w-bg);
+}
+/* The product groups scroll inside the rail; Help & resources (`.foot`) stays
+   pinned under them. The side padding lives here, inside
+   the scroller, so a focus ring is not clipped by its edge. */
+.w360 .navscroll {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
+  padding: 0.25rem var(--space-sm);
+  /* Room for the focus ring when Tab scrolls an entry to the edge. */
+  scroll-padding-block: 0.5rem;
+  /* The vertical twin of `.scroll-x.edgefade`: a shadow at the bottom only
+     while more is below. The `local` cover rides with the content and hides
+     the shadow once the end is reached. */
+  background:
+    linear-gradient(to top, var(--w-bg) 30%, transparent) center bottom / 100% 2.5rem no-repeat local,
+    radial-gradient(farthest-side at 50% 100%, color-mix(in oklab, var(--w-ink) 16%, transparent), transparent)
+      center bottom / 100% 0.875rem no-repeat scroll;
+  background-color: var(--w-bg);
 }
 
 /* The rail is four named groups now, not one column of fifteen. The gap
@@ -382,13 +401,12 @@
    read. */
 .w360 .navsec { display: flex; flex-direction: column; gap: 0.125rem; }
 .w360 .navsec + .navsec { margin-top: var(--space-md); }
-/* Help & resources sits at the foot of the rail, ruled off from the product
-   groups — the place every console puts help, learning and support. `auto`
-   pushes it down on a tall screen; on a short one it simply follows. */
-.w360 .navsec.foot,
-.w360 .navsec + .navsec.foot {
-  margin-top: auto;
-  padding-top: var(--space-md);
+/* Help & resources sits pinned at the foot of the rail, ruled off from the
+   product groups — the place every console puts help, learning and support. */
+.w360 .navsec.foot {
+  flex: none;
+  margin-top: var(--space-sm);
+  padding: var(--space-md) var(--space-sm) 0;
   border-top: 1px solid var(--w-line);
 }
 .w360 .nav .ext { margin-left: auto; opacity: 0.7; }
@@ -437,7 +455,8 @@
   font-size: 0.6875rem;
   padding: 0.0625rem 0.4375rem;
   border-radius: var(--radius-pill);
-  background: var(--w-surface-2);
+  /* A count, not an action: outlined (design.md § App-surface rules). */
+  border: 1px solid var(--w-line);
   color: var(--w-ink-2);
 }
 .w360 .nav .dot {
@@ -451,13 +470,25 @@
 /* A column, so the page's last region can claim the height left over. Without
    this the two-column record body sized itself to its content and stopped
    two-thirds down a tall window, leaving the right rail hanging in dead space. */
+/* One frame for every /app page (design.md § Page head, "One frame"): 24 /
+   40 / 96px of padding (16px under 900px, below), and one 80rem measure
+   (`--max-width`), centred, that the head, the toolbar band and the content
+   share — so all three start at one left edge. Page-local caps are for a
+   form's own field measure only, never for cards. The full-bleed Document
+   reader (`main.flush`) is the named exception. */
 .w360 main {
   padding: var(--space-lg) var(--space-xl) var(--space-3xl);
   min-width: 0;
+  width: 100%;
+  max-width: calc(var(--max-width) + 2 * var(--space-xl));
+  margin-inline: auto;
   display: flex;
   flex-direction: column;
 }
-.w360 main.flush { padding: 0; }
+.w360 main.flush { padding: 0; max-width: none; }
+/* The viewer's own choice (theme menu → Full-width page): the head, band and
+   content still share one left edge, it is just the window's. */
+.w360[data-width='full'] main { max-width: none; }
 /* A fit-to-window viewer owns the space to the window's edge: the large
    scrolling bottom padding below it would be exactly the dead margin the
    fit is meant to remove. Every other tab keeps it. */
@@ -514,17 +545,60 @@
 
 /* ── Page head ──────────────────────────────────────────────────────── */
 
-.w360 .pagehead {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-lg);
-  margin-bottom: var(--space-lg);
-  flex-wrap: wrap;
-}
-.w360 .pagehead .grow { flex: 1 1 20rem; min-width: 0; }
+/* The head every PageHead draws (design.md § Page head).
+   Rhythm (§5.7): crumbs → h1 8px, nested eyebrow → h1 4px, h1 → summary or
+   meta 6px, head → band, place line, tabs or content 24px. */
+.w360 .pagehead { margin-bottom: var(--space-lg); }
+/* Head → content is the head's own 24px. `main` is a flex column, so the
+   first block's top margin would add to it rather than collapse. */
+.w360 main > .pagehead + * { margin-top: 0; }
+.w360 .pagehead > .crumbs { margin-bottom: var(--space-xs); }
+.w360 .pagehead > .eyebrow { margin: 0 0 var(--space-2xs); }
 /* Title plus its ⓘ on one line (PageHead `info`). */
-.w360 .pagehead-title { display: flex; align-items: center; gap: var(--space-xs); min-width: 0; }
+.w360 .pagehead-title {
+  display: flex; align-items: center; gap: var(--space-xs); min-width: 0;
+  /* A button's height even when the actions wrap under it on a phone, so the
+     h1 keeps its y; a glyph never makes the row taller. */
+  min-height: 2.375rem;
+}
+.w360 .pagehead-title > .avatarlg { width: 2.375rem; height: 2.375rem; }
 .w360 .pagehead-title h1, .w360 .pagehead-title h2 { margin: 0; }
+
+/* The title row. Its height is a button's, whether or not the page has
+   actions, so the h1 sits at one y per page type; the actions are centred on
+   the h1 line, not on the head block (F2). */
+.w360 .pagehead-row {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: var(--space-xs) var(--space-lg);
+  min-height: 2.375rem;
+}
+.w360 .pagehead-row > .pagehead-title { flex: 1 1 auto; flex-wrap: wrap; }
+/* The title never truncates and never pushes the page sideways (F18). */
+.w360 .pagehead-row > .pagehead-title h1 { min-width: 0; overflow-wrap: anywhere; }
+.w360 .pagehead-row > .actions { margin-left: auto; align-items: center; }
+/* One summary style (§5.5): a `.note` line, 6px under the title. */
+.w360 .pagehead-summary { margin: 0.375rem 0 0; overflow-wrap: anywhere; }
+/* A detail page's facts row: kind · place · holder, in one treatment. */
+.w360 .pagehead-meta {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 0.375rem var(--space-sm);
+  margin-top: 0.375rem; color: var(--w-ink-2); font-size: 0.8125rem; line-height: 1.5;
+}
+/* On a phone each fact takes its own line; a separator dot left at a line's
+   end or start reads as debris. */
+@media (max-width: 600px) {
+  .w360 .pagehead-meta { flex-direction: column; align-items: flex-start; gap: 0.125rem; }
+  .w360 .pagehead-meta > [aria-hidden] { display: none; }
+  /* A long title puts the ⓘ near the right edge, where its centred tip
+     (hidden, but still laid out) pushed the page sideways (Government
+     geography, 33px at 390). On a phone the tip spans the title block. */
+  .w360 .pagehead-title { position: relative; }
+  .w360 .pagehead-title .infotip { position: static; }
+  .w360 .pagehead-title .infotip-body { left: 0; right: 0; transform: none; width: auto; max-width: none; }
+}
+.w360 .pagehead-tabs { margin-top: var(--space-lg); }
+/* The head's own bottom margin is the 24px to the content; the strip's margin
+   would make it 40. */
+.w360 .pagehead-tabs > .tabs { margin-bottom: 0; }
 
 /* ── Info tooltip (Material 3 plain tooltip) ─────────────────────────── */
 .w360 .infotip { position: relative; display: inline-flex; }
@@ -613,7 +687,6 @@
 .w360 .ov-value { font-size: 1.5rem; font-weight: 700; color: var(--w-ink); white-space: nowrap; }
 .w360 .ov-note { font-size: 0.75rem; color: var(--w-ink-3); }
 @media (prefers-reduced-motion: reduce) { .w360 .ovcard { transition: none; } .w360 .ovcard:hover { transform: none; } }
-.w360 .shortcuts { display: flex; flex-wrap: wrap; gap: var(--space-sm); margin-top: var(--space-md); }
 /* Missing details, as one row of For you: the title, "N of M complete", a
    neutral track that draws the same figure (aria-hidden — the words say it),
    and the chips, all on one line that wraps on a phone. Its disclosure panel
@@ -660,25 +733,16 @@
   font-size: 0.75rem; color: var(--w-ink-3);
 }
 
-/* The record identity block, redesigned (RecordHead.tsx). Three rows: the name
-   line (a kind glyph, the title, the record-switcher chevron and the extent),
-   then the classifying eyebrow as a caption under it, then the place. The
-   eyebrow moving below the title is what let the extent stop competing with the
-   survey number for the top line. */
-.w360 .rechead { display: grid; gap: 0.125rem; }
-.w360 .rechead-name {
-  display: flex; align-items: center; gap: var(--space-sm);
-  flex-wrap: wrap; min-width: 0;
-}
-.w360 .rechead-name h1 { margin: 0; }
-/* The glyph sits on the name's baseline block, tinted so it reads as the
+/* The record's identity in the shared head (RecordHead.tsx, Holding.tsx): a
+   kind glyph before the title, the extent pill after it, and the kind, place
+   and holder in the meta row under it.
+   The glyph sits on the name's baseline block, tinted so it reads as the
    record's kind mark rather than a stray icon. It does not shrink when the
    line wraps on a narrow screen. */
 .w360 .rechead-glyph { color: var(--w-accent); flex: none; }
-/* The eyebrow is a caption here, not a heading above the title, so it loses the
-   bottom margin `.eyebrow` carries and sits tight under the name. */
-.w360 .rechead-kind { margin: 0.125rem 0 0; }
-.w360 .rechead-place { margin: 0.25rem 0 0; }
+/* The kind is a caption in the meta row, not a heading above the title, so it
+   loses the margins `.eyebrow` carries and sits on the row's line. */
+.w360 .rechead-kind { margin: 0; }
 /* The extent is set apart from the name with a real border and a little breath
    to its left, so "30.00 ac" reads as a fact ABOUT the parcel, not part of its
    number. `.chip.static` already draws the pill; this only spaces and firms it
@@ -687,9 +751,8 @@
   margin-left: 0.25rem;
   border-color: var(--w-line-strong);
 }
-/* On a wide page the actions hold their size; on a phone three buttons are
-   wider than the screen, so below the breakpoint they wrap onto their own row
-   instead of pushing the document sideways. */
+/* The head's commands (PageHead `actions`). On a phone only the filled
+   primary and the ⋮ are drawn, so the row still fits beside the title. */
 .w360 .pagehead .actions {
   display: flex; gap: var(--space-xs); flex-shrink: 0; flex-wrap: wrap;
   /* flex-shrink:0 with flex-wrap does nothing on its own — the block simply
@@ -699,14 +762,6 @@
   max-width: 100%;
 }
 
-@media (max-width: 700px) {
-  .w360 .pagehead .actions { flex: 1 1 100%; flex-shrink: 1; }
-  /* A head whose only action is its ⋮ keeps it on the title row. Alone on a
-     row of its own it read as a stray control under the place line (the
-     holding's head). */
-  .w360 .pagehead .actions:has(> .menu:only-child) { flex: 0 0 auto; }
-  .w360 .pagehead:has(> .actions > .menu:only-child) > .grow { flex-basis: 0; }
-}
 
 .w360 .crumbs {
   display: flex;
@@ -715,6 +770,13 @@
   font-size: 0.8125rem;
   margin-bottom: var(--space-sm);
   flex-wrap: wrap;
+}
+.w360 nav.crumbs > span { display: contents; }
+/* A page head's crumbs show only the parent on a phone: "‹ Properties". */
+@media (max-width: 600px) {
+  .w360 .crumbs-parent > span:not([data-parent]) { display: none; }
+  .w360 .crumbs-parent > span[data-parent] > .sep { display: none; }
+  .w360 .crumbs-parent > span[data-parent] > :last-child::before { content: '‹\00a0'; }
 }
 .w360 .crumbs a { color: var(--w-accent); text-decoration: none; }
 .w360 .crumbs a:hover { text-decoration: underline; }
@@ -743,6 +805,11 @@
 }
 .w360 .btn:hover { border-color: var(--w-ink-3); }
 .w360 .btn:focus-visible { outline: 2px solid var(--w-focus); outline-offset: 2px; }
+/* The shared primitives that are not .btn took the browser's 1px ring. */
+.w360 .infotip-btn:focus-visible, .w360 .filterbar .addfilter:focus-visible,
+.w360 .sortcycle:focus-visible, .w360 .sortbtn:focus-visible,
+.w360 .chip:focus-visible, .w360 .plot.live .tools button:focus-visible { outline: 2px solid var(--w-focus); outline-offset: 2px; }
+.w360 .segmented button:focus-visible { outline: 2px solid var(--w-focus); outline-offset: -2px; }
 .w360 .btn.primary { background: var(--w-accent); color: var(--w-accent-ink); border-color: var(--w-accent); }
 .w360 .btn.primary:hover { filter: brightness(1.06); }
 .w360 .btn.soft { background: var(--w-accent-wash); color: var(--w-accent-wash-ink); border-color: transparent; }
@@ -859,6 +926,8 @@
   padding: var(--space-md);
 }
 .w360 .card.pad-lg { padding: var(--space-lg); }
+/* Card `flush`: a table or file list that runs edge to edge. */
+.w360 .card.flush { padding: 0; }
 .w360 .card.flat { background: none; }
 .w360 .card.dashed { border-style: dashed; background: none; }
 .w360 .card.alert { border-color: color-mix(in oklab, var(--w-danger) 35%, transparent); background: var(--w-danger-wash); }
@@ -909,6 +978,128 @@
   display: block;
 }
 .w360 .strip .v small { font-size: 0.9375rem; font-weight: 400; }
+/* The Overview's nine tab cells: compact, sized to fit, and wrapping instead
+   of squeezing a date out of its cell. Rules are drawn as inset shadows so a
+   wrapped row needs no per-position border; the strip's own overflow clips
+   the outer ones. A note is one line, cut with an ellipsis (its title has it
+   whole), so Activity never grows into a tall block. */
+/* Nine cells fill whole rows only as 3×3 or 9×1, so there is never a short
+   last row of blank strip: three columns until the tab (ov-root) is wide
+   enough for nine cells of 8.5rem, then one row. */
+.w360 .ov-root { container: ovroot / inline-size; }
+.w360 .strip.overview-strip { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@container ovroot (min-width: 76.5rem) {
+  .w360 .strip.overview-strip { grid-template-columns: repeat(9, minmax(0, 1fr)); }
+}
+/* Separate rounded tiles with a gap (founder, 12/10/2026), not one joined bar. */
+.w360 .strip.overview-strip { gap: var(--space-sm); border: 0; background: none; overflow: visible; }
+.w360 .strip.overview-strip > * {
+  border: 1px solid var(--w-line); border-radius: var(--radius-md); background: var(--w-surface);
+  padding: var(--space-sm) var(--space-md);
+}
+.w360 .strip.overview-strip > *:first-child { border-left: 1px solid var(--w-line); }
+.w360 .strip.overview-strip .k { margin-bottom: 0.25rem; }
+.w360 .strip.overview-strip .v { font-size: 1.125rem; }
+.w360 .strip.overview-strip .none { font-size: 0.8125rem; color: var(--w-ink-3); }
+.w360 .strip.overview-strip .s { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* A phone's third of the strip: tighter padding, and a label that wraps to
+   two lines rather than being cut. */
+@container ovroot (max-width: 30rem) {
+  .w360 .strip.overview-strip > * { padding: var(--space-xs) var(--space-sm); }
+  .w360 .strip.overview-strip .k { letter-spacing: 0.04em; overflow-wrap: anywhere; }
+  .w360 .strip.overview-strip .v { font-size: 1rem; }
+}
+
+/* ── Property Overview: category cards ───────────────────────────────
+   "Title" beside "Complete this record", then Identity · Physical ·
+   Status. Container queries, so the rail's width is already taken off. */
+.w360 .ov-top, .w360 .ov-groups { display: grid; gap: var(--space-md); align-items: stretch; }
+/* Cards in a row share a height (content stays at the top: a card is a block). */
+.w360 .ov-groups { grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); }
+.w360 .ov-top > .card, .w360 .ov-groups > .card { min-width: 0; }
+.w360 .ov-sizer { container: ovtop / inline-size; }
+@container ovtop (min-width: 48rem) {
+  .w360 .ov-top { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+}
+/* A one-line card keeps its own height instead of stretching to its neighbour. */
+.w360 .ov-hold.bare, .w360 .ov-bare { align-self: start; }
+/* A group with nothing in it: "Status · nothing recorded yet" and its Add, one line. */
+.w360 .ov-bare .row { justify-content: space-between; flex-wrap: wrap; }
+.w360 .ov-bare p { margin: 0; }
+
+.w360 .ov-hero { display: grid; gap: var(--space-xs); margin-bottom: var(--space-md); }
+.w360 .ov-party { margin: 0; font-size: 1rem; line-height: 1.4; }
+.w360 .row.tight.ov-foot { margin-top: var(--space-md); flex-wrap: wrap; gap: var(--space-xs) var(--space-lg); }
+/* The source line and the deed / earlier-owner links read as one row of equals. */
+.w360 .ov-foot > * { font-size: 0.875rem; }
+.w360 .ov-sub { margin: 0 0 var(--space-xs); }
+
+/* Fields inside a card: a small label above its value, as many columns as
+   the card has room for (KV className="facts"). */
+.w360 .kv.facts {
+  border: 0; border-radius: 0; overflow: visible;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 11rem), 1fr));
+  gap: var(--space-md) var(--space-lg); margin: 0;
+}
+.w360 .kv.facts > div {
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 0.1875rem;
+  padding: 0; border: 0; min-width: 0;
+}
+.w360 .kv.facts dt { font-size: 0.75rem; color: var(--w-ink-3); }
+.w360 .kv.facts dd { text-align: left; font-size: 0.9375rem; overflow-wrap: break-word; display: grid; gap: var(--space-xs); }
+.w360 .kv.facts .hl {
+  grid-column: 1 / -1; box-shadow: inset 2px 0 0 var(--w-accent);
+  background: var(--w-accent-wash); border-radius: var(--radius-sm); padding: var(--space-sm) var(--space-md);
+}
+.w360 .kv.facts.compass { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.w360 .kv.facts .none { color: var(--w-ink-3); }
+.w360 .ov-val { display: inline-flex; align-items: baseline; gap: var(--space-xs); flex-wrap: wrap; }
+.w360 .ov-alt { font-size: 0.75rem; }
+.w360 .ov-conflict { flex-wrap: wrap; }
+
+/* Who said a value: a small tag (InfoTip tag=…) whose tip says the whole
+   source on hover, focus and tap. The tip opens rightward from the tag, so a
+   tag near the card's edge never pushes the page sideways. The ::after
+   widens the tap target to 24px without growing the tag. */
+.w360 .infotip.tagged .infotip-tag {
+  position: relative; font: inherit; font-size: 0.625rem; line-height: 1; padding: 0.1875rem 0.375rem;
+  border-radius: var(--radius-pill); border: 1px solid var(--w-line); background: none;
+  color: var(--w-ink-3); white-space: nowrap; cursor: help;
+}
+.w360 .infotip.tagged .infotip-tag::after { content: ''; position: absolute; inset: -0.375rem -0.25rem; }
+.w360 .infotip.tagged .infotip-tag:hover { color: var(--w-ink-2); border-color: var(--w-line-strong); }
+.w360 .infotip.tagged .infotip-tag:focus-visible { outline: 2px solid var(--w-focus); outline-offset: 2px; }
+.w360 .infotip.tagged .infotip-body { left: 0; transform: none; }
+
+/* Compliance check: the tally as a bar toned by the result, then every check
+   with its mark — a tick, an amber warning, a red cross or a neutral dash. */
+.w360 .ov-meter { display: grid; gap: var(--space-xs); margin-bottom: var(--space-md); }
+.w360 .ov-tally { flex-wrap: wrap; justify-content: space-between; font-variant-numeric: tabular-nums; }
+.w360 .ov-tally strong { font-weight: 700; font-size: 0.875rem; }
+.w360 .ov-meter .track { display: block; height: 0.5rem; border-radius: var(--radius-pill); background: var(--w-surface-2); overflow: hidden; }
+.w360 .ov-meter .fill { display: block; height: 100%; background: var(--w-accent); border-radius: var(--radius-pill); }
+.w360 .ov-meter .fill.good { background: var(--w-ok); }
+.w360 .ov-meter .fill.warn { background: var(--w-warn); }
+.w360 .ov-meter .fill.bad { background: var(--w-danger); }
+.w360 .ov-checks > li { justify-content: flex-start; }
+.w360 .ov-checks > li > .row { margin-left: auto; flex: none; }
+.w360 .ov-checks > li.pass { padding: var(--space-xs) 0; }
+.w360 .ov-mark { align-self: start; margin-top: 0.0625rem; color: var(--w-ink-3); }
+.w360 .ov-check.pass .ov-mark { color: var(--w-ok); }
+.w360 .ov-check.warn .ov-mark { color: var(--w-warn); }
+.w360 .ov-check.fail .ov-mark { color: var(--w-danger); }
+/* A passed check is one line: its name, then what proved it, cut short. */
+.w360 .ov-gap.one { display: flex; gap: var(--space-sm); align-items: baseline; }
+.w360 .ov-gap.one strong { font-weight: 400; flex: none; }
+.w360 .ov-gap.one .note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.w360 .ov-gaps { list-style: none; padding: 0; margin: 0; display: grid; }
+.w360 .ov-gaps > li {
+  display: flex; justify-content: space-between; align-items: center; gap: var(--space-sm);
+  padding: var(--space-sm) 0; border-top: 1px solid var(--w-line);
+}
+.w360 .ov-gaps > li:first-child { border-top: 0; padding-top: 0; }
+.w360 .ov-gap { display: grid; gap: 0.125rem; min-width: 0; }
+.w360 .ov-gap strong { font-weight: 700; font-size: 0.875rem; }
 .w360 .strip .s {
   display: block;
   margin-top: 0.3125rem;
@@ -1016,35 +1207,21 @@
 }
 .w360 .sechead .grow { flex: 1 1 18rem; min-width: 0; }
 .w360 .sechead h2 { font-size: 1.375rem; }
+/* The section's commands come through PageHead's own row (ui.tsx
+   HeadActionsRow): one row at button height, every control on one centre
+   line, pushed right. */
 .w360 .sechead .actions {
   display: flex; gap: var(--space-xs); flex-shrink: 0; flex-wrap: wrap; max-width: 100%;
+  align-items: center; min-height: 2.375rem; margin-left: auto;
 }
+/* The ⋮ keeps the frame's 32px glyph box, but its hit area is 44px at every
+   pointer, not only a coarse one. */
+.w360 .sechead .pagehead-more { position: relative; }
+.w360 .sechead .pagehead-more::after { content: ''; position: absolute; inset: -0.375rem; }
 @media (max-width: 700px) {
   .w360 .sechead .actions { flex: 1 1 100%; flex-shrink: 1; }
 }
 
-/* The group's identity row (Groups.tsx). A grid, so a phone can put the kebab
-   beside the name and the facts and link underneath, instead of squeezing the
-   facts into a one-word column beside a nowrap button row. */
-.w360 .grouphead {
-  display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto;
-  grid-template-areas: "glyph name link menu" "glyph facts link menu";
-  column-gap: var(--space-md); row-gap: 0.125rem; align-items: start;
-  margin-bottom: var(--space-md);
-}
-.w360 .grouphead > .avatarlg { grid-area: glyph; }
-.w360 .grouphead-name { grid-area: name; margin: 0; min-width: 0; }
-.w360 .grouphead-facts { grid-area: facts; min-width: 0; }
-.w360 .grouphead-link { grid-area: link; }
-.w360 .grouphead-menu { grid-area: menu; }
-@media (max-width: 640px) {
-  .w360 .grouphead {
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    grid-template-areas: "glyph name menu" "facts facts facts" "link link link";
-    row-gap: var(--space-xs);
-  }
-  .w360 .grouphead-link { justify-self: start; }
-}
 
 /* ── Drop zone (the Media hanger with nothing filed) ─────────────────────
    One dashed target instead of a grey sentence — and instead of the six
@@ -1116,6 +1293,16 @@
   border: 0; background: none; font: inherit; font-size: 0.8125rem;
   color: var(--w-ink-2); padding: 0.3125rem 0.875rem; border-radius: var(--radius-pill); cursor: pointer;
 }
+/* `Segmented` / `ViewToggle` (ui.tsx). Icons are drawn only where a view
+   toggle goes icon-only on a phone; the word stays its accessible name. */
+.w360 .segmented button { display: inline-flex; align-items: center; gap: 0.375rem; }
+.w360 .segmented .seg-icon { display: none; }
+.w360 .segmented.icons .seg-icon { display: inline-flex; }
+@media (max-width: 600px) {
+  .w360 .segmented.icon-phone .seg-icon { display: inline-flex; }
+  .w360 .segmented.icon-phone .seg-label { display: none; }
+  .w360 .segmented.icon-phone button { padding: 0.3125rem 0.625rem; }
+}
 .w360 .segmented button[aria-pressed='true'] { background: var(--w-accent-wash); color: var(--w-accent-wash-ink); font-weight: 700; }
 /* A control with nothing to switch between must not look switchable. Dashed
    is this system's placeholder language (see .frame), and the pressed segment
@@ -1155,7 +1342,7 @@
   .w360 .split, .w360 .two { grid-template-columns: minmax(0, 1fr); }
   .w360 .grid4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-@media (max-width: 900px) {
+@media (max-width: 599px) {
   .w360 .body { grid-template-columns: minmax(0, 1fr); }
   /* The rail becomes an off-canvas drawer the hamburger slides in. It used to
      be display:none with no way back — a phone had no navigation at all. */
@@ -1166,14 +1353,17 @@
     left: 0;
     height: auto;
     width: min(17rem, 85vw);
-    background: var(--w-bg);
+    background-color: var(--w-bg);
     z-index: 40;
     transform: translateX(-105%);
     transition: transform var(--dur-base) var(--ease-out);
   }
   .w360 .nav.open { transform: none; }
+  @media (prefers-reduced-motion: reduce) { .w360 .nav { transition: none; } }
   .w360 .nav-scrim { display: block; }
   .w360 .topbar { grid-template-columns: auto minmax(0, 1fr) auto; }
+}
+@media (max-width: 900px) {
   /* The keyboard hint means nothing to a thumb. */
   .w360 .search kbd { display: none; }
   .w360 .grid3, .w360 .grid4 { grid-template-columns: minmax(0, 1fr); }
@@ -1213,14 +1403,7 @@
   display: block; width: 100%; height: 100%; object-fit: cover;
 }
 .w360 .service-visual.thumb { width: 4rem; aspect-ratio: 8 / 5; }
-.w360 .service-visual.card { width: 100%; aspect-ratio: 16 / 10; border: 0; border-radius: 0; }
 .w360 .service-visual.admin { width: 100%; aspect-ratio: 16 / 10; border: 0; border-radius: 0; }
-.w360 .service-catalog-tile { overflow: hidden; }
-.w360 .service-catalog-copy { display: block; padding: var(--space-md); }
-.w360 .service-catalog-copy .service-meaning {
-  display: block; margin-top: var(--space-xs); line-height: 1.45;
-}
-
 .w360 .rec {
   border: 1px solid var(--w-line);
   border-radius: var(--radius-md);
@@ -1337,6 +1520,9 @@
       left center / 0.875rem 100% no-repeat scroll,
     radial-gradient(farthest-side at 100% 50%, color-mix(in oklab, var(--w-ink) 16%, transparent), transparent)
       right center / 0.875rem 100% no-repeat scroll;
+  /* The shorthand clears the colour, and a card is its surface: without this
+     the rows showed the page through, with a white band at each edge. */
+  background-color: var(--w-surface);
 }
 
 /* The chart's figures, behind a disclosure under it. */
@@ -1371,16 +1557,70 @@
 .w360 .rectable .selcol { width: 2.25rem; text-align: center; padding-right: 0; }
 .w360 .rectable .selcol input { accent-color: var(--w-accent); width: 0.9375rem; height: 0.9375rem; margin: 0; cursor: pointer; vertical-align: middle; }
 .w360 .rectable .menucol { width: 2.5rem; text-align: right; padding: 0 0.25rem; }
+/* A row opens its property (PropertyTable): the name is the link, the rest of
+   the row is the same click target. */
+.w360 .rectable tbody tr.openrow { cursor: pointer; }
+/* The footer sums the column above it (or the selection), spreadsheet-style. */
+.w360 .rectable tfoot td, .w360 .rectable tfoot th {
+  background: var(--w-surface-2); border-top: 1px solid var(--w-line-strong);
+  padding: 0.5625rem var(--space-sm); font-weight: 700; text-align: left;
+}
+.w360 .rectable tfoot .right { text-align: right; }
+/* A register cell is two lines (PropertyTable): the fact, then what qualifies
+   it — the LP number over its Pattadar ID, "Paid ₹30 L" under the estimate. */
+.w360 .rectable .sub { display: block; font-size: 0.8125rem; color: var(--w-ink-3); margin-top: 0.125rem; }
+.w360 .rectable tr.selected .sub { color: var(--w-ink-2); }
+/* The register is wider than the page; the tick box and the Survey No / LP
+   cell stay put while the facts scroll under them, so every row keeps saying
+   which land it is. Opaque, or the scrolled cells show through. */
+.w360 .rectable .selcol, .w360 .rectable .stick { position: sticky; z-index: 1; background: var(--w-surface); }
+.w360 .rectable .selcol { left: 0; }
+.w360 .rectable .stick { left: 2.25rem; }
+.w360 .rectable:not(:has(.selcol)) .stick { left: 0; }
+.w360 .rectable :is(thead, tfoot) :is(.selcol, .stick) { background: var(--w-surface-2); }
+.w360 .rectable tbody tr:hover :is(.selcol, .stick) { background: color-mix(in oklab, var(--w-accent) 4%, var(--w-surface)); }
+.w360 .rectable tbody tr.selected :is(.selcol, .stick) { background: var(--w-accent-wash); }
+/* The register (PropertyTable) scrolls sideways under its sticky id column,
+   so a line never wraps — a Pattadar ID broken mid-way is two half ids — and
+   every cell starts on the same line, however many lines its neighbours have. */
+.w360 .rectable.register td { white-space: nowrap; vertical-align: top; }
+.w360 .rectable.register td.selcol, .w360 .rectable.register td.menucol { vertical-align: middle; }
+/* Where: the location mark sits on the village line; an outline or a pin in
+   the accent when the map knows the place, a muted crossed pin when not. */
+.w360 .rectable .where { display: inline-flex; align-items: flex-start; gap: 0.375rem; }
+.w360 .rectable .wheremark { display: inline-flex; margin-top: 0.125rem; flex: none; }
+.w360 .rectable .wheremark.on { color: var(--w-accent); }
+.w360 .rectable .wheremark.off { color: var(--w-ink-3); }
+/* A fact that opens the tab it lives on: it reads as the fact, and shows it is
+   a way in only on hover or keyboard focus. */
+.w360 .rectable a.celllink { color: inherit; text-decoration: none; }
+.w360 .rectable a.celllink.sub { color: var(--w-ink-3); }
+.w360 .rectable a.celllink:hover, .w360 .rectable a.celllink:focus-visible,
+.w360 .rectable a.wheremark:hover { text-decoration: underline; color: var(--w-accent); }
+/* Muted cells keep full ink on a ticked row: --w-ink-3 is gated against the
+   surface, not against the accent wash a selected row sits on. */
+.w360 .rectable tr.selected td.muted { color: var(--w-ink-2); }
+/* The bulk bar floats over the bottom of the page; leave room so it never
+   covers the footer total or the pager it is summing. */
+.w360 main:has(~ .selbar) { padding-bottom: 7rem; }
+@media (max-width: 640px) { .w360 main:has(~ .selbar) { padding-bottom: 15rem; } }
+.w360 .tablepager {
+  display: flex; align-items: center; justify-content: flex-end;
+  gap: var(--space-sm); margin-top: var(--space-md); flex-wrap: wrap;
+}
 .w360 .sortbtn {
   font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit;
   background: none; border: 0; padding: 0; cursor: pointer;
   display: inline-flex; align-items: center; gap: 0.25rem;
 }
 .w360 .sortbtn:hover { color: var(--w-ink); }
-.w360 .sortbtn .arrow { font-size: 0.5rem; width: 0.625rem; }
+.w360 .sortbtn .arrow { display: inline-flex; width: 0.75rem; }
 .w360 thead th[aria-sort] .sortbtn { color: var(--w-accent); }
-.w360 thead th.right .sortbtn { width: 100%; justify-content: flex-end; }
-.w360 tbody tr.total td { background: var(--w-accent-wash); font-weight: 400; }
+/* Right-aligned headings end at the figure's edge: the arrow slot goes on the
+   left (row-reverse, so flex-start is the right-hand edge). */
+.w360 thead th.right .sortbtn { width: 100%; flex-direction: row-reverse; justify-content: flex-start; }
+.w360 tr.total td, .w360 tr.total th { background: var(--w-accent-wash); font-weight: 400; }
+.w360 tr.total th { text-align: left; }
 .w360 tbody tr.income td { background: color-mix(in oklab, var(--w-ok) 8%, transparent); }
 .w360 tbody tr.flagged td { background: color-mix(in oklab, var(--w-accent) 7%, transparent); }
 
@@ -1753,6 +1993,11 @@
    IS worth reading belongs in the middle of the page, not beside a 14rem
    gutter of nothing. */
 .w360 .withrail.solo { grid-template-columns: minmax(0, 1fr); }
+/* A rail of list items rather than filters (Shared with me's shares). */
+.w360 .withrail.wide { grid-template-columns: 18rem minmax(0, 1fr); }
+/* Its list starts at the head's left edge, level with the pane beside it. */
+.w360 .withrail.wide > .filters { padding: 0 var(--space-md) 0 0; }
+.w360 .withrail.wide > section { min-width: 0; padding: 0 0 0 var(--space-lg); }
 .w360 .filters {
   border-right: 1px solid var(--w-line);
   padding: var(--space-lg) var(--space-md);
@@ -1825,14 +2070,6 @@
   border-top: 1px solid var(--w-line);
   border-bottom: 1px solid var(--w-line);
 }
-.w360 .paper-requests-head {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: var(--space-md);
-}
-.w360 .paper-requests-head .eyebrow { margin: 0 0 0.25rem; }
-.w360 .paper-requests-head h2 { margin: 0; font-size: 1.125rem; }
 .w360 .paper-request-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-sm); }
 .w360 .paper-request-tile {
   display: grid;
@@ -1984,7 +2221,9 @@
 .w360 .chat-compose textarea { min-height: 5rem; resize: vertical; }
 
 @media (max-width: 900px) {
-  .w360 .withrail { grid-template-columns: minmax(0, 1fr); }
+  .w360 .withrail, .w360 .withrail.wide { grid-template-columns: minmax(0, 1fr); }
+  .w360 .withrail.wide > .filters { padding: 0 0 var(--space-lg); }
+  .w360 .withrail.wide > section { padding: var(--space-lg) 0 0; }
   .w360 .filters { position: static; border-right: 0; border-bottom: 1px solid var(--w-line); max-height: none; }
 }
 
@@ -2045,6 +2284,18 @@
   flex: none;
 }
 .w360 .fchip .val { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* ChipPicker: the band's chips in front of a type-to-find field. */
+.w360 .chippick { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem; min-width: 0; }
+.w360 .chippick-field { position: relative; flex: 1 1 12rem; min-width: 10rem; }
+.w360 .chippick-list {
+  position: absolute; z-index: 20; top: calc(100% + 0.25rem); left: 0; right: 0;
+  list-style: none; margin: 0; padding: 0.25rem; max-height: 16rem; overflow-y: auto;
+  background: var(--w-surface); border: 1px solid var(--w-line); border-radius: var(--radius-sm);
+  box-shadow: 0 0.75rem 1.5rem -0.75rem rgb(0 0 0 / 0.35);
+}
+.w360 .chippick-list [role='option'] { padding: 0.5rem 0.625rem; border-radius: var(--radius-xs); cursor: pointer; }
+.w360 .chippick-list [role='option'][aria-selected='true'] { background: var(--w-accent-wash); color: var(--w-ink); }
+.w360 .chippick-list .note { padding: 0.375rem 0.625rem; }
 .w360 .fchip button {
   border: 0; background: none; color: inherit; font: inherit;
   font-size: 0.875rem; line-height: 1; cursor: pointer;
@@ -2071,6 +2322,41 @@
   font-variant-numeric: tabular-nums;
 }
 .w360 .filterbar .vrule { width: 1px; height: 1.125rem; background: var(--w-line); flex: none; }
+
+/* The toolbar band's right side (design.md § Page head, slot 5): tally, the
+   page's search, sort, view — in that order, on one line at 1512. */
+.w360 .band .band-tools { display: inline-flex; align-items: center; gap: var(--space-xs); flex-wrap: nowrap; }
+.w360 .band .band-tools .sortcycle { white-space: nowrap; }
+.w360 .bandsearch {
+  position: relative; justify-self: auto;
+  width: min(16rem, 30vw); margin: 0; padding: 0.3125rem 0.75rem;
+}
+/* The sort chip's words give way first when the band is short of room. */
+.w360 .sortcycle { min-width: 0; }
+.w360 .sortcycle-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 600px) {
+  /* + Filter left, the tools right, on ONE row: the tools take the rest of
+     the + Filter row (a 12rem floor, below which they move to a row of their
+     own) and the sort chip's words shorten rather than wrap. A search is an
+     icon until pressed, then a full-width field on its own row of the band. */
+  .w360 .band > .grow:has(~ .band-tools) { display: none; }
+  .w360 .band .band-tools { flex: 1 1 12rem; min-width: 0; justify-content: flex-end; }
+  .w360 .band .band-tools:has(> .bandsearch[data-phone]) { flex: 1 1 100%; flex-wrap: wrap; }
+  .w360 .band .bandsearch[data-phone] { order: -1; flex: 1 1 100%; width: 100%; }
+  .w360 .band .vrule { display: none; }
+}
+
+/* The place line (design.md § Page head, slot 4): the first row of the band,
+   13px ink-2, the current place bold. One class for Cadastral maps and
+   Documents. */
+.w360 .placeline {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-sm);
+  padding-bottom: var(--space-xs);
+  color: var(--w-ink-2); font-size: 0.8125rem;
+}
+.w360 .placeline strong,
+.w360 .placeline [aria-current='page'] { color: var(--w-ink); font-size: 0.875rem; font-weight: 700; }
+.w360 .placeline .crumbs { margin: 0; }
 
 /* Not `.sortbtn` — that name already belongs to the table's column headings
    and this is a different control with different metrics. */
@@ -2210,7 +2496,23 @@
 .w360 .onecol { display: grid; grid-template-columns: minmax(0, 1fr); }
 
 /* `main` is a flex column with no gap, so the new blocks carry their own. */
-.w360 main > .filterbar { margin-bottom: var(--space-md); }
+/* Band → content is 24px, like head → band (design.md § Page head, §5.7). */
+.w360 main > .filterbar { margin-bottom: var(--space-lg); }
+/* Inside a tab: 24px from the section head (whose own 16px margin is part of
+   it) or from the stat strip down to the band. */
+.w360 main > .sechead + .filterbar { margin-top: calc(var(--space-lg) - var(--space-md)); }
+.w360 main > .strip + .filterbar { margin-top: var(--space-lg); }
+/* A tab whose band heads its first column (Documents, Site features): the
+   same 24px above it, and 24px down to the content. */
+.w360 main > .sechead + .split > div > .filterbar {
+  margin-top: calc(var(--space-lg) - var(--space-md));
+  margin-bottom: var(--space-lg);
+}
+/* A ledger's year at the band's left (ui.tsx YearSelect). */
+.w360 .filterbar .yearselect { width: auto; }
+@media (max-width: 600px) {
+  .w360 .filterbar .yearselect, .w360 .selbar .clearall { min-height: 2.75rem; }
+}
 .w360 main > .loadmore { margin-top: var(--space-md); }
 
 /* What the band's picture is worth, along the bottom of it: how the record's
@@ -2410,7 +2712,10 @@
    "still loading". :has() rather than a class the component toggles — whether
    bytes arrived is already visible in the DOM, and threading that back up to
    the frame would mean fetching the photo twice to learn it. */
-.w360 .frame:has(img), .w360 .frame:has(video) { border-style: solid; background: var(--w-surface-2); }
+.w360 .frame:has(img), .w360 .frame:has(video), .w360 .frame:has(audio),
+/* A stored clip waiting for its first press is a real item too: its poster may
+   never come, and a dashed edge said "still loading" for ever. */
+.w360 .frame:has(.videostart) { border-style: solid; background: var(--w-surface-2); }
 .w360 .frame .stamp {
   position: absolute; left: var(--space-md); bottom: var(--space-md);
   font-variant-numeric: tabular-nums; font-size: 0.6875rem; line-height: 1.5;
@@ -2442,6 +2747,16 @@
   color: var(--w-ink-3); cursor: pointer; position: relative; font: inherit;
 }
 .w360 .thumb[aria-current='true'] { border-color: var(--w-accent); }
+/* Inset, because the strip scrolls and clips anything drawn outside a thumb,
+   and the frame clips the play button. A thumb's image and a clip's poster
+   are positioned and would paint over an outline, so those two draw the ring
+   on a layer above them; the Compare choices hold no image. */
+.w360 .compare-choice:focus-visible { outline: 2px solid var(--w-focus); outline-offset: -2px; }
+.w360 .thumb:focus-visible, .w360 .videostart:focus-visible { outline: none; }
+.w360 .thumb:focus-visible::after, .w360 .videostart:focus-visible::after {
+  content: ''; position: absolute; inset: 0; z-index: 3; pointer-events: none;
+  border-radius: inherit; box-shadow: inset 0 0 0 2px var(--w-focus);
+}
 /* Tiles crop, the frame contains — a square thumbnail of a tall photo should
    fill its box, not sit letterboxed inside it. */
 .w360 .thumb img, .w360 .tiles .t img { object-fit: cover; }
@@ -2502,7 +2817,9 @@
 /* A panel showing the last good answer while a new one is in flight. Dimmed
    rather than replaced: the numbers stay readable and stay in place, which is
    the whole point of holding them. */
-.w360 [aria-busy='true'] {
+/* Not a status line: "Loading your documents…" is the only text saying what
+   is happening, and dimming it left it at about 2.2:1. */
+.w360 [aria-busy='true']:not([role='status']) {
   opacity: 0.55;
   transition: opacity var(--dur-fast) var(--ease-out);
 }
@@ -2804,6 +3121,7 @@
 .w360 .menu-list button:focus-visible,
 .w360 .menu-list a:focus-visible,
 .w360 .iconbtn:focus-visible,
+.w360 .nav a:focus-visible,
 .w360 button.avatar:focus-visible {
   outline: 2px solid var(--w-focus);
   outline-offset: 2px;
@@ -2844,7 +3162,7 @@
 }
 
 .w360 .field { display: grid; gap: 0.375rem; }
-.w360 .field > label {
+.w360 .field > label, .w360 .field-label {
   font-variant-numeric: tabular-nums; font-size: 0.625rem; letter-spacing: 0.1em;
   text-transform: uppercase; color: var(--w-ink-3);
 }
@@ -2858,6 +3176,7 @@
   outline: 2px solid var(--w-focus); outline-offset: 1px; border-color: transparent;
 }
 .w360 .choice { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-xs); }
+.w360 .choice.wide { grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); }
 .w360 .choice button {
   text-align: left; padding: 0.625rem 0.75rem; border-radius: var(--radius-sm);
   border: 1px solid var(--w-line); background: none; color: var(--w-ink); font: inherit; cursor: pointer;
@@ -2973,10 +3292,15 @@
   background: var(--w-surface-2); border: 1px solid var(--w-line); color: var(--w-ink-2);
 }
 /* ── Documents file list: familiar rows, persistent selection and folders. ── */
-.w360 .vault-file-grid { min-width: 720px; }
+.w360 .vault-file-grid { min-width: 680px; }
+.w360 .vault-file-grid:focus { outline: none; }
+/* Name takes the rest; Folder, Linked to and Type are fixed tracks with a gap,
+   so a long subtitle never runs into the next column (design.md: tracks are
+   minmax(0, Nfr)). Inside a folder the Folder column is dropped. */
 .w360 .vault-file-row {
   display: grid;
-  grid-template-columns: 42px minmax(16rem, 1fr) minmax(12rem, .7fr) 10rem 44px;
+  grid-template-columns: 42px minmax(12rem, 2.4fr) minmax(6rem, 1fr) minmax(7rem, 1.1fr) minmax(6rem, 1fr) 44px;
+  column-gap: 0.75rem;
   align-items: center;
   min-height: 58px;
   padding: 0.5rem 1rem;
@@ -2984,25 +3308,33 @@
 }
 .w360 .vault-file-header { min-height: 44px; padding-block: 0.25rem; }
 .w360 .vault-file-row > :first-child { display: flex; align-items: center; }
-.w360 .vault-file-row input[type="checkbox"] { width: 18px; height: 18px; margin: 0; }
+.w360 .vault-file-grid.no-folder-col .vault-file-row { grid-template-columns: 42px minmax(12rem, 2.4fr) minmax(7rem, 1.1fr) minmax(6rem, 1fr) 44px; }
+.w360 .vault-file-row input[type="checkbox"] { width: 18px; height: 18px; margin: 0; accent-color: var(--w-accent); cursor: pointer; }
+/* The whole cell answers a press, not just the 18px box. */
+.w360 .vault-check { display: grid; place-items: center; min-width: 1.75rem; min-height: 1.75rem; cursor: pointer; }
+.w360 .vault-file-row.selected { background: var(--w-accent-wash); }
 .w360 .vault-file-row:last-child { border-bottom: 0; }
 /* Name cell: the kind glyph, then the name over its one-line facts and tags. */
 .w360 .vault-name-cell { min-width: 0; display: flex; align-items: center; gap: 10px; }
 .w360 .vault-name {
-  display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  /* Two lines, then an ellipsis: the end of a long name is often what tells
+     two scans apart. The full name is in the title. */
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  overflow-wrap: anywhere;
   color: inherit; text-decoration: none; font-weight: 700;
 }
 .w360 .vault-name:hover { text-decoration: underline; text-underline-offset: 3px; }
 .w360 .vault-name:focus-visible { outline: 2px solid var(--w-focus); outline-offset: 2px; border-radius: var(--radius-xs); }
+/* A name and its ⓘ on one line; the name keeps its two-line clamp. */
+.w360 .vault-name-line { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .w360 .vault-line { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .w360 .vault-folder-row .vault-name { font-weight: 700; }
 
 /* What a file IS, at a glance. Shape carries the kind; the tint only helps an
    eye group a column, and every glyph is also named for a screen reader. */
 .w360 .fk { display: inline-flex; flex: none; color: var(--w-ink-2); }
-.w360 .fk-pdf { color: var(--w-danger); }
-.w360 .fk-image, .w360 .fk-video, .w360 .fk-doc { color: var(--w-info); }
-.w360 .fk-sheet, .w360 .fk-map { color: var(--w-ok); }
+/* One neutral ink for every file kind (founder, 07/10/2026): red read as an
+   error and blue as a link. The shape tells the kinds apart. */
 .w360 .fk-folder { color: var(--w-accent); }
 
 /* Linked to: the property a file is filed against, as words — not a link.
@@ -3039,22 +3371,10 @@
    fill — nothing has moved until the drop. */
 .w360 .drop-over { outline: 2px dashed var(--w-accent); outline-offset: -2px; background: var(--w-accent-wash); }
 .w360 .vault-crumb { border-radius: var(--radius-xs); padding: 0.125rem 0.25rem; }
-/* Where you are, then the one filter bar — the Cadastral maps shape
-   (.vm-map-filters / .vm-place), straight under the page head. */
+/* Where you are (PlaceLine), then the one filter bar, straight under the
+   page head. */
 .w360 .vault-files { position: relative; z-index: 2; }
-.w360 .vault-place {
-  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
-  gap: var(--space-sm); min-height: 2.75rem; padding-bottom: var(--space-xs);
-}
-.w360 .vault-place-where { display: flex; align-items: baseline; gap: var(--space-sm); color: var(--w-ink-2); font-size: 0.8125rem; }
-.w360 .vault-place-where strong { color: var(--w-ink); font-size: 0.875rem; }
-.w360 .vault-place .crumbs { margin: 0; }
-.w360 .vault-place .crumbs [aria-current='page'] { color: var(--w-ink); font-weight: 700; }
-.w360 .vault-selbar { flex-wrap: wrap; justify-content: flex-end; }
-.w360 .vault-search { width: min(18rem, 30vw); min-height: 2.75rem; margin: 0; }
-.w360 .vault-files .filterbar { margin-bottom: var(--space-md); }
-.w360 .vault-view-tools { flex: none; flex-wrap: nowrap; justify-content: flex-end; }
-.w360 .vault-view-tools .sortcycle { white-space: nowrap; }
+.w360 .vault-files .filterbar { margin-bottom: var(--space-lg); }
 .w360 .vault-drop-zone { border-radius: var(--radius-md); }
 
 /* Grid: a picture of each file where there is one, its kind where not. */
@@ -3069,7 +3389,9 @@
 }
 .w360 .vault-tile:hover { border-color: var(--w-line-strong); }
 .w360 .vault-tile.selected { border-color: var(--w-accent); }
+.w360 .vault-folder-strip { margin-bottom: var(--space-md); }
 .w360 .vault-tile-folder {
+  align-self: start;
   flex-direction: row; align-items: center; gap: var(--space-sm); padding: var(--space-sm) var(--space-sm) var(--space-sm) var(--space-md);
 }
 .w360 .vault-tile-thumb {
@@ -3079,7 +3401,15 @@
 .w360 .vault-tile-thumb > img, .w360 .vault-tile-thumb .vault-thumb-img,
 .w360 .vault-tile-thumb .video-thumb, .w360 .vault-tile-thumb .video-thumb img,
 .w360 .vault-tile-thumb .video-thumb video { width: 100%; height: 100%; object-fit: cover; }
-.w360 .vault-tile-check { position: absolute; top: var(--space-sm); left: var(--space-sm); width: 20px; height: 20px; margin: 0; }
+.w360 .vault-tile-thumb .video-thumb:not(:has(img)) { display: grid; place-items: center; }
+/* The tile's box, dimmed like a property card's until it is wanted. */
+.w360 .vault-tile-check {
+  position: absolute; top: var(--space-xs); left: var(--space-xs); display: grid; place-items: center;
+  min-width: 2rem; min-height: 2rem; cursor: pointer; opacity: 0.45; transition: opacity var(--dur-fast) var(--ease-out);
+}
+.w360 .vault-tile:hover .vault-tile-check, .w360 .vault-tile.selected .vault-tile-check,
+.w360 .vault-tile-check:has(input:focus-visible), .w360 .vault-tile-check:has(input:checked) { opacity: 1; }
+.w360 .vault-tile-check input { width: 20px; height: 20px; margin: 0; accent-color: var(--w-accent); cursor: pointer; }
 .w360 .vault-tile-foot { display: flex; align-items: flex-start; gap: var(--space-xs); padding: var(--space-sm) var(--space-xs) var(--space-sm) var(--space-md); min-width: 0; }
 .w360 .vault-tile-body { display: flex; flex-direction: column; min-width: 0; flex: 1; gap: 0.125rem; }
 .w360 .vault-tile-links { margin-top: var(--space-xs); min-width: 0; display: block; }
@@ -3109,10 +3439,7 @@
 .w360 .vault-tag-x:hover { background: var(--w-surface-2); color: var(--w-danger); }
 .w360 .vault-tag-x:focus-visible { outline: 2px solid var(--w-focus); outline-offset: 1px; }
 
-.w360 .vault-pagination {
-  display: flex; align-items: center; justify-content: flex-end;
-  gap: var(--space-sm); margin-top: var(--space-md); flex-wrap: wrap;
-}
+/* .vault-pagination was a copy of .tablepager; Vault draws TablePager now. */
 .w360 .vault-mobile-property { display: none; }
 
 /* Older shelf pages keep their own presentation while the vault root is a
@@ -3201,10 +3528,9 @@
     grid-template-columns: 42px minmax(0, 1fr) 44px;
     padding-inline: var(--space-sm);
   }
-  .w360 .vault-file-row > :nth-child(3),
-  .w360 .vault-file-row > :nth-child(4) { display: none; }
-  .w360 .vault-view-tools { width: 100%; justify-content: flex-start; flex-wrap: wrap; }
-  .w360 .vault-search { width: 100%; }
+  .w360 .vault-file-grid.no-folder-col .vault-file-row { grid-template-columns: 42px minmax(0, 1fr) 44px; }
+  .w360 .vault-file-row > .vc-folder, .w360 .vault-file-row > .vc-linked,
+  .w360 .vault-file-row > .vc-type { display: none; }
   .w360 .vault-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-sm); }
   /* Compact: the head stacks over its spines; the register drops its date
      column and keeps number, entry, what is left and Revoke. */
@@ -3215,8 +3541,8 @@
   .w360 .reg-row .reg-date { display: none; }
   .w360 .reg-row > :nth-child(4) { grid-column: 2; }
 }
-/* A section head that keeps the eyebrow look: the h2 weight is dropped. */
-.w360 h2.eyebrow { font-weight: 400; }
+/* A section head that keeps the eyebrow look: the heading weight is dropped. */
+.w360 h2.eyebrow, .w360 h3.eyebrow { font-weight: 400; }
 
 /* ── Nothing, and nothing-went-wrong ────────────────────────────────────
  *
@@ -3326,7 +3652,7 @@
 .w360 .video-thumb-frame.ready { opacity: 1; }
 .w360 .video-thumb-play { position: absolute; inset: 50% auto auto 50%; transform: translate(-50%, -50%); display: grid; place-items: center; width: 1.25rem; height: 1.25rem; border-radius: 50%; color: white; background: rgb(0 0 0 / 0.62); }
 .w360 span.videostart { cursor: default; }
-.w360 .videostart:focus-visible { outline: 2px solid var(--w-focus); outline-offset: 2px; }
+/* The play button's ring is drawn with the thumbnails' (Photo surfaces), above its poster. */
 
 .w360 .skeleton { border-radius: var(--radius-sm); background: var(--w-surface-2); animation: w-pulse 1.4s var(--ease-in-out) infinite; }
 @keyframes w-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
@@ -3467,12 +3793,21 @@
 }
 
 /* Boundary, marks and the moved edge. Class names, not colours, cross the
-   Leaflet boundary — the token resolves here. */
+   Leaflet boundary — the token resolves here. On a MapCanvas the outline is
+   the bright gold MapCanvas sets as --w-ground-ring (imagery looks the same
+   in every scheme), 3 px over a 6 px dark casing, so it reads on any ground
+   and over the water-flow areas. */
 .w360 .leaflet-pane > svg path.w-ring {
-  stroke: var(--w-accent);
-  fill: var(--w-accent);
-  fill-opacity: 0.14;
-  stroke-width: 2;
+  stroke: var(--w-ground-ring, var(--w-accent));
+  fill: var(--w-ground-ring, var(--w-accent));
+  fill-opacity: 0.12;
+  stroke-width: 3;
+}
+.w360 .leaflet-pane > svg path.w-ring-casing {
+  stroke: rgb(0 0 0 / 0.7);
+  stroke-width: 6;
+  fill: none;
+  pointer-events: none;
 }
 .w360 .leaflet-pane > svg path.w-mark {
   stroke: var(--w-bg);
@@ -3910,6 +4245,125 @@
 }
 .w360 .w-corner-no > span { cursor: pointer; }
 
+/* Hydrogeology: a suggested bore point. Numbered like a corner, filled by
+   its confidence in MapCanvas (the card says the word too, so colour is
+   never alone). White-ringed, as on the simulator, to stand off the imagery. */
+.w360 .w-flow-pin { width: 0; height: 0; overflow: visible; }
+.w360 .w-flow-pin > span {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 1.625rem;
+  height: 1.625rem;
+  border-radius: 50%;
+  border: 2px solid white;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.6);
+  transform: translate(-50%, -50%);
+}
+/* Drainage lines and their arrowheads, outlined dark so the cyan reads on
+   pale fields and dark scrub alike. One filter over the pane's SVG. */
+.w360 .leaflet-w-flow-pane > svg { filter: drop-shadow(0 0 1px rgb(0 0 0 / 0.85)); }
+.w360 .plot .w-flow-legend {
+  position: absolute;
+  left: var(--space-md);
+  bottom: 3.25rem;
+  z-index: 500;
+  display: grid;
+  gap: 0.3125rem;
+  padding: 0.625rem 0.75rem;
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, black 72%, transparent);
+  color: white;
+  font-size: 0.75rem;
+  pointer-events: none;
+}
+.w360 .w-flow-legend span { display: flex; align-items: center; gap: 0.5rem; }
+.w360 .w-flow-legend i { display: inline-block; width: 1.5rem; flex: none; border-radius: 1px; }
+.w360 .w-flow-legend i.ring { height: 0.625rem; border: 2px solid; border-radius: 2px; }
+.w360 .w-flow-legend b { display: inline-block; width: 0.625rem; height: 0.625rem; border-radius: 50%; margin-right: -0.375rem; }
+.w360 .w-flow-legend b:last-of-type { margin-right: 0.25rem; }
+/* On a phone the key folds behind a "Map key" button in its place, and opens
+   above it. Above 640px the button is hidden and the key always shows. */
+.w360 .plot .w-flow-keybtn { display: none; }
+@media (max-width: 640px) {
+  .w360 .plot .w-flow-keybtn {
+    display: inline-flex;
+    position: absolute;
+    left: var(--space-md);
+    bottom: 3.25rem;
+    z-index: 500;
+    background: color-mix(in oklab, var(--w-bg) 90%, transparent);
+    backdrop-filter: blur(3px);
+  }
+  .w360 .plot .w-flow-legend { bottom: 5.75rem; right: var(--space-md); }
+  .w360 .plot .w-flow-legend.folded { display: none; }
+}
+/* Hydrogeology is still loading. On the map: a panel in the middle, over a
+   scrim while the first reading leaves the map empty (so "nothing yet" is never
+   read as "no lines here"). The map stays pannable underneath. */
+.w360 .plot .w-flow-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 501;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.w360 .plot .w-flow-loading.first { background: color-mix(in oklab, black 35%, transparent); }
+.w360 .w-flow-progress { display: grid; gap: 0.5rem; font-size: 0.8125rem; color: var(--w-ink); }
+.w360 .w-flow-progress.panel {
+  min-width: 17rem;
+  max-width: calc(100% - 2rem);
+  padding: 0.875rem 1rem;
+  border: 1px solid var(--w-line);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--w-bg) 94%, transparent);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.4);
+  font-size: 0.875rem;
+}
+.w360 .w-flow-ring {
+  width: 1.125rem;
+  height: 1.125rem;
+  flex: none;
+  border-radius: 50%;
+  border: 2px solid color-mix(in oklab, var(--w-accent) 25%, transparent);
+  border-top-color: var(--w-accent);
+  animation: w-flow-turn 0.9s linear infinite;
+}
+@keyframes w-flow-turn { to { transform: rotate(360deg); } }
+.w360 .w-flow-bar {
+  display: block;
+  height: 0.25rem;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--w-accent) 18%, transparent);
+  overflow: hidden;
+}
+.w360 .w-flow-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--w-accent);
+  /* Indeterminate: the server reports no progress, so the bar claims none. */
+  width: 40%;
+  animation: w-flow-slide 1.4s ease-in-out infinite;
+}
+@keyframes w-flow-slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+@media (prefers-reduced-motion: reduce) {
+  .w360 .w-flow-ring { animation: none; border-color: var(--w-accent); }
+  .w360 .w-flow-bar > i { animation: none; width: 100%; opacity: 0.5; }
+}
+.w360 .w-flow-pin.active > span {
+  width: 2rem;
+  height: 2rem;
+  box-shadow: 0 0 0 3px color-mix(in oklab, white 70%, transparent), 0 2px 8px rgb(0 0 0 / 0.6);
+}
+
 /* The little form for naming a mark. Lives inside the marks card rather than
    in a modal: you are looking at the map to decide what to call the stone, and
    a dialog over the map would hide the thing being named. */
@@ -4136,8 +4590,10 @@
    still shows on the small map surfaces (the record front-page card, the
    portfolio) that have no rail to carry the same sentence.
    `.nogeo.low` is a live status line (tiles failed, coordinates copied), not
-   the standing notice, so it is kept. */
-.w360 .plot.live .nogeo:not(.low) { display: none; }
+   the standing notice, so it is kept. The portfolio map (`.pf-stage`) is also
+   `.plot.live` but has no rail, and its notice is the only sentence saying why
+   the frame is empty, so it is exempt. */
+.w360 .plot.live:not(.pf-stage) .nogeo:not(.low) { display: none; }
 
 /* The card a drawer just filed or saved. The features grid is sorted worst
    condition first, so a new card does not necessarily land at the end — the
@@ -4259,7 +4715,8 @@
   background: color-mix(in oklab, var(--w-bg) 82%, transparent);
   pointer-events: none;
 }
-.w360 .vm-stage { container-type: inline-size; }
+/* Isolated so Leaflet's panes (400+) stay under a dialog (.overlay, 50). */
+.w360 .vm-stage { container-type: inline-size; isolation: isolate; }
 @container (max-width: 42rem) {
   .w360 .vc-tl { right: var(--space-sm); }
   .w360 .vc-tr { top: auto; bottom: 3.5rem; left: var(--space-sm); right: 3.5rem; width: auto; }
@@ -4278,37 +4735,27 @@
 .w360 .vc-measure { width: min(20rem, 100%); }
 .w360 .vc-measuring { cursor: crosshair; }
 
-/* Controls that stand ON the imagery carry their own ground.
-   `.chip` is `background: none`, which is right in a panel and wrong over a
-   photograph: bare soil at midday is near-white and a field in shade is
-   near-black, so an unselected mode was a thin outline over whichever, and in
-   the light scheme it disappeared. Same reasoning as `.plot.live .cap`. */
-.w360 .vc-tl .chip,
-.w360 .vc-tl .btn {
+/* Buttons that stand ON the imagery carry their own ground, as the map chips
+   do (the shared map-chip rules, under `.plot.live .maptools`). */
+.w360 .vc-tl .btn:not(.primary) {
   background: color-mix(in oklab, var(--w-bg) 88%, transparent);
   border-color: var(--w-line-strong);
   color: var(--w-ink);
   backdrop-filter: blur(3px);
 }
-.w360 .vc-tl .chip:hover,
 .w360 .vc-tl .btn:hover { border-color: var(--w-accent); }
-/* A layer or a toggle that is on is tonal, with a check, not filled. Fill on
-   this screen belongs to the one action that commits (design.md § App-surface
-   rules, "Fill means act"); with a plot selected there used to be five amber
-   fills at once. The wash sits on an opaque ground because these stand on a
-   photograph, and the border and the check carry the state as well as the
-   colour, so colour is never the only signal. */
-.w360 .vc-tl .chip[aria-pressed='true'],
+/* Mark a new boundary, pressed, wears the map chips' wash: fill on this
+   screen belongs to the one action that commits (design.md § App-surface
+   rules, "Fill means act"). */
 .w360 .vc-tl .btn[aria-pressed='true'] {
-  background: linear-gradient(var(--w-accent-wash), var(--w-accent-wash)), var(--w-bg);
-  border-color: var(--w-accent);
-  color: var(--w-ink);
+  background:
+    linear-gradient(var(--w-accent-wash), var(--w-accent-wash)),
+    color-mix(in oklab, var(--w-bg) 92%, transparent);
+  border-color: color-mix(in oklab, var(--w-accent) 45%, transparent);
+  color: var(--w-accent-wash-ink);
+  font-weight: 700;
 }
-.w360 .vc-tl .chip:disabled,
 .w360 .vc-tl .btn:disabled { opacity: 0.55; cursor: not-allowed; }
-/* Satellite remains visibly selected while its siblings are unavailable: the
-   layer is locked by Measure, not disabled because it failed. */
-.w360 .vc-tl .chip[aria-pressed='true']:disabled { opacity: 1; }
 
 /* The plot numbers. Their own overlay rather than a Leaflet pane: they are
    wanted above everything, they must never take a click, and they are hidden
@@ -4382,67 +4829,33 @@
 .w360 .vm-list { max-height: 22rem; overflow-y: auto; }
 
 /* The same filter row Properties places directly under its PageHead. Fixed
-   country/state context is text above it; matching villages appear only while
-   searching, so the map owns the rest of the page rather than an always-on
-   paper rail. */
+   country/state context is text above it; villages are found through the
+   filter's own search, so the map owns the rest of the page rather than an
+   always-on paper rail. */
 .w360 .vm-map-filters { position: relative; z-index: 700; margin-bottom: var(--space-md); }
 .w360 .vm-map-filters .filterbar { z-index: 1; }
-.w360 .vm-map-filters .fpop {
-  width: min(24rem, calc(100vw - 2rem));
-  max-height: min(22rem, 60vh);
-  grid-template-columns: minmax(0, 1fr);
+/* Sections side by side, as on Properties. Each section scrolls on its own:
+   56 mandals in one column would otherwise push District and Property out of
+   the popover's view. */
+.w360 .vm-map-filters .fpop .fgrp {
+  max-height: min(19rem, 55vh);
+  overflow-y: auto;
+  align-content: start;
+}
+.w360 .vm-map-filters .fpop .fgrp > .eyebrow {
+  position: sticky; top: 0; z-index: 1; background: var(--w-bg);
+  padding-bottom: 0.375rem; margin-bottom: 0;
 }
 .w360 .vm-map-filters .fpop .opt .lbl {
   white-space: normal;
   overflow-wrap: anywhere;
   text-overflow: clip;
 }
-.w360 .vm-map-filters .vm-place {
-  /* One location line across pages: 13px ink-2 with the place bold at 14px,
-     the same as Documents' .vault-place-where. */
-  display: flex; align-items: baseline; gap: var(--space-sm);
-  color: var(--w-ink-2); font-size: 0.8125rem;
-  padding-bottom: var(--space-xs); border: 0;
-}
-.w360 .vm-map-filters .vm-place strong { color: var(--w-ink); font-size: 0.875rem; }
-.w360 .vm-village-search { width: min(20rem, 42vw); min-height: 2.75rem; margin: 0; }
-/* The village search and its matches. The matches are a temporary surface
-   under the pill and as wide as it, over the map the way the jump box's
-   results are over the page: listed in the page's flow, they pushed the map
-   down by their own height. They clear the map because .vm-map-filters
-   stacks at 700, and wear the floating-surface treatment of .fpop and
-   .jump-results: the page ground and the strong hairline. */
-.w360 .vm-find { position: relative; display: flex; flex: none; min-width: 0; }
-.w360 .vm-find-results {
-  position: absolute; top: calc(100% + 0.375rem); left: 0; right: 0; z-index: 30;
-  display: grid; grid-template-columns: minmax(0, 1fr); padding: var(--space-2xs);
-  background: var(--w-bg);
-  border: 1px solid var(--w-line-strong);
-  border-radius: var(--radius-md);
-  box-shadow: 0 1.5rem 3rem -1rem rgb(0 0 0 / 0.55);
-}
-/* Rows as compact as the plot finder's options. 12.5rem holds four and cuts
-   the fifth part-way, so a longer list shows that it scrolls. */
-.w360 .vm-search-results { max-height: 12.5rem; overflow-y: auto; }
-.w360 .vm-search-results > * { padding: 0; border-bottom: 0; }
-.w360 .vm-search-results .villagerow { min-height: 2.75rem; }
-/* The rows sit against the edges of a list that scrolls, so a ring drawn
-   outside a row or its bin would be cut off. Inset, as the plot finder's
-   options draw theirs; High Contrast keeps it inset in its block below. */
-.w360 .vm-search-results .villagerow:focus-visible,
-.w360 .vm-search-results .iconbtn:focus-visible {
-  outline: 2px solid var(--w-focus); outline-offset: -2px;
-}
-.w360 .vm-search-results > p,
-.w360 .vm-find-results > p { margin: 0; padding: var(--space-xs) 0.5rem; }
 @media screen and (min-width: 60.0625rem) {
   .w360 main.vm > .vm-body.solo .vm-stage { height: auto; }
 }
 @media (max-width: 42rem) {
-  .w360 .vm-map-filters .vm-place { display: grid; gap: 0.125rem; }
-  .w360 .vm-map-filters .fpop { max-height: min(15rem, 36vh); }
-  .w360 .vm-find { flex: 1 1 100%; }
-  .w360 .vm-village-search { width: 100%; }
+  .w360 .vm-map-filters .fpop .fgrp { max-height: none; overflow: visible; }
 }
 
 @media (max-width: 60rem) {
@@ -4457,6 +4870,15 @@
   /* Four 44px mode controls, the tile-retry notice and the finder need two
      honest bands. A 56vh stage made those bands collide on a 390px phone. */
   .w360 .vm-stage { height: clamp(36rem, 72vh, 44rem); }
+}
+/* On a phone the marking panel sits under the stage (VillageMaps renders it
+   there) and the finder stands down while marking, so the ground stays
+   clickable and no panel covers another's field. */
+.w360 .vm-tape-below { display: grid; gap: var(--space-sm); margin-top: var(--space-sm); }
+.w360 .vm-tape-below:empty { display: none; }
+.w360 .vm-tape-below .vc-measure { width: 100%; }
+@media (max-width: 600px) {
+  .w360 .vc-tr.marking { display: none; }
 }
 
 /* The printed estimate. Hidden on screen; in print it is the only thing on the
@@ -4510,8 +4932,7 @@
   /* The Tools tab prints the same sheet and nothing of the form, the tab
      strip or the page's one-line list of tools. */
   .w360 .fs-tool > :not(.fs-sheet) { display: none !important; }
-  .w360 main:has(.fs-tool) > .tabs,
-  .w360 main:has(.fs-tool) .pagehead .lede { display: none !important; }
+  .w360 main:has(.fs-tool) > .tabs { display: none !important; }
 
   /* Paper is white. The app is a dark theme, and printing it as one is a
      cartridge of ink and a grey sheet — so the page, and only in print, is
@@ -4537,16 +4958,9 @@
   }
   /* A column layout is for a screen with a side to put things on. On paper the
      panels simply follow one another. */
-  .w360 .split, .w360 .two, .w360 .withrail, .w360 .stack, .w360 .orderflow {
+  .w360 .split, .w360 .two, .w360 .withrail, .w360 .stack {
     grid-template-columns: minmax(0, 1fr) !important;
     display: block !important;
-  }
-  /* Sticky is a screen idea. Left on, the land rail prints at the top of every
-     sheet — the same failure `.rail`/`.nav` cost this block once already. */
-  .w360 .orderflow > .landrail {
-    position: static !important;
-    max-height: none !important;
-    overflow: visible !important;
   }
   /* A table inside a horizontal scroller loses everything past the fold — the
      scrollbar does not exist on paper, so the overflow is simply gone. */
@@ -4555,7 +4969,7 @@
   /* Controls, toasts and skeletons are not information. */
   .w360 .btn, .w360 .iconbtn, .w360 .segmented, .w360 .chip button,
   .w360 .toasts, .w360 .skeleton, .w360 .filters, .w360 .bulkbar,
-  .w360 .selbar, .w360 .fpop, .w360 .vm-find-results, .w360 .loadmore,
+  .w360 .selbar, .w360 .fpop, .w360 .loadmore, .w360 .tablepager,
   .w360 .menu, .w360 .scrim, .w360 .sel {
     display: none !important;
   }
@@ -4586,9 +5000,10 @@
   font-weight: 700;
 }
 
-/* A village on the mandal map: its name over its own ground. Never dropped
-   for want of room — eight names is not a crowd, and a shape with no name on
-   it is one nobody can act on. */
+/* A village on the all-villages map: its name over its own ground, the one
+   the plot numbers wear (`.vc-label`), so it reads on imagery, on the street
+   map and on the bare Boundaries ground in every scheme. Names that collide
+   are dropped, biggest village first (VillageCanvas paintLabels). */
 .w360 .vc-village {
   position: absolute;
   transform: translate(-50%, -50%);
@@ -4597,19 +5012,21 @@
   gap: 0.0625rem;
   text-align: center;
   pointer-events: none;
-  text-shadow: 0 1px 3px rgb(0 0 0 / 0.85);
+  padding: 0.09375rem 0.25rem;
+  border-radius: var(--radius-xs);
+  background: color-mix(in oklab, var(--w-bg) 74%, transparent);
 }
 .w360 .vc-village strong {
   font-variant-numeric: tabular-nums;
   font-size: 0.6875rem;
   font-weight: 700;
   letter-spacing: 0.08em;
-  color: #fff;
+  color: var(--w-ink);
 }
 .w360 .vc-village span {
   font-variant-numeric: tabular-nums;
   font-size: 0.5625rem;
-  color: color-mix(in oklab, #fff 78%, transparent);
+  color: var(--w-ink-2);
 }
 
 /* ── Fence calculator ───────────────────────────────────────────────────
@@ -4686,7 +5103,7 @@
   .w360 .fs-panel { border-left: 0; border-top: 1px solid var(--w-line); }
 }
 
-/* The same calculator as a Tools tab (/app/tools?tab=fence): the sides are
+/* The same calculator as a Tools tab (/tools?tab=fence): the sides are
    typed, one box each, with its remove button beside it. */
 .w360 .fs-tool .fs-steps { display: grid; gap: var(--space-lg); }
 .w360 .fs-tool .fs-steps section { display: grid; gap: var(--space-xs); }
@@ -4737,7 +5154,7 @@
      plot finder, which are things to press, keep it. */
   pointer-events: none;
 }
-.w360 .plot.live .mapsays :is(.editbar, .plotfind, .plotpick, .locate) {
+.w360 .plot.live .mapsays :is(.editbar, .plotfind, .plotpick, .locate, .btn) {
   pointer-events: auto;
 }
 .w360 .plot.live .mapsays .hint,
@@ -4761,9 +5178,11 @@
   font-size: 0.6875rem; line-height: 1.5; color: var(--w-ink-2);
   pointer-events: none;
 }
-/* Chips on a photograph carry their own ground — bare soil at midday is
-   near-white and a field in shade is near-black. */
-.w360 .plot.live .maptools .chip {
+/* The one set of map-chip rules, for every map: a property's Location tab,
+   the Properties and holding maps (`.plot.live .maptools`) and Cadastral maps
+   (`.vc-tl`). Chips on a photograph carry their own ground — bare soil at
+   midday is near-white and a field in shade is near-black. */
+.w360 :is(.plot.live .maptools, .vc-tl) .chip {
   background: color-mix(in oklab, var(--w-bg) 88%, transparent);
   border-color: var(--w-line-strong);
   color: var(--w-ink);
@@ -4773,7 +5192,7 @@
    you see, not the record, and the tab's one fill is "Import KML / GeoJSON".
    The wash is laid over the chip's own near-opaque ground so it still reads
    on bright soil and dark shade alike. */
-.w360 .plot.live .maptools .chip[aria-pressed='true'] {
+.w360 :is(.plot.live .maptools, .vc-tl) .chip[aria-pressed='true'] {
   background:
     linear-gradient(var(--w-accent-wash), var(--w-accent-wash)),
     color-mix(in oklab, var(--w-bg) 92%, transparent);
@@ -4784,12 +5203,12 @@
 /* While the tape is out, two chips stop being switches — but they stop for two
    different reasons and must not look the same. Satellite is HELD ON: it states
    a true fact about the screen, so it stays fully legible and only loses its
-   pointer. Village map is OUT OF REACH: it states nothing, so it recedes. Both
+   pointer. Cadastral map is OUT OF REACH: it states nothing, so it recedes. Both
    at one opacity was the first attempt, and a dimmed orange chip over imagery
    read as a rendering fault rather than a locked control. */
-.w360 .plot.live .maptools .chip:disabled { cursor: default; }
-.w360 .plot.live .maptools .chip:disabled[aria-pressed='false'] { opacity: 0.5; }
-.w360 .plot.live .maptools .chip:disabled[aria-pressed='true'] {
+.w360 :is(.plot.live .maptools, .vc-tl) .chip:disabled { cursor: default; }
+.w360 :is(.plot.live .maptools, .vc-tl) .chip:disabled[aria-pressed='false'] { opacity: 0.5; }
+.w360 :is(.plot.live .maptools, .vc-tl) .chip:disabled[aria-pressed='true'] {
   box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--w-accent) 35%, transparent);
 }
 
@@ -4835,11 +5254,10 @@
   /* A wrapped instruction and save bar can occupy half the 34rem map. Give
      drawing a taller canvas so fitted corners stay clear of both overlays. */
   .w360 .plot.live:has(.tools.armed) { min-height: 44rem !important; }
-  /* The chips scroll in one row instead of stacking over the parcel. */
-  .w360 .plot.live .maptools > .row.mapchips {
-    max-width: 100%; overflow-x: auto; scrollbar-width: none;
-  }
-  .w360 .plot.live .maptools > .row.mapchips::-webkit-scrollbar { display: none; }
+  /* The chips wrap, and the stack ends before the north rose (2.5rem wide at
+     --space-md from the edge): a chip scrolled under the rose was cut in half. */
+  .w360 .plot.live .maptools { right: calc(var(--space-md) + 2.5rem + var(--space-sm)); }
+  .w360 .plot.live .maptools > .row.mapchips { flex-wrap: wrap; }
   .w360 .plot.live .tools-toggle { display: inline-flex; }
   .w360 .plot.live .tools.folded { display: none; }
 }
@@ -5207,13 +5625,26 @@
   outline: 3px solid var(--w-focus) !important;
   outline-offset: -5px !important;
 }
-[data-scheme='highContrast'] .w360 .search input:focus-visible,
-[data-scheme='highContrast'] .w360 .fpop-head input:focus-visible {
+/* Media's thumbnails, Compare choices and play button sit in clipping boxes:
+   the 3px ring moves inside them, as the Filter's search row does. */
+[data-scheme='highContrast'] .w360 .compare-choice:focus-visible {
+  outline: 3px solid var(--w-focus) !important;
+  outline-offset: -3px !important;
+}
+/* A thumb and the play button draw it on their layer above the image (Photo
+   surfaces): the same 3px ring and 3px halo, moved inside. */
+[data-scheme='highContrast'] .w360 .thumb:focus-visible,
+[data-scheme='highContrast'] .w360 .videostart:focus-visible {
   outline: none !important;
   box-shadow: none !important;
 }
-[data-scheme='highContrast'] .w360 .vm-search-results :focus-visible {
-  outline-offset: -3px !important;
+[data-scheme='highContrast'] .w360 .thumb:focus-visible::after,
+[data-scheme='highContrast'] .w360 .videostart:focus-visible::after {
+  box-shadow: inset 0 0 0 3px var(--w-focus), inset 0 0 0 6px var(--w-focus-halo);
+}
+[data-scheme='highContrast'] .w360 .search input:focus-visible,
+[data-scheme='highContrast'] .w360 .fpop-head input:focus-visible {
+  outline: none !important;
   box-shadow: none !important;
 }
 /* ── Ordering a service (W17) ──────────────────────────────────────────
@@ -5228,7 +5659,7 @@
    being pressable, on the screen that can least afford one. `filter: none` is
    what cancels the hover; opacity alone loses to it. Ticket.tsx wrote this
    exact rule inline thirteen times and its comment asked for it here. */
-.w360 .btn:disabled { opacity: 0.55; cursor: not-allowed; filter: none; }
+.w360 .btn:disabled, .w360 .btn[aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; filter: none; }
 
 /* `.btn.sm` is 0.3125rem/0.75rem — about 26px, well under any touch floor —
    and this flow leans on it for Change, Clear, Show all and every Empty
@@ -5242,7 +5673,12 @@
      and selects. `min-*` rather than a size, so an inline width stays the
      glyph's box on a mouse and only grows on touch. */
   .w360 .iconbtn { min-width: 2.75rem; min-height: 2.75rem; }
+  .w360 .nav a { min-height: 2.75rem; }
   .w360 button.chip, .w360 .segmented button, .w360 select { min-height: 2.75rem; }
+  .w360 .sortcycle, .w360 .filterbar .addfilter, .w360 .bandsearch { min-height: 2.75rem; }
+  .w360 .vault-check { min-width: 2.75rem; min-height: 2.75rem; }
+  .w360 .sortbtn { min-height: 2.75rem; }
+  .w360 .rectable .selcol input { width: 1.25rem; height: 1.25rem; }
   .w360 .plot .zoom button { width: 2.75rem; height: 2.75rem; }
   /* A tab head's text action ("All your service orders") is a link, not a
      .btn, so it gets the same floor as one. */
@@ -5263,117 +5699,109 @@
 .w360 .link { color: var(--w-accent); text-decoration: none; }
 .w360 .link:hover { text-decoration: underline; text-underline-offset: 3px; }
 
-/* The flow's own body. `.split` cannot be reused: it is minmax(0,1fr) + 22rem
-   with the rail LAST, so below its breakpoint the rail falls underneath the
-   content — which is precisely the defect being fixed here, where the land has
-   to lead the page at every width. 20rem rather than 22rem because the right
-   column at 1201px is then ~525px and it holds the answer sheet.
-   minmax(0, 1fr), never a bare fr: one long answer would otherwise floor the
-   track at min-content and scroll the whole page sideways. */
-.w360 .orderflow {
-  display: grid;
-  grid-template-columns: 20rem minmax(0, 1fr);
-  gap: var(--space-lg);
+/* ── The service list (ServiceList.tsx) ─────────────────────────────────
+   One row per service, wherever the catalogue appears: name, the server's
+   owner sentence and the days on the left, the price on the right. No scene:
+   design.md allows none on /app pages, and an owner comparing services is
+   comparing these three facts. Selection is a filled check AND a 2px border,
+   never colour alone. */
+.w360 .svc-list { max-width: 44rem; display: grid; gap: var(--space-xs); }
+.w360 .svc-list ul { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-xs); }
+.w360 .svc-group { margin: var(--space-sm) 0 0; }
+.w360 .svc-group:first-child { margin-top: 0; }
+.w360 .svc-row {
+  border: 1px solid var(--w-line); border-radius: var(--radius-md);
+  background: var(--w-surface); color: var(--w-ink);
 }
-
-/* `main` is a flex column and only `.split`/`.two` claim the page's leftover
-   height. Without this the last step — one card — collapses the grid row to
-   content height and the sticky rail has no distance to stick over. */
-.w360 main > .orderflow { flex: 1 1 auto; }
-
-/* The land stays on screen while the answers are typed. `align-self: start` is
-   load-bearing rather than taste: a grid item stretches by default and a
-   stretched item cannot stick, the same collision `.split > .plot.live`
-   already carries this fix for. `top: 3.5rem` is the topbar height that `.nav`
-   and `.filters` already use. The max-height/overflow pair is what stops a
-   rail taller than the viewport pinning its own foot off-screen. */
-.w360 .orderflow > .landrail {
-  position: sticky;
-  top: 3.5rem;
-  align-self: start;
-  max-height: calc(100vh - 4.5rem);
-  overflow-y: auto;
+.w360 .svc-row[data-state='on'] {
+  border: 2px solid var(--w-accent); background: var(--w-accent-wash);
 }
-
-/* At the shell's own breakpoint the rail becomes a full-width block, and
-   sticky there pins it over the content beneath. 1200px is a 13" laptop and a
-   half-screen window, not an edge case. */
-@media (max-width: 1200px) {
-  .w360 .orderflow { grid-template-columns: minmax(0, 1fr); }
-  .w360 .orderflow > .landrail { position: static; max-height: none; overflow: visible; }
+.w360 .svc-row[data-state='ordered'] { border-style: dashed; background: var(--w-surface-2); }
+/* Switched off in the Service catalogue: still listed there, so it can be switched back on. */
+.w360 .svc-row[data-state='off'] { border-style: dashed; background: var(--w-surface-2); }
+.w360 .svc-main {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start;
+  gap: var(--space-sm); width: 100%; padding: var(--space-sm) var(--space-md);
+  border: 0; border-radius: inherit; background: none; color: inherit;
+  font: inherit; text-align: left; text-decoration: none;
 }
-
-/* MapThumb positions itself `inset: 0` and returns null when the record is not
-   located, so it needs a parent with a real height that shows its own artwork
-   through. A zero-height parent leaves its measured `size` null and draws an
-   empty box — and the unlocated record is exactly the case this flow is about.
-   `.rec .art` is the wrong host here: 6.5rem tall, a card gradient, and top-
-   only radii meant for a card's head. */
-.w360 .landart {
-  position: relative;
-  height: 7.5rem;
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  display: grid;
-  place-items: center;
-  background: var(--w-surface-2);
-  color: color-mix(in oklab, var(--w-accent) 45%, transparent);
+/* The selected row's border is 1px thicker; take it back out of the padding so
+   nothing beside it moves. */
+.w360 .svc-row[data-state='on'] .svc-main {
+  padding: calc(var(--space-sm) - 1px) calc(var(--space-md) - 1px);
 }
-
-/* The compact land row for the later steps, and for every width at or below
-   1200px. 48px against the full card's ~400px — this is what stops the land
-   becoming a preamble the owner scrolls past four times to place one order. */
-.w360 .landbar {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-sm) 0;
-  border-bottom: 1px solid var(--w-line);
+.w360 a.svc-main, .w360 button.svc-main { cursor: pointer; }
+.w360 a.svc-main { grid-template-columns: minmax(0, 1fr) auto; }
+.w360 .svc-row:has(> a.svc-main:hover), .w360 .svc-row:has(> button.svc-main:hover:enabled) {
+  border-color: var(--w-line-strong);
 }
-.w360 .landbar .thumb {
-  position: relative;
-  flex: none;
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: var(--radius-xs);
-  overflow: hidden;
-  background: var(--w-surface-2);
+.w360 .svc-row[data-state='on']:has(> .svc-main:hover) { border-color: var(--w-accent); }
+.w360 .svc-main:focus-visible { outline: 2px solid var(--w-focus); outline-offset: 2px; }
+.w360 button.svc-main:disabled { cursor: not-allowed; color: var(--w-ink-2); }
+.w360 .svc-row:has(> button.svc-main:disabled) { background: var(--w-surface-2); opacity: 0.72; }
+.w360 .svc-body { display: grid; gap: var(--space-2xs); min-width: 0; }
+.w360 .svc-name { font-weight: 700; overflow-wrap: anywhere; }
+.w360 .svc-get { color: var(--w-ink-2); font-size: 0.875rem; line-height: 1.45; }
+.w360 .svc-days { color: var(--w-ink-3); font-size: 0.8125rem; }
+.w360 .svc-price { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.w360 .svc-aside {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-md);
+  padding: 0 var(--space-md) var(--space-sm) calc(var(--space-md) + 1.25rem + var(--space-sm));
+  font-size: 0.8125rem;
 }
-
-/* The one that would have bitten. The positioning rule for a map thumb is
-   scoped `.w360 .rec .art .mapart`, while `.w360 .mapart img` is global and
-   absolute — so a MapThumb outside a record card does not merely look wrong:
-   its 256px tiles position against the nearest positioned ancestor and scatter
-   across the page. */
-.w360 .landart .mapart,
-.w360 .landbar .thumb .mapart { position: absolute; inset: 0; }
-/* MapThumb renders nothing at all for a record with no ring and no pin, which
-   is the case this whole flow exists to notice — so the thumb keeps its own
-   illustration underneath, and an unlocated parcel is a picture of land rather
-   than an empty grey square. */
-.w360 .landbar .thumb { display: grid; place-items: center;
-                        color: color-mix(in oklab, var(--w-accent) 45%, transparent); }
-
-/* `.choice` already IS this module's selectable-tile primitive — aria-pressed
-   buttons, hairline at rest, accent border and wash when on, a <small> sub-line
-   in ink-3. Only its fixed two columns are wrong inside a main that is 20rem
-   narrower than the record grid's. One line, one property. */
-.w360 .choice.svc { grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); }
-.w360 .choice.svc > button,
-.w360 .choice.svc .svc-existing {
-  display: grid; grid-template-columns: 7rem minmax(0, 1fr); align-items: stretch;
-  text-align: left; padding: 0; overflow: hidden; border-radius: var(--radius-sm);
-  border: 1px solid var(--w-line); background: var(--w-surface-2); color: var(--w-ink);
+.w360 .svc-list .svc-row:has(> a.svc-main) .svc-aside,
+.w360 .svc-row[data-mode='manage'] .svc-aside { padding-left: var(--space-md); }
+/* Manage rows have no pick mark: the body takes the first track, the price
+   the last, as a link row does. */
+.w360 .svc-row[data-mode='manage'] > .svc-main { grid-template-columns: minmax(0, 1fr) auto; }
+.w360 .svc-aside .svc-more { margin-left: auto; }
+/* The Service catalogue's Grid view: the same rows as cards, several to a row. */
+.w360 .svc-list.grid { max-width: none; }
+.w360 .svc-list.grid ul { grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr)); gap: var(--space-md); }
+.w360 .svc-list.grid .svc-row { display: flex; flex-direction: column; position: relative; }
+.w360 .svc-list.grid .svc-row > .svc-main {
+  flex: 1; display: flex; flex-direction: column; align-items: stretch;
+  padding: var(--space-md); gap: var(--space-sm);
 }
-.w360 .choice.svc .service-visual.card {
-  width: 7rem; height: 100%; min-height: 7.5rem; aspect-ratio: auto;
+/* Room for the corner ⋮ beside the name. */
+.w360 .svc-list.grid .svc-name { padding-right: 2rem; }
+.w360 .svc-list.grid .svc-corner { position: absolute; top: 0.5rem; right: 0.5rem; }
+.w360 .svc-foot {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline;
+  gap: 0.125rem var(--space-sm); margin-top: auto;
+  padding-top: var(--space-sm); border-top: 1px solid var(--w-line);
 }
-.w360 .service-pick-copy { min-width: 0; padding: 0.625rem 0.75rem; align-self: center; }
-.w360 .choice.svc .service-pick-copy > .link {
-  display: inline-block; margin-top: var(--space-xs); font-size: 0.75rem; font-weight: 700;
+.w360 .svc-foot .svc-price { font-size: 1.375rem; }
+.w360 .svc-foot .svc-note { grid-column: 1 / -1; color: var(--w-ink-3); font-size: 0.75rem; }
+.w360 .svc-list.grid .svc-aside { padding: 0 var(--space-md) var(--space-md); }
+.w360 .svc-explain {
+  padding: 0; border: 0; background: none; font: inherit; color: var(--w-ink-2);
+  text-decoration: underline; text-underline-offset: 0.2em; cursor: pointer;
 }
-.w360 .choice.svc button:disabled {
-  cursor: not-allowed; color: var(--w-ink-2); background: var(--w-surface-2); opacity: 0.72;
+/* 24px targets for every pointer (WCAG 2.5.8); coarse pointers get 44px below. */
+.w360 .svc-explain, .w360 .svc-aside .link { display: inline-flex; align-items: center; min-height: 1.5rem; }
+.w360 .svc-explain:focus-visible {
+  outline: 2px solid var(--w-focus); outline-offset: 2px; border-radius: var(--radius-sm);
+}
+.w360 .svc-explain:hover { color: var(--w-ink); }
+.w360 .svc-explain-panel {
+  display: grid; gap: var(--space-xs); margin: 0 var(--space-md) var(--space-sm);
+  padding: var(--space-sm) 0 0; border-top: 1px solid var(--w-line);
+  color: var(--w-ink-2); font-size: 0.875rem; line-height: 1.5;
+}
+.w360 .svc-explain-panel p { margin: 0; }
+.w360 .svc-explain-panel strong { color: var(--w-ink); }
+.w360 .svc-uni { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2xs) var(--space-sm); }
+.w360 .svc-uni > span { color: var(--w-ink); font-weight: 700; flex-basis: 100%; }
+.w360 .svc-uni .link { display: inline-flex; align-items: center; gap: 0.25rem; }
+@media (pointer: coarse) {
+  .w360 .svc-explain, .w360 .svc-aside .link { min-height: 2.75rem; display: inline-flex; align-items: center; }
+}
+@media (max-width: 40rem) {
+  .w360 .svc-main { padding: var(--space-sm); }
+  .w360 .svc-row[data-state='on'] .svc-main { padding: calc(var(--space-sm) - 1px); }
+  .w360 .svc-aside { padding-left: var(--space-sm); padding-right: var(--space-sm); }
+  .w360 .svc-explain-panel { margin-left: var(--space-sm); margin-right: var(--space-sm); }
 }
 
 /* `.kv > div` is flex/space-between with no wrap and `.kv .v` is right-aligned
@@ -5386,31 +5814,19 @@
   .w360 .kv dd, .w360 .kv .v { text-align: left; }
 }
 
-/* The rail is only a rail on the step that is still a decision. From the answer
-   sheet onwards the land is a hairline bar, and a 20rem column holding a 48px
-   bar is 320px of dead page beside the form somebody is filling in. */
-.w360 .orderflow.solo { grid-template-columns: minmax(0, 1fr); }
-.w360 .orderflow.solo > .landrail { position: static; max-height: none; overflow: visible; }
-/* `flex: 1 1 auto` above gives the two-column form room for a sticky rail. In
-   one column it has nothing to stick and the rows simply share the leftover
-   height between them — which put a quarter of a screen of nothing between the
-   land bar and the receipt, the shortest step there is. */
-.w360 .orderflow.solo { align-content: start; }
 
-/* `.row` wraps by default, which is right nearly everywhere and wrong here:
-   "Mutation / name transfer" pushed its own price onto a second line, so one
-   tile in six read as though it had no price until you looked twice. The label
-   wraps inside itself instead, and the chip never leaves the line. */
-.w360 .svchead { flex-wrap: nowrap; align-items: baseline; gap: var(--space-sm); }
-.w360 .svchead > strong { min-width: 0; }
-.w360 .svchead > .chip { flex: none; }
 
 /* An answer sheet is reading, and a 1,140px-wide select holding five options
    is not. The module caps the routed area at 80rem for the same reason; this
    is the same rule one level down, on the only screen whose whole job is a
    handful of short answers. The textarea is capped with them deliberately —
    a note to a surveyor is three lines, not a column of newsprint. */
-.w360 .qsheet { max-width: 42rem; }
+.w360 .qsheet {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+  gap: var(--space-sm) var(--space-md); align-items: start; max-width: 52rem;
+}
+/* A note to a surveyor is the one answer that wants the full row. */
+.w360 .qsheet .field:has(textarea) { grid-column: 1 / -1; }
 
 /* ── W18 · associates ──────────────────────────────────────────────────
    The desk (docs/specs/2026-09-13-associates-marketplace.md) is six operator
@@ -5619,8 +6035,7 @@
    column an owner actually reads, and it can only get worse on a wider
    display. `align-content: start` is the second half, because
    `main > .split { flex: 1 1 auto }` would otherwise spread the single grid
-   row over the page's leftover height. `.orderflow.solo` carries the identical
-   pairing for the identical reason. Opt-in by modifier only: eight screens
+   row over the page's leftover height. Opt-in by modifier only: eight screens
    share `.split` and none of the others is touched. */
 .w360 .split.loose { align-items: start; align-content: start; }
 
@@ -5639,6 +6054,90 @@
    rows and the dispatch body are deliberately NOT capped — a scan thumbnail
    and a sent message want the room. */
 .w360 .svc-rows { max-width: 48rem; }
+/* Side by side, a short label keeps its line ("Expected by", "Why ordered")
+   and the value wraps instead; a long answer question still wraps, in half. */
+@media (min-width: 701px) {
+  .w360 .svc-rows dt { flex-shrink: 0; max-width: 50%; }
+}
+
+/* ── The owner's order page (service order spec, 10/10/2026) ──────────── */
+
+/* The stage tracker (ui.tsx OrderTracker): a row of steps joined by a line
+   at 600px and up, a vertical stepper under it. Done steps carry ✓ and a
+   date; the current one is filled accent and bold; future ones are quiet.
+   Only the caption takes a tone — the tracker is never where the alarm goes. */
+.w360 .tracker {
+  list-style: none; margin: 0 0 var(--space-lg); padding: 0;
+  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: var(--space-sm);
+}
+.w360 .tracker-step { position: relative; display: grid; gap: 0.375rem; align-content: start; min-width: 0; }
+.w360 .tracker-step::before {
+  content: ''; position: absolute; top: 0.6875rem; left: 1.75rem; right: calc(-1 * var(--space-sm));
+  height: 2px; background: var(--w-line);
+}
+.w360 .tracker-step:last-child::before { display: none; }
+.w360 .tracker-step.done::before { background: var(--w-accent); }
+.w360 .tracker-dot {
+  position: relative; z-index: 1; width: 1.5rem; height: 1.5rem; border-radius: 50%;
+  display: grid; place-items: center;
+  border: 2px solid var(--w-line-strong); background: var(--w-surface); color: var(--w-accent-ink);
+}
+.w360 .tracker-step.done .tracker-dot { background: var(--w-accent); border-color: var(--w-accent); }
+.w360 .tracker-step.current .tracker-dot { border-color: var(--w-accent); box-shadow: inset 0 0 0 4px var(--w-accent); }
+.w360 .tracker-step.stopped .tracker-dot { border-color: var(--w-danger); }
+.w360 .tracker-text { display: grid; gap: 0.125rem; min-width: 0; }
+.w360 .tracker-label { font-size: 0.875rem; color: var(--w-ink-2); }
+.w360 .tracker-step.todo .tracker-label { color: var(--w-ink-3); }
+.w360 .tracker-step.current .tracker-label { color: var(--w-ink); font-weight: 700; }
+.w360 .tracker-step.stopped .tracker-label { color: var(--w-danger); font-weight: 700; }
+.w360 .tracker-step.undone .tracker-label,
+.w360 .tracker-step.undone .tracker-date { text-decoration: line-through; }
+.w360 .tracker-date { font-size: 0.8125rem; color: var(--w-ink-3); }
+.w360 .tracker-caption { font-size: 0.8125rem; color: var(--w-ink-2); }
+.w360 .tracker-caption.warn { color: var(--w-warn); }
+.w360 .tracker-caption.bad { color: var(--w-danger); }
+/* Compact on purpose: five rows in about 125px, so the Next step panel
+   still starts in the top half of an 844px phone (spec §10). */
+@media (max-width: 600px) {
+  .w360 .tracker { grid-auto-flow: row; grid-auto-columns: auto; gap: 0.25rem; }
+  .w360 .tracker-step { grid-template-columns: 1.25rem minmax(0, 1fr); column-gap: var(--space-sm); }
+  .w360 .tracker-dot { width: 1.25rem; height: 1.25rem; }
+  .w360 .tracker-step::before { top: 1.25rem; bottom: -0.25rem; left: calc(0.625rem - 1px); right: auto; width: 2px; height: auto; }
+  .w360 .tracker-text { grid-template-columns: auto auto; justify-content: start; column-gap: 0.5rem; align-items: baseline; }
+  .w360 .tracker-caption { grid-column: 1 / -1; }
+  /* One caption on a phone: the current step's. */
+  .w360 .tracker-step:not(.current):not(.stopped) .tracker-caption { display: none; }
+}
+
+/* The rail beside the order stays in view while the Activity scrolls. */
+@media (min-width: 900px) {
+  .w360 .order-rail { position: sticky; top: var(--space-lg); }
+}
+
+/* Details' one sub-head ("Payment"), a hairline above it. */
+.w360 .kv-sub {
+  margin: var(--space-md) 0 var(--space-sm); padding-top: var(--space-sm);
+  border-top: 1px solid var(--w-line); font-size: 0.8125rem; font-weight: 400; color: var(--w-ink-2);
+}
+
+/* The Activity stream: newest first, the composer on top. A message is a
+   bubble, everything else one quiet line with its time on the right. */
+.w360 .stream { list-style: none; margin: var(--space-md) 0 0; padding: 0; display: grid; gap: var(--space-sm); }
+.w360 .stream-line { display: flex; align-items: center; gap: var(--space-sm); min-width: 0; color: var(--w-ink-2); }
+.w360 .stream-line > .grow { min-width: 0; }
+.w360 .stream-line time, .w360 .stream-who time { font-size: 0.8125rem; color: var(--w-ink-3); white-space: nowrap; }
+.w360 .stream-who { display: block; font-size: 0.8125rem; color: var(--w-ink-3); margin-bottom: 0.25rem; }
+.w360 .stream-msg .chat-bubble { max-width: 86%; }
+.w360 .stream-msg.owner .chat-bubble { border-color: transparent; background: var(--w-accent-wash); color: var(--w-accent-wash-ink); }
+.w360 .filechips { display: flex; flex-wrap: wrap; gap: 0.375rem; margin-top: 0.375rem; }
+.w360 .filechip {
+  display: inline-flex; align-items: center; gap: 0.375rem; max-width: 100%;
+  padding: 0.25rem 0.5rem; border: 1px solid var(--w-line); border-radius: var(--radius-pill);
+  font-size: 0.8125rem; color: var(--w-ink-2);
+}
+.w360 .filechip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.w360 .compose-bar { display: flex; align-items: center; gap: var(--space-sm); }
+.w360 .compose-bar > .grow { min-width: 0; }
 
 /* ── The document reader (W07) ─────────────────────────────────────────── */
 
@@ -5743,25 +6242,15 @@
 .w360 .share-paper-picker strong { font-size: 0.8125rem; }
 .w360 .share-paper-picker small { color: var(--w-ink-3); font-size: 0.75rem; }
 
-.w360 .compliance-admin { display: grid; gap: var(--space-lg); }
-.w360 .compliance-titlebar { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-md); }
-.w360 .compliance-titlebar h1 { margin: 0.1rem 0 0.25rem; }
-.w360 .compliance-titlebar .lede { margin: 0; max-width: 52rem; }
-.w360 .compliance-status { flex: none; color: var(--w-ink-3); font-size: 0.75rem; }
-.w360 .compliance-scope {
-  border-block: 1px solid var(--w-line);
-  padding-block: var(--space-md);
-  display: grid;
-  gap: var(--space-sm);
+/* minmax(0, 1fr): an auto track grows to the nine-tab strip's width and the
+   whole page scrolls sideways on a phone (design.md § App-surface rules).
+   align-content: start, or `main`'s min-height is shared out between the rows
+   as gaps under the head and the place line. */
+.w360 .compliance-admin {
+  display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: var(--space-lg);
 }
-.w360 .compliance-review { display: grid; gap: 0.15rem; }
-.w360 .compliance-review small { color: var(--w-ink-3); }
-.w360 .compliance-new-scope {
-  display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-sm);
-  padding-top: var(--space-sm); border-top: 1px dashed var(--w-line);
-}
-.w360 .compliance-new-scope .field { margin: 0; width: 12rem; }
-.w360 .compliance-naming-trigger { margin-top: calc(-1 * var(--space-sm)); }
+/* The band: the scope's place line directly over its filter, one unit. */
+.w360 .compliance-band { display: grid; gap: 0; min-width: 0; }
 /* A `<dl>` of key/value rows, sized for the 26rem drawer this only ever
    renders inside — the 4-column grid it replaced was sized for the full main
    column and unreadable at drawer width. */
@@ -5771,18 +6260,11 @@
 }
 .w360 .compliance-naming-list > div:last-child { border-bottom: 0; }
 .w360 .compliance-naming-list dt {
-  color: var(--w-ink-3); text-transform: capitalize; font-size: 0.7rem; margin: 0;
+  color: var(--w-ink-3); font-size: 0.7rem; margin: 0;
 }
 .w360 .compliance-naming-list dd {
   margin: 0.25rem 0 0; font-size: 0.875rem; font-weight: 700; overflow-wrap: anywhere;
 }
-.w360 .compliance-tabs { display: flex; gap: 0; overflow-x: auto; border-bottom: 1px solid var(--w-line); }
-.w360 .compliance-tabs button {
-  appearance: none; border: 0; border-bottom: 2px solid transparent; background: transparent;
-  color: var(--w-ink-3); padding: 0.75rem 0.9rem; white-space: nowrap; font: inherit;
-  font-size: 0.8125rem; cursor: pointer;
-}
-.w360 .compliance-tabs button[aria-pressed='true'] { color: var(--w-ink); border-color: var(--w-accent); }
 .w360 .compliance-checklist-grid {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-md); align-items: start;
@@ -5797,20 +6279,22 @@
 .w360 .compliance-item > span { display: grid; gap: 0.25rem; }
 .w360 .compliance-item small { color: var(--w-ink-3); line-height: 1.45; }
 .w360 .compliance-item .pill { font-size: 0.625rem; }
-.w360 .compliance-guide-band { padding: var(--space-lg) 0; border-bottom: 1px solid var(--w-line); }
-.w360 .compliance-guide-band h2 { max-width: 58rem; margin: 0.25rem 0 var(--space-md); font-size: 1.25rem; }
+.w360 .compliance-section { display: grid; gap: var(--space-md); min-width: 0; padding-bottom: var(--space-lg); }
+.w360 .compliance-service-list .compliance-section + .compliance-section {
+  border-top: 1px solid var(--w-line); padding-top: var(--space-lg);
+}
+.w360 .compliance-section-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-md); }
+.w360 .compliance-section-head > div:first-child { min-width: 0; max-width: 58rem; }
+.w360 .compliance-section-head h2 { margin: 0; font-size: 1.25rem; }
+.w360 .compliance-section-head .note { margin: 0.25rem 0 0; }
+.w360 .compliance-section-head > .row > svg { color: var(--w-accent); }
+.w360 .note.bad { color: var(--w-danger); margin: 0; }
 .w360 .compliance-numbered { margin: 0; padding-left: 1.5rem; max-width: 60rem; }
 .w360 .compliance-numbered li { padding: 0.5rem 0 0.5rem 0.4rem; color: var(--w-ink-3); }
 .w360 .compliance-three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-lg); }
 .w360 .compliance-three > div { min-width: 0; }
 .w360 .compliance-three ul { padding-left: 1.1rem; margin: var(--space-xs) 0 0; }
 .w360 .compliance-three li { color: var(--w-ink-3); margin: 0.35rem 0; font-size: 0.8125rem; }
-.w360 .compliance-visuals { display: grid; gap: var(--space-md); min-width: 0; }
-.w360 .compliance-visuals-head { align-items: flex-start; }
-.w360 .compliance-visuals-head > div:first-child { max-width: 54rem; }
-.w360 .compliance-visuals-head h2 { margin: 0.2rem 0 0.35rem; font-size: 1.25rem; }
-.w360 .compliance-visuals-head .eyebrow { display: flex; align-items: center; gap: 0.35rem; }
-.w360 .compliance-visuals-head .note { margin: 0; line-height: 1.5; }
 .w360 .compliance-visual-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr));
   gap: var(--space-md); align-items: start;
@@ -5829,7 +6313,6 @@
   border-top: 1px solid var(--w-line);
 }
 .w360 .compliance-visual-save > .note { margin: 0; }
-.w360 .sharing-baseline > svg { color: var(--w-accent); }
 .w360 .compliance-source-list { display: grid; border-top: 1px solid var(--w-line); }
 .w360 .compliance-source-list a {
   display: grid; grid-template-columns: 1.5rem minmax(0, 1fr) 1rem; align-items: center;
@@ -5839,46 +6322,64 @@
 .w360 .compliance-source-list a:hover strong { color: var(--w-accent); }
 .w360 .compliance-source-list a > span { display: grid; gap: 0.15rem; }
 .w360 .compliance-source-list small { color: var(--w-ink-3); }
-.w360 .compliance-manage { display: grid; gap: var(--space-md); min-width: 0; }
-.w360 .compliance-manage h2 { margin: 0.15rem 0 0; font-size: 1.1rem; }
+.w360 .compliance-manage .compliance-section-head .mono { overflow-wrap: anywhere; }
 .w360 .compliance-json {
   width: 100%; min-height: 28rem; resize: vertical; padding: var(--space-sm);
   font-variant-numeric: tabular-nums; font-size: 0.75rem; line-height: 1.55;
   white-space: pre; overflow: auto;
 }
-.w360 .compliance-archive-row {
-  display: flex; align-items: end; gap: var(--space-sm);
-  padding-block: var(--space-sm); border-block: 1px solid var(--w-line);
-}
-.w360 .compliance-archive-row .field { margin: 0; }
 .w360 .compliance-history { display: grid; border-top: 1px solid var(--w-line); }
-.w360 .compliance-history > .eyebrow { display: flex; align-items: center; gap: 0.35rem; padding-top: var(--space-md); }
-.w360 .compliance-history > div {
+.w360 .compliance-history > h3 {
+  display: flex; align-items: center; gap: 0.35rem; margin: 0; padding-block: var(--space-md) var(--space-xs);
+  font-size: 1rem;
+}
+.w360 .compliance-history-row > * { min-width: 0; overflow-wrap: anywhere; }
+.w360 .compliance-history-row {
   display: grid; grid-template-columns: minmax(12rem, 1fr) minmax(14rem, auto) 6rem;
   gap: var(--space-sm); align-items: center; padding: 0.7rem 0;
   border-bottom: 1px solid var(--w-line);
 }
-.w360 .compliance-history > div > span:first-child { display: grid; gap: 0.15rem; }
+.w360 .compliance-history-row > span:first-child { display: grid; gap: 0.15rem; }
 .w360 .compliance-history small { color: var(--w-ink-3); }
 .w360 .compliance-notice {
   display: grid; grid-template-columns: 1.25rem minmax(0, 1fr) auto; gap: var(--space-xs);
   align-items: start; color: var(--w-ink-3); font-size: 0.75rem;
   border-top: 1px solid var(--w-line); padding-top: var(--space-md);
 }
-.w360 .compliance-denied { min-height: 26rem; display: grid; place-content: center; text-align: center; }
-.w360 .compliance-denied svg { margin: 0 auto; color: var(--w-ink-3); }
-.w360 .compliance-denied h1 { font-size: 1.35rem; margin: var(--space-sm) 0 var(--space-xs); }
-.w360 .compliance-denied p { color: var(--w-ink-3); max-width: 34rem; }
+
+/* ── Service catalogue (super-admin) ─────────────────────────────── */
+.w360 .services-admin {
+  display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: var(--space-lg);
+}
+.w360 .services-admin > .pagehead { margin-bottom: 0; }
+/* The card title is the card's one click target (a stretched span inside
+   it), drawn as the heading it sits in, as a property card's link is. */
+.w360 .services-admin .recbtn {
+  border: 0; background: none; padding: 0; margin: 0; font: inherit; color: inherit;
+  text-align: left; cursor: pointer;
+}
+.w360 .services-admin .recbtn:focus-visible { outline: 2px solid var(--w-focus); outline-offset: 2px; }
+/* What owners read, two lines at most so every card in a row is one height. */
+.w360 .services-admin-blurb {
+  margin: 0.25rem 0 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.w360 .services-admin .rectable td.num, .w360 .services-admin .rectable th.num { text-align: right; }
+.w360 .services-areas input[type='text'] { margin: var(--space-xs) 0; }
+.w360 .services-districts { display: grid; gap: var(--space-2xs); margin: 0 0 var(--space-sm) 2rem; }
+/* A scrolling checklist: a state has up to ~40 districts. */
+.w360 .services-district-list {
+  max-height: 14rem; overflow-y: auto; border: 1px solid var(--w-line);
+  border-radius: var(--radius-sm); padding: 0 var(--space-sm);
+}
+.w360 .services-admin-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-sm); }
 
 /* ── Government geography administration ─────────────────────────── */
 .w360 .geography-admin { display: grid; gap: var(--space-lg); min-width: 0; }
-.w360 .geography-titlebar {
-  display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-md);
-}
-.w360 .geography-titlebar h1 { margin: 0.1rem 0 0.25rem; }
-.w360 .geography-titlebar .lede { margin: 0; max-width: 54rem; }
-.w360 .geography-freshness { display: grid; gap: 0.2rem; text-align: right; flex: none; }
-.w360 .geography-freshness strong { font-size: 0.8125rem; }
+/* These two pages space their sections with the grid's gap, which is already
+   the head's 24px to the content. */
+.w360 .compliance-admin > .pagehead, .w360 .geography-admin > .pagehead,
+.w360 .geography-admin > .filterbar { margin-bottom: 0; }
 .w360 .geography-counts {
   display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
   border: 1px solid var(--w-line); border-radius: var(--radius-md); overflow: hidden;
@@ -5893,28 +6394,8 @@
   letter-spacing: 0; text-transform: uppercase;
 }
 .w360 .geography-counts strong { font-variant-numeric: tabular-nums; font-size: 1.35rem; font-weight: 400; }
-.w360 .geography-controls {
-  display: grid; grid-template-columns: repeat(3, minmax(10rem, 1fr)) minmax(13rem, 1.2fr);
-  gap: var(--space-sm); align-items: end; padding-block: var(--space-md);
-  border-block: 1px solid var(--w-line);
-}
-.w360 .geography-controls .field { margin: 0; }
-.w360 .geography-search {
-  height: 2.5rem; display: flex; align-items: center; gap: var(--space-xs);
-  padding: 0 0.7rem; border: 1px solid var(--w-line-strong);
-  border-radius: var(--radius-md); color: var(--w-ink-3); background: var(--w-surface);
-}
-.w360 .geography-search:focus-within { border-color: var(--w-accent); color: var(--w-accent); }
-.w360 .geography-search input {
-  width: 100%; min-width: 0; border: 0; outline: 0; background: transparent;
-  color: var(--w-ink); font: inherit; font-size: 0.8125rem;
-}
 .w360 .geography-table-section, .w360 .geography-provenance, .w360 .geography-history {
   display: grid; gap: var(--space-sm); min-width: 0;
-}
-.w360 .geography-table-heading { align-items: end; }
-.w360 .geography-table-heading h2, .w360 .geography-provenance h2, .w360 .geography-history h2 {
-  margin: 0.15rem 0 0; font-size: 1.1rem;
 }
 .w360 .geography-table-frame {
   border: 1px solid var(--w-line); border-radius: var(--radius-md); background: var(--w-surface);
@@ -5939,36 +6420,26 @@
 }
 
 @media (max-width: 900px) {
-  .w360 .compliance-titlebar { align-items: flex-start; flex-direction: column; }
-  .w360 .compliance-checklist-grid { grid-template-columns: 1fr; }
-  .w360 .compliance-three { grid-template-columns: 1fr; gap: var(--space-md); }
-  .w360 .compliance-visuals-head { align-items: stretch; flex-direction: column; }
-  .w360 .compliance-history > div { grid-template-columns: 1fr; gap: 0.2rem; }
-  .w360 .geography-titlebar { align-items: flex-start; flex-direction: column; }
-  .w360 .geography-freshness { text-align: left; }
-  .w360 .geography-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .w360 .compliance-checklist-grid { grid-template-columns: minmax(0, 1fr); }
+  .w360 .compliance-three { grid-template-columns: minmax(0, 1fr); gap: var(--space-md); }
+  .w360 .compliance-section-head { flex-direction: column; align-items: stretch; }
+  .w360 .compliance-history-row { grid-template-columns: minmax(0, 1fr); gap: 0.2rem; }
 }
 @media (max-width: 600px) {
   .w360 .governance-columns { grid-template-columns: 1fr; }
   .w360 .compliance-notice { grid-template-columns: 1.25rem minmax(0, 1fr); }
   .w360 .compliance-notice .mono { grid-column: 2; }
-  .w360 .compliance-archive-row, .w360 .compliance-new-scope { align-items: stretch; flex-direction: column; }
-  .w360 .compliance-new-scope .field { width: 100%; }
   .w360 .compliance-visual-grid { grid-template-columns: minmax(0, 1fr); }
   .w360 .geography-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .w360 .geography-counts > div:nth-child(2) { border-right: 0; }
   .w360 .geography-counts > div:nth-child(-n + 2) { border-bottom: 1px solid var(--w-line); }
-  .w360 .geography-controls { grid-template-columns: minmax(0, 1fr); }
-  .w360 .choice.svc > button,
-  .w360 .choice.svc .svc-existing { grid-template-columns: 5.5rem minmax(0, 1fr); }
-  .w360 .choice.svc .service-visual.card { width: 5.5rem; min-height: 7rem; }
 }
 
 /* Media compare — a selectable rail and two equal evidence panes. On narrow
    screens the rail becomes a horizontal strip and the panes stack; no side is
    squeezed below a readable image width. */
 .w360 .media-compare { display: grid; grid-template-columns: 15rem minmax(0,1fr); height: 24rem; min-height: 0; border: 1px solid var(--w-line); border-radius: var(--radius-lg); overflow: hidden; background: var(--w-surface); }
-.w360 .compare-rail { padding: var(--space-md); border-right: 1px solid var(--w-line); display: grid; align-content: start; gap: var(--space-xs); }
+.w360 .compare-rail { padding: var(--space-md); border-right: 1px solid var(--w-line); display: grid; align-content: start; gap: var(--space-xs); min-height: 0; overflow-y: auto; }
 .w360 .compare-choice { display: grid; gap: 0.125rem; width: 100%; padding: var(--space-sm); border: 1px solid transparent; border-radius: var(--radius-sm); background: none; color: var(--w-ink); text-align: left; cursor: pointer; }
 .w360 .compare-choice small { color: var(--w-ink-3); }
 .w360 .compare-choice:hover, .w360 .compare-choice[aria-pressed='true'] { border-color: var(--w-accent); background: var(--w-accent-wash); }
@@ -5993,18 +6464,6 @@
   .w360 .compare-frame { height: min(48vh,28rem); }
 }
 
-/* Media type filters sit on their own full row below the section heading, as
-   in the approved filmstrip template. They wrap instead of being clipped by
-   search/add actions at narrow desktop widths. */
-.w360 .media-filters { display: flex; flex-wrap: wrap; gap: var(--space-xs); margin: 0 0 var(--space-md); }
-.w360 .media-filters .chip { min-width: 0; }
-/* On a phone the kind chips scroll in one row, and the search the head's
-   menu opens sits under it, so the stage starts in the first viewport. */
-@media (max-width: 640px) {
-  .w360 .media-filters { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
-  .w360 .media-filters::-webkit-scrollbar { display: none; }
-  .w360 .media-search { display: flex; margin: 0 0 var(--space-sm); }
-}
 /* Destructive media action: one clearly bounded control beneath the safe
    actions. The icon and label both inherit the scheme's error token; the
    outline and trash shape keep the meaning visible without colour alone. */
@@ -6014,7 +6473,8 @@
 }
 .w360 .sechead .actions > * { max-width: 100%; }
 @media (max-width: 1100px) {
-  .w360 .sechead .actions { flex: 1 1 100%; justify-content: flex-start; }
+  /* Under the title, still right-aligned: the filled add ends the row. */
+  .w360 .sechead .actions { flex: 1 1 100%; justify-content: flex-end; }
   .w360 .sechead .actions .search { flex: 1 1 14rem !important; max-width: none !important; }
 }
 
@@ -6023,30 +6483,174 @@
 .w360 .thumb-select { position: absolute; z-index: 3; left: 0.25rem; top: 0.25rem; display: grid; place-items: center; width: 1rem; height: 1rem; border: 1px solid var(--w-ink-2); border-radius: 50%; color: var(--w-accent-ink); background: color-mix(in oklab, var(--w-bg) 70%, transparent); font-size: 0.65rem; font-weight: 700; }
 .w360 .thumb.selected { border-color: var(--w-accent); }
 .w360 .thumb.selected .thumb-select { border-color: var(--w-accent); background: var(--w-accent); }
-.w360 .selection-panel { min-height: 100%; display: flex; flex-direction: column; }
-.w360 .selection-previews {
-  display: flex; flex-wrap: wrap; gap: var(--space-xs);
-  margin-top: var(--space-md);
-}
-.w360 .selection-preview {
-  position: relative; overflow: hidden; display: grid; place-items: center;
-  width: 3rem; height: 3rem; border: 1px solid var(--w-accent);
-  border-radius: var(--radius-sm); background: var(--w-surface-2);
-  color: var(--w-ink-3);
-}
-.w360 .selection-preview img {
-  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
-}
-.w360 .selection-preview .thumb-select { left: 0.1875rem; top: 0.1875rem; border-color: var(--w-accent); background: var(--w-accent); }
-.w360 .selection-actions { margin-top: var(--space-lg); }
-.w360 .selection-actions .btn {
-  width: 100%; min-height: 2.75rem; justify-content: flex-start;
-}
-.w360 .selection-footer { margin-top: auto; padding-top: var(--space-lg); }
-/* ── Tools (/app/tools) ─────────────────────────────────────────────────
+/* ── Tools (/tools) ─────────────────────────────────────────────────
    A run of labelled inputs that wraps instead of squeezing: two or three
    across on a desk, one per line on a phone. */
 .w360 .toolfields {
   display: grid; gap: var(--space-sm);
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 11rem), 1fr));
 }
+
+/* ── Families & groups: the list's cards (Groups.tsx) ───────────────────
+   One card per group, scannable: name and type up top, then four facts in
+   the same order on every card so the eye can run down a column of them.
+   The whole card is the name's link (a stretched span); the kebab sits
+   above it so it stays pressable. */
+.w360 .groupcard { position: relative; }
+.w360 .groupcard .meat { display: grid; gap: var(--space-sm); }
+.w360 .groupcard-top {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start; gap: var(--space-sm);
+}
+.w360 .groupcard-glyph { width: 2.25rem; height: 2.25rem; }
+.w360 .groupcard-title { display: grid; min-width: 0; }
+/* Two lines, not one: names told apart by a suffix ("Reddy Family (parents)" /
+   "(in-laws)") must show the suffix. The link carries the full name as title. */
+.w360 .groupcard-title h3 {
+  margin: 0; font-size: 0.9375rem;
+  display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; white-space: normal; overflow-wrap: anywhere;
+}
+.w360 .groupcard-title .recgo { color: inherit; text-decoration: none; }
+.w360 .groupcard-hit { position: absolute; inset: 0; }
+.w360 .groupcard-menu { position: relative; z-index: 1; }
+/* An order card's tick box sits over the card-wide link, as the menu does. */
+.w360 .groupcard .sel { position: relative; z-index: 1; align-self: center; }
+.w360 .groupcard:hover { border-color: var(--w-line-strong); }
+.w360 .groupcard:has(.recgo:focus-visible) { outline: 2px solid var(--w-focus); outline-offset: 2px; }
+.w360 .groupcard .recgo:focus-visible { outline: none; }
+.w360 .groupcard-facts {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-xs) var(--space-md); margin: 0;
+}
+.w360 .groupcard-facts dt {
+  font-size: 0.6875rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--w-ink-3);
+}
+.w360 .groupcard-facts dd { margin: 0.125rem 0 0; font-size: 0.8125rem; color: var(--w-ink); }
+
+/* ── Families & groups: one group's page (Groups.tsx) ──────────────────
+   The head's one land tile: "{n} properties · {x} ac →", opening Properties
+   with this group as its Holder filter. A group page leads with people; its
+   land is this single way in, not an acre headline. */
+.w360 .grouptile {
+  display: inline-flex; align-items: center; gap: var(--space-sm);
+  margin-top: var(--space-sm); padding: var(--space-sm) var(--space-md);
+  min-height: 2.75rem; max-width: 100%;
+  border: 1px solid var(--w-line); border-radius: var(--radius-md);
+  background: var(--w-surface); color: var(--w-ink);
+  font-size: 1rem; font-weight: 700; text-decoration: none;
+}
+.w360 .grouptile:hover { border-color: var(--w-accent); }
+.w360 .grouptile:focus-visible { outline: 2px solid var(--w-focus); outline-offset: 2px; }
+.w360 .grouptile svg { color: var(--w-accent); flex: none; }
+
+/* The Properties tab is the Properties List view's own table (PropertyTable),
+   under one line of note and the way to the full list. */
+.w360 .grouprows-foot { margin: var(--space-md) 0 var(--space-xs); max-width: 40rem; }
+
+/* SkMap (skeletons.tsx): a map-shaped stand-in that fills its stage. The
+   ground pulses like every skeleton, with a faint tile grid over it so it
+   reads as a map coming, not a slab; the zoom pair and scale sit where
+   Leaflet puts them. */
+.w360 .skmap { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; }
+.w360 .skmap-fill, .w360 .skmap-ground { position: absolute; inset: 0; }
+.w360 .skmap-ground {
+  border-radius: 0;
+  background-image:
+    linear-gradient(color-mix(in oklab, var(--w-line) 70%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in oklab, var(--w-line) 70%, transparent) 1px, transparent 1px);
+  background-size: 4rem 4rem;
+}
+.w360 .skmap-zoom { position: absolute; top: var(--space-sm); left: var(--space-sm); display: grid; gap: 2px; }
+.w360 .skmap-scale { position: absolute; bottom: var(--space-sm); left: var(--space-sm); }
+
+/* Overview icons: before a card title and a tile label, in the label's colour. */
+.w360 .cardhead h2 .h-icon { vertical-align: -0.2em; margin-right: var(--space-xs); color: var(--w-ink-3); }
+.w360 .strip .k .k-icon { vertical-align: -0.15em; margin-right: 0.3rem; }
+/* Boundaries as one field: four sides, one per line, side name in the label colour. */
+.w360 .ov-sides { display: grid; grid-template-columns: auto 1fr; gap: 0.15rem var(--space-sm); margin: 0; }
+.w360 .ov-sides dt { color: var(--w-ink-3); }
+.w360 .ov-sides dd { margin: 0; }
+
+.w360 .ov-partyv { display: block; }
+.w360 .ov-parties { margin-bottom: var(--space-sm); }
+.w360 .tabs .tab-icon { vertical-align: -0.2em; margin-right: 0.35rem; opacity: 0.8; }
+.w360 .ov-parties { margin-bottom: var(--space-md); }
+.w360 .ov-partyv + .ov-partyv { margin-top: 0.15rem; }
+.w360 .ov-partylist { margin: 0 0 var(--space-md); padding-left: 1.25rem; display: grid; gap: var(--space-xs); }
+/* Layout fixes (founder, 12/10/2026): the Title card keeps its own height
+   beside a longer Compliance card; a check's text starts at its mark. */
+.w360 .ov-top { align-items: start; }
+.w360 .ov-checks > li > .ov-gap { flex: 1; }
+.w360 .ov-checks-more { margin-top: var(--space-sm); padding-top: var(--space-sm); border-top: 1px solid var(--w-line); justify-content: space-between; flex-wrap: wrap; }
+.w360 .ov-mark-ok { color: var(--w-ok); vertical-align: -0.15em; }
+/* Boundaries as a compass: N on top, W and E either side of the rose, S below.
+   N and S span the card, so a long North never widens the rose's column and
+   starves West and East; the middle column holds only the rose. */
+.w360 .ov-compass {
+  display: grid; gap: var(--space-sm);
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-areas: "n n n" "w r e" "s s s";
+  align-items: center;
+}
+.w360 .ov-side { display: flex; gap: var(--space-xs); align-items: flex-start; min-width: 0; }
+.w360 .ov-side-north { grid-area: n; justify-content: center; text-align: center; }
+.w360 .ov-side-south { grid-area: s; justify-content: center; text-align: center; }
+.w360 .ov-side-west { grid-area: w; justify-content: flex-end; text-align: right; }
+.w360 .ov-side-east { grid-area: e; }
+.w360 .ov-rose { grid-area: r; color: var(--w-ink-3); display: grid; place-items: center; padding: var(--space-xs); }
+.w360 .ov-dir {
+  flex: none; display: inline-grid; place-items: center; width: 1.5rem; height: 1.5rem;
+  border-radius: 50%; border: 1px solid var(--w-line); background: var(--w-surface-2);
+  font-size: 0.75rem; font-weight: 700; color: var(--w-ink-2);
+}
+.w360 .ov-sidev { min-width: 0; overflow-wrap: break-word; }
+.w360 .ov-compass-src { margin: var(--space-sm) 0 0; }
+/* Overview as the Documents tab: property cards left, Compliance rail right. */
+.w360 .ov-split { align-items: start; }
+.w360 .ov-main { min-width: 0; }
+.w360 .ov-main .ov-groups { grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); }
+.w360 .ov-complete .missing-group .ov-checks { margin-top: var(--space-xs); }
+.w360 .ov-complete .ov-checks > li { padding: 0.375rem 0; }
+.w360 .ov-complete .ov-gap > span:first-child { font-size: 0.875rem; }
+@media (max-width: 1100px) { .w360 .ov-split { grid-template-columns: minmax(0, 1fr); } }
+
+/* A narrow Boundaries card (the property column beside the rail) lists the
+   sides N, E, S, W one per line, each with its letter; the compass is drawn
+   only when the card is wide enough for West and East to keep their room. */
+.w360 .ov-bounds { container: ovbounds / inline-size; }
+@container ovbounds (max-width: 30rem) {
+  .w360 .ov-compass { grid-template-columns: minmax(0, 1fr); grid-template-areas: "n" "e" "s" "w"; }
+  .w360 .ov-compass .ov-rose { display: none; }
+  .w360 .ov-side-north, .w360 .ov-side-south, .w360 .ov-side-west { justify-content: flex-start; text-align: left; }
+}
+
+/* ── Notes: written and edited in place (RecordNotes.tsx, RichText.tsx) ──
+   The editor is the note card itself; its text box grows with its text
+   (RichTextField sets the height), so it never scrolls inside itself. */
+.w360 .note-top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm); }
+.w360 .note-top .iconbtn { margin: -0.375rem -0.375rem -0.375rem 0; }
+.w360 .iconbtn:disabled { opacity: 0.45; cursor: not-allowed; background: none; }
+/* Card's own padding is pad-lg; the read card it replaces is md, so the
+   text does not jump when a note opens for editing. */
+.w360 .card.note-edit { display: grid; gap: var(--space-sm); padding: var(--space-md); border-color: var(--w-accent); }
+.w360 .note-edit-foot { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-xs); flex-wrap: wrap; }
+.w360 .note-edit-foot .note { margin-right: auto; }
+.w360 .richfield { display: grid; gap: 0.375rem; }
+.w360 .richbar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-xs); flex-wrap: wrap; }
+.w360 .richtools { display: flex; gap: 0.125rem; }
+.w360 .richfield textarea { resize: none; overflow: hidden; min-height: 6rem; line-height: 1.55; }
+.w360 .richpreview {
+  min-height: 6rem; padding: 0.5625rem 0.75rem;
+  border: 1px dashed var(--w-line); border-radius: var(--radius-sm);
+}
+.w360 .richtext { font-size: 0.9375rem; line-height: 1.55; margin-top: 0.5rem; overflow-wrap: anywhere; }
+.w360 .richpreview .richtext { margin-top: 0; }
+.w360 .richtext > :first-child { margin-top: 0; }
+.w360 .richtext > :last-child { margin-bottom: 0; }
+.w360 .richtext p { margin: 0 0 0.625rem; }
+.w360 .richtext h4 { font-size: 1rem; font-weight: 700; margin: 0.875rem 0 0.375rem; }
+.w360 .richtext ul, .w360 .richtext ol { margin: 0 0 0.625rem; padding-left: 1.375rem; }
+.w360 .richtext li { margin: 0.1875rem 0; }
+.w360 .richtext li::marker { color: var(--w-ink-3); }
+.w360 .richtext a { color: var(--w-accent); text-underline-offset: 2px; }

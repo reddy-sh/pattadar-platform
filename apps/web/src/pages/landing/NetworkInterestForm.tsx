@@ -7,7 +7,7 @@
  * (services/api/src/network.py, `registerNetworkInterest`) is authoritative;
  * the checks here mirror it for UX only, with the same phone and Aadhaar-run
  * rules from @pattadar/core. Signed-out visitors only: the landing page
- * redirects signed-in owners to /app, and any thrown gql() error — network,
+ * redirects signed-in owners to /home, and any thrown gql() error — network,
  * masked server error, or a stale-session 401 — shows one generic failure and
  * keeps the values.
  */

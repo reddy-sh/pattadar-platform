@@ -16,7 +16,7 @@ struct AttentionWidget: Widget {
                 .widgetCanvas(Palette.accent)
         }
         .configurationDisplayName("Needs attention")
-        .description("What is missing from your records, worst first.")
+        .description("What is missing from your properties, worst first.")
         .supportedFamilies([.systemSmall, .systemMedium,
                             .accessoryCircular, .accessoryRectangular])
     }
@@ -52,7 +52,7 @@ struct AttentionWidgetView: View {
 
     private func small(_ s: LandSnapshot) -> some View {
         VStack(alignment: .leading, spacing: Space.xs) {
-            WidgetHeading(text: "Record-ready", icon: "checkmark.seal.fill",
+            WidgetHeading(text: "Documents in order", icon: "checkmark.seal.fill",
                           tint: Palette.tint(for: s.verdict))
             Spacer(minLength: 0)
             WidgetFigure(value: "\(s.readiness)", unit: "%")
@@ -74,7 +74,7 @@ struct AttentionWidgetView: View {
         HStack(alignment: .top, spacing: Space.lg) {
             Link(destination: WidgetLink.holdings(.attention).url) {
                 VStack(alignment: .leading, spacing: Space.xs) {
-                    WidgetHeading(text: "Record-ready", icon: "checkmark.seal.fill",
+                    WidgetHeading(text: "Documents in order", icon: "checkmark.seal.fill",
                                   tint: Palette.tint(for: s.verdict))
                     Spacer(minLength: 0)
                     WidgetFigure(value: "\(s.readiness)", unit: "%")
@@ -88,7 +88,7 @@ struct AttentionWidgetView: View {
                 VStack(alignment: .leading, spacing: Space.xs) {
                     Image(systemName: "checkmark.seal.fill")
                         .foregroundStyle(Palette.success)
-                    Text("Every property on file would stand up to scrutiny today.")
+                    Text("Every property on file is in order today.")
                         .font(.bodyCopy).foregroundStyle(Palette.ink)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -126,7 +126,7 @@ struct AttentionWidgetView: View {
 
     private func rectangular(_ s: LandSnapshot) -> some View {
         VStack(alignment: .leading, spacing: Space.hair) {
-            Text("Record-ready \(s.readiness)%").font(.caption).widgetAccentable()
+            Text("Documents in order \(s.readiness)%").font(.caption).widgetAccentable()
             if s.worst.isEmpty {
                 Text("All properties in order").font(.headline)
             } else {

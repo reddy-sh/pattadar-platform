@@ -91,6 +91,13 @@ import type { Page } from '../fixtures/harness';
 import { ID, PAPER, TICKET } from '../fixtures/ids';
 import { PHOTOS } from '../fixtures/seed';
 
+// Home's Recent activity reads the cross-client `auditTrail` root query
+// (data/hooks.ts useAuditTrail), which fixtures/seed.ts does not answer yet;
+// unanswered, the sealed world 400s it and the console guard fails every test
+// that passes through /app. Answered empty here, as 01-shell and 02-dashboard
+// do, until the seed carries it.
+test.beforeEach(({ world }) => { world.set('root.auditTrail', []); });
+
 // ═══════════════════════════════════════════════════════════════════════
 // The table
 // ═══════════════════════════════════════════════════════════════════════
@@ -129,40 +136,42 @@ interface Screen {
 }
 
 const SCREENS: Screen[] = [
-  { name: 'the dashboard', route: '/app', field: 'portfolio',
-    waits: 'Loading your dashboard', namesWait: true, via: 'text',
-    failedWhat: 'Your dashboard', neverSays: 'No properties yet',
-    where: 'pages/Dashboard.tsx:181' },
+  // The rail and the page call this screen "Home" since the naming standard
+  // (06/10/2026), and its waiting and failure nouns say so.
+  { name: 'the dashboard', route: '/home', field: 'portfolio',
+    waits: 'Loading your home page', namesWait: true, via: 'label',
+    failedWhat: 'Your home page', neverSays: 'No properties yet',
+    where: 'pages/Dashboard.tsx' },
 
-  { name: 'the properties list', route: '/app/properties', field: 'properties',
+  { name: 'the properties list', route: '/properties', field: 'properties',
     waits: 'Loading your properties', namesWait: true, via: 'label',
     failedWhat: 'Your properties', neverSays: 'No properties yet',
     where: 'pages/Properties.tsx:932' },
 
-  { name: 'the properties map', route: '/app/properties?view=map', field: 'properties',
+  { name: 'the properties map', route: '/properties?view=map', field: 'properties',
     waits: 'Loading the map of your properties', namesWait: true, via: 'label',
     failedWhat: 'Your properties', neverSays: 'No properties yet',
     where: 'pages/Properties.tsx:934' },
 
-  { name: 'the properties table', route: '/app/properties?view=list', field: 'properties',
+  { name: 'the properties table', route: '/properties?view=table', field: 'properties',
     waits: 'Loading your properties', namesWait: true, via: 'label',
     failedWhat: 'Your properties', neverSays: 'No properties yet',
     where: 'pages/Properties.tsx:933' },
 
-  { name: 'what has been shared with me', route: '/app/shared', field: 'sharedKits',
-    waits: 'Loading what has been shared with you', namesWait: true, via: 'text',
+  { name: 'what has been shared with me', route: '/shared', field: 'sharedKits',
+    waits: 'Loading what has been shared with you', namesWait: true, via: 'label',
     failedWhat: 'Shared with me', neverSays: 'Nothing has been shared with you',
-    where: 'pages/Shared.tsx:53' },
+    where: 'pages/Shared.tsx' },
 
-  { name: 'the work waiting on me', route: '/app/assigned', field: 'orders',
+  { name: 'the work waiting on me', route: '/assigned', field: 'orders',
     waits: 'Loading work waiting on you', namesWait: false, via: 'text',
     failedWhat: 'Work waiting on you', neverSays: 'Nothing is waiting on you',
     where: 'pages/Orders.tsx:377' },
 
-  { name: 'the services list', route: '/app/services', field: 'orders',
-    waits: 'Loading work you have ordered', namesWait: false, via: 'text',
-    failedWhat: 'Work you have ordered', neverSays: 'No open orders',
-    where: 'pages/Orders.tsx:426' },
+  { name: 'the services list', route: '/services', field: 'orders',
+    waits: 'Loading your service orders', namesWait: false, via: 'text',
+    failedWhat: 'Your service orders', neverSays: 'No open orders',
+    where: 'pages/Orders.tsx:678' },
 
   // Ordering asks which land first, and that screen reads twice: the owner's
   // land, which is what it is for, and the catalogue strip under it, which is
@@ -172,103 +181,113 @@ const SCREENS: Screen[] = [
   // Named both ways with the same noun: the skeleton it borrows from the
   // Properties grid announces "Loading your properties" and the failure beside
   // it says "Your properties did not load".
-  { name: 'the land chooser', route: '/app/order', field: 'properties',
+  { name: 'the land chooser', route: '/order', field: 'properties',
     waits: 'Loading your properties', namesWait: true, via: 'label',
     failedWhat: 'Your properties', neverSays: 'Add a property before ordering',
     where: 'pages/OrderLand.tsx:196' },
 
-  { name: 'the catalogue under the land chooser', route: '/app/order', field: 'servicesOffered',
-    waits: 'Loading the list of services', namesWait: true, via: 'text',
-    failedWhat: 'The list of services', neverSays: 'No services are available right now',
-    where: 'pages/OrderLand.tsx:274' },
+  // The order page's services are step two now, read (servicesForRecords)
+  // only once land is chosen, so this no-setup sweep cannot reach them. Their
+  // loading, failed and empty states are proven in 13-services.spec.ts
+  // ("Choosing the land").
 
-  { name: 'the vault', route: '/app/papers', field: 'vault',
+  // Documents' own read is its file list; the share register (`vault`) is a
+  // second read with its own failure, asserted in 11-vault.spec.ts.
+  { name: 'the vault', route: '/papers', field: 'vaultPapers',
     waits: 'Loading your documents', namesWait: true, via: 'text',
-    failedWhat: 'Your documents', neverSays: '',
-    where: 'pages/Vault.tsx:419' },
+    failedWhat: 'Your documents', neverSays: 'No documents yet',
+    where: 'pages/Vault.tsx' },
 
-  { name: 'the Title shelf', route: '/app/papers/shelf/title', field: 'vaultPapers',
-    waits: 'Loading the Title shelf', namesWait: false, via: 'text',
-    failedWhat: 'The Title shelf', neverSays: 'Nothing is filed under Title yet',
-    where: 'pages/Shelf.tsx:109', noLiveRegion: 'pages/Shelf.tsx:109' },
+  // The shelf is "Title deeds" since the naming standard (06/10/2026); the
+  // row keeps its old name so the test titles stay stable.
+  { name: 'the Title shelf', route: '/papers/shelf/title', field: 'vaultPapers',
+    waits: 'Loading the Title deeds shelf', namesWait: false, via: 'text',
+    failedWhat: 'The Title deeds shelf', neverSays: 'Nothing is filed under Title deeds yet',
+    where: 'pages/Shelf.tsx:108', noLiveRegion: 'pages/Shelf.tsx:108' },
 
-  { name: 'a paper in the reader', route: `/app/papers/${PAPER.deed}`, field: 'document',
-    waits: 'Loading this paper', namesWait: false, via: 'text',
-    failedWhat: 'This document', neverSays: "This document isn't in your account",
-    where: 'pages/Reader.tsx:176' },
+  { name: 'a paper in the reader', route: `/papers/${PAPER.deed}`, field: 'document',
+    waits: 'Loading this document', namesWait: true, via: 'label',
+    failedWhat: 'This document', neverSays: "This document is not in your account",
+    where: 'pages/Reader.tsx' },
 
-  // The one-service screen. `field` is still `ticket` and always will be —
-  // that is the GraphQL root field's name (api.ts), which nobody reads — while
-  // every string below names the SERVICE. The three page-level states are
-  // about the thing the owner tried to open, so they are the one place on that
-  // screen that says "service" rather than "job"
-  // (docs/specs/2026-09-14-service-detail.md §1.2).
-  { name: 'a service', route: `/app/services/${TICKET.placed}`, field: 'ticket',
-    waits: 'Loading this service', namesWait: true, via: 'text',
-    failedWhat: 'This service', neverSays: "This order isn't in your account",
-    where: 'pages/Ticket.tsx:867' },
+  // The owner's order page. `field` is still `ticket` — the GraphQL root
+  // field's name (api.ts), which nobody reads — while every string names the
+  // ORDER: "Service order" is the canonical noun (design.md § Naming
+  // standard), so loading, failing and not-found all say "order".
+  { name: 'a service order', route: `/services/${TICKET.placed}`, field: 'ticket',
+    waits: 'Loading this order', namesWait: true, via: 'label',
+    failedWhat: 'This order', neverSays: 'This order is not in your account',
+    where: 'pages/Ticket.tsx' },
 
-  { name: 'the wallet', route: '/app/wallet', field: 'wallet',
+  { name: 'the wallet', route: '/wallet', field: 'wallet',
     waits: 'Loading your wallet', namesWait: false, via: 'text',
     failedWhat: 'Your wallet', neverSays: 'No transactions yet',
     where: 'pages/Wallet.tsx:40' },
 
-  { name: 'a record 360', route: `/app/records/${ID.parcel}`, field: 'record',
+  { name: 'a record 360', route: `/properties/${ID.parcel}`, field: 'record',
     waits: 'Loading this property', namesWait: true, via: 'label',
-    failedWhat: 'This property', neverSays: "This property isn't in your account",
+    failedWhat: 'This property', neverSays: "This property is not in your account",
     where: 'pages/Record.tsx:63' },
 
-  { name: "a record's papers", route: `/app/records/${ID.parcel}`, field: 'papers',
-    waits: 'Loading the papers on this parcel', namesWait: true, via: 'label',
+  { name: "a record's overview", route: `/properties/${ID.parcel}`, field: 'recordOverview',
+    waits: 'Loading the overview', namesWait: true, via: 'label',
+    failedWhat: "This property's overview", neverSays: 'How did you get this land',
+    where: 'pages/RecordOverview.tsx' },
+
+  { name: "a record's papers", route: `/properties/${ID.parcel}/documents`, field: 'papers',
+    waits: 'Loading the documents on this parcel', namesWait: true, via: 'label',
     failedWhat: 'These documents', neverSays: 'No documents on this parcel yet',
     where: 'pages/RecordPapers.tsx:544' },
 
   // The record tabs below name their wait in the failure's own noun since
   // 28/09/2026 (the property-tab UX pass): Site features, the service
   // orders, the money figures, the expenses and the activity.
-  { name: 'what is on the land', route: `/app/records/${ID.parcel}/features`, field: 'features',
-    waits: 'Loading site features', namesWait: true, via: 'text',
+  { name: 'what is on the land', route: `/properties/${ID.parcel}/site-features`, field: 'features',
+    waits: 'Loading site features', namesWait: true, via: 'label',
     failedWhat: 'Site features', neverSays: 'No site features recorded yet',
     where: 'pages/RecordFeatures.tsx' },
 
-  { name: 'the people on a record', route: `/app/records/${ID.parcel}/people`, field: 'people',
-    waits: 'Loading the people on this record', namesWait: false, via: 'text',
-    failedWhat: 'The people on this property', neverSays: 'No caretakers or staff recorded',
-    where: 'pages/RecordPeople.tsx:208' },
+  // The People tab opens on its Owners side (RecordPeople.tsx:836), so the
+  // read that gates what the owner first sees is `owners`, not `people` —
+  // the staff list only loads behind the "Caretakers & staff" segment.
+  { name: 'the people on a record', route: `/properties/${ID.parcel}/people`, field: 'owners',
+    waits: 'Loading the ownership chain', namesWait: true, via: 'label',
+    failedWhat: 'The ownership chain', neverSays: 'No owners recorded yet',
+    where: 'pages/RecordPeople.tsx' },
 
-  { name: "a record's services", route: `/app/records/${ID.parcel}/services`, field: 'orders',
-    waits: "Loading this property's service orders", namesWait: true, via: 'text',
+  { name: "a record's services", route: `/properties/${ID.parcel}/services`, field: 'orders',
+    waits: "Loading this property's service orders", namesWait: true, via: 'label',
     failedWhat: "This property's service orders", neverSays: 'No open orders',
     where: 'pages/Orders.tsx RecordServices' },
 
-  { name: 'what a record is worth', route: `/app/records/${ID.parcel}/money`, field: 'money',
-    waits: 'Loading the money figures', namesWait: true, via: 'text',
+  { name: 'what a record is worth', route: `/properties/${ID.parcel}/money`, field: 'money',
+    waits: 'Loading the money figures', namesWait: true, via: 'label',
     failedWhat: 'The money figures', neverSays: 'No purchase recorded yet',
     where: 'pages/RecordMoney.tsx' },
 
-  { name: 'what a record has cost', route: `/app/records/${ID.parcel}/expenses`, field: 'expenses',
-    waits: 'Loading the expenses', namesWait: true, via: 'text',
-    failedWhat: 'The expenses', neverSays: 'No costs recorded yet',
+  { name: 'what a record has cost', route: `/properties/${ID.parcel}/expenses`, field: 'expenses',
+    waits: 'Loading the expenses', namesWait: true, via: 'label',
+    failedWhat: 'The expenses', neverSays: 'No expenses yet',
     where: 'pages/RecordExpenses.tsx' },
 
   // The Activity tab reads the record's own history (`recordHistory`), not
   // the corrections list this row used to name, and it has a failure branch
   // of its own now: an outage is not "nothing ever changed".
-  { name: "a record's audit trail", route: `/app/records/${ID.parcel}/history`, field: 'recordHistory',
-    waits: "Loading this property's activity", namesWait: true, via: 'text',
+  { name: "a record's audit trail", route: `/properties/${ID.parcel}/activity`, field: 'recordHistory',
+    waits: "Loading this property's activity", namesWait: true, via: 'label',
     failedWhat: "This property's activity",
     neverSays: 'No activity recorded yet',
     where: 'pages/Orders.tsx RecordHistory' },
 
-  { name: "a record's boundary", route: `/app/records/${ID.parcel}/map`, field: 'boundary',
-    waits: 'Loading this boundary', namesWait: true, via: 'text',
+  { name: "a record's boundary", route: `/properties/${ID.parcel}/location`, field: 'boundary',
+    waits: 'Loading this boundary', namesWait: true, via: 'label',
     failedWhat: 'This boundary', neverSays: '',
-    where: 'pages/RecordBoundary.tsx:565' },
+    where: 'pages/RecordBoundary.tsx' },
 
-  { name: "a record's photos", route: `/app/records/${ID.parcel}/photos`, field: 'photos',
-    waits: 'Loading these photos', namesWait: false, via: 'text',
+  { name: "a record's photos", route: `/properties/${ID.parcel}/media`, field: 'photos',
+    waits: 'Loading these photos', namesWait: true, via: 'label',
     failedWhat: 'These photos', neverSays: 'No photos of',
-    where: 'pages/RecordPhotos.tsx:251' },
+    where: 'pages/RecordPhotos.tsx' },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -393,11 +412,11 @@ test.describe('While an answer is still coming, in words', () => {
   //   {papers.isLoading && <SkRows rows={5} label="Loading the Title shelf" />}
   test.fail('the Title shelf tells a screen reader something is happening at all', async ({ page, world }) => {
     world.set('vaultPapers', World.never());
-    await page.goto('/app/papers/shelf/title');
+    await page.goto('/papers/shelf/title');
 
     // The shelf's own head arrives from the route, so the screen is up and
     // the only thing missing is the announcement.
-    await expect(page.getByRole('heading', { name: 'Title', exact: true })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('heading', { name: 'Title deeds', exact: true })).toBeVisible({ timeout: 20_000 });
     await expect(grey(page).first()).toBeVisible();
     await expect(waiting(page)).not.toHaveCount(0);
   });
@@ -521,12 +540,13 @@ test.describe('When the request itself is refused', () => {
 // ═══════════════════════════════════════════════════════════════════════
 
 test('a dashboard that failed and is asked again repairs itself without a reload', async ({ page, world }) => {
-  const good = world.seedOf<{ tiles: unknown[] }>('portfolio');
+  const good = world.seedOf('portfolio');
   world.set('portfolio', World.gqlError('the portfolio store is not answering'));
-  await page.goto('/app');
+  await page.goto('/home');
 
+  // 20s, as in the sweeps: the wait is for the lazy chunk, not the query.
   const alert = failure(page);
-  await expect(alert).toBeVisible();
+  await expect(alert).toBeVisible({ timeout: 20_000 });
   const before = world.calls('portfolio').length;
 
   // The server comes back between the failure and the click.
@@ -537,9 +557,10 @@ test('a dashboard that failed and is asked again repairs itself without a reload
   // went away: a retry that cleared the alert and left an empty page would
   // pass a "no longer failing" assertion and be worse than the failure.
   await expect(page.getByRole('heading', { level: 1 })).toContainText('Shankar Reddy');
-  await expect(page.locator('.strip > *')).toHaveCount(good.tiles.length);
-  await expect(page.getByText('What it is worth')).toBeVisible();
-  await expect(page.getByText('2.39')).toBeVisible();
+  // The four Overview cards replaced the old figure strip (Dashboard.tsx).
+  const overview = page.getByRole('region', { name: 'Overview', exact: true });
+  await expect(overview.getByRole('link')).toHaveCount(4);
+  await expect(overview.getByRole('link', { name: /^Market estimate/ })).toContainText('₹2.39 Cr');
   await expect(failure(page)).toHaveCount(0);
   expect(world.calls('portfolio').length).toBeGreaterThan(before);
 });
@@ -555,7 +576,7 @@ test('the retry repairs the whole page, not the one row that failed', async ({ p
   // A screen that owns a narrower remedy still gets one: RecordPapers.tsx:672
   // passes `onRetry={refetchPapers}` and re-reads only its own list.
   world.set('portfolio', World.gqlError('the portfolio store is not answering'));
-  await page.goto('/app');
+  await page.goto('/home');
 
   const alert = failure(page);
   await expect(alert).toBeVisible();
@@ -576,7 +597,7 @@ test('a screen that owns a narrower remedy re-reads only the list that failed', 
   // loaded fine: re-reading it to repair the list below it would throw away a
   // good answer and make the header flicker for nothing.
   world.set('papers', World.gqlError('the papers store is not answering'));
-  await page.goto(`/app/records/${ID.parcel}`);
+  await page.goto(`/properties/${ID.parcel}/documents`);
 
   const alert = failure(page);
   await expect(alert).toBeVisible({ timeout: 20_000 });
@@ -603,7 +624,7 @@ test('one dead read on a record leaves everything else on the record readable', 
   // the map rail are all still there. An owner standing in a tahsildar's
   // office with one panel down can still read the rest of their record out.
   world.set('papers', World.gqlError('the papers store is not answering'));
-  await page.goto(`/app/records/${ID.parcel}`);
+  await page.goto(`/properties/${ID.parcel}/documents`);
 
   await expect(failure(page)).toBeVisible({ timeout: 20_000 });
   await expect(failure(page)).toHaveCount(1);
@@ -631,7 +652,7 @@ test('a Try again on a slow server is visibly working, and never both apology an
   // broad `invalidateQueries` path; this is the narrow `onRetry` one, which is
   // a different branch of `Failed.again` and could lose it on its own.)
   world.set('papers', World.gqlError('the papers store is not answering'));
-  await page.goto(`/app/records/${ID.parcel}`);
+  await page.goto(`/properties/${ID.parcel}/documents`);
 
   const alert = failure(page);
   await expect(alert).toBeVisible({ timeout: 20_000 });
@@ -664,7 +685,7 @@ test.describe('The twenty-second deadline', () => {
     test.setTimeout(90_000);
     const good = world.seedOf('portfolio');
     world.set('portfolio', World.slow(18_000, good));
-    await page.goto('/app');
+    await page.goto('/home');
 
     await expect(waitingFor(page, row('the dashboard'))).toBeVisible();
     await expect(page.getByText('Shankar Reddy').first()).toBeVisible({ timeout: 40_000 });
@@ -683,11 +704,11 @@ test.describe('The twenty-second deadline', () => {
       test.setTimeout(150_000);
       const good = world.seedOf('portfolio');
       world.set('portfolio', World.slow(24_000, good));
-      await page.goto('/app');
+      await page.goto('/home');
 
       const alert = failure(page);
       await expect(alert).toBeVisible({ timeout: 90_000 });
-      await expect(alert).toContainText('Your dashboard did not load');
+      await expect(alert).toContainText('Your home page did not load');
       // client.ts:89-92 — "signal is aborted without reason" is not a sentence
       // to put in front of an owner, so it is turned into this one.
       await expect(alert).toContainText('The server did not answer in time.');
@@ -699,7 +720,7 @@ test.describe('The twenty-second deadline', () => {
     test('a properties list the server never answers in time is not an empty portfolio', async ({ page, world }) => {
       test.setTimeout(150_000);
       world.set('properties', World.slow(24_000, { shown: 0, total: 0, hidden: 0, filterSummary: '', hiddenPlaces: [], activeCount: 0, cards: [], facets: [] }));
-      await page.goto('/app/properties');
+      await page.goto('/properties');
 
       const alert = failure(page);
       await expect(alert).toBeVisible({ timeout: 90_000 });
@@ -727,7 +748,7 @@ test.describe('The twenty-second deadline', () => {
       delayMs: 23_000, contentType: 'image/jpeg', body: BLANK_JPEG,
     }));
 
-    await page.goto(`/app/records/${ID.parcel}/photos`);
+    await page.goto(`/properties/${ID.parcel}/media`);
 
     await expect(page.locator('img[src^="blob:"]').first()).toBeVisible({ timeout: 60_000 });
     // `PhotoImg` draws this when the bytes are refused (ui.tsx:262-276). A
@@ -743,11 +764,11 @@ test.describe('The twenty-second deadline', () => {
 test.describe('When a write is refused mid-flight', () => {
   test('a rename the server refused leaves the paper called what it was called', async ({ page, world }) => {
     world.set('updatePaper', World.gqlError('the paper store refused the write'));
-    await page.goto(`/app/papers/${PAPER.deed}`);
+    await page.goto(`/papers/${PAPER.deed}`);
     await expect(page.getByText('Sale deed 4412 of 1998').first()).toBeVisible();
 
     await page.getByRole('button', { name: 'Actions for Sale deed 4412 of 1998' }).click();
-    await page.getByRole('menuitem', { name: 'Rename or move to another shelf' }).click();
+    await page.getByRole('menuitem', { name: 'Rename' }).click();
     await page.getByLabel('What it is called').fill('Sale deed 4412 of 1998 (renamed)');
     await page.getByRole('button', { name: 'Save' }).click();
 
@@ -755,7 +776,7 @@ test.describe('When a write is refused mid-flight', () => {
     // caller can forget it. It does not auto-dismiss: a failure that slides
     // away has hidden the only notice that the work was lost.
     const toast = page.locator('.toast.bad');
-    await expect(toast).toContainText('That paper could not be saved. Nothing has changed.');
+    await expect(toast).toContainText('That document could not be saved. Nothing has changed.');
     await expect(toast).toContainText('the paper store refused the write');
 
     // The screen shows the truth — there is no optimistic write anywhere in
@@ -766,8 +787,7 @@ test.describe('When a write is refused mid-flight', () => {
     await expect(page.getByLabel('What it is called')).toHaveValue('Sale deed 4412 of 1998 (renamed)');
   });
 
-  // ── defect ───────────────────────────────────────────────────────────
-  // apps/web/src/w360/pages/Reader.tsx:281-294. `saveEdit` awaits
+  // Once a defect (fixed 07/10/2026, PaperDialogs.tsx EditPaperDialog): `saveEdit` awaited
   // `editPaper.mutateAsync(...)` and then closes the dialog without ever
   // looking at what came back. `updatePaper` returns a Boolean, and `false` is
   // how the resolver refuses a write it will not do — so a refusal that is not
@@ -776,24 +796,26 @@ test.describe('When a write is refused mid-flight', () => {
   // The owner is owed the same treatment a thrown error gets: check the
   // returned Boolean and raise the toast, exactly as RequestWork.tsx:198-201
   // already does for `createRequest`.
-  test.fail('a rename the server declines does not close the drawer as though it worked', async ({ page, world }) => {
+  test('a rename the server declines does not close the drawer as though it worked', async ({ page, world }) => {
     world.set('updatePaper', false);
-    await page.goto(`/app/papers/${PAPER.deed}`);
+    await page.goto(`/papers/${PAPER.deed}`);
 
     await page.getByRole('button', { name: 'Actions for Sale deed 4412 of 1998' }).click();
-    await page.getByRole('menuitem', { name: 'Rename or move to another shelf' }).click();
+    await page.getByRole('menuitem', { name: 'Rename' }).click();
     await page.getByLabel('What it is called').fill('Sale deed 4412 of 1998 (renamed)');
     await page.getByRole('button', { name: 'Save' }).click();
 
-    await expect(page.locator('.toast.bad')).toBeVisible({ timeout: 4_000 });
+    const dialog = page.getByRole('dialog', { name: 'Rename' });
+    await expect(dialog.getByRole('alert')).toHaveText('That name could not be saved. Nothing has changed.');
+    await expect(page.getByLabel('What it is called')).toHaveValue('Sale deed 4412 of 1998 (renamed)');
   });
 
   test('a write refused while the reads are fine leaves every read on screen', async ({ page, world }) => {
     world.set('updatePaper', World.gqlError('the paper store refused the write'));
-    await page.goto(`/app/papers/${PAPER.deed}`);
+    await page.goto(`/papers/${PAPER.deed}`);
 
     await page.getByRole('button', { name: 'Actions for Sale deed 4412 of 1998' }).click();
-    await page.getByRole('menuitem', { name: 'Rename or move to another shelf' }).click();
+    await page.getByRole('menuitem', { name: 'Rename' }).click();
     await page.getByLabel('What it is called').fill('Something else');
     await page.getByRole('button', { name: 'Save' }).click();
     await expect(page.locator('.toast.bad')).toBeVisible();
@@ -815,11 +837,11 @@ test.describe('When a write is refused mid-flight', () => {
 
 test.describe('When the answer is the wrong shape', () => {
   test('a null where the schema promises an object is a failure, not an empty screen', async ({ page, world }) => {
-    // `VaultView` is non-null in the schema, so this is the shape only a
+    // `vaultPapers` is a non-null list in the schema, so this is the shape only a
     // broken deploy produces. The screen must not read it as "you have filed
     // nothing", which to an owner is the same picture as "your papers are gone".
-    world.set('vault', null);
-    await page.goto('/app/papers');
+    world.set('vaultPapers', null);
+    await page.goto('/papers');
 
     await expect(failure(page)).toContainText('Your documents did not load');
     await expect(emptyState(page)).toHaveCount(0);
@@ -827,9 +849,9 @@ test.describe('When the answer is the wrong shape', () => {
 
   test('a null portfolio is a failure, not an account with nothing in it', async ({ page, world }) => {
     world.set('portfolio', null);
-    await page.goto('/app');
+    await page.goto('/home');
 
-    await expect(failure(page)).toContainText('Your dashboard did not load');
+    await expect(failure(page)).toContainText('Your home page did not load');
     await expect(page.getByText('No properties yet')).toHaveCount(0);
   });
 
@@ -839,13 +861,16 @@ test.describe('When the answer is the wrong shape', () => {
     test.use({ allowConsole: true });
 
     test('a screen that dies mid-draw keeps the rail and offers a way back', async ({ page, world }) => {
-      // The vault maps `data.shelves` straight into the wall (Vault.tsx:512).
-      // A field the server sends as null rather than a list is not something a
-      // screen can defend against one property at a time — this is what the
-      // per-route ErrorBoundary in routes.tsx:150-158 exists for.
+      // A shelf reads its count out of `vault.shelves` (Shelf.tsx:83). The
+      // Documents list itself stopped reading `shelves` when it became one
+      // list (it reads `vaultPapers('all')` now), so the shelf is the screen
+      // that still maps that field. A field the server sends as null rather
+      // than a list is not something a screen can defend against one property
+      // at a time — this is what the per-route ErrorBoundary in routes.tsx
+      // exists for.
       const vault = world.seedOf('vault');
       world.set('vault', { ...vault, shelves: null });
-      await page.goto('/app/papers');
+      await page.goto('/papers/shelf/title');
 
       const boundary = page.getByRole('alert')
         .filter({ hasText: 'stopped before it finished drawing' });
@@ -856,7 +881,7 @@ test.describe('When the answer is the wrong shape', () => {
       // what it says.
       await expect(boundary).toContainText(/shelves|null|not a function|undefined/i);
       await expect(boundary.getByRole('button', { name: 'Reload' })).toBeVisible();
-      await expect(boundary.getByRole('button', { name: 'Go to your dashboard' })).toBeVisible();
+      await expect(boundary.getByRole('button', { name: 'Go to Home' })).toBeVisible();
 
       // The whole point of a per-route boundary: the failure is contained to
       // the one screen that could not draw, and the app is still an app.
@@ -867,14 +892,14 @@ test.describe('When the answer is the wrong shape', () => {
     test('the way back out of a dead screen actually goes somewhere', async ({ page, world }) => {
       const vault = world.seedOf('vault');
       world.set('vault', { ...vault, shelves: null });
-      await page.goto('/app/papers');
-      await expect(page.getByRole('button', { name: 'Go to your dashboard' }))
+      await page.goto('/papers/shelf/title');
+      await expect(page.getByRole('button', { name: 'Go to Home' }))
         .toBeVisible({ timeout: 20_000 });
 
-      await page.getByRole('button', { name: 'Go to your dashboard' }).click();
+      await page.getByRole('button', { name: 'Go to Home' }).click();
 
-      await expect(page).toHaveURL(/\/app$/);
-      await expect(page.getByText('Shankar Reddy').first()).toBeVisible();
+      await expect(page).toHaveURL(/\/home$/);
+      await expect(page.getByText('Shankar Reddy').first()).toBeVisible({ timeout: 20_000 });
     });
   });
 });
@@ -889,7 +914,7 @@ test.describe('The maps screen, whose index is not a query', () => {
     // /api/gateway/pattadar/village-maps, not through GraphQL — so `never()`
     // here is a `world.route` that does not answer.
     world.route(/\/api\/gateway\/pattadar\/village-maps/, () => ({ delayMs: 600_000, json: [] }));
-    await page.goto('/app/maps');
+    await page.goto('/maps');
 
     await expect(grey(page).first()).toBeVisible();
     await expect(page.getByText('No cadastral maps yet')).toHaveCount(0);
@@ -905,7 +930,7 @@ test.describe('The maps screen, whose index is not a query', () => {
   // the dashboard, a boundary and a job all name theirs.
   test.fail('the maps screen says what it is waiting for while it waits', async ({ page, world }) => {
     world.route(/\/api\/gateway\/pattadar\/village-maps/, () => ({ delayMs: 600_000, json: [] }));
-    await page.goto('/app/maps');
+    await page.goto('/maps');
 
     await expect(waiting(page).filter({ hasText: 'Loading your cadastral maps' }))
       .toBeVisible({ timeout: 3_000 });
@@ -921,8 +946,8 @@ test.describe('Two screens asking for the same thing', () => {
     // Shell.tsx:63 and Dashboard.tsx:179 both call `usePortfolio`. One key,
     // one round trip — a shell that paid for its own copy would double the
     // cost of every authenticated route in the app.
-    await page.goto('/app');
-    await expect(page.getByText('Shankar Reddy').first()).toBeVisible();
+    await page.goto('/home');
+    await expect(page.getByText('Shankar Reddy').first()).toBeVisible({ timeout: 20_000 });
 
     expect(world.calls('portfolio')).toHaveLength(1);
   });
@@ -930,7 +955,7 @@ test.describe('Two screens asking for the same thing', () => {
   test('the rail badge and the waiting-on-you list are one read, not two', async ({ page, world }) => {
     // Shell.tsx:64 asks `useOrders()` for its badge on every route; Assigned
     // (Orders.tsx:367) asks the identical key for the list itself.
-    await page.goto('/app');
+    await page.goto('/home');
     await expect(page.getByRole('link', { name: /Waiting on you/ })).toBeVisible();
     const afterDashboard = world.calls('orders').length;
 
@@ -942,31 +967,26 @@ test.describe('Two screens asking for the same thing', () => {
     expect(world.calls('orders').length).toBe(afterDashboard);
   });
 
-  test('the 360 header and the order flow on it ask for the record once', async ({ page, world }) => {
-    // Record.tsx:58 owns the record for the whole 360, and the flow hanging off
-    // it takes that same record out of the route context rather than asking for
-    // it again by id (OrderService.tsx:292, `useRecordCtx()`). It could not do
-    // otherwise now: the land is a path segment, so this screen cannot mount
-    // without one. One key, one round trip — and the id it is asked for is this
-    // record's, not the one the old ?record= query string used to carry.
-    await page.goto(`/app/records/${ID.parcel}/order`);
-    await expect(page.getByRole('heading', { level: 2, name: 'What do you want done on this land?' }))
+  test('ordering for a property goes straight to its services and asks for the record at most once', async ({ page, world }) => {
+    // orderHref (w360/orderFlow.ts) is the one way into ordering: the
+    // property is already chosen, so the flow opens on step two and reads the
+    // properties list rather than asking for the record again.
+    await page.goto(`/order?for=${ID.parcel}&step=services`);
+    await expect(page.getByRole('heading', { level: 2, name: 'Choose the services' }))
       .toBeVisible({ timeout: 20_000 });
 
-    expect(world.calls('record')).toHaveLength(1);
-    expect(world.lastVars('record')).toMatchObject({ id: ID.parcel });
+    expect(world.calls('record').length).toBeLessThanOrEqual(1);
+    expect(world.lastVars('servicesForRecords')).toMatchObject({ recordIds: [ID.parcel] });
   });
 
-  test('an order flow on a record that would not load says so once, and does not ask for an order anyway', async ({ page, world }) => {
-    world.set('record', World.gqlError('the record store is not answering'));
-    await page.goto(`/app/records/${ID.parcel}/order`);
+  test('a record’s old order address is no page at all, and does not open an order flow', async ({ page, world }) => {
+    // /properties/:id/order was a redirect into ordering; it is gone with no
+    // alias (no legacy links), so the address falls to the shell's not-found.
+    await page.goto(`/properties/${ID.parcel}/order`);
 
-    // The frame owns the read and the flow is its Outlet (Record.tsx:66-75), so
-    // the failure is said once, by the frame, and the four steps never mount.
-    // A flow that drew its first question over a record it could not name would
-    // be asking which service to run on nothing.
-    await expect(failure(page)).toHaveCount(1);
-    await expect(failure(page)).toContainText('This property did not load');
-    await expect(page.getByRole('heading', { name: 'What do you want done on this land?' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'There is no page at that address' }))
+      .toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('heading', { name: 'Choose the services' })).toHaveCount(0);
+    expect(world.calls('orderService')).toHaveLength(0);
   });
 });

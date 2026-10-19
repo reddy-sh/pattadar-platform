@@ -16,7 +16,7 @@
  *  outcomes now says which one it is. */
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { Link, useNavigate, useParams } from 'react-router';
+import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import ArrowBackOutlined from '@mui/icons-material/ArrowBackOutlined';
 import SearchOutlined from '@mui/icons-material/SearchOutlined';
 import RotateRightOutlined from '@mui/icons-material/RotateRightOutlined';
@@ -29,16 +29,17 @@ import LinkOutlined from '@mui/icons-material/LinkOutlined';
 import ErrorOutlineOutlined from '@mui/icons-material/ErrorOutlineOutlined';
 import VisibilityOutlined from '@mui/icons-material/VisibilityOutlined';
 
-import { useCreateShareLink, useDeletePaper, useDocument, useUpdatePaper } from '../api';
-import { Card, Chip, Empty, Failed, KV, Loading, Menu, SHELF_WORD, Tag, inrFull, plural } from '../ui';
+import { useCreateShareLink, useDocument } from '../api';
+import { Card, Chip, Empty, Failed, KV, Menu, SHELF_WORD, Tag, inrFull, plural, useDocumentTitle } from '../ui';
 import { Dialog } from '../Dialog';
 import ShareResult from '../components/ShareResult';
 import { useToast } from '../Toast';
 import { ScanView, useScan } from '../paper/scan';
 import { downloadBlob, fetchFileBlob, isStorageRef } from '../../pages/documents/storage';
-
-/** The shelves a paper can be moved to, in the order the vault lists them. */
-const SHELVES = ['title', 'revenue', 'map', 'search', 'identity', 'old', 'unsorted'];
+import { DeletePaperDialog, EditPaperDialog, fileNameFor } from './PaperDialogs';
+import { PaperDetailsDrawer } from '../paper/PaperDetailsDrawer';
+import { Sk } from '../skeletons';
+import { isAppPath } from '../appPath';
 
 /**
  * Print means the scan, not the screen around it.
@@ -69,24 +70,6 @@ const PRINT_CSS = `
   }
 }`;
 
-/** What a downloaded scan should be called on disk.
- *
- *  `downloadBlob` falls back to a bare "document" with no extension, which
- *  lands in Downloads as a file the operating system will not open. The
- *  extension therefore comes off the bytes' own media type (or the row's),
- *  never off the title, and the title is only ever the base name. */
-const EXT: Record<string, string> = {
-  'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/png': 'png',
-  'image/webp': 'webp', 'image/heic': 'heic', 'image/tiff': 'tif',
-};
-
-function fileNameFor(title: string, mime: string): string {
-  const ext = EXT[mime] ?? (mime.split('/')[1] ?? '').replace(/[^a-z0-9]/gi, '');
-  // Slashes and colons are legal in a survey number and illegal in a filename.
-  const base = title.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim() || 'document';
-  return ext ? `${base}.${ext}` : base;
-}
-
 export function Reader() {
   const { id } = useParams();
   const nav = useNavigate();
@@ -99,13 +82,12 @@ export function Reader() {
   const [audience, setAudience] = useState('');
   const [sharePath, setSharePath] = useState('');
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState('');
-  const [shelf, setShelf] = useState('');
   const [deleting, setDeleting] = useState(false);
-  const [confirm, setConfirm] = useState('');
-  const del = useDeletePaper();
+  const [detailing, setDetailing] = useState(false);
   const share = useCreateShareLink();
-  const editPaper = useUpdatePaper();
+  // Opened from Documents, the way back is the folder, search or filter the
+  // owner left (Vault passes it as `state.from`); otherwise the paper's home.
+  const from = (useLocation().state as { from?: string } | null)?.from;
   // Full resolution, no ?thumb: this is the reading surface, not a tile.
   // Every hook stays above the three early returns below — React counts them
   // in order, and one that only runs once `data` has arrived breaks the very
@@ -113,12 +95,15 @@ export function Reader() {
   const scan = useScan(data?.fileRef);
   const frame = useRef<HTMLIFrameElement>(null);
   const current = useRef<HTMLButtonElement>(null);
+  // The reader keeps its own full-bleed bar (design.md § Page head, named
+  // exception, F10), so it names the tab itself: "{document} · Pattadar".
+  useDocumentTitle(data?.title);
 
   // The rail scrolls now, so the page you are on has to be brought into it —
   // otherwise "Go to it" on page 18 of 22 marks a thumbnail nobody can see.
   useEffect(() => { current.current?.scrollIntoView({ block: 'nearest' }); }, [page]);
 
-  if (isLoading) return <main><Loading h="80vh" /></main>;
+  if (isLoading) return <SkReader />;
   // Two different absences that used to render identically: the read broke,
   // or the paper is genuinely not there. Telling an owner their deed "did not
   // load" when it has been deleted sends them to support for nothing.
@@ -126,7 +111,7 @@ export function Reader() {
   if (!data) {
     return (
       <main>
-        <Empty boxed icon="paper" title="This document isn't in your account">
+        <Empty boxed icon="paper" title="This document is not in your account">
           It may have been deleted, or its property is no longer yours.
         </Empty>
       </main>
@@ -154,23 +139,18 @@ export function Reader() {
 
   // Where this paper came from, written once because four places used to
   // write it themselves and three of them wrote it wrong. Those three pointed
-  // at `/app/records/:id/papers`, and there is no such child route — a
-  // record's papers ARE its index route, `/app/records/:id`, which only the
+  // at `/properties/:id/papers`, and there is no such child route — a
+  // record's papers ARE its index route, `/properties/:id`, which only the
   // Back link had right. So deleting a paper, opening the record it is filed
   // under, and the "this record's papers" link under Versions all landed on
-  // the /app catch-all: "page not found" where the record should have been,
+  // the signed-in catch-all: "page not found" where the record should have been,
   // and after a deletion that reads as though the deletion broke something.
   // An unfiled paper has no record to return to, so it goes to the vault.
-  const papersHome = data.recordId ? `/app/records/${data.recordId}` : '/app/papers';
-
-  // A shared title deed asks for the document number to be typed out before it
-  // goes. The phrase falls back to the whole title: `replace(/^\D+/, '')` used
-  // to strip every leading non-digit, so a digit-free title ("Pattadar
-  // Passbook") left the sentence reading "…asks you to type  first" and gated
-  // the deletion on an empty string.
-  const needsPhrase = data.shelf === 'title' && data.shared;
-  const phrase = data.title.match(/\d[\d/-]*\d|\d/)?.[0] ?? data.title;
-  const phraseOk = confirm.trim().toLowerCase() === phrase.toLowerCase();
+  const papersHome = data.recordId ? `/properties/${data.recordId}/documents` : '/papers';
+  // Back, and where a deletion lands: the Documents view the owner came from
+  // when there is one, so their folder, search and filter survive the visit.
+  const backTo = isAppPath(from) && from.startsWith('/papers') ? from : papersHome;
+  const backName = backTo.startsWith('/papers') ? 'Documents' : data.recordTitle || 'the property';
 
   const download = async () => {
     try {
@@ -201,21 +181,6 @@ export function Reader() {
     }
   };
 
-  const remove = async () => {
-    // The shared mutation hook raises the failure toast itself; catching here
-    // only stops the navigation, so a refused delete leaves the paper on
-    // screen where the owner can see it is still filed.
-    try {
-      await del.mutateAsync({ paperId: data.id });
-    } catch {
-      return;
-    }
-    // Staying here would refetch `document` as null and land the owner on
-    // "This paper is not in your vault", which reads as an error rather than
-    // as the deletion they just asked for.
-    nav(papersHome);
-  };
-
   const makeLink = async (e: FormEvent) => {
     e.preventDefault();
     if (!audience.trim()) return;
@@ -238,29 +203,13 @@ export function Reader() {
     toast.ok('The link is ready to copy. Revoke it any time from Documents.');
   };
 
-  const saveEdit = async (e: FormEvent) => {
-    e.preventDefault();
-    const name = draft.trim();
-    if (!name) return;
-    // An empty shelf means "leave it where it is" to the API, which is exactly
-    // what an unchanged select should send.
-    try {
-      await editPaper.mutateAsync({
-        paperId: data.id, name, shelf: shelf === data.shelf ? '' : shelf,
-      });
-    } catch {
-      return;
-    }
-    setEditing(false);
-  };
-
   return (
     <main className="flush">
       <style media="print">{PRINT_CSS}</style>
 
       <header className="row between rd-bar" style={{ padding: 'var(--space-sm) var(--space-lg)', borderBottom: '1px solid var(--w-line)', flexWrap: 'nowrap', gap: 'var(--space-md)' }}>
         <span className="row" style={{ flexWrap: 'nowrap', gap: 'var(--space-sm)' }}>
-          <Link className="iconbtn" to={papersHome} aria-label="Back">
+          <Link className="iconbtn" to={backTo} aria-label={`Back to ${backName}`}>
             <ArrowBackOutlined sx={{ fontSize: 18 }} />
           </Link>
           <span>
@@ -356,10 +305,8 @@ export function Reader() {
             </span>
           )}
           <Menu label={`Actions for ${data.title}`} header={data.title} items={[
-            {
-              label: 'Rename or move to another shelf',
-              onClick: () => { setDraft(data.title); setShelf(data.shelf); setEditing(true); },
-            },
+            { label: 'Rename', onClick: () => setEditing(true) },
+            { label: 'Edit details', onClick: () => setDetailing(true) },
             ...(data.recordId ? [{
               label: 'Open the property it is filed under',
               onClick: () => nav(papersHome),
@@ -368,9 +315,9 @@ export function Reader() {
             // document already put it, and where MenuItem.danger was written
             // for. It used to be a permanently red panel in the reading rail.
             {
-              label: 'Delete this document…',
+              label: 'Delete this document',
               danger: true,
-              onClick: () => { setConfirm(''); setDeleting(true); },
+              onClick: () => setDeleting(true),
             },
           ]} />
         </span>
@@ -606,84 +553,59 @@ export function Reader() {
           dangerous row in the vault, and it was the one case that had its
           delete form sitting permanently live in the rail. */}
       {deleting && (
-        <Dialog
-          title={`Delete ${data.title}?`}
-          busy={del.isPending}
-          dismissable={!needsPhrase}
-          initialFocus={needsPhrase ? '#rd-confirm' : undefined}
-          onClose={() => { setConfirm(''); setDeleting(false); }}
-          footer={(
-            <>
-              <button type="button" className="btn"
-                      onClick={() => { setConfirm(''); setDeleting(false); }}>
-                Keep it
-              </button>
-              <button type="submit" form="delete-paper" className="btn danger"
-                      disabled={del.isPending || (needsPhrase && !phraseOk)}>
-                {del.isPending ? 'Removing…' : 'Delete'}
-              </button>
-            </>
-          )}
-        >
-          <form id="delete-paper" onSubmit={(e) => { e.preventDefault(); void remove(); }}
-                style={{ display: 'grid', gap: 'var(--space-sm)' }}>
-            <p className="note" style={{ margin: 0 }}>
-              {data.recordId
-                ? <>It leaves this property straight away, with its list of versions.</>
-                : <>It leaves Documents straight away, with its list of versions.</>}
-            </p>
-            {needsPhrase && (
-              <>
-                <p className="note" style={{ margin: 0 }}>
-                  This title deed is shared. Its link is revoked with it.
-                </p>
-                <div className="field">
-                  {/* The accessible name the suite already knows this field by. */}
-                  <label htmlFor="rd-confirm">Type {phrase} to confirm deletion</label>
-                  <input id="rd-confirm" type="text" value={confirm} placeholder={phrase}
-                         onChange={(e) => setConfirm(e.target.value)} />
-                </div>
-              </>
-            )}
-          </form>
-        </Dialog>
+        <DeletePaperDialog
+          paper={data}
+          onClose={() => setDeleting(false)}
+          // Staying here would refetch `document` as null and land the owner
+          // on "This paper is not in your vault", which reads as an error
+          // rather than as the deletion they just asked for.
+          onDeleted={() => nav(backTo)} />
       )}
 
-      {editing && (
-        <Dialog
-          title="Rename or move this document"
-          busy={editPaper.isPending}
-          dismissable={false}
-          onClose={() => setEditing(false)}
-          footer={(
-            <>
-              <button type="button" className="btn" onClick={() => setEditing(false)}>Cancel</button>
-              <button type="submit" form="edit-paper" className="btn primary"
-                      disabled={!draft.trim() || editPaper.isPending}>
-                {editPaper.isPending ? 'Saving…' : 'Save'}
-              </button>
-            </>
-          )}
-        >
-          <form id="edit-paper" onSubmit={saveEdit} style={{ display: 'grid', gap: 'var(--space-sm)' }}>
-            <div className="field">
-              <label htmlFor="rd-name">What it is called</label>
-              <input id="rd-name" type="text" value={draft}
-                     onChange={(e) => setDraft(e.target.value)} />
-            </div>
-            <div className="field">
-              <label htmlFor="rd-shelf">Shelf</label>
-              <select id="rd-shelf" value={shelf} onChange={(e) => setShelf(e.target.value)}>
-                {/* A paper filed on a shelf this list does not know still has
-                    to show its own shelf as the selected one, or the select
-                    opens blank and a save silently refiles it. */}
-                {(SHELVES.includes(data.shelf) ? SHELVES : [...SHELVES, data.shelf])
-                  .map((s) => <option key={s} value={s}>{SHELF_WORD[s] ?? s}</option>)}
-              </select>
-            </div>
-          </form>
-        </Dialog>
+      {editing && <EditPaperDialog paper={data} onClose={() => setEditing(false)} />}
+      {detailing && (
+        <PaperDetailsDrawer paper={data} eyebrow={data.recordTitle || 'Documents'}
+                            onClose={() => setDetailing(false)} />
       )}
+    </main>
+  );
+}
+
+/** The reader's first read, drawn in the reader's own boxes — the bar, the
+ *  sheet and the side rail — so nothing moves when the paper lands. The page
+ *  rail is left out: whether it exists is the paper's page count, unknown yet. */
+function SkReader() {
+  return (
+    <main className="flush" role="status" aria-busy="true" aria-label="Loading this document">
+      <div aria-hidden>
+        <header className="row between rd-bar" style={{ padding: 'var(--space-sm) var(--space-lg)', borderBottom: '1px solid var(--w-line)', flexWrap: 'nowrap', gap: 'var(--space-md)' }}>
+          {/* minWidth 0 lets the lines give way on a phone, where fixed rems
+              beside the pill would push the bar wider than the screen. */}
+          <span className="row" style={{ flexWrap: 'nowrap', gap: 'var(--space-sm)', minWidth: 0 }}>
+            <Sk w="2rem" h="2rem" r="50%" style={{ flexShrink: 0 }} />
+            <span style={{ display: 'grid', gap: '0.375rem', width: '18rem', minWidth: 0 }}>
+              <Sk w="78%" h="1rem" />
+              <Sk h="0.75rem" />
+            </span>
+          </span>
+          <span className="row tight" style={{ flexWrap: 'nowrap' }}>
+            <Sk w="7.5rem" h="2rem" r="var(--radius-pill)" />
+          </span>
+        </header>
+        <div className="rd-grid">
+          <section className="rd-sheet">
+            <Sk h="100%" r="var(--radius-md)" style={{ minHeight: '60vh' }} />
+          </section>
+          <aside className="rd-side">
+            <Sk w="6rem" h="1.5rem" r="var(--radius-pill)" />
+            <Sk w="80%" h="1.75rem" />
+            <Sk w="95%" h="0.875rem" />
+            <Card title="What was read from this document">
+              <Sk w="70%" h="0.875rem" />
+            </Card>
+          </aside>
+        </div>
+      </div>
     </main>
   );
 }

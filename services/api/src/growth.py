@@ -104,10 +104,10 @@ STEPS = {
     "beneficiary": ["Confirm this invitation is for you",
                     "Check the relationship and share you were listed with",
                     "Complete your heir profile: date of birth and address",
-                    "Choose whether to receive household safeguard emails"],
+                    "Choose whether to receive inactivity safeguard emails"],
     "family": ["Confirm this invitation is for you",
-               "Complete your profile in the family record",
-               "Choose whether to receive household safeguard emails"],
+               "Complete your profile in the family",
+               "Choose whether to receive inactivity safeguard emails"],
     "co_manage": ["Sign in or create your Pattadar account",
                   "Accept the invitation so the owner knows you have it"],
 }
@@ -258,7 +258,7 @@ async def claim(info, token: str, inactivity_email_consent: bool) -> ClaimResult
         inv = await (await conn.execute(
             "SELECT * FROM invitations WHERE token=%s ORDER BY id", (token_hash,))).fetchone() if token else None
         if not inv or not m._invitation_is_current(inv):
-            raise ValueError("Invalid or expired invitation link")
+            raise ValueError("This invitation link is not valid or has expired.")
         owner = await _invitation_owner(conn, inv)
     if owner and owner == uid:
         raise ValueError("You sent this invitation. Share the link with the person it is for.")
@@ -275,16 +275,16 @@ async def claim(info, token: str, inactivity_email_consent: bool) -> ClaimResult
                     "SELECT * FROM invitations WHERE id=%s AND token=%s FOR UPDATE",
                     (inv["id"], token_hash))).fetchone()
                 if not live or not m._invitation_is_current(live):
-                    raise ValueError("Invalid or expired invitation link")
+                    raise ValueError("This invitation link is not valid or has expired.")
                 await conn.execute(
                     "UPDATE invitations SET status='accepted', token='', accepted_by=%s, accepted_at=%s WHERE id=%s",
                     (uid, _now(), inv["id"]))
                 await m.log_audit(conn, uid, "claim_invitation", inv["id"], "co_manage",
                                   affected_owner=owner or uid)
-        message = ("Accepted. The owner can see that you have it. Opening their records from your "
+        message = ("Accepted. The owner can see that you have it. Opening their properties from your "
                    "account arrives with shared access, which is not switched on yet.")
     else:
-        raise ValueError("Invalid or expired invitation link")
+        raise ValueError("This invitation link is not valid or has expired.")
     async with m.pool.connection() as conn:
         if member_id:
             for kind in ("heir_confirm", "heir_profile"):
@@ -333,7 +333,7 @@ async def tasks(info) -> List[SetupTask]:
                 if not mem:
                     continue
                 who = await _short_name(conn, mem["owner_user_id"]) or "A family member"
-                route = f"/app/heir/{mem['id']}"
+                route = f"/heir/{mem['id']}"
                 if t["kind"] == "heir_confirm":
                     done = done or bool(mem.get("heir_confirmed"))
                     title = "Check how you are listed"
@@ -344,9 +344,9 @@ async def tasks(info) -> List[SetupTask]:
                     detail = "Date of birth and address, and your spouse if you are married."
             elif t["kind"] == "first_record":
                 done = done or await _has_records(conn, uid)
-                title = "Add your first land record"
+                title = "Add your first property"
                 detail = "Scan a pattadar passbook or add a property. It takes a few minutes."
-                route = "/app/properties"
+                route = "/properties"
             else:
                 continue
             if done and not t["done_at"]:
@@ -399,7 +399,7 @@ async def update_heir_profile(info, member_id: str, dob: str, present_address: s
                 "RETURNING owner_user_id",
                 (dob, *fields, m._is_minor(dob), member_id, uid))).fetchone()
             if not row:
-                raise m.NotAuthorized("Not authorized for this record")
+                raise m.NotAuthorized("You do not have access to these details.")
             await m.log_audit(conn, uid, "heir_update_profile", member_id, "Heir updated their profile",
                               affected_owner=row["owner_user_id"])
     return True
@@ -418,7 +418,7 @@ async def confirm_heir_details(info, member_id: str, agree: bool, note: str) -> 
                 "WHERE id=%s AND linked_principal=%s AND linked_principal<>'' RETURNING owner_user_id",
                 ("agreed" if agree else "disputed", "" if agree else note, member_id, uid))).fetchone()
             if not row:
-                raise m.NotAuthorized("Not authorized for this record")
+                raise m.NotAuthorized("You do not have access to these details.")
             await m.log_audit(conn, uid, "heir_confirm_details", member_id,
                               "agreed" if agree else "asked for a correction",
                               affected_owner=row["owner_user_id"])

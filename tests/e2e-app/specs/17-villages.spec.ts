@@ -1,5 +1,5 @@
 /**
- * W16 · village maps — /app/maps.
+ * W16 · village maps — /maps.
  *
  * Everywhere else in this app you start from a record and ask where it is.
  * Here you start from the ground and ask whose it is, so the screen is the map:
@@ -85,8 +85,10 @@ const OUTLINE = [
   [[LAT[2], LON[0]], [LAT[0], LON[0]]],
 ];
 
-/** The whole village, as a plot map: 7 plots, 26.794… acres. */
+/** The whole village, as a plot map: 7 plots, 26.794… acres. The map's own
+ *  village label prints one decimal; the head prints two, as Properties does. */
 const TOTAL_ACRES_1DP = '26.8';
+const TOTAL_ACRES = '26.79';
 
 /** One feature per plot, in the shape services/api/src/main.py stores and
  *  villageIndex.ts reads: RFC 7946 lon-first, and the ring CLOSED. */
@@ -220,28 +222,78 @@ function listOf(cards: Array<Record<string, unknown>>): Record<string, unknown> 
 // ── openers and locators ───────────────────────────────────────────────
 
 async function openMaps(page: Page): Promise<void> {
-  await page.goto('/app/maps');
+  await page.goto('/maps');
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 }
 
-/** Leaflet is behind a lazy import; nothing here can be driven until the map
- *  has mounted and painted its first plot number. */
-async function revealVillage(page: Page, name = VILLAGE): Promise<void> {
-  await page.locator('.vm-village-search input').fill(name);
+/** The Filter's popover — the one way into a village, an area or one of this
+ *  account's properties since the separate village search went. */
+const FIND = 'Search areas, villages or properties';
+const filterPop = (page: Page) => page.getByRole('group', { name: 'Narrow the cadastral map' });
+/** One group of the popover. A group is an eyebrow over its options with no
+ *  role or name of its own, so it is found by its eyebrow's words. */
+const filterGroup = (page: Page, label: string) => filterPop(page).locator('.fgrp')
+  .filter({ has: page.locator('.eyebrow', { hasText: new RegExp(`^${label}$`) }) });
+/** A village's option. Its name is "<VILLAGE>[ · MANDAL] <plots>". */
+const villageOption = (page: Page, name = VILLAGE) =>
+  filterGroup(page, 'Village').getByRole('button', { name: new RegExp(`^${name}\\b`) });
+
+async function openFilter(page: Page): Promise<void> {
+  if (!(await filterPop(page).isVisible())) {
+    await page.getByRole('button', { name: '+ Filter' }).click();
+  }
+  await expect(filterPop(page)).toBeVisible();
 }
 
-async function openVillage(page: Page, name = VILLAGE): Promise<void> {
-  await page.goto('/app/maps');
+async function closeFilter(page: Page): Promise<void> {
+  if (await filterPop(page).isVisible()) {
+    await page.getByRole('button', { name: 'Close filters' }).click();
+  }
+  await expect(filterPop(page)).toHaveCount(0);
+}
+
+/** Type into the Filter's own search, opening it first. Villages are listed
+ *  only once something is typed. */
+async function revealVillage(page: Page, name = VILLAGE): Promise<void> {
+  await openFilter(page);
+  await filterPop(page).getByLabel(FIND).fill(name);
+}
+
+/** Tick a village in the Filter, which opens it when it is the only pick. */
+async function chooseVillage(page: Page, name = VILLAGE): Promise<void> {
   await revealVillage(page, name);
-  await page.getByRole('button', { name: new RegExp(`^${name}`) }).click();
+  await villageOption(page, name).click();
+}
+
+/** Leaflet is behind a lazy import; nothing here can be driven until the map
+ *  has mounted and painted its first plot number. The popover is put away
+ *  afterwards so it covers none of the map a test goes on to click. */
+async function openVillage(page: Page, name = VILLAGE): Promise<void> {
+  await page.goto('/maps');
+  await chooseVillage(page, name);
   await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
+  await closeFilter(page);
   await expect(page.locator('.vc-label').first()).toBeVisible({ timeout: 20_000 });
+}
+
+/** The open village's ⋮ in the page head. Its one item is "Remove this map",
+ *  drawn only for a map this account uploaded (design.md § Page head:
+ *  outlined secondaries, then the ⋮, then the filled add). */
+const headMore = (page: Page) => page.locator('.pagehead').getByRole('button', { name: /^Actions for / });
+async function removeMap(page: Page): Promise<void> {
+  await headMore(page).click();
+  await page.getByRole('menuitem', { name: 'Remove this map' }).click();
+}
+async function expectRemoveOffered(page: Page): Promise<void> {
+  await headMore(page).click();
+  await expect(page.getByRole('menuitem', { name: 'Remove this map' })).toBeVisible();
+  await page.keyboard.press('Escape');
 }
 
 const sideCard = (page: Page, title: string) =>
   page.locator('section.card').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
 
-const plotCard = (page: Page) => sideCard(page, 'Selected plot');
+const plotCard = (page: Page) => sideCard(page, 'Selected parcel');
 const plotFinder = (page: Page) => page.locator('.vc-tr');
 const plotOptions = (page: Page) => plotFinder(page).getByRole('option');
 const tape = (page: Page) => page.locator('.vc-measure');
@@ -251,9 +303,9 @@ const chip = (page: Page, name: string) =>
 /** Select a plot through the compact finder — the keyboard alternative to
  *  clicking one of the canvas polygons. */
 async function pick(page: Page, lp: string): Promise<void> {
-  await page.getByLabel('Find survey or plot number').fill(lp);
+  await page.getByLabel('Find a parcel or survey number').fill(lp);
   await plotFinder(page).getByRole('option', {
-    name: new RegExp(`^Plot ${lp.replace('/', '\\/')}\\b`),
+    name: new RegExp(`^Parcel ${lp.replace('/', '\\/')}\\b`),
   }).click();
   await expect(plotCard(page).locator('.vm-plotno')).toContainText(lp);
   // Selecting the first plot introduces the inspector column and resizes the
@@ -325,19 +377,21 @@ async function twoMandals(page: Page, world: World): Promise<void> {
     key: `ap/${slug}`, overview: `ap/${slug}/overview.json`, state: 'Andhra Pradesh',
     district, mandal: name, villages, plots: 3 * villages, acres: 1, centre: [15.8, 79.9],
   });
-  await ground(page, world, {
-    shipped: [
-      place('BAPATLA', 'ADDANKI', 'MYLAVARAM', 'bapatla/adanki', 0),
-      place('BAPATLA', 'ADDANKI', 'GOPALAPURAM', 'bapatla/adanki', 0.2),
-      place('PRAKASAM', 'CHIMAKURTHI', 'MYLAVARAM', 'prakasam/chimakurti', 1),
-    ],
-    list: () => ({ json: [] }),
-  });
+  const shipped = [
+    place('BAPATLA', 'ADDANKI', 'MYLAVARAM', 'bapatla/adanki', 0),
+    place('BAPATLA', 'ADDANKI', 'GOPALAPURAM', 'bapatla/adanki', 0.2),
+    place('PRAKASAM', 'CHIMAKURTHI', 'MYLAVARAM', 'prakasam/chimakurti', 1),
+  ];
+  await ground(page, world, { shipped, list: () => ({ json: [] }) });
   await page.route('**/vm/catalog.json', (route) => route.fulfill({ json: [
     mandal('BAPATLA', 'ADDANKI', 'bapatla/adanki', 2),
     mandal('PRAKASAM', 'CHIMAKURTHI', 'prakasam/chimakurti', 1),
   ] }));
-  await page.route('**/vm/ap/*/*/overview.json', (route) => route.fulfill({ json: [] }));
+  // Each mandal's own manifest is its own villages, as the build writes it.
+  await page.route('**/vm/ap/*/*/overview.json', (route) => {
+    const slug = /\/vm\/(ap\/[^/]+\/[^/]+)\/overview\.json/.exec(route.request().url())?.[1] ?? '';
+    return route.fulfill({ json: shipped.filter((v) => v.key.startsWith(`${slug}/`)) });
+  });
 }
 
 /** The focus ring an element draws, as the browser computed it. A ring is a
@@ -346,31 +400,6 @@ const ring = (target: ReturnType<Page['locator']>) => target.evaluate((el) => {
   const drawn = getComputedStyle(el);
   return { style: drawn.outlineStyle, width: drawn.outlineWidth, offset: drawn.outlineOffset };
 });
-
-/** Whether all of an element's focus ring is inside the list of matches. The
- *  list scrolls, so it cuts off whatever is drawn past its own edges, and the
- *  rows sit right against them. */
-const ringWhole = (target: ReturnType<Page['locator']>) => target.evaluate((el) => {
-  // The scroller by its class: it is a plain div, and what clips is its box.
-  const list = el.closest('.vm-search-results') as HTMLElement;
-  const drawn = getComputedStyle(el);
-  const reach = drawn.outlineStyle === 'none' ? 0
-    : parseFloat(drawn.outlineOffset) + parseFloat(drawn.outlineWidth);
-  const box = el.getBoundingClientRect();
-  const port = list.getBoundingClientRect();
-  const left = port.left + list.clientLeft;
-  const top = port.top + list.clientTop;
-  return box.left - reach >= left - 0.5 && box.top - reach >= top - 0.5
-    && box.right + reach <= left + list.clientWidth + 0.5
-    && box.bottom + reach <= top + list.clientHeight + 0.5;
-});
-
-/** The village search's matches. The list is labelled "Matching villages"
- *  but is a plain div with no role, so it is found by its class, and so are
- *  its rows: the buttons that open a village, which the bins beside them are
- *  not. */
-const matches = (page: Page) => page.locator('.vm-villages');
-const matchRows = (page: Page) => matches(page).locator('.villagerow');
 
 /** High Contrast, from the theme menu. The item is chosen with Enter, a key
  *  press, so a focus() after it is keyboard focus in both engines. */
@@ -386,34 +415,22 @@ async function highContrast(page: Page): Promise<void> {
 
 // ── nothing on file, and nothing askable ───────────────────────────────
 
-test('the old village URL keeps bookmarks working and redirects to Cadastral maps', async ({ page, world }) => {
-  await ground(page, world);
-  await page.goto('/app/villages');
-  await expect(page).toHaveURL(/\/app\/maps$/);
-  await expect(page.getByRole('heading', { level: 1, name: 'Cadastral maps' })).toBeVisible();
-  const rail = page.getByRole('navigation', { name: 'Sections' })
-    .getByRole('link', { name: 'Cadastral maps' });
-  await expect(rail).toHaveAttribute('href', '/app/maps');
-  await expect(rail).toHaveAttribute('aria-current', 'page');
-});
-
 test('with no village map anywhere, the screen says so and offers the upload rather than an empty canvas', async ({ page, world }) => {
   await ground(page, world, { list: () => ({ json: [] }) });
   await openMaps(page);
 
   await expect(page.getByRole('heading', { level: 1, name: 'Cadastral maps' })).toBeVisible();
-  await expect(page.locator('.pagehead .grow > .note')).toHaveText('');
+  await expect(page.locator('.pagehead-summary')).toHaveCount(0);
 
   const empty = sideCard(page, 'No cadastral maps yet');
   await expect(empty).toBeVisible();
-  await expect(empty.getByRole('button', { name: 'Choose KMZ or KML' })).toBeVisible();
+  await expect(empty.getByRole('button', { name: 'Add a cadastral map' })).toBeVisible();
   // The only thing to do here, so here, and only here, it is the filled one.
-  await expect(page.locator('main.vm .btn.primary')).toHaveText('Choose KMZ or KML');
+  await expect(page.locator('main.vm .btn.primary')).toHaveText('Add a cadastral map');
 
-  // No stage, no Leaflet, and nothing to fit or print — there is no map.
+  // No stage, no Leaflet, and nothing to print — there is no map.
   await expect(page.locator('.vm-stage')).toHaveCount(0);
   await expect(page.locator('.leaflet-container')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: /^Fit/ })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Print' })).toHaveCount(0);
 });
 
@@ -434,7 +451,7 @@ test('a village map being read says so on the button that is reading it', async 
   const reading = page.getByRole('button', { name: 'Reading…' });
   await expect(reading).toBeVisible();
   await expect(reading).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'Choose KMZ or KML' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Add a cadastral map' })).toHaveCount(0);
 
   await expect(page.getByRole('heading', { level: 1, name: VILLAGE })).toBeVisible();
   expect(world.restCalls(/village-maps$/).filter((c) => c.method === 'POST')).toHaveLength(1);
@@ -442,9 +459,9 @@ test('a village map being read says so on the button that is reading it', async 
 
 test('while the index is still coming the screen waits rather than claiming there are none', async ({ page, world }) => {
   await ground(page, world, { list: () => ({ json: [entry()], delayMs: 1_500 }) });
-  await page.goto('/app/maps');
+  await page.goto('/maps');
 
-  const waiting = page.locator('[role="status"]', { hasText: 'Loading…' });
+  const waiting = page.getByRole('status', { name: 'Loading the cadastral maps' });
   await expect(waiting).toBeVisible();
   await expect(waiting).toHaveAttribute('aria-busy', 'true');
   // Neither sentence may be on screen while the answer is still in flight.
@@ -452,7 +469,7 @@ test('while the index is still coming the screen waits rather than claiming ther
   await expect(page.getByText('Cadastral maps could not be loaded')).toHaveCount(0);
 
   await expect(page.getByRole('heading', { level: 1, name: 'Cadastral maps' })).toBeVisible();
-  await expect(page.getByLabel('Search all villages')).toBeVisible();
+  await expect(page.getByRole('button', { name: '+ Filter' })).toBeVisible();
 });
 
 test('a village that is both shipped and uploaded is one village, and the upload is the one drawn', async ({ page, world }) => {
@@ -471,15 +488,16 @@ test('a village that is both shipped and uploaded is one village, and the upload
   });
   await openMaps(page);
 
-  await page.getByLabel('Search all villages').fill(VILLAGE);
-  const rows = page.locator('.vm-villages .villagerow');
+  await revealVillage(page);
+  const rows = filterGroup(page, 'Village').getByRole('button');
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText('7');          // the uploaded sheet, not the shipped 3
-  // The bin is the proof of which of the two won: only an upload can be taken
-  // back off.
-  await expect(page.getByRole('button', { name: `Remove ${VILLAGE}` })).toBeVisible();
 
   await rows.first().click();
+  await closeFilter(page);
+  // Remove this map is the proof of which of the two won: only an upload can
+  // be taken back off.
+  await expectRemoveOffered(page);
   await expect(page.locator('.vc-label').first()).toBeVisible({ timeout: 20_000 });
   await expect(page.locator('.vc-label')).toHaveCount(7);
   expect(world.restCalls(new RegExp(FILE)).length).toBeGreaterThan(0);
@@ -488,18 +506,18 @@ test('a village that is both shipped and uploaded is one village, and the upload
 
 // ── the landing map: the mandal ────────────────────────────────────────
 
-test('every village on record is drawn on one map, and the head counts what is on it', async ({ page, world }) => {
+test('every village on record is drawn on one map, and the head sums what is on it', async ({ page, world }) => {
   await ground(page, world);
   await openMaps(page);
 
-  await expect(page.locator('.pagehead .grow > .note')).toHaveText('1 village on record · 7 plots');
+  // The totals on file: one village, its seven parcels.
+  await expect(page.locator('.pagehead-summary')).toHaveText('1 village · 7 parcels');
   await expect(page.locator('.vc-badge')).toHaveText('1 village');
-  await expect(page.getByRole('button', { name: 'Fit all' })).toBeVisible();
-  // The village writes its own name and totals on the overview, to the same
-  // one decimal the head and the village switch use once it is open.
+  // The village writes its own name and totals on the overview, to one
+  // decimal; the head prints two once it is open.
   const mark = page.locator('.vc-village');
   await expect(mark).toContainText(VILLAGE);
-  await expect(mark).toContainText(`7 plots · ${TOTAL_ACRES_1DP} ac`);
+  await expect(mark).toContainText(`7 parcels · ${TOTAL_ACRES_1DP} ac`);
 });
 
 test('the first screen is the page header filter and a full-width map with one way to choose', async ({ page, world }) => {
@@ -510,12 +528,12 @@ test('the first screen is the page header filter and a full-width map with one w
   // Nothing above the title: the mandal is the page, and the rail already
   // says Village maps. A level names only the one above it.
   await expect(page.locator('main.vm .pagehead .eyebrow')).toHaveCount(0);
-  // The list is open and there is no dropdown over it: the rows and the
-  // outlines on the map are the choice.
+  // There is no dropdown over the map: the Filter and the outlines on the map
+  // are the choice.
   await expect(page.locator('.vm-switch')).toHaveCount(0);
-  await expect(page.getByLabel('Search all villages')).toBeVisible();
+  await expect(page.getByRole('button', { name: '+ Filter' })).toBeVisible();
   // The Properties-style filter tally carries the list count; the map carries
-  // the village until search asks for a matching row. No paper rail reserves
+  // the village. No paper rail reserves
   // width: the stage is the whole map body.
   await expect(page.locator('.filterbar .tally')).toHaveText('1 village');
   await expect(page.locator('.vc-village')).toHaveCount(1);
@@ -523,9 +541,12 @@ test('the first screen is the page header filter and a full-width map with one w
   const bodyBox = (await page.locator('.vm-body').boundingBox())!;
   const mapBox = (await page.locator('.vm-stage').boundingBox())!;
   expect(mapBox.width).toBeGreaterThan(bodyBox.width * 0.98);
-  // With nothing chosen there is nothing to commit, so nothing is filled.
-  await expect(page.locator('main.vm .btn.primary')).toHaveCount(0);
-  await expect(page.getByRole('link', { name: 'Properties map' })).toBeVisible();
+  // With nothing chosen there is nothing to commit: the one filled button is
+  // the head's own add (design.md § Page head; F3).
+  await expect(page.locator('main.vm .btn.primary')).toHaveText(['Add a cadastral map']);
+  // One way to choose: the Filter's own search. There is no second search for
+  // villages beside it.
+  await expect(page.getByRole('textbox', { name: 'Search all villages' })).toHaveCount(0);
 });
 
 test('the map reaches the bottom of the window, with no dead page under it', async ({ page, world }) => {
@@ -551,7 +572,6 @@ test('clicking a village on the mandal map opens it', async ({ page, world }) =>
 
   await expect(page.getByRole('heading', { level: 1, name: VILLAGE })).toBeVisible();
   await expect(page.locator('.vc-badge')).toContainText(VILLAGE);
-  await expect(page.getByRole('button', { name: 'Fit village' })).toBeVisible();
 });
 
 test('the mandal map offers no Plot size, because it is not showing plots', async ({ page, world }) => {
@@ -559,8 +579,25 @@ test('the mandal map offers no Plot size, because it is not showing plots', asyn
   await openMaps(page);
   await expect(page.locator('.vc-village')).toBeVisible();
 
-  await expect(page.locator('.vc-tl').getByRole('button')).toHaveCount(3);
-  await expect(chip(page, 'Plot size')).toHaveCount(0);
+  // Three layers; no Extent.
+  await expect(page.locator('.vc-tl .chip')).toHaveCount(3);
+  // Mark a new boundary is not drawn above the 200 m scale (Reddy,
+  // 13/10/2026): the fixture's villages fit close in, so zoom out past it.
+  const mark = page.getByRole('button', { name: 'Mark a new boundary' });
+  // One step at a time, as the zoom-gate test below does: a click during
+  // Leaflet's zoom animation is dropped.
+  for (let i = 0; i < 8 && (await mark.count()); i++) {
+    await page.locator('.leaflet-control-zoom-out').click();
+    await page.waitForTimeout(400);
+  }
+  await expect(mark).toHaveCount(0);
+  await expect(page.getByText('Zoom in to about 200 m')).toHaveCount(0);
+  for (let i = 0; i < 8 && !(await mark.isVisible()); i++) {
+    await page.locator('.leaflet-control-zoom-in').click();
+    await page.waitForTimeout(400);
+  }
+  await expect(mark).toBeEnabled();
+  await expect(chip(page, 'Extent')).toHaveCount(0);
 
   // Which photograph a village sits on is a fair question before opening it,
   // so the other three still work.
@@ -574,13 +611,14 @@ test('a village map with no outline is still listed, and the panel says where to
   await openMaps(page);
 
   await expect(page.getByText('1 cadastral map on file')).toBeVisible();
-  // No count of an area that is not drawn; search remains the way into it.
-  await expect(page.locator('.pagehead .grow > .note')).toHaveText('');
-  await expect(page.locator('.vm-stage')).toContainText('Search for a village above.');
+  // The head states the totals on file, drawn or not (design.md § Page head,
+  // "Summary"); the Filter remains the way into it.
+  await expect(page.locator('.pagehead-summary')).toHaveText('1 village · 7 parcels');
+  await expect(page.locator('.vm-stage')).toContainText('Use Filter to find a village or one of your properties.');
   await revealVillage(page);
-  await expect(page.getByRole('button', { name: new RegExp(`^${VILLAGE}`) })).toBeVisible();
-  // Nothing is drawn, so nothing is offered to fit or print.
-  await expect(page.getByRole('button', { name: /^Fit/ })).toHaveCount(0);
+  await expect(villageOption(page)).toBeVisible();
+  await closeFilter(page);
+  // Nothing is drawn, so nothing is offered to print.
   await expect(page.getByRole('button', { name: 'Print' })).toHaveCount(0);
   await expect(page.locator('.leaflet-container')).toHaveCount(0);
 });
@@ -591,38 +629,43 @@ test('with no mandal to hold the stage, a village being read holds it instead', 
     file: () => ({ json: collection(), delayMs: 1_500 }),
   });
   await openMaps(page);
-  await expect(page.locator('.vm-stage')).toContainText('Search for a village above.');
+  await expect(page.locator('.vm-stage')).toContainText('Use Filter to find a village or one of your properties.');
 
-  await revealVillage(page);
-  await page.getByRole('button', { name: new RegExp(`^${VILLAGE}`) }).click();
+  await chooseVillage(page);
+  await closeFilter(page);
 
   // Neither the empty state nor a blank panel: the shape file is being read
   // and the stage says so.
   const waiting = page.locator('.vm-stage [role="status"]');
   await expect(waiting).toBeVisible();
   await expect(waiting).toHaveAttribute('aria-busy', 'true');
-  await expect(page.locator('.vm-stage')).not.toContainText('Pick a village from the list.');
+  await expect(page.locator('.vm-stage')).not.toContainText('Use Filter to find a village');
 
   await expect(page.locator('.vc-label').first()).toBeVisible({ timeout: 20_000 });
-  await expect(page.locator('.pagehead .grow > .note')).toHaveText(`7 plots · ${TOTAL_ACRES_1DP} ac`);
+  await expect(page.locator('.pagehead-summary')).toHaveText(`7 parcels · ${TOTAL_ACRES} ac`);
 });
 
-test('the way back out of a village is to all of them', async ({ page, world }) => {
+test('the way back out of a village is to all of them, and lets go of the pick that opened it', async ({ page, world }) => {
   await ground(page, world);
   await openVillage(page);
+  const villageChip = page.getByRole('button', { name: `Remove filter Village ${VILLAGE}` });
+  await expect(villageChip).toBeVisible();
 
   await page.getByRole('button', { name: 'All villages' }).click();
 
   await expect(page.getByRole('heading', { level: 1, name: 'Cadastral maps' })).toBeVisible();
   await expect(page.locator('.vc-badge')).toHaveText('1 village');
   await expect(plotCard(page)).toHaveCount(0);
-  // And the list is open again, because that is what you came back for.
-  await expect(page.getByLabel('Search all villages')).toBeVisible();
+  // A chip naming a village no longer on screen would be a lie.
+  await expect(villageChip).toHaveCount(0);
+  await expect(page.locator('.filterbar .tally')).toHaveText('1 village');
+  // And the Filter is there again, because that is what you came back for.
+  await expect(page.getByRole('button', { name: '+ Filter' })).toBeVisible();
 });
 
 // ── choosing a village ─────────────────────────────────────────────────
 
-test('searching the village list folds the spelling, so Chintagunta finds CHINTHAGUNTA', async ({ page, world }) => {
+test('searching for a village folds the spelling, so Chintagunta finds CHINTHAGUNTA', async ({ page, world }) => {
   await ground(page, world, {
     list: () => ({ json: [
       entry(),
@@ -630,48 +673,27 @@ test('searching the village list folds the spelling, so Chintagunta finds CHINTH
     ] }),
   });
   await openMaps(page);
-
-  const rows = page.locator('.vm-villages .villagerow');
   await expect(page.locator('.filterbar .tally')).toHaveText('2 villages');
-  await expect(rows).toHaveCount(0);
 
-  await page.getByLabel('Search all villages').fill('Chintagunta');
+  await openFilter(page);
+  // Villages are found, not read down: nothing typed lists none of them.
+  await expect(filterGroup(page, 'Village')).toHaveCount(0);
 
+  await filterPop(page).getByLabel(FIND).fill('Chintagunta');
+
+  const rows = filterGroup(page, 'Village').getByRole('button');
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText('CHINTHAGUNTA');
 });
 
-test('the village list follows the mandal I pick, and a shared name is two villages', async ({ page, world }) => {
-  // Two MYLAVARAMs in two mandals: the name alone is not an address.
-  const place = (district: string, mandal: string, village: string, slug: string, shift: number) => ({
-    village, district, mandal, state: 'Andhra Pradesh', plots: 3,
-    key: `ap/${slug}/${village.toLowerCase()}`, path: `ap/${slug}/${village.toLowerCase()}.geojson`,
-    file: `ap/${slug}/${village.toLowerCase()}.geojson`, centre: [15.8 + shift, 79.9 + shift],
-    outline: [[[15.79 + shift, 79.89 + shift], [15.79 + shift, 79.91 + shift],
-      [15.81 + shift, 79.91 + shift], [15.81 + shift, 79.89 + shift]]],
-  });
-  const addanki = [place('BAPATLA', 'ADDANKI', 'MYLAVARAM', 'bapatla/adanki', 0),
-    place('BAPATLA', 'ADDANKI', 'GOPALAPURAM', 'bapatla/adanki', 0.2)];
-  const chimakurthi = [place('PRAKASAM', 'CHIMAKURTHI', 'MYLAVARAM', 'prakasam/chimakurti', 1)];
-  const mandal = (district: string, name: string, slug: string, villages: number) => ({
-    key: `ap/${slug}`, overview: `ap/${slug}/overview.json`, state: 'Andhra Pradesh',
-    district, mandal: name, villages, plots: 3 * villages, acres: 1, centre: [15.8, 79.9],
-  });
-  await ground(page, world, { shipped: [...addanki, ...chimakurthi], list: () => ({ json: [] }) });
-  await page.route('**/vm/catalog.json', (route) => route.fulfill({ json: [
-    mandal('BAPATLA', 'ADDANKI', 'bapatla/adanki', 2),
-    mandal('PRAKASAM', 'CHIMAKURTHI', 'prakasam/chimakurti', 1),
-  ] }));
-  await page.route('**/vm/ap/*/*/overview.json', (route) => route.fulfill({ json: [] }));
+test('the village list follows the district I pick, and a shared name is two villages', async ({ page, world }) => {
+  await twoMandals(page, world);
   await openMaps(page);
 
-  const rows = page.locator('.vm-villages .villagerow');
   // With no Area filter, the map and filter tally hold the complete global
-  // answer; rows appear only when the header search asks for matches.
-  await expect(rows).toHaveCount(0);
+  // answer.
   await expect(page.locator('.filterbar .tally')).toHaveText('3 villages');
   await expect(page.locator('.vc-village')).toHaveCount(3);
-  await expect(page.getByRole('button', { name: 'Fit all' })).toBeVisible();
 
   // Country and State are information, not disabled form controls. District
   // and Mandal are the same shared filter surface Properties uses.
@@ -679,64 +701,72 @@ test('the village list follows the mandal I pick, and a shared name is two villa
   await expect(page.getByText('All mapped areas')).toBeVisible();
   await expect(page.getByLabel('Country')).toHaveCount(0);
   await expect(page.getByLabel('State')).toHaveCount(0);
-  await page.getByRole('button', { name: '+ Filter' }).click();
-  const area = page.getByRole('group', { name: 'Narrow villages by area' });
-  const optionSearch = page.getByLabel('Search districts or mandals');
-  await optionSearch.fill('Chimakurthi');
-  await expect(area.getByRole('button', { name: /CHIMAKURTHI/ })).toBeVisible();
-  await expect(area.getByRole('button', { name: /BAPATLA/ })).toHaveCount(0);
-  await optionSearch.fill('Prakasam');
-  await area.locator('.fgrp').first().getByRole('button', { name: /PRAKASAM/ }).click();
-  await page.getByRole('button', { name: 'Close filters' }).click();
 
-  // Changing the district jumps the map and list to its first mandal, reports
-  // the result count, and leaves a removable Properties-style filter chip.
-  await expect(page.locator('.vm-place strong')).toHaveText('PRAKASAM');
-  await expect(rows).toHaveCount(0);
+  await openFilter(page);
+  const search = filterPop(page).getByLabel(FIND);
+  // With nothing narrowed, a shared name is two villages, each with its mandal.
+  await search.fill('Mylavaram');
+  await expect(filterGroup(page, 'Village').getByRole('button'))
+    .toHaveText([/MYLAVARAM · ADDANKI/, /MYLAVARAM · CHIMAKURTHI/]);
+
+  await search.fill('Chimakurthi');
+  await expect(filterPop(page).getByRole('button', { name: /CHIMAKURTHI/ }).first()).toBeVisible();
+  await expect(filterPop(page).getByRole('button', { name: /BAPATLA/ })).toHaveCount(0);
+  await search.fill('Prakasam');
+  await filterGroup(page, 'District').getByRole('button', { name: /PRAKASAM/ }).click();
+  await closeFilter(page);
+
+  // The district narrows the map and the tally, and leaves a removable
+  // Properties-style filter chip.
+  await expect(page.locator('.placeline strong')).toHaveText('PRAKASAM');
   await expect(page.locator('.vc-village')).toHaveCount(1);
-  await expect(page.getByRole('button', { name: 'Fit district' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Remove filter District PRAKASAM' })).toBeVisible();
   await expect(page.locator('.filterbar .tally')).toHaveText('1 village');
 
-  // Search says and keeps its scope; it never silently returns Addanki's
-  // MYLAVARAM while the information line says Prakasam · Chimakurthi.
-  await page.getByLabel('Search villages in PRAKASAM').fill('Mylavaram');
+  // The search keeps that scope; it never silently returns Addanki's
+  // MYLAVARAM while the information line says Prakasam.
+  await revealVillage(page, 'Mylavaram');
+  const rows = filterGroup(page, 'Village').getByRole('button');
   await expect(rows).toHaveCount(1);
-  await expect(rows.first()).toContainText('MYLAVARAM');
+  await expect(rows.first()).toContainText('CHIMAKURTHI');
   await expect(page.locator('.filterbar .tally')).toHaveText('1 village');
 });
 
-test('the Filter narrows by district and mandal, and finding a village by name is the header search\'s job', async ({ page, world }) => {
+test('the Filter\'s one search finds districts, mandals and villages alike', async ({ page, world }) => {
   await twoMandals(page, world);
   await openMaps(page);
 
-  await page.getByRole('button', { name: '+ Filter' }).click();
-  const area = page.getByRole('group', { name: 'Narrow villages by area' });
+  await openFilter(page);
+  const area = filterPop(page);
   // A group in the popover is an eyebrow over its options and has no role or
-  // name of its own, so the eyebrows are read by class.
+  // name of its own, so the eyebrows are read by class. Nine hundred villages
+  // are not listed before anything is typed.
   await expect(area.locator('.fgrp > .eyebrow')).toHaveText(['District', 'Mandal']);
-  // Its search says what it searches, and a village's name is not in it.
-  await area.getByLabel('Search districts or mandals').fill('Gopalapuram');
-  await expect(area).toContainText('No filter options match that search.');
-  await page.getByRole('button', { name: 'Close filters' }).click();
 
-  // One way to a village by its name: the search in the header.
-  await page.getByLabel('Search all villages').fill('Gopalapuram');
-  const rows = matchRows(page);
+  await area.getByLabel(FIND).fill('Gopalapuram');
+  await expect(area.locator('.fgrp > .eyebrow')).toHaveText(['Village']);
+  const rows = filterGroup(page, 'Village').getByRole('button');
   await expect(rows).toHaveCount(1);
-  await expect(rows.first()).toContainText('GOPALAPURAM');
+  await expect(rows.first()).toContainText('GOPALAPURAM · ADDANKI');
+  // A village says how many plots it holds.
+  await expect(rows.first().locator('.n')).toHaveText('3');
+
+  await area.getByLabel(FIND).fill('Addanki');
+  await expect(area.locator('.fgrp > .eyebrow')).toHaveText(['Mandal', 'Village']);
 });
 
 test('the Filter says nothing matched only once I have typed something for it to match', async ({ page, world }) => {
   // No catalog: ground() serves an empty one, which is what a failed or
   // refused /vm/catalog.json read leaves too. The Filter has no district or
-  // mandal to offer.
+  // mandal to offer, and with no land of this account's on the map, no
+  // property either.
   await ground(page, world);
+  world.set('properties', listOf([]));
   await openMaps(page);
 
-  await page.getByRole('button', { name: '+ Filter' }).click();
-  const area = page.getByRole('group', { name: 'Narrow villages by area' });
-  const search = area.getByLabel('Search districts or mandals');
+  await openFilter(page);
+  const area = filterPop(page);
+  const search = area.getByLabel(FIND);
   await expect(search).toBeVisible();
   // Nothing typed, so nothing has failed to match: the search row, and
   // nothing under it. (A group is an eyebrow over its options with no role of
@@ -753,51 +783,178 @@ test('a village nobody has sent a map for says so rather than showing an empty l
   await ground(page, world);
   await openMaps(page);
 
-  await page.getByLabel('Search all villages').fill('Ongole');
+  await revealVillage(page, 'Ongole');
 
-  await expect(page.locator('.vm-villages .villagerow')).toHaveCount(0);
-  await expect(page.getByText('No cadastral map on file matching that.')).toBeVisible();
+  await expect(filterGroup(page, 'Village')).toHaveCount(0);
+  await expect(filterPop(page).getByText('No filter options match that search.')).toBeVisible();
 });
 
-test('opening a village keeps the information filter and marks one row, without a duplicate switch', async ({ page, world }) => {
+test('opening a village keeps the information filter and marks its option, without a duplicate switch', async ({ page, world }) => {
   await ground(page, world);
   await openVillage(page);
 
-  await expect(page.getByLabel('Search all villages')).toBeVisible();
+  await expect(page.getByRole('button', { name: '+ Filter' })).toBeVisible();
   await expect(page.locator('.vm-side')).toHaveCount(0);
-  await page.getByLabel('Search all villages').fill(VILLAGE);
-  await expect(page.locator('.vm-villages .villagerow[aria-pressed="true"]')).toContainText(VILLAGE);
+  await expect(page.getByRole('button', { name: `Remove filter Village ${VILLAGE}` })).toBeVisible();
+  await revealVillage(page);
+  await expect(villageOption(page)).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(VILLAGE);
 });
+
+// ── several picks at once ─────────────────────────────────────────────
+
+test('two districts ticked are both kept, and the map counts both', async ({ page, world }) => {
+  await twoMandals(page, world);
+  await openMaps(page);
+
+  await openFilter(page);
+  const districts = filterGroup(page, 'District');
+  await districts.getByRole('button', { name: /^BAPATLA\b/ }).click();
+  await districts.getByRole('button', { name: /^PRAKASAM\b/ }).click();
+  // The popover stays open for the next tick, and both stay ticked.
+  await expect(districts.getByRole('button', { name: /^BAPATLA\b/ })).toHaveAttribute('aria-pressed', 'true');
+  await expect(districts.getByRole('button', { name: /^PRAKASAM\b/ })).toHaveAttribute('aria-pressed', 'true');
+  await closeFilter(page);
+
+  // Within a group the picks add up.
+  await expect(page.getByRole('button', { name: 'Remove filter District BAPATLA' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Remove filter District PRAKASAM' })).toBeVisible();
+  await expect(page.locator('.filterbar .tally')).toHaveText('3 villages');
+  await expect(page.locator('.placeline strong')).toHaveText('BAPATLA, PRAKASAM');
+  await expect(page.locator('.vc-village')).toHaveCount(3);
+
+  // Taking one off leaves the other.
+  await page.getByRole('button', { name: 'Remove filter District BAPATLA' }).click();
+  await expect(page.getByRole('button', { name: 'Remove filter District PRAKASAM' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Remove filter District BAPATLA' })).toHaveCount(0);
+  await expect(page.locator('.filterbar .tally')).toHaveText('1 village');
+});
+
+test('two mandals ticked are both kept, each with its district', async ({ page, world }) => {
+  await twoMandals(page, world);
+  await openMaps(page);
+
+  await openFilter(page);
+  const mandals = filterGroup(page, 'Mandal');
+  await mandals.getByRole('button', { name: /^ADDANKI\b/ }).click();
+  // Ticking ADDANKI put BAPATLA on, and the mandals offered are now that
+  // district's; PRAKASAM ticked brings its own back.
+  await filterGroup(page, 'District').getByRole('button', { name: /^PRAKASAM\b/ }).click();
+  await mandals.getByRole('button', { name: /^CHIMAKURTHI\b/ }).click();
+  await expect(mandals.getByRole('button', { name: /^ADDANKI\b/ })).toHaveAttribute('aria-pressed', 'true');
+  await expect(mandals.getByRole('button', { name: /^CHIMAKURTHI\b/ })).toHaveAttribute('aria-pressed', 'true');
+  await closeFilter(page);
+
+  await expect(page.locator('.fchip')).toHaveCount(4);
+  await expect(page.getByRole('button', { name: 'Remove filter District BAPATLA' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Remove filter District PRAKASAM' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Remove filter Mandal ADDANKI\b/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Remove filter Mandal CHIMAKURTHI\b/ })).toBeVisible();
+  await expect(page.locator('.filterbar .tally')).toHaveText('3 villages');
+  await expect(page.locator('.placeline strong')).toHaveText('BAPATLA · ADDANKI, PRAKASAM · CHIMAKURTHI');
+});
+
+test('ticking a mandal puts its district on, and taking the district off takes the mandal too', async ({ page, world }) => {
+  await twoMandals(page, world);
+  await openMaps(page);
+
+  await openFilter(page);
+  await filterGroup(page, 'Mandal').getByRole('button', { name: /^ADDANKI\b/ }).click();
+  // The district is ticked in the popover as well as chipped.
+  await expect(filterGroup(page, 'District').getByRole('button', { name: /^BAPATLA\b/ }))
+    .toHaveAttribute('aria-pressed', 'true');
+  await closeFilter(page);
+
+  const district = page.getByRole('button', { name: 'Remove filter District BAPATLA' });
+  const mandal = page.getByRole('button', { name: 'Remove filter Mandal ADDANKI' });
+  await expect(district).toBeVisible();
+  await expect(mandal).toBeVisible();
+  // A district with one of its mandals ticked stands for that mandal.
+  await expect(page.locator('.placeline strong')).toHaveText('BAPATLA · ADDANKI');
+  await expect(page.locator('.filterbar .tally')).toHaveText('2 villages');
+
+  await district.click();
+
+  await expect(district).toHaveCount(0);
+  await expect(mandal).toHaveCount(0);
+  await expect(page.locator('.fchip')).toHaveCount(0);
+  await expect(page.getByText('All mapped areas')).toBeVisible();
+  await expect(page.locator('.filterbar .tally')).toHaveText('3 villages');
+});
+
+test('a village picked in the Filter opens, and a second pick goes back to the outlines of both', async ({ page, world }) => {
+  // A neighbour of its own, a little to the east, so the two outlines are two.
+  const east = (at: number[][][]) => at.map((seg) => seg.map(([lat, lon]) => [lat, lon + 0.01]));
+  const other = entry({
+    key: 'katrapadu', village: 'KATRAPADU', file: 'katrapadu.json',
+    centre: [15.7396, 79.2808], outline: east(OUTLINE),
+  });
+  await ground(page, world, { list: () => ({ json: [entry(), other] }) });
+  await openMaps(page);
+  await expect(page.locator('.vc-village')).toHaveCount(2);
+
+  await chooseVillage(page);
+
+  await expect(page.getByRole('heading', { level: 1, name: VILLAGE })).toBeVisible();
+  await expect(page.getByRole('button', { name: `Remove filter Village ${VILLAGE}` })).toBeVisible();
+  await closeFilter(page);
+  await expect(page.locator('.vc-label')).toHaveCount(7);
+  await expect(page.locator('.filterbar .tally')).toHaveText('1 village');
+
+  // Two villages is not one to open: the overview comes back, narrowed to them.
+  await chooseVillage(page, 'KATRAPADU');
+  await closeFilter(page);
+  await expect(page.getByRole('heading', { level: 1, name: 'Cadastral maps' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Remove filter Village KATRAPADU' })).toBeVisible();
+  await expect(page.getByRole('button', { name: `Remove filter Village ${VILLAGE}` })).toBeVisible();
+  await expect(page.locator('.filterbar .tally')).toHaveText('2 villages');
+  await expect(page.locator('.vc-village')).toHaveCount(2);
+  await expect(page.locator('.vc-label')).toHaveCount(0);
+
+  // And down to one again, that one opens.
+  await page.getByRole('button', { name: 'Remove filter Village KATRAPADU' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: VILLAGE })).toBeVisible();
+});
+
+test('one of my properties picked in the Filter opens its village on its own plot', async ({ page, world }) => {
+  await ground(page, world);
+  await openMaps(page);
+
+  await openFilter(page);
+  // Land of this account's that sits in a mapped village, and nothing else:
+  // not the flat, not the parcel in a village with no map. Listed without a
+  // search, since there are only ever a few, and with no count beside them.
+  const properties = filterGroup(page, 'Property').getByRole('button');
+  await expect(properties).toHaveText([`Sy 214/2 · ${VILLAGE}`, `Sy 301 · ${VILLAGE}`]);
+  await expect(properties.first().locator('.n')).toHaveCount(0);
+
+  // Found by the search as well.
+  await filterPop(page).getByLabel(FIND).fill('214/2');
+  await expect(properties).toHaveCount(1);
+  await properties.first().click();
+
+  await expect(page.getByRole('heading', { level: 1, name: VILLAGE })).toBeVisible();
+  await expect(page.getByRole('button', { name: `Remove filter Property Sy 214/2 · ${VILLAGE}` })).toBeVisible();
+  await closeFilter(page);
+  await expect(page.locator('.vc-label').first()).toBeVisible({ timeout: 20_000 });
+  // Its own plot is the one chosen, once the plots have been read.
+  await expect(plotCard(page).locator('.vm-plotno')).toContainText('214/2');
+});
+
 test('a village opens with every plot numbered, and the head counts them', async ({ page, world }) => {
   await ground(page, world);
   await openVillage(page);
 
   // The eyebrow names the level above, the page; the title names this one.
   await expect(page.locator('main.vm .pagehead .eyebrow')).toHaveText('Cadastral maps');
-  await expect(page.locator('.pagehead .grow > .note')).toHaveText(`7 plots · ${TOTAL_ACRES_1DP} ac`);
+  await expect(page.locator('.pagehead-summary')).toHaveText(`7 parcels · ${TOTAL_ACRES} ac`);
   await expect(sideCard(page, 'All plots')).toHaveCount(0);
-  await expect(page.getByLabel('Find survey or plot number')).toBeVisible();
+  await expect(page.getByLabel('Find a parcel or survey number')).toBeVisible();
   await expect(page.locator('.vc-label')).toHaveCount(7);
   // A real zoom level, not the em-dash the badge starts life with: the map
   // has framed the village and said where it got to.
   await expect(page.locator('.vc-badge'))
     .toHaveText(new RegExp(`^${VILLAGE} · zoom \\d+ · numbers on$`));
-});
-
-test('Fit village puts the whole village back after I have zoomed into it', async ({ page, world }) => {
-  await ground(page, world);
-  await openVillage(page);
-  await expect(page.locator('.vc-badge')).toHaveText(/zoom \d+/);
-  const framed = await zoomShown(page);
-
-  await page.getByRole('button', { name: 'Zoom in' }).click();
-  await expect.poll(() => zoomShown(page)).toBe(framed + 1);
-
-  await page.getByRole('button', { name: 'Fit village' }).click();
-
-  await expect.poll(() => zoomShown(page)).toBe(framed);
-  await expect(page.locator('.vc-label')).toHaveCount(7);
 });
 
 test('the number and the extent are written on the plot, and never on each other', async ({ page, world }) => {
@@ -877,9 +1034,9 @@ test('Plot size shades the village by extent and counts every band', async ({ pa
   await ground(page, world);
   await openVillage(page);
 
-  await chip(page, 'Plot size').click();
+  await chip(page, 'Extent').click();
 
-  const legend = page.locator('.vc-legend', { hasText: 'Plot size' });
+  const legend = page.locator('.vc-legend', { hasText: 'Extent' });
   await expect(legend).toBeVisible();
   for (const [band, count] of [
     ['Under 1 ac', '2'],       // 0.80 and 0.50
@@ -890,7 +1047,7 @@ test('Plot size shades the village by extent and counts every band', async ({ pa
     await expect(legend.locator('.row', { hasText: band })).toContainText(count);
   }
   // The bands are the whole village, not a sample of a sidebar list.
-  await expect(page.locator('.pagehead .grow > .note')).toContainText('7 plots');
+  await expect(page.locator('.pagehead-summary')).toContainText('7 parcels');
 });
 
 test('a shape with no third corner is not a plot, and is not counted as one', async ({ page, world }) => {
@@ -905,181 +1062,12 @@ test('a shape with no third corner is not a plot, and is not counted as one', as
   });
   await openVillage(page);
 
-  await expect(page.locator('.pagehead .grow > .note')).toHaveText(`7 plots · ${TOTAL_ACRES_1DP} ac`);
+  await expect(page.locator('.pagehead-summary')).toHaveText(`7 parcels · ${TOTAL_ACRES} ac`);
   await expect(page.locator('.vc-label')).toHaveCount(7);
 
-  await page.getByLabel('Find survey or plot number').fill('900');
-  await page.getByRole('button', { name: 'Find plot' }).click();
-  await expect(page.locator('.vc-tr')).toContainText('No plot starts with 900 in this village.');
-});
-
-// ── the village search's matches ───────────────────────────────────────
-// They float over the map the way the jump box's results float over the
-// page. Listed in the page's flow, they pushed the map 146px down.
-
-test('choosing a matching village closes the matches and clears the search', async ({ page, world }) => {
-  await ground(page, world);
-  await openMaps(page);
-  const search = page.getByLabel('Search all villages');
-  await search.fill(VILLAGE);
-  const rows = matchRows(page);
-  await expect(rows).toHaveCount(1);
-
-  await rows.first().click();
-
-  await expect(page.getByRole('heading', { level: 1, name: VILLAGE })).toBeVisible();
-  await expect(matches(page)).toHaveCount(0);
-  await expect(search).toHaveValue('');
-  // Back in the field, ready for the next name.
-  await expect(search).toBeFocused();
-});
-
-test('Enter on a matching village opens it and puts me back in the search @phone', async ({ page, world }) => {
-  await ground(page, world);
-  await openMaps(page);
-  const search = page.getByLabel('Search all villages');
-  await search.fill(VILLAGE);
-  // Reached from the keyboard. focus() rather than Tab, because Safari's Tab
-  // passes buttons by unless the reader has asked it not to.
-  await matchRows(page).first().focus();
-
-  await page.keyboard.press('Enter');
-
-  await expect(page.getByRole('heading', { level: 1, name: VILLAGE })).toBeVisible();
-  await expect(matches(page)).toHaveCount(0);
-  await expect(search).toHaveValue('');
-  // The row focus was on has gone, so focus comes back to the field rather
-  // than falling to the page.
-  await expect(search).toBeFocused();
-});
-
-test('Escape closes the matches and keeps what I typed', async ({ page, world }) => {
-  await ground(page, world);
-  await openVillage(page);
-  // A plot is chosen, and the page's own Escape puts a plot away. This Escape
-  // belongs to the matches, and does nothing else.
-  await pick(page, '215');
-  const search = page.getByLabel('Search all villages');
-  await search.fill(VILLAGE);
-  const rows = matchRows(page);
-  await expect(rows).toHaveCount(1);
-
-  await page.keyboard.press('Escape');
-
-  await expect(rows).toHaveCount(0);
-  await expect(search).toHaveValue(VILLAGE);
-  await expect(search).toBeFocused();
-  await expect(plotCard(page)).toBeVisible();
-
-  // From a row as well: focus comes back to the field rather than going
-  // with the row it was on.
-  await search.click();
-  await expect(rows).toHaveCount(1);
-  await page.keyboard.press('Tab');
-  await expect(rows.first()).toBeFocused();
-  await page.keyboard.press('Escape');
-  await expect(rows).toHaveCount(0);
-  await expect(search).toBeFocused();
-  await expect(search).toHaveValue(VILLAGE);
-  await expect(plotCard(page)).toBeVisible();
-});
-
-test('once the matches are away, the next Escape is the page\'s again and puts the plot away', async ({ page, world }) => {
-  await ground(page, world);
-  await openVillage(page);
-  await pick(page, '215');
-  const search = page.getByLabel('Search all villages');
-  await search.fill(VILLAGE);
-  await expect(matchRows(page)).toHaveCount(1);
-  await page.keyboard.press('Escape');
-  await expect(matches(page)).toHaveCount(0);
-  await expect(plotCard(page)).toBeVisible();
-
-  await page.keyboard.press('Escape');
-
-  await expect(plotCard(page)).toHaveCount(0);
-  await expect(page.getByLabel('Find survey or plot number')).toHaveValue('');
-  await expect(search).toHaveValue(VILLAGE);
-});
-
-test('after I remove a village from the matches, Escape still puts the rest of them away @phone', async ({ page, world }) => {
-  let gone = false;
-  const other = entry({ key: 'katrapadu', village: 'KATRAPADU', file: 'katrapadu.json' });
-  const store = await ground(page, world, { list: () => ({ json: gone ? [entry()] : [entry(), other] }) });
-  store.remove = () => { gone = true; return { json: { removed: 'KATRAPADU' } }; };
-  await openVillage(page);
-  await pick(page, '215');
-  const search = page.getByLabel('Search all villages');
-  await search.fill('KATRA');
-  await expect(matchRows(page)).toHaveCount(2);
-
-  // The bin that was pressed goes with its row, and focus goes with it. In
-  // Safari a pressed button never takes focus, so there focus is out of the
-  // matches after any press in them.
-  await page.getByRole('button', { name: 'Remove KATRAPADU' }).click();
-  await expect(matchRows(page)).toHaveCount(1);
-
-  await page.keyboard.press('Escape');
-
-  await expect(matches(page)).toHaveCount(0);
-  await expect(search).toHaveValue('KATRA');
-  // The matches' own Escape, and nothing else: the plot is still chosen.
-  await expect(plotCard(page)).toBeVisible();
-});
-
-test('a click away from the search closes its matches', async ({ page, world }) => {
-  await ground(page, world);
-  await openMaps(page);
-  const search = page.getByLabel('Search all villages');
-  await search.fill(VILLAGE);
-  const rows = matchRows(page);
-  await expect(rows).toHaveCount(1);
-
-  // Somewhere neutral: a click on the map would open a village as well.
-  await page.getByRole('heading', { level: 1, name: 'Cadastral maps' }).click();
-
-  await expect(rows).toHaveCount(0);
-  await expect(search).toHaveValue(VILLAGE);
-});
-
-test('tabbing out of the village search closes its matches, as a click away does', async ({ page, world }) => {
-  await ground(page, world);
-  await openMaps(page);
-  const search = page.getByLabel('Search all villages');
-  await search.fill(VILLAGE);
-  const rows = matchRows(page);
-  await expect(rows).toHaveCount(1);
-
-  await page.keyboard.press('Shift+Tab');
-
-  await expect(page.getByRole('button', { name: '+ Filter' })).toBeFocused();
-  await expect(rows).toHaveCount(0);
-  await expect(search).toHaveValue(VILLAGE);
-});
-
-test('the Filter and the village matches take turns rather than covering each other @phone', async ({ page, world }) => {
-  await twoMandals(page, world);
-  await openMaps(page);
-  const area = page.getByRole('group', { name: 'Narrow villages by area' });
-  const search = page.getByLabel('Search all villages');
-  const rows = matchRows(page);
-
-  await page.getByRole('button', { name: '+ Filter' }).click();
-  await expect(area).toBeVisible();
-  // The village search sits in the Filter's own row, so pressing it is not
-  // pressing away from the Filter. Typing a name is what puts the Filter away.
-  await search.click();
-  await search.fill('Mylavaram');
-  await expect(rows).toHaveCount(2);
-  await expect(area).toHaveCount(0);
-  // Put away without taking me out of the field I am typing in.
-  await expect(search).toBeFocused();
-  await expect(search).toHaveValue('Mylavaram');
-
-  await page.getByRole('button', { name: '+ Filter' }).click();
-  await expect(area).toBeVisible();
-  await expect(rows).toHaveCount(0);
-  await expect(search).toHaveValue('Mylavaram');
+  await page.getByLabel('Find a parcel or survey number').fill('900');
+  await page.getByRole('button', { name: 'Find parcel' }).click();
+  await expect(page.locator('.vc-tr')).toContainText('No parcel number starts with 900 in this village.');
 });
 
 // ── where the keyboard is ──────────────────────────────────────────────
@@ -1088,34 +1076,6 @@ test('the Filter and the village matches take turns rather than covering each ot
 // search drew none at all. These run on the phone as well, because Safari
 // draws its own rings and decides :focus-visible for itself.
 
-test('the village search draws its focus ring around the whole field, not inside it @phone', async ({ page, world }) => {
-  await ground(page, world);
-  await openMaps(page);
-  const search = page.getByLabel('Search all villages');
-  // focus() from a fresh load is keyboard focus in both engines.
-  await search.focus();
-  await expect(search).toBeFocused();
-
-  // The pill by its class: the ring is a style of that element.
-  const pill = page.locator('.vm-village-search');
-  await expect.poll(() => ring(pill)).toMatchObject({ style: 'solid', width: '2px' });
-  await expect.poll(async () => (await ring(search)).style).toBe('none');
-});
-
-test('in High Contrast the village search keeps one 3px ring, on the field @phone', async ({ page, world }) => {
-  await ground(page, world);
-  await openMaps(page);
-  await highContrast(page);
-
-  const search = page.getByLabel('Search all villages');
-  await search.focus();
-  await expect(search).toBeFocused();
-  // The pill by its class: the ring is a style of that element.
-  const pill = page.locator('.vm-village-search');
-  await expect.poll(() => ring(pill)).toMatchObject({ style: 'solid', width: '3px' });
-  await expect.poll(async () => (await ring(search)).style).toBe('none');
-});
-
 test('the Filter\'s own search shows where focus is @phone', async ({ page, world }) => {
   await twoMandals(page, world);
   await openMaps(page);
@@ -1123,7 +1083,7 @@ test('the Filter\'s own search shows where focus is @phone', async ({ page, worl
   // for anybody who reached + Filter with Tab.
   await page.getByRole('button', { name: '+ Filter' }).focus();
   await page.keyboard.press('Enter');
-  const area = page.getByRole('group', { name: 'Narrow villages by area' });
+  const area = filterPop(page);
   const search = area.getByRole('textbox');
   await expect(search).toBeFocused();
 
@@ -1142,7 +1102,7 @@ test('in High Contrast the Filter\'s own search keeps one 3px ring, inside its r
   await highContrast(page);
   await page.getByRole('button', { name: '+ Filter' }).focus();
   await page.keyboard.press('Enter');
-  const area = page.getByRole('group', { name: 'Narrow villages by area' });
+  const area = filterPop(page);
   const search = area.getByRole('textbox');
   await expect(search).toBeFocused();
 
@@ -1158,45 +1118,13 @@ test('the top bar\'s search draws its ring around the whole field as well @phone
   await ground(page, world);
   await openMaps(page);
   // Every search pill shares the rule, and the top bar's is on this screen.
-  const jump = page.getByLabel('Jump to a property, document, person');
+  const jump = page.getByLabel('Search properties, documents, people');
   await jump.focus();
   await expect(jump).toBeFocused();
 
   const pill = page.getByRole('search').filter({ has: jump });
   await expect.poll(() => ring(pill)).toMatchObject({ style: 'solid', width: '2px' });
   await expect.poll(async () => (await ring(jump)).style).toBe('none');
-});
-
-test('a matching village shows all of its focus ring, not one cut off at the list\'s edge @phone', async ({ page, world }) => {
-  await ground(page, world);
-  await openMaps(page);
-  await page.getByLabel('Search all villages').fill(VILLAGE);
-  const row = matchRows(page).first();
-  const bin = page.getByRole('button', { name: `Remove ${VILLAGE}` });
-
-  // focus() with nothing clicked yet is keyboard focus in both engines.
-  await row.focus();
-  await expect.poll(async () => (await ring(row)).style).not.toBe('none');
-  expect(await ringWhole(row), 'the row\'s ring runs past the edge of the list').toBe(true);
-  await bin.focus();
-  await expect.poll(async () => (await ring(bin)).style).not.toBe('none');
-  expect(await ringWhole(bin), 'the bin\'s ring runs past the edge of the list').toBe(true);
-});
-
-test('in High Contrast a matching village\'s 3px ring is all there too @phone', async ({ page, world }) => {
-  await ground(page, world);
-  await openMaps(page);
-  await highContrast(page);
-  await page.getByLabel('Search all villages').fill(VILLAGE);
-  const row = matchRows(page).first();
-  const bin = page.getByRole('button', { name: `Remove ${VILLAGE}` });
-
-  await row.focus();
-  await expect.poll(() => ring(row)).toMatchObject({ style: 'solid', width: '3px' });
-  expect(await ringWhole(row), 'the row\'s ring runs past the edge of the list').toBe(true);
-  await bin.focus();
-  await expect.poll(() => ring(bin)).toMatchObject({ style: 'solid', width: '3px' });
-  expect(await ringWhole(bin), 'the bin\'s ring runs past the edge of the list').toBe(true);
 });
 
 // ── one selection, shared by the finder and the map ────────────────────
@@ -1207,7 +1135,7 @@ test('the plot finder and the map are one selection', async ({ page, world }) =>
 
   await pick(page, '215');
 
-  await expect(page.getByLabel('Find survey or plot number')).toHaveValue('215');
+  await expect(page.getByLabel('Find a parcel or survey number')).toHaveValue('215');
   await expect(plotCard(page).locator('.vm-plotno')).toContainText('215');
   // The map writes the chosen plot's number unconditionally — `.on` is the
   // forced label (VillageCanvas.tsx:547), so this is the map agreeing.
@@ -1224,7 +1152,7 @@ test('clicking a field on the map writes its number into the finder', async ({ p
 
   await expect(plotCard(page).locator('.vm-plotno')).toContainText('217');
   await expect(plotCard(page).locator('.vm-acres')).toHaveText('12.00');
-  await expect(page.getByLabel('Find survey or plot number')).toHaveValue('217');
+  await expect(page.getByLabel('Find a parcel or survey number')).toHaveValue('217');
   await expect(page.locator('.vc-label.on')).toContainText('217');
 });
 
@@ -1239,7 +1167,7 @@ test('clicking bare ground puts the plot card away', async ({ page, world }) => 
   await page.mouse.click(box.x + 5, box.y + box.height * 0.5);
 
   await expect(plotCard(page)).toHaveCount(0);
-  await expect(page.getByLabel('Find survey or plot number')).toHaveValue('');
+  await expect(page.getByLabel('Find a parcel or survey number')).toHaveValue('');
 });
 
 test('Escape puts the tape away, restores the prior map, then clears the selection', async ({ page, world }) => {
@@ -1291,16 +1219,20 @@ test('the plot number is outlined and as wide as the number needs', async ({ pag
   await expect(tile).toContainText('214/2');
   // Nothing spills past the tile's own edge.
   expect(await tile.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
-  // One filled button in view, and it is the plot's own way on: 214/2 is one
-  // of my properties, so that is Open, not Add.
-  const filled = page.locator('main.vm .btn.primary');
+  // One filled button in the panel, and it is the plot's own way on: 214/2
+  // is one of my properties, so that is Open, not Add. (The head's add is
+  // the page's one filled command.)
+  const filled = page.locator('main.vm .vm-body .btn.primary');
   await expect(filled).toHaveCount(1);
   await expect(filled).toHaveText('Open Sy 214/2');
-  // The toggles that are on say so with a check, not a fill.
+  // The toggles that are on say so with the wash and a bold label, not a
+  // fill and not a tick, as on a property's Location tab.
   await expect(chip(page, 'Satellite')).toHaveAttribute('aria-pressed', 'true');
-  await expect(chip(page, 'Satellite').locator('svg')).toHaveCount(1);
-  await expect(page.getByRole('button', { name: 'Numbers' }).locator('svg')).toHaveCount(1);
-  await expect(chip(page, 'Street map').locator('svg')).toHaveCount(0);
+  await expect(chip(page, 'Satellite').locator('svg')).toHaveCount(0);
+  await expect(chip(page, 'Satellite')).toHaveCSS('font-weight', '700');
+  await expect(page.getByRole('button', { name: 'Numbers' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Numbers' }).locator('svg')).toHaveCount(0);
+  await expect(chip(page, 'Street map')).toHaveCSS('font-weight', '400');
 });
 
 test('a figure off the sheet and a figure off the polygon are not the same claim', async ({ page, world }) => {
@@ -1308,7 +1240,7 @@ test('a figure off the sheet and a figure off the polygon are not the same claim
   await openVillage(page);
 
   await pick(page, '214/2');
-  await expect(plotCard(page)).toContainText('As stated on the shape file. · Chaltha Bandla Cheruvu');
+  await expect(plotCard(page)).toContainText('As stated on the map file. · Chaltha Bandla Cheruvu');
 
   await pick(page, '219');
   // Measured off the ring, so two decimals: the finder's figure too.
@@ -1322,7 +1254,7 @@ test('adjoining plots lead to each other', async ({ page, world }) => {
   await pick(page, '215');
 
   const plot = plotCard(page);
-  await expect(plot).toContainText('Adjoining plots');
+  await expect(plot).toContainText('Adjoining parcels');
   const neighbours = plot.locator('.chip');
   await expect(neighbours).toHaveText(['214/2', '216', '218']);
 
@@ -1330,7 +1262,7 @@ test('adjoining plots lead to each other', async ({ page, world }) => {
 
   await expect(plot.locator('.vm-plotno')).toContainText('216');
   await expect(plot.locator('.chip')).toHaveText(['215', '219']);
-  await expect(page.getByLabel('Find survey or plot number')).toHaveValue('216');
+  await expect(page.getByLabel('Find a parcel or survey number')).toHaveValue('216');
 });
 
 test('a plot with nothing to disclose does not offer More', async ({ page, world }) => {
@@ -1340,7 +1272,7 @@ test('a plot with nothing to disclose does not offer More', async ({ page, world
 
   // Nothing touches it and it is nobody's record, so there is nothing under a
   // chevron that turns and reveals empty space.
-  await expect(plotCard(page)).not.toContainText('Adjoining plots');
+  await expect(plotCard(page)).not.toContainText('Adjoining parcels');
   await expect(plotCard(page).getByRole('button', { name: /^(More|Less)$/ })).toHaveCount(0);
 });
 
@@ -1354,7 +1286,7 @@ test('More and Less fold what there is to disclose', async ({ page, world }) => 
 
   await fold.click();
 
-  await expect(plotCard(page)).not.toContainText('Adjoining plots');
+  await expect(plotCard(page)).not.toContainText('Adjoining parcels');
   await expect(plotCard(page).getByRole('button', { name: 'More' })).toHaveAttribute('aria-expanded', 'false');
 });
 
@@ -1389,7 +1321,7 @@ test('a record with no owner name on it is still named, and an empty passbook is
   // It is still one of mine, so the way in is that record and not a second
   // copy of it.
   await expect(plotCard(page).getByRole('button', { name: 'Open Sy 215' })).toBeVisible();
-  await expect(plotCard(page).getByRole('button', { name: 'Add to Properties' })).toHaveCount(0);
+  await expect(plotCard(page).getByRole('button', { name: 'Add the property' })).toHaveCount(0);
 });
 
 test('a record for plot 214 does not get to claim 214/2', async ({ page, world }) => {
@@ -1405,7 +1337,7 @@ test('a record for plot 214 does not get to claim 214/2', async ({ page, world }
 
   await expect(plotCard(page).locator('.vm-facts')).toContainText('Not one of your properties');
   await expect(plotCard(page).locator('.vm-facts')).not.toContainText('Telukutla Shankar Reddy');
-  await expect(plotCard(page).getByRole('button', { name: 'Add to Properties' })).toBeEnabled();
+  await expect(plotCard(page).getByRole('button', { name: 'Add the property' })).toBeEnabled();
 });
 
 test('a flat in the same village does not get to claim a field', async ({ page, world }) => {
@@ -1433,7 +1365,7 @@ test('the papers on my own plot are listed with their page counts', async ({ pag
   await expect(plot).toContainText('Documents on file');
   await expect(plot.locator('.row.between')).toHaveCount(5);
   await expect(plot.locator('.row.between').first()).toContainText('Sale deed 4412 of 1998');
-  await expect(plot.locator('.row.between').first()).toContainText('14 pp');
+  await expect(plot.locator('.row.between').first()).toContainText('14 pages');
   expect(world.lastVars('papers')).toMatchObject({ id: ID.parcel });
 });
 
@@ -1446,7 +1378,7 @@ test('papers still on their way are not "nothing filed"', async ({ page, world }
   const looking = plotCard(page).getByText('Looking for documents…');
   await expect(looking).toBeVisible();
   await expect(looking).toHaveAttribute('aria-busy', 'true');
-  await expect(plotCard(page)).not.toContainText('Nothing filed against');
+  await expect(plotCard(page)).not.toContainText('No documents on');
 });
 
 test('papers that could not be read say so, and come back on a second go', async ({ page, world }) => {
@@ -1456,8 +1388,8 @@ test('papers that could not be read say so, and come back on a second go', async
   await pick(page, '214/2');
 
   const plot = plotCard(page);
-  await expect(plot).toContainText('The documents filed against Sy 214/2 could not be loaded.');
-  await expect(plot).not.toContainText('Nothing filed against');
+  await expect(plot).toContainText('The documents on Sy 214/2 could not be loaded.');
+  await expect(plot).not.toContainText('No documents on');
 
   world.set('papers', [
     { id: 'w-paper-1', title: 'Adangal 2025-26', detail: 'Revenue record', shelf: 'revenue', icon: 'revenue', tags: [], shared: false, pageCount: 2, fileRef: 'file-adangal' },
@@ -1504,13 +1436,13 @@ test('a plot with more papers than the panel shows says how many there are', asy
   await expect(plotCard(page)).toContainText('first 6 of 9');
 });
 
-test('a record with nothing filed against it says that, not nothing at all', async ({ page, world }) => {
+test('a record with no documents says that, not nothing at all', async ({ page, world }) => {
   world.set('papers', []);
   await ground(page, world);
   await openVillage(page);
   await pick(page, '214/2');
 
-  await expect(plotCard(page)).toContainText('Nothing filed against Sy 214/2 yet.');
+  await expect(plotCard(page)).toContainText('No documents on Sy 214/2 yet.');
 });
 
 // ── what the screen may not claim while the records are unknown ────────
@@ -1526,7 +1458,7 @@ test('while my records have not answered the screen will not call my own land a 
   await expect(plot.locator('.vm-facts')).not.toContainText('Not one of your properties');
   // Adding waits for them, because on unknown data it cannot tell a new plot
   // from one the account already holds.
-  await expect(plot.getByRole('button', { name: 'Add to Properties' })).toBeDisabled();
+  await expect(plot.getByRole('button', { name: 'Add the property' })).toBeDisabled();
   await expect(plot).toContainText('Checking your properties…');
   await expect(sideCard(page, 'All plots')).toHaveCount(0);
 });
@@ -1540,7 +1472,7 @@ test('records that could not be read turn filing off and say why', async ({ page
   const plot = plotCard(page);
   await expect(plot.locator('.vm-facts')).toContainText('Your properties could not be loaded');
   await expect(plot.locator('.vm-facts')).toContainText('Not known');
-  await expect(plot.getByRole('button', { name: 'Add to Properties' })).toBeDisabled();
+  await expect(plot.getByRole('button', { name: 'Add the property' })).toBeDisabled();
   // One short sentence under the buttons, with its retry beside it.
   await expect(plot).toContainText('Your properties could not be loaded. Try again');
   await expect(plot.getByRole('button', { name: 'Try again' })).toBeVisible();
@@ -1579,12 +1511,12 @@ test('a plot number found flies to it and opens it', async ({ page, world }) => 
   await ground(page, world);
   await openVillage(page);
 
-  await page.getByLabel('Find survey or plot number').fill('215');
-  await page.getByRole('button', { name: 'Find plot' }).click();
+  await page.getByLabel('Find a parcel or survey number').fill('215');
+  await page.getByRole('button', { name: 'Find parcel' }).click();
 
-  await expect(page.locator('.vc-tr')).toContainText('Plot 215 · 4.25 ac');
+  await expect(page.locator('.vc-tr')).toContainText('Parcel 215 · 4.25 ac');
   await expect(plotCard(page).locator('.vm-plotno')).toContainText('215');
-  await expect(page.getByLabel('Find survey or plot number')).toHaveValue('215');
+  await expect(page.getByLabel('Find a parcel or survey number')).toHaveValue('215');
 });
 
 test('the plot search takes a survey number the way anybody writes it, and Enter is enough', async ({ page, world }) => {
@@ -1592,13 +1524,13 @@ test('the plot search takes a survey number the way anybody writes it, and Enter
   await openVillage(page);
 
   // "Sy 219" is what is written on the record, the passbook and the deed.
-  await page.getByLabel('Find survey or plot number').fill('Sy 219');
-  await page.getByLabel('Find survey or plot number').press('Enter');
+  await page.getByLabel('Find a parcel or survey number').fill('Sy 219');
+  await page.getByLabel('Find a parcel or survey number').press('Enter');
 
-  await expect(page.locator('.vc-tr')).toContainText('Plot 219 · 4.24 ac');
+  await expect(page.locator('.vc-tr')).toContainText('Parcel 219 · 4.24 ac');
   await expect(plotCard(page).locator('.vm-plotno')).toContainText('219');
   await expect(page.locator('.vc-label.on')).toContainText('219');
-  await expect(page.getByLabel('Find survey or plot number')).toHaveValue('219');
+  await expect(page.getByLabel('Find a parcel or survey number')).toHaveValue('219');
 });
 
 test('a survey-number prefix offers the full subdivision before selecting it', async ({ page, world }) => {
@@ -1607,10 +1539,10 @@ test('a survey-number prefix offers the full subdivision before selecting it', a
 
   // 214 is not 214/2: the prefix may help the reader reach the subdivision,
   // but the full number becomes selected only when its option is chosen.
-  const finder = page.getByLabel('Find survey or plot number');
+  const finder = page.getByLabel('Find a parcel or survey number');
   await finder.fill('214');
 
-  const option = plotFinder(page).getByRole('option', { name: /^Plot 214\/2\b/ });
+  const option = plotFinder(page).getByRole('option', { name: /^Parcel 214\/2\b/ });
   await expect(option).toBeVisible();
   await option.click();
 
@@ -1623,17 +1555,17 @@ test('the finder suggests plot numbers by prefix without a permanent plot column
   await openVillage(page);
 
   await expect(sideCard(page, 'All plots')).toHaveCount(0);
-  const finder = page.getByLabel('Find survey or plot number');
+  const finder = page.getByLabel('Find a parcel or survey number');
   await finder.fill('21');
 
   await expect(plotOptions(page)).toHaveCount(6);
-  await expect(plotFinder(page)).toContainText('6 matching plots');
-  await expect(plotFinder(page).getByRole('option', { name: /^Plot 214\/2\b/ }))
+  await expect(plotFinder(page)).toContainText('6 matching parcels');
+  await expect(plotFinder(page).getByRole('option', { name: /^Parcel 214\/2\b/ }))
     .toContainText('2.50 ac');
-  await expect(plotFinder(page).getByRole('option', { name: /^Plot 216\b/ }))
+  await expect(plotFinder(page).getByRole('option', { name: /^Parcel 216\b/ }))
     .toContainText('0.80 ac');
 
-  await plotFinder(page).getByRole('option', { name: /^Plot 216\b/ }).click();
+  await plotFinder(page).getByRole('option', { name: /^Parcel 216\b/ }).click();
   await expect(finder).toHaveValue('216');
   await expect(plotCard(page).locator('.vm-plotno')).toContainText('216');
 
@@ -1660,18 +1592,18 @@ test('a large village shows only compact prefix suggestions and reports the full
   });
   await openVillage(page);
 
-  const finder = page.getByLabel('Find survey or plot number');
+  const finder = page.getByLabel('Find a parcel or survey number');
   await finder.fill('1');
   await expect(plotOptions(page)).toHaveCount(8);
-  await expect(plotFinder(page)).toContainText('100 matching plots · first 8 shown');
-  await expect(plotOptions(page).first()).toContainText('Plot 100');
+  await expect(plotFinder(page)).toContainText('100 matching parcels · first 8 shown');
+  await expect(plotOptions(page).first()).toContainText('Parcel 100');
 
   // Prefix means prefix: 25 finds 250–255, not 125 or 225.
   await finder.fill('25');
   await expect(plotOptions(page)).toHaveCount(6);
-  await expect(plotFinder(page)).toContainText('6 matching plots');
-  await expect(plotFinder(page)).not.toContainText('Plot 125');
-  await expect(plotFinder(page)).not.toContainText('Plot 225');
+  await expect(plotFinder(page)).toContainText('6 matching parcels');
+  await expect(plotFinder(page)).not.toContainText('Parcel 125');
+  await expect(plotFinder(page)).not.toContainText('Parcel 225');
 });
 
 // ── the measuring tape ─────────────────────────────────────────────────
@@ -1681,7 +1613,7 @@ test('the tape reports a distance, then an area once it closes', async ({ page, 
   await openVillage(page);
 
   await startMeasure(page);
-  await expect(tape(page)).toContainText('Tap each corner.');
+  await expect(tape(page)).toContainText('Choose each corner.');
   await expect(tape(page).getByRole('button', { name: 'Undo point' })).toBeDisabled();
 
   await clickMap(page, 0.35, 0.35);
@@ -1693,7 +1625,7 @@ test('the tape reports a distance, then an area once it closes', async ({ page, 
 
   await clickMap(page, 0.6, 0.6);
   await expect(tape(page)).toContainText(/Perimeter [\d,]+(\.\d)? m · 3 points/);
-  await expect(tape(page)).toContainText(/Encloses \d+\.\d{3} ac/);
+  await expect(tape(page)).toContainText(/Encloses \d+\.\d{2} ac/);
   // Every corner lettered and every side dimensioned, the way a boundary is.
   await expect(page.locator('.w-corner-no')).toHaveCount(3);
   await expect(page.locator('.w-side')).toHaveCount(3);
@@ -1715,7 +1647,7 @@ test('the tape takes back one point at a time, and empties without putting itsel
   await tape(page).getByRole('button', { name: 'Clear measure' }).click();
   await expect(page.locator('.w-corner-no')).toHaveCount(0);
   await expect(page.locator('.w-side')).toHaveCount(0);
-  await expect(tape(page)).toContainText('Tap each corner.');
+  await expect(tape(page)).toContainText('Choose each corner.');
   // Cleared, not closed: the tape is still out.
   await expect(page.getByRole('button', { name: 'Measure on satellite', exact: true })).toHaveAttribute('aria-pressed', 'true');
 });
@@ -1734,7 +1666,7 @@ test('Measure switches to Satellite, locks layers, and restores the previous map
   await expect(measure).toHaveAttribute('aria-pressed', 'true');
   await expect(chip(page, 'Satellite')).toHaveAttribute('aria-pressed', 'true');
   await expect(tape(page)).toContainText('Satellite view on');
-  for (const name of ['Satellite', 'Street map', 'Plot size', 'Boundaries']) {
+  for (const name of ['Satellite', 'Street map', 'Extent', 'Boundaries']) {
     await expect(chip(page, name)).toBeDisabled();
   }
 
@@ -1750,7 +1682,7 @@ test('Measure switches to Satellite, locks layers, and restores the previous map
 
   await expect(measure).toHaveAttribute('aria-pressed', 'false');
   await expect(chip(page, 'Boundaries')).toHaveAttribute('aria-pressed', 'true');
-  for (const name of ['Satellite', 'Street map', 'Plot size', 'Boundaries']) {
+  for (const name of ['Satellite', 'Street map', 'Extent', 'Boundaries']) {
     await expect(chip(page, name)).toBeEnabled();
   }
   await expect(page.locator('.leaflet-tile-pane img')).toHaveCount(0);
@@ -1796,8 +1728,9 @@ test('the fence calculator opens over the map with the plot’s own corners coun
 
   // It takes the stage, and the inspector stands down rather than answering
   // the same question in a second panel.
-  await expect(page.getByRole('heading', { level: 1, name: 'Plot 215' })).toBeVisible();
-  await expect(page.locator('.pagehead .grow > .note')).toHaveText(VILLAGE);
+  await expect(page.getByRole('heading', { level: 1, name: 'Parcel 215' })).toBeVisible();
+  // The head's figure is the parcel's own extent, as the sheet states it.
+  await expect(page.locator('.pagehead-summary')).toHaveText('4.25 ac');
   await expect(page.locator('.vm-side')).toHaveCount(0);
 
   const sides = page.locator('.fs-side');
@@ -1940,14 +1873,14 @@ test('the estimate leaves the screen as work on the record it belongs to', async
   await page.getByLabel('₹ per m of wire').fill('12');
   await page.getByRole('button', { name: 'Ask for this on Sy 214/2' }).click();
 
-  await expect(page).toHaveURL(new RegExp(`/app/records/${ID.parcel}/services$`));
+  await expect(page).toHaveURL(new RegExp(`/properties/${ID.parcel}/services$`));
   expect(world.calls('createRequest')).toHaveLength(1);
   const asked = world.lastVars('createRequest');
   expect(asked).toMatchObject({ recordId: ID.parcel, kind: 'fencing' });
   // The whole bill rides along in the message — a work request that says
   // "fencing needed" is not an estimate anybody can act on.
   const message = String(asked.message);
-  expect(message).toContain('Fence Plot 214/2 (KATRAGUNTA)');
+  expect(message).toContain('Fence Parcel 214/2 (KATRAGUNTA)');
   expect(message).toContain('at the corners');
   expect(message).toContain('strands');
   expect(message).toContain('Materials only');
@@ -1962,7 +1895,7 @@ test('a refused fence request keeps the estimate on screen and says it was not a
   await page.getByRole('button', { name: 'Ask for this on Sy 214/2' }).click();
 
   await expect(page.locator('.fs-panel')).toContainText('That request was not accepted.');
-  await expect(page).toHaveURL(/\/app\/maps$/);
+  await expect(page).toHaveURL(/\/maps$/);
   await expect(page.locator('.fs-bar')).toBeVisible();
 });
 
@@ -1978,7 +1911,7 @@ test('a fence request the desk could not take says what the desk said', async ({
 
   await expect(page.locator('.fs-panel')).toContainText('that record is no longer yours');
   await expect(page.getByRole('alert')).toContainText('That request could not be saved. Nothing has changed.');
-  await expect(page).toHaveURL(/\/app\/maps$/);
+  await expect(page).toHaveURL(/\/maps$/);
   await expect(page.locator('.fs-bar')).toBeVisible();
 });
 
@@ -1995,7 +1928,7 @@ test('a plot that is nobody’s record can be printed and not much else', async 
   expect(await printed(page)).toBe(1);
   // And the sheet that prints is the drawing, not the form.
   await expect(page.locator('.fs-sheet')).toContainText('Fence estimate');
-  await expect(page.locator('.fs-sheet')).toContainText('Plot 216');
+  await expect(page.locator('.fs-sheet')).toContainText('Parcel 216');
   await expect(page.locator('svg.fs-plan')).toHaveCount(1);
 });
 
@@ -2012,7 +1945,7 @@ test('the fence calculator prices the shape I walked, not the plot behind it', a
   await page.getByRole('button', { name: 'Fence calculator' }).click();
 
   await expect(page.getByRole('heading', { level: 1, name: 'The shape you measured' })).toBeVisible();
-  await expect(page.locator('.pagehead .grow > .note')).toHaveText('3 points');
+  await expect(page.locator('.pagehead-summary')).toHaveText('3 points');
   await expect(page.locator('.fs-side')).toHaveCount(3);
 });
 
@@ -2029,7 +1962,7 @@ test('a tape with two points in it prices an open run, not a plot', async ({ pag
   await page.getByRole('button', { name: 'Fence calculator' }).click();
 
   await expect(page.getByRole('heading', { level: 1, name: 'The shape you measured' })).toBeVisible();
-  await expect(page.locator('.pagehead .grow > .note')).toHaveText('2 points');
+  await expect(page.locator('.pagehead-summary')).toHaveText('2 points');
   await expect(page.locator('.fs-side')).toHaveCount(1);
   await expect(page.locator('.fs-panel')).toContainText('1 side of 1 side');
   // A run has two ends, and a post stands at each of them — it does not close
@@ -2081,7 +2014,7 @@ test('handing a village plot to a record I already have puts the shape on it and
 
   await plot.getByRole('button', { name: /^Sy 301/ }).click();
 
-  await expect(page).toHaveURL(new RegExp(`/app/records/${ID.watched}/map$`));
+  await expect(page).toHaveURL(new RegExp(`/properties/${ID.watched}/location$`));
   expect(world.calls('setBoundary')).toHaveLength(1);
   const sent = world.lastVars('setBoundary');
   expect(sent).toMatchObject({ recordId: ID.watched });
@@ -2100,7 +2033,7 @@ test('a refused boundary says so, and does not pretend the record has a shape', 
   await expect(plotCard(page)).toContainText(
     'That boundary was refused — the shape may have fewer than three usable corners, '
     + 'or that property is no longer yours.');
-  await expect(page).toHaveURL(/\/app\/maps$/);
+  await expect(page).toHaveURL(/\/maps$/);
 });
 
 test('the adopt list is land in this village with no boundary on it yet', async ({ page, world }) => {
@@ -2169,10 +2102,10 @@ test('adding a mapped plot opens Properties only after its boundary is saved', a
   await openVillage(page);
   await pick(page, '216');
 
-  await plotCard(page).getByRole('button', { name: 'Add to Properties' }).click();
+  await plotCard(page).getByRole('button', { name: 'Add the property' }).click();
 
-  await expect(page).toHaveURL(/\/app\/properties$/);
-  await expect(page.getByRole('heading', { level: 1, name: 'Properties' })).toBeVisible();
+  // The new property itself, as a drawn shape's add opens it.
+  await expect(page).toHaveURL(/\/properties\/w-record-new\/location$/);
   expect(world.lastVars('saveRecord')).toMatchObject({
     input: {
       kind: 'parcel', title: '216', classification: 'agri', status: 'owned',
@@ -2188,17 +2121,17 @@ test('a property filed without its shape offers the boundary alone, never a seco
   await openVillage(page);
   await pick(page, '216');
 
-  await plotCard(page).getByRole('button', { name: 'Add to Properties' }).click();
+  await plotCard(page).getByRole('button', { name: 'Add the property' }).click();
 
   await expect(plotCard(page)).toContainText(
     '216 was added to Properties, but its boundary was refused. Try the boundary again, '
     + 'or open Properties and draw the shape.');
-  await expect(page).toHaveURL(/\/app\/maps$/);
+  await expect(page).toHaveURL(/\/maps$/);
 
   world.set('setBoundary', true);
   await plotCard(page).getByRole('button', { name: 'Try the boundary again' }).click();
 
-  await expect(page).toHaveURL(/\/app\/properties$/);
+  await expect(page).toHaveURL(/\/properties\/w-record-new\/location$/);
   // Added once, however many times the shape was tried.
   expect(world.calls('saveRecord')).toHaveLength(1);
   expect(world.calls('setBoundary')).toHaveLength(2);
@@ -2210,14 +2143,14 @@ test('a boundary refused a second time says so again, and still files nothing tw
   await openVillage(page);
   await pick(page, '216');
 
-  await plotCard(page).getByRole('button', { name: 'Add to Properties' }).click();
+  await plotCard(page).getByRole('button', { name: 'Add the property' }).click();
   await expect(plotCard(page)).toContainText('was added to Properties, but its boundary was refused');
 
   await plotCard(page).getByRole('button', { name: 'Try the boundary again' }).click();
 
   await expect(plotCard(page)).toContainText(
     'That boundary was refused again — the shape may have fewer than three usable corners.');
-  await expect(page).toHaveURL(/\/app\/maps$/);
+  await expect(page).toHaveURL(/\/maps$/);
   // One record, two attempts at its shape. A second press of Try again must
   // never become a second copy of the plot.
   expect(world.calls('saveRecord')).toHaveLength(1);
@@ -2230,16 +2163,134 @@ test('a plot that is already one of my records opens the record instead of filin
   await openVillage(page);
   await pick(page, '214/2');
 
-  await expect(plotCard(page).getByRole('button', { name: 'Add to Properties' })).toHaveCount(0);
+  await expect(plotCard(page).getByRole('button', { name: 'Add the property' })).toHaveCount(0);
   await plotCard(page).getByRole('button', { name: 'Open Sy 214/2' }).click();
 
-  await expect(page).toHaveURL(new RegExp(`/app/records/${ID.parcel}/map$`));
+  await expect(page).toHaveURL(new RegExp(`/properties/${ID.parcel}/location$`));
   expect(world.calls('saveRecord')).toHaveLength(0);
 });
 
 // ── sending a village map up, and taking it back off ───────────────────
 
 const KMZ = { name: 'katragunta.kmz', mimeType: 'application/vnd.google-earth.kmz', buffer: Buffer.from('PK katragunta') };
+
+/** Mark a new boundary over a picked plot (picking flies in past the zoom
+ *  gate), with three corners placed. */
+async function markThree(page: Page): Promise<void> {
+  await pick(page, '215');
+  const mark = page.getByRole('button', { name: 'Mark a new boundary' });
+  await expect(mark).toBeEnabled();
+  await mark.click();
+  await expect(mark).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('.vc-map').evaluate(() => new Promise<void>((resolve) =>
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await beginTape(page, 0.35, 0.35);
+  await clickMap(page, 0.6, 0.35);
+  await clickMap(page, 0.6, 0.6);
+  await expect(tape(page)).toContainText(/Encloses \d+\.\d{2} ac/);
+}
+
+test('marking clears the selected parcel, says why Measure is off and checks the survey number', async ({ page, world }) => {
+  await ground(page, world);
+  await openVillage(page);
+  await markThree(page);
+
+  // One Add the property on screen: the selected parcel's card has gone.
+  await expect(page.getByRole('button', { name: 'Add the property' })).toHaveCount(1);
+  const measure = page.getByRole('button', { name: 'Measure on satellite', exact: true });
+  await expect(measure).toBeDisabled();
+  await expect(measure).toHaveAccessibleDescription('Turn Mark a new boundary off to measure on satellite.');
+
+  const add = tape(page).getByRole('button', { name: 'Add the property' });
+  await tape(page).getByLabel('Survey number').fill('the big field');
+  await expect(add).toBeDisabled();
+  await expect(tape(page)).toContainText('Enter a survey number, for example 1234 or 1234/2.');
+  await tape(page).getByLabel('Survey number').fill('300/1');
+  await expect(add).toBeEnabled();
+});
+
+test('Escape with corners placed asks first, and Cancel keeps them', async ({ page, world }) => {
+  await ground(page, world);
+  await openVillage(page);
+  await markThree(page);
+
+  await page.keyboard.press('Escape');
+  const ask = page.getByRole('dialog', { name: 'Discard these corners?' });
+  await expect(ask).toBeVisible();
+  await ask.getByRole('button', { name: 'Cancel' }).click();
+  await expect(tape(page)).toContainText('3 points');
+
+  await page.keyboard.press('Escape');
+  await page.getByRole('dialog', { name: 'Discard these corners?' }).getByRole('button', { name: 'Discard' }).click();
+  await expect(page.getByRole('button', { name: 'Mark a new boundary' })).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('a drawn shape whose boundary is refused retries the boundary alone, then opens the property', async ({ page, world }) => {
+  world.set('setBoundary', false);
+  await ground(page, world);
+  await openVillage(page);
+  await markThree(page);
+
+  await tape(page).getByLabel('Survey number').fill('300/1');
+  await tape(page).getByRole('button', { name: 'Add the property' }).click();
+  await expect(tape(page).getByRole('alert')).toContainText(
+    '300/1 was added to Properties, but its boundary was refused. Try the boundary again, '
+    + 'or open Properties and draw the shape.');
+  await expect(tape(page).getByRole('button', { name: 'Add the property' })).toHaveCount(0);
+
+  world.set('setBoundary', true);
+  await tape(page).getByRole('button', { name: 'Try the boundary again' }).click();
+  await expect(page).toHaveURL(/\/properties\/w-record-new\/location$/);
+  expect(world.calls('saveRecord')).toHaveLength(1);
+  expect(world.calls('setBoundary')).toHaveLength(2);
+});
+
+test('a drawn shape that could not be filed says so once, in the owner’s words', async ({ page, world }) => {
+  world.set('saveRecord', World.gqlError('the record store is down'));
+  await ground(page, world);
+  await openVillage(page);
+  await markThree(page);
+
+  await tape(page).getByLabel('Survey number').fill('300/1');
+  await tape(page).getByRole('button', { name: 'Add the property' }).click();
+  await expect(tape(page).getByRole('alert')).toHaveText('That land could not be added to Properties.');
+  await expect(page.getByText('the record store is down')).toHaveCount(0);
+  await expect(page.getByText('Nothing has changed.')).toHaveCount(0);
+});
+
+test('land marked on the all-villages map suggests the mapped villages nearby, nearest filled in', async ({ page, world }) => {
+  const east = (at: number[][][]) => at.map((seg) => seg.map(([lat, lon]) => [lat, lon + 0.01]));
+  const other = entry({
+    key: 'katrapadu', village: 'KATRAPADU', file: 'katrapadu.json',
+    centre: [15.7396, 79.2808], outline: east(OUTLINE),
+  });
+  await ground(page, world, { list: () => ({ json: [entry(), other] }) });
+  await openMaps(page);
+  await expect(page.locator('.vc-village')).toHaveCount(2);
+
+  // Past the zoom gate, over the gap between the two villages.
+  const mark = page.getByRole('button', { name: 'Mark a new boundary' });
+  for (let i = 0; i < 6 && !(await mark.isVisible()); i++) {
+    await page.locator('.leaflet-control-zoom-in').click();
+    await page.waitForTimeout(400);
+  }
+  await expect(mark).toBeEnabled();
+  await mark.click();
+  await beginTape(page, 0.35, 0.35);
+  await clickMap(page, 0.6, 0.35);
+  await clickMap(page, 0.6, 0.6);
+  await expect(tape(page)).toContainText(/Encloses \d+\.\d{2} ac/);
+
+  const field = tape(page).getByLabel('Village');
+  const options = page.locator('#vm-near-villages option');
+  await expect(options).toHaveCount(2);
+  await expect(field).toHaveAttribute('list', 'vm-near-villages');
+  await expect(field).toHaveValue((await options.first().getAttribute('value'))!);
+  await expect(tape(page)).toContainText('The nearest mapped village. Change it if your land is in another.');
+  // Still free text: land outside every mapped village keeps its own name.
+  await field.fill('Somewhere else');
+  await expect(field).toHaveValue('Somewhere else');
+});
 
 test('uploading a village map sends the file and lands me on the map it just took', async ({ page, world }) => {
   let landed = false;
@@ -2258,8 +2309,8 @@ test('uploading a village map sends the file and lands me on the map it just too
   // filter and list remain available without a duplicate village switch.
   await expect(page.getByRole('heading', { level: 1, name: VILLAGE })).toBeVisible();
   await expect(page.locator('.vc-label').first()).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByLabel('Search all villages')).toBeVisible();
-  await expect(page.locator('.pagehead .grow > .note')).toHaveText(`7 plots · ${TOTAL_ACRES_1DP} ac`);
+  await expect(page.getByRole('button', { name: '+ Filter' })).toBeVisible();
+  await expect(page.locator('.pagehead-summary')).toHaveText(`7 parcels · ${TOTAL_ACRES} ac`);
 });
 
 test('an upload says which file each village came from, what was recovered and what was left out', async ({ page, world }) => {
@@ -2281,11 +2332,11 @@ test('an upload says which file each village came from, what was recovered and w
 
   const report = page.locator('.vm-map-filters');
   await expect(report).toContainText(
-    'KATRAGUNTA — 7 plots, replacing the one on file, from katragunta.kmz.');
-  await expect(report).toContainText('12 plot numbers were read off a separate label sheet.');
+    'KATRAGUNTA — 7 parcels, replacing the one on file, from katragunta.kmz.');
+  await expect(report).toContainText('12 parcel numbers were read off a separate label sheet.');
   await expect(report).toContainText('1 shape had no number and was left out.');
   await expect(report).toContainText(
-    '2 plot numbers are claimed by more than one shape.');
+    '2 parcel numbers are claimed by more than one shape.');
   await expect(report).toContainText('katragunta-labels.kml was not used (labels only).');
   await expect(report).toContainText('notes.txt — not a KML or KMZ');
 });
@@ -2308,23 +2359,30 @@ test('re-uploading a village redraws the map that is open, not just the row in t
 
   await page.getByLabel('Cadastral map file').setInputFiles(KMZ);
 
-  await expect(page.locator('.pagehead .grow > .note')).toHaveText(/^3 plots · /);
+  await expect(page.locator('.pagehead-summary')).toHaveText(/^3 parcels · /);
   await expect(sideCard(page, 'All plots')).toHaveCount(0);
   await expect(page.locator('.vc-label')).toHaveCount(3);
   await expect(page.locator('.vm-map-filters')).toContainText(
-    'KATRAGUNTA — 3 plots, replacing the one on file, from katragunta.kmz.');
+    'KATRAGUNTA — 3 parcels, replacing the one on file, from katragunta.kmz.');
 });
 
-test('a shipped village map has no bin, because it is not this screen’s to delete', async ({ page, world }) => {
+test('a shipped village map cannot be removed, because it is not this screen’s to delete', async ({ page, world }) => {
   await ground(page, world, {
     shipped: [{ village: 'KONDAPURAM', file: 'kondapuram.geojson', key: 'kondapuram', plots: 3 }],
   });
-  await openMaps(page);
+  await openVillage(page);
+  await expectRemoveOffered(page);
 
-  await page.getByLabel('Search all villages').fill(VILLAGE);
-  await expect(page.getByRole('button', { name: `Remove ${VILLAGE}` })).toBeVisible();
-  await page.getByLabel('Search all villages').fill('KONDAPURAM');
-  await expect(page.getByRole('button', { name: 'Remove KONDAPURAM' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'All villages' }).click();
+  await openVillage(page, 'KONDAPURAM');
+  await expect(headMore(page)).toHaveCount(0);
+});
+
+test('with no village open there is no map to remove', async ({ page, world }) => {
+  await ground(page, world);
+  await openMaps(page);
+  await expect(page.locator('.vc-village')).toBeVisible();
+  await expect(headMore(page)).toHaveCount(0);
 });
 
 test('taking an uploaded map off closes it and leaves the shelf empty', async ({ page, world }) => {
@@ -2333,15 +2391,31 @@ test('taking an uploaded map off closes it and leaves the shelf empty', async ({
   store.remove = () => { gone = true; return { json: { removed: VILLAGE } }; };
   await openVillage(page);
 
-  await page.getByLabel('Search all villages').fill(VILLAGE);
-  await page.getByRole('button', { name: `Remove ${VILLAGE}` }).click();
+  await removeMap(page);
 
+  await expect.poll(() => world.restCalls(/village-maps/).filter((c) => c.method === 'DELETE').length).toBe(1);
   const deletes = world.restCalls(/village-maps/).filter((c) => c.method === 'DELETE');
-  expect(deletes).toHaveLength(1);
   expect(deletes[0].path).toBe(`/api/gateway/pattadar/village-maps/${KEY}`);
 
   await expect(sideCard(page, 'No cadastral maps yet')).toBeVisible();
   await expect(page.locator('.leaflet-container')).toHaveCount(0);
+});
+
+test('taking an uploaded map off lets go of the pick that opened it', async ({ page, world }) => {
+  let gone = false;
+  const other = entry({ key: 'katrapadu', village: 'KATRAPADU', file: 'katrapadu.json' });
+  const store = await ground(page, world, { list: () => ({ json: gone ? [other] : [entry(), other] }) });
+  store.remove = () => { gone = true; return { json: { removed: VILLAGE } }; };
+  await openVillage(page);
+  await expect(page.getByRole('button', { name: `Remove filter Village ${VILLAGE}` })).toBeVisible();
+
+  await removeMap(page);
+
+  await expect(page.getByRole('heading', { level: 1, name: 'Cadastral maps' })).toBeVisible();
+  await expect(page.locator('.filterbar .tally')).toHaveText('1 village');
+  // The village is gone from the shelf, so no chip may still name it.
+  await expect(page.getByRole('button', { name: /^Remove filter Village/i })).toHaveCount(0);
+  await expect(page.locator('.fchip')).toHaveCount(0);
 });
 
 // ── when the server refuses ────────────────────────────────────────────
@@ -2361,7 +2435,7 @@ test.describe('when the server refuses', () => {
     await expect(said.getByRole('button', { name: 'Try again' })).toBeVisible();
     // The uploader is still there, but it is no longer the whole answer: the
     // filled button is the retry, and sending every map up again is outlined.
-    await expect(said.getByRole('button', { name: 'Choose KMZ or KML' })).toBeVisible();
+    await expect(said.getByRole('button', { name: 'Add a cadastral map' })).toBeVisible();
     await expect(said.locator('.btn.primary')).toHaveCount(1);
     await expect(said.locator('.btn.primary')).toHaveText('Try again');
     await expect(page.getByText('No cadastral maps yet')).toHaveCount(0);
@@ -2377,7 +2451,7 @@ test.describe('when the server refuses', () => {
     down = false;
     await page.getByRole('button', { name: 'Try again' }).click();
 
-    await expect(page.getByLabel('Search all villages')).toBeVisible();
+    await expect(page.getByRole('button', { name: '+ Filter' })).toBeVisible();
     await expect(page.getByText('Cadastral maps could not be loaded')).toHaveCount(0);
     await expect(page.locator('.vc-badge')).toHaveText('1 village');
   });
@@ -2413,29 +2487,30 @@ test.describe('when the server refuses', () => {
     await openMaps(page);
 
     await revealVillage(page, 'KONDAPURAM');
-    await expect(page.getByRole('button', { name: /^KONDAPURAM/ })).toBeVisible();
+    await expect(villageOption(page, 'KONDAPURAM')).toBeVisible();
+    await closeFilter(page);
     await expect(page.getByText('No cadastral maps yet')).toHaveCount(0);
-    await expect(page.locator('.vm-stage')).toContainText('Search for a village above.');
+    await expect(page.locator('.vm-stage')).toContainText('Use Filter to find a village or one of your properties.');
   });
 
   test('a village whose shape file did not come back says so where its map would be', async ({ page, world }) => {
     await ground(page, world, { file: () => ({ status: 503, json: { error: 'gone' } }) });
-    await page.goto('/app/maps');
-    await revealVillage(page);
-    await page.getByRole('button', { name: new RegExp(`^${VILLAGE}`) }).click();
+    await page.goto('/maps');
+    await chooseVillage(page);
+    await closeFilter(page);
 
     const failed = page.getByRole('alert');
     await expect(failed).toContainText('KATRAGUNTA’s map did not load');
-    await expect(failed).toContainText('The shape file did not come back.');
+    await expect(failed).toContainText('The map file did not come back. Try again.');
     await expect(failed.getByRole('button', { name: 'Try again' })).toBeVisible();
 
     // The head still names the village that failed — but what stands under that
-    // name must not be the MANDAL's totals.
+    // name must not be the MANDAL's totals: the Failed card speaks, so there is
+    // no summary line at all.
     await expect(page.getByRole('heading', { level: 1, name: VILLAGE })).toBeVisible();
-    await expect(page.locator('.pagehead .grow > .note')).toHaveText('Its shape file could not be read.');
+    await expect(page.locator('.pagehead-summary')).toHaveCount(0);
     await expect(page.locator('.vc-map')).toHaveCount(0);
-    // Nothing to fit and nothing to print, because there is no map.
-    await expect(page.getByRole('button', { name: /^Fit/ })).toHaveCount(0);
+    // Nothing to print, because there is no map.
     await expect(page.getByRole('button', { name: 'Print' })).toHaveCount(0);
     // And the way out is still offered from here.
     await expect(page.getByRole('button', { name: 'All villages' })).toBeVisible();
@@ -2445,16 +2520,16 @@ test.describe('when the server refuses', () => {
     let down = true;
     const store = await ground(page, world);
     store.file = () => (down ? { status: 503, json: { error: 'gone' } } : { json: collection() });
-    await page.goto('/app/maps');
-    await revealVillage(page);
-    await page.getByRole('button', { name: new RegExp(`^${VILLAGE}`) }).click();
+    await page.goto('/maps');
+    await chooseVillage(page);
+    await closeFilter(page);
     await expect(page.getByRole('alert')).toContainText('KATRAGUNTA’s map did not load');
 
     down = false;
     await page.getByRole('alert').getByRole('button', { name: 'Try again' }).click();
 
     await expect(page.locator('.vc-label').first()).toBeVisible({ timeout: 20_000 });
-    await expect(page.locator('.pagehead .grow > .note')).toHaveText(`7 plots · ${TOTAL_ACRES_1DP} ac`);
+    await expect(page.locator('.pagehead-summary')).toHaveText(`7 parcels · ${TOTAL_ACRES} ac`);
     expect(world.restCalls(new RegExp(FILE)).length).toBeGreaterThan(1);
   });
 
@@ -2463,7 +2538,7 @@ test.describe('when the server refuses', () => {
     store.post = () => ({
       status: 400,
       json: {
-        error: 'Nothing here could be read as a village map.',
+        error: 'Nothing here could be read as a cadastral map.',
         skipped: [{
           name: 'katragunta-shapes.kml',
           why: 'its shapes carry no plot numbers — this export keeps them in a separate '
@@ -2479,7 +2554,7 @@ test.describe('when the server refuses', () => {
     });
 
     const card = sideCard(page, 'No cadastral maps yet');
-    await expect(card).toContainText('Nothing here could be read as a village map.');
+    await expect(card).toContainText('Nothing here could be read as a cadastral map.');
     await expect(card).toContainText(
       'katragunta-shapes.kml — its shapes carry no plot numbers — this export keeps them '
       + 'in a separate label file, so send both together');
@@ -2487,21 +2562,23 @@ test.describe('when the server refuses', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Cadastral maps' })).toBeVisible();
   });
 
-  test('a refused removal keeps the village, and says so beside the bin that was pressed', async ({ page, world }) => {
+  test('a refused removal keeps the village, and says so under the Filter', async ({ page, world }) => {
     await ground(page, world, {
       remove: () => ({ status: 409, json: { error: 'that village map is in use' } }),
     });
     await openVillage(page);
     const before = world.restCalls(/village-maps$/).length;
 
-    await page.getByLabel('Search all villages').fill(VILLAGE);
-    await page.getByRole('button', { name: `Remove ${VILLAGE}` }).click();
+    await removeMap(page);
 
     await expect(page.locator('.vm-map-filters')).toContainText('that village map is in use');
-    // The village is still on the list and its map is still open: a refused
+    // The village is still on the shelf and its map is still open: a refused
     // DELETE that refreshed anyway made the removal look like it undid itself.
-    await expect(page.locator('.vm-villages').getByRole('button', { name: new RegExp(`^${VILLAGE}`) })).toBeVisible();
     await expect(page.getByRole('heading', { level: 1, name: VILLAGE })).toBeVisible();
+    await expectRemoveOffered(page);
+    await expect(page.getByRole('button', { name: `Remove filter Village ${VILLAGE}` })).toBeVisible();
+    await revealVillage(page);
+    await expect(villageOption(page)).toBeVisible();
     expect(world.restCalls(/village-maps$/).length).toBe(before);
   });
 
@@ -2509,30 +2586,26 @@ test.describe('when the server refuses', () => {
     await ground(page, world, { remove: () => ({ status: 500, body: 'nope' }) });
     await openVillage(page);
 
-    await page.getByLabel('Search all villages').fill(VILLAGE);
-    await page.getByRole('button', { name: `Remove ${VILLAGE}` }).click();
+    await removeMap(page);
 
     await expect(page.locator('.vm-map-filters')).toContainText(
       `${VILLAGE} could not be taken off (500).`);
-    await expect(page.locator('.vm-villages').getByRole('button', { name: new RegExp(`^${VILLAGE}`) })).toBeVisible();
     await expect(page.getByRole('heading', { level: 1, name: VILLAGE })).toBeVisible();
+    await expect(page.locator('.vc-label')).toHaveCount(7);
   });
 
-  test('a removal refused after I put the matches away is still said', async ({ page, world }) => {
+  test('a removal refused after I have gone back to all villages is still said', async ({ page, world }) => {
     await ground(page, world, {
       remove: () => ({ status: 409, json: { error: 'that village map is in use' }, delayMs: 1_500 }),
     });
-    await openMaps(page);
-    const search = page.getByLabel('Search all villages');
-    await search.fill(VILLAGE);
-    await page.getByRole('button', { name: `Remove ${VILLAGE}` }).click();
-    // Put away while the server is still thinking it over.
-    await page.keyboard.press('Escape');
-    await expect(matches(page)).toHaveCount(0);
+    await openVillage(page);
+    await removeMap(page);
+    // Left while the server is still thinking it over.
+    await page.getByRole('button', { name: 'All villages' }).click();
+    await expect(page.getByRole('heading', { level: 1, name: 'Cadastral maps' })).toBeVisible();
 
     await expect(page.getByRole('region', { name: 'Cadastral map filters' }))
       .toContainText('that village map is in use');
-    await expect(search).toHaveValue(VILLAGE);
   });
 
   test('imagery that will not load leaves the survey plots on screen and says so', async ({ page, world }) => {
@@ -2575,10 +2648,10 @@ test('the mandal stays on screen while a village’s shape file is read', async 
   await openMaps(page);
   await expect(page.locator('.vc-village')).toBeVisible();
 
-  await revealVillage(page);
-  await page.getByRole('button', { name: new RegExp(`^${VILLAGE}`) }).click();
+  await chooseVillage(page);
+  await closeFilter(page);
 
-  await expect(page.locator('.vc-badge')).toHaveText('Reading KATRAGUNTA’s shape file…');
+  await expect(page.locator('.vc-badge')).toHaveText('Reading KATRAGUNTA’s map file…');
   // Tearing the map down for a corner note reads as a panel that failed.
   await expect(page.locator('.leaflet-container')).toBeVisible();
 
@@ -2611,8 +2684,8 @@ test('the map’s tools and its plot search do not sit on top of each other @pho
   await ground(page, world);
   await openVillage(page);
 
-  await page.getByLabel('Find survey or plot number').fill('215');
-  await page.getByRole('button', { name: 'Find plot' }).click();
+  await page.getByLabel('Find a parcel or survey number').fill('215');
+  await page.getByRole('button', { name: 'Find parcel' }).click();
   await expect(plotCard(page).locator('.vm-plotno')).toContainText('215');
 
   const tools = (await page.locator('.vc-tl').boundingBox())!;
@@ -2625,61 +2698,30 @@ test('the map’s tools and its plot search do not sit on top of each other @pho
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
-test('typing a village name does not move the map @phone', async ({ page, world }) => {
+test('marking on a phone puts the panel under the map and stands the finder down @phone-only', async ({ page, world }) => {
   await ground(page, world);
-  await openMaps(page);
-  // A village outline on the mandal map, by class: Leaflet draws it as a
-  // path with no role. Once one is drawn, the stage has its final place.
-  await expect(page.locator('.vc-village')).toBeVisible();
-  // The map's frame, by class: a plain div, and the thing that must not move.
-  const stage = page.locator('.vm-stage');
-  const before = (await stage.boundingBox())!;
+  await openVillage(page);
+  await pick(page, '215');
+  await page.getByRole('button', { name: 'Mark a new boundary' }).click();
+  // Below the tool rows, which take the top of a phone's stage.
+  await beginTape(page, 0.4, 0.65);
+  await clickMap(page, 0.65, 0.65);
+  await clickMap(page, 0.65, 0.85);
+  await expect(tape(page)).toContainText(/Encloses \d+\.\d{2} ac/);
 
-  await page.getByLabel('Search all villages').fill(VILLAGE);
+  // The finder would sit over the ground and the Survey number field.
+  await expect(page.locator('.vc-tr')).toBeHidden();
+  const stage = (await page.locator('.vm-stage').boundingBox())!;
+  const panel = (await tape(page).boundingBox())!;
+  expect(panel.y, 'the marking panel covers the map').toBeGreaterThanOrEqual(stage.y + stage.height - 1);
+  await expect(page.locator('.vm-tape-below .vc-measure')).toHaveCount(1);
 
-  const row = matchRows(page);
-  await expect(row).toHaveCount(1);
-  await expect(row).toBeInViewport();
-  const after = (await stage.boundingBox())!;
-  expect(Math.abs(after.y - before.y), 'the matches pushed the map down').toBeLessThanOrEqual(1);
-  // Over the map, not under it: a tap at the row's centre lands on the row
-  // (the row's class again, as matchRows reads it).
-  const box = (await row.boundingBox())!;
-  const onTop = await page.evaluate(([x, y]) => Boolean(document.elementFromPoint(x, y)?.closest('.villagerow')),
-    [box.x + box.width / 2, box.y + box.height / 2]);
-  expect(onTop, 'the matching village is drawn under the map').toBe(true);
+  await tape(page).getByLabel('Survey number').fill('300/1');
+  await expect(tape(page).getByRole('button', { name: 'Add the property' })).toBeEnabled();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
-test('tapping a matching village opens it and leaves the keyboard down @phone-only', async ({ page, world }) => {
-  await ground(page, world);
-  await openMaps(page);
-  const search = page.getByLabel('Search all villages');
-  await search.fill(VILLAGE);
-  // Typing: the field has focus, so a phone has its keyboard up.
-  await expect(search).toBeFocused();
-
-  await matchRows(page).first().tap();
-
-  await expect(page.getByRole('heading', { level: 1, name: VILLAGE })).toBeVisible();
-  await expect(matches(page)).toHaveCount(0);
-  await expect(search).toHaveValue('');
-  // The tap took the keyboard down. Focus back in the field would bring it
-  // up again, over the village that has just opened.
-  await expect(search).not.toBeFocused();
-});
-
 // ── the way out ────────────────────────────────────────────────────────
-
-test('the village map hands off to my own land on the map', async ({ page, world }) => {
-  await ground(page, world);
-  await openVillage(page);
-
-  // Named for where it goes: the Map view of Properties.
-  await page.getByRole('link', { name: 'Properties map' }).click();
-
-  await expect(page).toHaveURL(/\/app\/properties\?view=map$/);
-});
 
 test('Print prints the village that is on the stage', async ({ page, world }) => {
   await ground(page, world);

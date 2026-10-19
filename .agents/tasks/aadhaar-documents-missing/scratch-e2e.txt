@@ -1,0 +1,44 @@
+25:  1) [app] › specs/07-record-people.spec.ts:108:7 › the hanger, drawn › the people hanger asks for the record it was routed to and heads itself with the question it answers 
+27:    Error: expect(locator).toBeVisible() failed
+32:    Error: element(s) not found
+65:  2) [app] › specs/07-record-people.spec.ts:318:7 › the hanger, drawn › a one-line person keeps the labels that go somewhere, and loses the rest the same way 
+67:    Error: expect(locator).toHaveAttribute(expected) failed
+72:    Error: element(s) not found
+103:  3) [app] › specs/07-record-people.spec.ts:256:7 › the hanger, drawn › somebody remembered from a closed job gets one line and one control 
+105:    Error: expect(locator).toBeVisible() failed
+110:    Error: element(s) not found
+147:  4) [app] › specs/07-record-people.spec.ts:354:7 › the hanger, drawn › only the labels that go somewhere are drawn, and the footnote says where the rest happens 
+149:    Error: expect(locator).toHaveAttribute(expected) failed
+154:    Error: element(s) not found
+197:  5) [app] › specs/07-record-people.spec.ts:694:7 › assigning someone › filing somebody sends exactly what was typed, trimmed, against this record 
+199:    Error: locator.click: Error: strict mode violation: getByRole('button', { name: 'Caretaker' }) resolved to 2 elements:
+233:  6) [app] › specs/07-record-people.spec.ts:729:7 › assigning someone › pressing the chosen role again clears it rather than leaving it stuck on 
+235:    Error: locator.click: Error: strict mode violation: getByRole('button', { name: 'Caretaker' }) resolved to 2 elements:
+274:  7) [app] › specs/07-record-people.spec.ts:828:7 › assigning someone › a person the server refuses keeps the typed name on screen and says the record may not be yours 
+276:    Error: locator.click: Error: strict mode violation: getByRole('button', { name: 'Caretaker' }) resolved to 2 elements:
+311:  8) [app] › specs/07-record-people.spec.ts:976:7 › renaming somebody › a rename the server refuses keeps the editor open with what was typed in it 
+313:    TimeoutError: locator.click: Timeout 10000ms exceeded.
+342:  9) [app] › specs/07-record-people.spec.ts:942:7 › renaming somebody › renaming opens an editor with the name already in it, and Save refuses an emptied one 
+344:    TimeoutError: locator.click: Timeout 10000ms exceeded.
+373:  10) [app] › specs/07-record-people.spec.ts:956:7 › renaming somebody › saving a new name calls updatePerson for that person and nobody else 
+375:    TimeoutError: locator.click: Timeout 10000ms exceeded.
+404:  11) [app] › specs/07-record-people.spec.ts:989:7 › renaming somebody › a rename that cannot be sent keeps what was typed 
+406:    TimeoutError: locator.click: Timeout 10000ms exceeded.
+440:  12) [app] › specs/07-record-people.spec.ts:1026:7 › renaming somebody › while a rename is in flight Save says so and refuses a second press 
+442:    TimeoutError: locator.click: Timeout 10000ms exceeded.
+471:  13) [app] › specs/07-record-people.spec.ts:1042:7 › renaming somebody › cancelling a rename changes nothing and gives the pencil its focus back 
+473:    TimeoutError: locator.click: Timeout 10000ms exceeded.
+512:  14) [app] › specs/07-record-people.spec.ts:1054:7 › renaming somebody › only the person whose pencil was pressed gets an editor 
+514:    TimeoutError: locator.click: Timeout 10000ms exceeded.
+545:  15) [app] › specs/07-record-people.spec.ts:1067:7 › renaming somebody › pressing a second pencil moves the editor rather than opening another one 
+547:    TimeoutError: locator.click: Timeout 10000ms exceeded.
+588:  16) [app] › specs/07-record-people.spec.ts:1362:7 › nobody, still coming, failed › a try again that fails again says so rather than going quiet 
+590:    TimeoutError: locator.click: Timeout 10000ms exceeded.
+635:  17) [app] › specs/07-record-people.spec.ts:1380:7 › nobody, still coming, failed › a refresh that fails does not take the people already on screen away 
+637:    TimeoutError: locator.click: Timeout 10000ms exceeded.
+671:  18) [app] › specs/07-record-people.spec.ts:1865:7 › the other person editor, on the previous interface › a file that is not a card is refused before anything is stored 
+673:    Error: The screen logged errors. If provoking one is the point of this test, set test.use({ allowConsole: true }).
+711:  19) [app] › specs/07-record-people.spec.ts:1842:7 › the other person editor, on the previous interface › a ticked Aadhaar card the storage refuses says so and files nothing 
+713:    Error: The screen logged errors. If provoking one is the point of this test, set test.use({ allowConsole: true }).
+812:  20) [app] › specs/30-groups.spec.ts:430:7 › the Members table › removing a member sends their kept Aadhaar card to Trash, and nothing else 
+814:    Error: expect(received).toEqual(expected) // deep equality

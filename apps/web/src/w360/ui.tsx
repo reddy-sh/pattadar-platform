@@ -9,18 +9,26 @@
  * Numbers are formatted the Indian way throughout — lakh/crore short forms and
  * 2,2,3 digit grouping — because that is what the records actually say.
  */
-import { useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
+import {
+  useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState,
+} from 'react';
 import type {
-  CSSProperties, HTMLAttributes, KeyboardEvent as ReactKeyboardEvent, ReactNode, RefObject,
+  CSSProperties, HTMLAttributes, KeyboardEvent as ReactKeyboardEvent, ReactNode, Ref, RefObject,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
+import ArrowDownwardRounded from '@mui/icons-material/ArrowDownwardRounded';
+import ArrowUpwardRounded from '@mui/icons-material/ArrowUpwardRounded';
 import InfoOutlined from '@mui/icons-material/InfoOutlined';
 import MoreVertOutlined from '@mui/icons-material/MoreVertOutlined';
 import RefreshOutlined from '@mui/icons-material/RefreshOutlined';
 import SearchOutlined from '@mui/icons-material/SearchOutlined';
 import CloseOutlined from '@mui/icons-material/CloseOutlined';
+import CheckRounded from '@mui/icons-material/CheckRounded';
+import GridViewOutlined from '@mui/icons-material/GridViewOutlined';
+import ViewListOutlined from '@mui/icons-material/ViewListOutlined';
+import TableRowsOutlined from '@mui/icons-material/TableRowsOutlined';
 
 import { useBlobFetch } from '../components/holdingCards';
 import { isStorageRef } from '../pages/documents/storage';
@@ -28,6 +36,16 @@ import { useMediaStream } from './mediaStream';
 import { useVideoPoster } from './videoPoster';
 
 import AccessTimeOutlined from '@mui/icons-material/AccessTimeOutlined';
+import ChecklistOutlined from '@mui/icons-material/ChecklistOutlined';
+import RemoveOutlined from '@mui/icons-material/RemoveOutlined';
+import DashboardOutlined from '@mui/icons-material/DashboardOutlined';
+import ExploreOutlined from '@mui/icons-material/ExploreOutlined';
+import CurrencyRupeeOutlined from '@mui/icons-material/CurrencyRupeeOutlined';
+import GavelOutlined from '@mui/icons-material/GavelOutlined';
+import HandshakeOutlined from '@mui/icons-material/HandshakeOutlined';
+import HistoryOutlined from '@mui/icons-material/HistoryOutlined';
+import SquareFootOutlined from '@mui/icons-material/SquareFootOutlined';
+import StickyNote2Outlined from '@mui/icons-material/StickyNote2Outlined';
 import AgricultureOutlined from '@mui/icons-material/AgricultureOutlined';
 import ApartmentOutlined from '@mui/icons-material/ApartmentOutlined';
 import BoltOutlined from '@mui/icons-material/BoltOutlined';
@@ -93,7 +111,10 @@ export function inr(n: number, sign = false): string {
     // whether a parcel has crossed a crore. One threshold, so two cannot
     // disagree: anything at or above a crore already rounds to 100.00 lakh.
     const l = (a / 1e5).toFixed(2);
-    if (Number(l) >= 100) return `${lead}₹${(a / 1e7).toFixed(2)} Cr`;
+    // Crores from whole lakhs (0.01 Cr is 1 L), not from a / 1e7: 2.385 is
+    // 2.38499… in binary, so ₹2,38,50,000 printed ₹2.38 Cr where 238.5 lakh
+    // rounds half-up to ₹2.39 Cr.
+    if (Number(l) >= 100) return `${lead}₹${(Math.round(a / 1e5) / 100).toFixed(2)} Cr`;
     return `${lead}₹${l.replace(/0$/, '')} L`;
   }
   return `${lead}₹${inGroup(a)}`;
@@ -142,8 +163,36 @@ export function ddmmyyyy(s: string): string {
   return s;
 }
 
+/** A stored timestamp as the day it was in India, DD/MM/YYYY. The API writes
+ *  UTC, often without a zone ("2026-08-01T19:00:00"); read bare, that is
+ *  local time and an evening change lands on the wrong day. A date with no
+ *  time is already a day and is never shifted. */
+export function istDay(s: string): string {
+  if (!s) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return ddmmyyyy(s);
+  const zoned = /([zZ]|[+-]\d{2}:?\d{2})$/.test(s) ? s : `${s}Z`;
+  const d = new Date(zoned);
+  return Number.isNaN(d.getTime()) ? ddmmyyyy(s)
+    : d.toLocaleDateString('en-GB', { timeZone: 'Asia/Kolkata' });
+}
+
+/** What a property is, in words: its classification, else its kind. */
+const CLASS_WORD: Record<string, string> = {
+  agri: 'Agricultural land', open_plot: 'Open plot', house: 'House',
+  flat: 'Flat', apartment: 'Apartment', shop: 'Shop', commercial: 'Commercial building',
+  parcel: 'Parcel', property: 'Built property',
+};
+export const classWord = (key: string): string =>
+  CLASS_WORD[key] ?? (key || '').replaceAll('_', ' ').replace(/^./, (c) => c.toUpperCase());
+
 export const num = (n: number, dp = 0) =>
   n.toLocaleString('en-IN', { minimumFractionDigits: dp, maximumFractionDigits: dp });
+
+/** A property's extent as every screen writes it: grouped the Indian way,
+ *  acres to two places ("2.40 ac", "1,450 sq.ft"). Properties wrote this
+ *  for itself and the Documents pickers printed the raw number beside it. */
+export const extentText = (r: { extent: number; extentUnit: string }) =>
+  r.extentUnit === 'ac' ? `${num(r.extent, 2)} ac` : `${num(r.extent)} ${r.extentUnit}`;
 
 /** "1 parcel" / "6 parcels" — a count with a noun that agrees with it.
  *  Screens were written around a portfolio that happened to be plural, so
@@ -240,6 +289,18 @@ const ICONS: Record<string, typeof MapOutlined> = {
   tax: ReceiptLongOutlined,
   agent: PersonOutlined,
   feature: HomeOutlined,
+  // Overview cards and tiles
+  note: StickyNote2Outlined,
+  service: HandshakeOutlined,
+  rupee: CurrencyRupeeOutlined,
+  checklist: ChecklistOutlined,
+  // A check the data cannot answer: a neutral dash, not a tick or a cross.
+  dash: RemoveOutlined,
+  overview: DashboardOutlined,
+  compass: ExploreOutlined,
+  status: GavelOutlined,
+  measure: SquareFootOutlined,
+  activity: HistoryOutlined,
 };
 
 export function Icon({ name, size = 18, className }: { name: string; size?: number; className?: string }) {
@@ -289,14 +350,20 @@ export function PhotoImg(
   }
   if (media && stored && !play) {
     return (
+      // Named with its verb: the visible label is the caption beside an icon,
+      // so without this a screen reader heard "Walking the eastern edge,
+      // button" and nothing about what pressing it does.
       <button type="button" className={`videostart ${className ?? ''}`.trim()}
+              aria-label={alt.trim()
+                ? `Play ${alt.trim()}`
+                : (kind === 'audio' ? 'Play this recording' : 'Play this video')}
               onClick={() => setPlay(true)}>
         {kind === 'video' && video.poster && (
           <img className="video-poster" src={video.poster} alt="" aria-hidden />
         )}
         <span className="video-play-label">
           <PlayArrowOutlined sx={{ fontSize: 34 }} aria-hidden />
-          <span>{alt.trim() || (kind === 'audio' ? 'Play this recording' : 'Play this clip')}</span>
+          <span>{alt.trim() || (kind === 'audio' ? 'Play this recording' : 'Play this video')}</span>
         </span>
       </button>
     );
@@ -305,7 +372,7 @@ export function PhotoImg(
     return (
       <span className={`videostart ${className ?? ''}`.trim()} role="status">
         <VideocamOutlined sx={{ fontSize: 34 }} aria-hidden />
-        <span>Opening the {kind === 'audio' ? 'recording' : 'clip'}…</span>
+        <span>Opening the {kind === 'audio' ? 'recording' : 'video'}…</span>
       </span>
     );
   }
@@ -313,18 +380,21 @@ export function PhotoImg(
     return (
       <span className={`photo-failed ${className ?? ''}`.trim()} role="alert">
         <ErrorOutlineOutlined sx={{ fontSize: 16 }} aria-hidden />
-        <span>{stream.message || 'This recording did not open; its codec may not be supported.'}</span>
+        <span>{stream.message || (kind === 'audio' ? 'This recording did not play.' : 'This video did not play.')}</span>
         <button type="button" onClick={() => { setPlayerError(false); stream.retry(); }}>Try again</button>
       </span>
     );
   }
   if (media && stream.url) {
+    // The player keeps a name when the item has no caption, as the play
+    // button before it does; an empty aria-label left it nameless.
+    const name = alt.trim() || (kind === 'audio' ? 'This recording' : 'This video');
     return kind === 'audio'
       ? <audio className={className} src={stream.url} controls autoPlay preload="metadata"
-               onError={() => setPlayerError(true)} aria-label={alt} />
+               onError={() => setPlayerError(true)} aria-label={name} />
       : <video className={className} src={stream.url} poster={video.poster || undefined}
                controls autoPlay playsInline preload="metadata"
-               onError={() => setPlayerError(true)} aria-label={alt} />;
+               onError={() => setPlayerError(true)} aria-label={name} />;
   }
   if (!photo.url) return <>{fallback}</>;
   return <img className={className} src={photo.url} alt={alt} />;
@@ -381,14 +451,18 @@ export const Eyebrow = ({ children }: { children: ReactNode }) => <p className="
 /** A breadcrumb trail. `props` reaches the crumb's own element — Documents
  *  makes each folder crumb a drop target, the way a file manager's path bar
  *  is — and the last crumb is marked as the current place. */
-export function Crumbs({ trail, label = 'Breadcrumb' }: {
+export function Crumbs({ trail, label = 'Breadcrumb', parentOnNarrow = false }: {
   trail: { label: string; to?: string; props?: HTMLAttributes<HTMLElement> }[];
   label?: string;
+  /** Under 600px show only the parent, as "‹ Parent" (a page head's crumbs;
+   *  design.md § Page head, "Phone"). A folder path keeps every step. */
+  parentOnNarrow?: boolean;
 }) {
   return (
-    <nav className="crumbs" aria-label={label}>
+    <nav className={parentOnNarrow ? 'crumbs crumbs-parent' : 'crumbs'} aria-label={label}>
       {trail.map((t, i) => (
-        <span key={`${t.label}-${i}`} style={{ display: 'contents' }}>
+        <span key={`${t.label}-${i}`}
+              data-parent={i === Math.max(0, trail.length - 2) || undefined}>
           {i > 0 && <span className="sep" aria-hidden>›</span>}
           {t.to
             ? <Link to={t.to} {...t.props}
@@ -400,56 +474,264 @@ export function Crumbs({ trail, label = 'Breadcrumb' }: {
   );
 }
 
-/** A page's title, and only its title (Material 3 top-level page header).
+/** One command in a page head (design.md § Page head, "Actions").
  *
- *  `eyebrow` stays for nested screens where it names the parent; a top-level
- *  page should not repeat its own rail label above its title. Standing
- *  guidance — payment terms, what a screen records — goes in `info`, behind
- *  an ⓘ next to the title, instead of a permanent sentence under it. */
-export function PageHead({
-  eyebrow, title, info, children, actions,
-}: {
-  eyebrow?: ReactNode; title: ReactNode; info?: ReactNode;
-  children?: ReactNode; actions?: ReactNode;
-}) {
+ *  Data, not a button: the head decides how it is drawn — an outlined
+ *  button on a wide screen, an item in the ⋮ on a phone — so a command keeps
+ *  one label and one position on every page. `to` is an in-app route (drawn
+ *  as a Link); otherwise `onClick` runs. */
+export interface HeadAction {
+  label: string;
+  icon?: ReactNode;
+  onClick?: () => void;
+  to?: string;
+  disabled?: boolean;
+  /** Reaches the drawn button or link, for a panel that hands focus back to
+   *  the control that opened it (Documents' "Add documents"). */
+  ref?: Ref<HTMLButtonElement & HTMLAnchorElement>;
+  /** Only when the visible label is not the whole name. */
+  ariaLabel?: string;
+  /** For a control that opens a panel in place (aria-expanded). */
+  expanded?: boolean;
+  /** For a control that opens a drawer or dialog (aria-haspopup). */
+  haspopup?: 'dialog';
+  /** A hover tooltip that says more than the label (the button's `title`);
+   *  the label stays the accessible name. */
+  tip?: string;
+}
+
+/** A page head's commands (design.md § Page head, "Actions").
+ *
+ *  Drawn left to right as: the outlined `secondaries` (the first two; any
+ *  more go into the ⋮), the one filled `primary`, then the ⋮ holding
+ *  `overflow`, last (Reddy, 13/10/2026). Under 600px the secondaries join the ⋮ and only the
+ *  primary stays visible. A detail page has no `primary` (`DetailActions`):
+ *  its own add lives in its tab's section head. */
+export interface HeadActions {
+  primary?: HeadAction;
+  secondaries?: HeadAction[];
+  overflow?: MenuItem[];
+  /** The ⋮'s accessible name. Defaults to "More actions for {title}". */
+  overflowLabel?: string;
+  /** Named above the ⋮'s items: which thing they act on (`Menu` header). */
+  overflowHeader?: ReactNode;
+  /** Also reaches the ⋮, for a panel one of its items opened to hand focus
+   *  back to (Money's "Add an expense"). */
+  overflowRef?: Ref<HTMLButtonElement>;
+}
+
+/** A detail page's head commands: no filled primary. */
+export type DetailActions = Omit<HeadActions, 'primary'> & { primary?: never };
+
+/** A breadcrumb step, as `Crumbs` takes it. */
+export type CrumbStep = { label: string; to?: string; props?: HTMLAttributes<HTMLElement> };
+
+/** The phone breakpoint every page head and toolbar band changes at
+ *  (design.md § Page head, "Phone"). */
+export const PHONE_PX = 600;
+
+function HeadButton({ a, primary }: { a: HeadAction; primary?: boolean }) {
+  const cls = primary ? 'btn primary' : 'btn';
+  const body = <>{a.icon}{a.label}</>;
+  if (a.to && !a.disabled) {
+    return (
+      <Link ref={a.ref} className={cls} to={a.to} aria-label={a.ariaLabel} title={a.tip}>{body}</Link>
+    );
+  }
   return (
-    <header className="pagehead">
-      <div className="grow">
-        {eyebrow && <Eyebrow>{eyebrow}</Eyebrow>}
+    <button ref={a.ref} type="button" className={cls} disabled={a.disabled} title={a.tip}
+            aria-label={a.ariaLabel} aria-expanded={a.expanded} aria-haspopup={a.haspopup}
+            onClick={a.onClick}>
+      {body}
+    </button>
+  );
+}
+
+/** Point a ref at an element, whichever kind of ref it is. */
+function setRef<T>(ref: Ref<T> | undefined, el: T | null) {
+  if (typeof ref === 'function') ref(el);
+  else if (ref) (ref as { current: T | null }).current = el;
+}
+
+/** The right side of the title row. See `HeadActions`. PageHead and
+ *  SectionHead (RecordHead.tsx) both draw their commands through it; `lead`
+ *  is a section head's non-command controls (a search, a year, a segmented
+ *  choice), drawn first in the same row. */
+export function HeadActionsRow({ actions, title, lead }: {
+  actions: HeadActions; title: string; lead?: ReactNode;
+}) {
+  const phone = useNarrow(PHONE_PX);
+  const nav = useNavigate();
+  const { primary, secondaries = [], overflow = [], overflowLabel, overflowHeader, overflowRef } = actions;
+  const asItem = (a: HeadAction): MenuItem => ({
+    label: a.label, icon: a.icon, disabled: a.disabled,
+    onClick: () => { if (a.to) nav(a.to); else a.onClick?.(); },
+  });
+  // At most two outlined secondaries, none on a phone; the rest join the ⋮.
+  const shown = phone ? [] : secondaries.slice(0, 2);
+  const moved = secondaries.slice(shown.length);
+  const menu = [...moved.map(asItem), ...overflow];
+  // A moved command's ref follows it to the ⋮, so a panel it opened hands
+  // focus back to the ⋮ rather than to <body>.
+  const triggerRef = (el: HTMLButtonElement | null) => {
+    setRef(overflowRef, el);
+    for (const a of moved) setRef(a.ref, el as (HTMLButtonElement & HTMLAnchorElement) | null);
+  };
+  if (!lead && !primary && !shown.length && !menu.length) return null;
+  return (
+    <div className="actions">
+      {lead}
+      {/* Keyed by position: a command whose label flips on press ("New
+          scope" / "Cancel new scope") stays the same button and keeps focus. */}
+      {shown.map((a, i) => <HeadButton key={i} a={a} />)}
+      {primary && <HeadButton a={primary} primary />}
+      {/* The ⋮ is the last thing on the row, after the filled primary
+          (Reddy, 13/10/2026): "more actions" reads as the end of the list. */}
+      {menu.length > 0 && (
+        <Menu label={overflowLabel ?? (title ? `More actions for ${title}` : 'More actions')} items={menu}
+              header={overflowHeader} triggerClassName="iconbtn pagehead-more"
+              triggerRef={overflowRef || moved.some((a) => a.ref) ? triggerRef : undefined} />
+      )}
+    </div>
+  );
+}
+
+/** Every /app page's head (design.md § Page head). One component, so no page
+ *  builds its own and every head sits at the same place.
+ *
+ *  Slots, top to bottom:
+ *    `crumbs`   wayfinding, detail pages only; ends at this page.
+ *    `eyebrow`  a nested page WITHOUT crumbs names its parent. Never on a
+ *               top-level page (V2), never with crumbs.
+ *    title row  `glyph`, the h1, the ⓘ (`info`: standing guidance, never a
+ *               fact), `switcher`, `pill` on the left; `actions` on the right,
+ *               centred on the h1 line.
+ *    `summary`  one `.note` line 6px under the h1: figures on a collection,
+ *               never guidance.
+ *    `meta`     a detail page's facts row (kind · place · holder).
+ *    `tabs`     a detail page's tab strip, the last row of the head.
+ *
+ *  `docTitle` names the browser tab "{docTitle} · Pattadar"; a page whose
+ *  `title` is not plain text (Home's greeting, a record's name with markup)
+ *  must pass it, and the type says so. */
+export function PageHead({
+  eyebrow, crumbs, title, info, glyph, switcher, pill, summary, meta, tabs, actions, docTitle,
+}: {
+  info?: ReactNode;
+  glyph?: ReactNode;
+  switcher?: ReactNode;
+  pill?: ReactNode;
+  summary?: ReactNode;
+  meta?: ReactNode;
+  tabs?: ReactNode;
+} & (
+  /** The browser tab's name; required when `title` is not plain text. */
+  | { title: string; docTitle?: string }
+  | { title: ReactNode; docTitle: string }
+) & (
+  /** A detail page: wayfinding, and no filled primary in its head. */
+  | { crumbs: CrumbStep[]; eyebrow?: never; actions?: DetailActions }
+  | { crumbs?: never; eyebrow?: ReactNode; actions?: HeadActions }
+)) {
+  const tabName = docTitle ?? (typeof title === 'string' ? title : undefined);
+  useDocumentTitle(tabName);
+  const named = typeof title === 'string' ? title : (docTitle ?? '');
+  const detail = !!crumbs?.length;
+  return (
+    <header className="pagehead" data-kind={detail ? 'detail' : 'top'}>
+      {detail && <Crumbs trail={crumbs!} parentOnNarrow />}
+      {!detail && eyebrow && <Eyebrow>{eyebrow}</Eyebrow>}
+      <div className="pagehead-row">
         <div className="pagehead-title">
+          {glyph}
           <h1>{title}</h1>
-          {info && <InfoTip label={typeof title === 'string' ? title : 'this page'}>{info}</InfoTip>}
+          {info && <InfoTip label={named || 'this page'}>{info}</InfoTip>}
+          {switcher}
+          {pill}
         </div>
-        {children}
+        {actions && <HeadActionsRow actions={actions} title={named} />}
       </div>
-      {actions && <div className="actions">{actions}</div>}
+      {summary && <p className="pagehead-summary note num">{summary}</p>}
+      {meta && <div className="pagehead-meta">{meta}</div>}
+      {tabs && <div className="pagehead-tabs">{tabs}</div>}
     </header>
   );
 }
 
+/** A place line (design.md § Page head, slot 4): where in a place hierarchy
+ *  the list below is — always on Cadastral maps, on Documents inside a folder
+ *  or while filtering. The first row of the toolbar band; the current place
+ *  is the `<strong>`. */
+export const PlaceLine = ({ children, label }: { children: ReactNode; label?: string }) => (
+  <div className="placeline" aria-label={label}>{children}</div>
+);
+
+/** The product name every browser tab ends with. */
+export const APP_NAME = 'Pattadar';
+
+/** Name the browser tab "{title} · Pattadar" while a screen is shown.
+ *
+ *  Every /app tab used to read "Pattadar", so tabs, history and bookmarks
+ *  could not be told apart, and the assistant, which reads the tab's name as
+ *  the page the owner is on, could not tell either (naming standard V1).
+ *  PageHead, RecordHead and HoldingHead call it; an empty title leaves the
+ *  tab alone. Leaving the screen puts back what was there before. */
+export function useDocumentTitle(title: string | undefined | null) {
+  const name = (title ?? '').trim();
+  useEffect(() => {
+    if (!name) return undefined;
+    const previous = document.title;
+    document.title = `${name} · ${APP_NAME}`;
+    return () => { document.title = previous; };
+  }, [name]);
+}
+
+/** The page's own name, without the " · Pattadar" every tab ends with. */
+export function pageName(tabTitle: string = document.title): string {
+  const suffix = ` · ${APP_NAME}`;
+  return tabTitle.endsWith(suffix) ? tabTitle.slice(0, -suffix.length) : tabTitle;
+}
+
 /** An ⓘ that explains the thing beside it (Material 3 plain tooltip).
  *
- *  Shown on hover and on keyboard focus, and toggled by a tap so it works on a
- *  phone, which has no hover. Escape closes it. The text is always in the DOM
- *  and linked by aria-describedby, so a screen reader hears it on focus
- *  without the tooltip having to be open. */
-export function InfoTip({ label, children }: { label: string; children: ReactNode }) {
+ *  Shown on hover and on keyboard focus, and opened by a tap so it works on a
+ *  phone, which has no hover; a tap elsewhere (blur) or Escape closes it. A
+ *  tap is not a toggle: the browser's emulated mouseenter and the focus open
+ *  it first, so a toggling click shut it again at once. The text is always
+ *  in the DOM and linked by aria-describedby, so a screen reader hears it on
+ *  focus without the tooltip having to be open. */
+export function InfoTip({ label, tag, children }: {
+  label: string; children: ReactNode;
+  /** A short visible word in place of the ⓘ (the Overview's source tag,
+   *  "Deed"). The button is then named by `label` itself — the whole text the
+   *  tip shows — so a screen reader hears it once, not the short word. */
+  tag?: string;
+}) {
   const id = useId();
   const [open, setOpen] = useState(false);
   return (
-    <span className="infotip" data-open={open || undefined}
+    <span className={`infotip${tag ? ' tagged' : ''}`} data-open={open || undefined}
           onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
-      <button type="button" className="infotip-btn" aria-label={`About ${label}`}
-              aria-describedby={id} aria-expanded={open}
-              onClick={() => setOpen((v) => !v)}
+      <button type="button" className={tag ? 'infotip-tag' : 'infotip-btn'} aria-label={tag ? label : `About ${label}`}
+              aria-describedby={tag ? undefined : id} aria-expanded={open}
+              onClick={() => setOpen(true)}
               onFocus={() => setOpen(true)} onBlur={() => setOpen(false)}
               onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false); }}>
-        <InfoOutlined sx={{ fontSize: 18 }} aria-hidden />
+        {tag ? <span aria-hidden>{tag}</span> : <InfoOutlined sx={{ fontSize: 18 }} aria-hidden />}
       </button>
-      <span role="tooltip" id={id} className="infotip-body">{children}</span>
+      <span role="tooltip" id={id} className="infotip-body" aria-hidden={tag ? true : undefined}>{children}</span>
     </span>
   );
 }
+
+/** An ⓘ that opens the Pattadar University guide for the thing beside it, in
+ *  a new tab — InfoTip's look, for an explanation too long for a tooltip. */
+export const InfoLink = ({ label, href }: { label: string; href: string }) => (
+  <a className="infotip-btn" href={href} target="_blank" rel="noopener noreferrer" draggable={false}
+     aria-label={`About ${label}, in Pattadar University (opens in a new tab)`} title={`About ${label}`}>
+    <InfoOutlined sx={{ fontSize: 18 }} aria-hidden />
+  </a>
+);
 
 /** A status as a chip (Material 3 assist chip, non-interactive). `state` is
  *  the server's good | warn | bad | unknown, the same key `State` reads. */
@@ -460,13 +742,18 @@ export const StatusChip = ({ state, children }: { state: string; children: React
 export interface FacetFilterOption {
   key: string;
   label: string;
-  count: number;
+  /** Left out where there is nothing to count (one property is one property). */
+  count?: number;
 }
 
 export interface FacetFilterGroup {
   key: string;
   label: string;
   options: FacetFilterOption[];
+  /** Listed only once something is typed in the popover's search. For a group
+   *  too long to read down (Cadastral maps' 900 villages), which is found by
+   *  name rather than browsed. Its chosen options still show as chips. */
+  searchOnly?: boolean;
 }
 
 export interface FacetFilterChip {
@@ -491,13 +778,13 @@ export interface FacetFilterHandle {
  * its interaction model because the list underneath happens to be different.
  * The one thing a page may ask, through the optional `ref`, is that an open
  * popover close: a page whose own temporary surface opens in the same place
- * (Cadastral maps' village matches, in this filter's `trailing` slot) closes
+ * (Cadastral maps' village matches, in this filter's `search` slot) closes
  * it so the two never cover each other. A page that passes no `ref` gets
  * exactly the filter every other page has. */
 export function FacetFilter({
-  groups, selected, onToggle, onClear, tally, trailing, extraChips = [],
+  groups, selected, onToggle, onClear, tally, search, sort, view, extraChips = [],
   groupLabel, missingOptionLabel, busy = false, ariaLabel = 'Narrow the list',
-  searchPlaceholder, ref,
+  searchPlaceholder, fold, ref, lead,
 }: {
   groups: FacetFilterGroup[];
   selected: Record<string, readonly string[]>;
@@ -505,7 +792,13 @@ export function FacetFilter({
   onClear: () => void;
   /** Optional: a list with a table footer carries its count there instead. */
   tally?: ReactNode;
-  trailing?: ReactNode;
+  /** The page's own search: a `BandSearch`. */
+  search?: ReactNode;
+  /** A `SortCycle`. */
+  sort?: ReactNode;
+  /** A `ViewToggle` (Grid / List / Table / Map), or a `Segmented` scope such
+   *  as Services' Open / All. */
+  view?: ReactNode;
   extraChips?: FacetFilterChip[];
   groupLabel?: (groupKey: string, group?: FacetFilterGroup) => string;
   missingOptionLabel?: (groupKey: string, optionKey: string) => string;
@@ -515,8 +808,15 @@ export function FacetFilter({
    *  query filters option labels across groups; screens keep no second search
    *  implementation of their own. */
   searchPlaceholder?: string;
+  /** Optional: a second, looser way the search may match, for names spelt
+   *  more than one way (Cadastral maps passes `villageKey`, so Chintagunta
+   *  finds CHINTHAGUNTA). A label matches if either way does. */
+  fold?: (text: string) => string;
   /** Optional: lets the page close the popover (`FacetFilterHandle`). */
   ref?: RefObject<FacetFilterHandle | null>;
+  /** Optional: a scope the whole list is read for, before "+ Filter" — a
+   *  ledger's `YearSelect`. */
+  lead?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const [optionQuery, setOptionQuery] = useState('');
@@ -544,12 +844,15 @@ export function FacetFilter({
     ...extraChips,
   ];
   const query = optionQuery.trim().toLocaleLowerCase('en-IN');
+  const foldedQuery = query && fold ? fold(query) : '';
+  const matches = (label: string) => label.toLocaleLowerCase('en-IN').includes(query)
+    || (!!foldedQuery && fold!(label).includes(foldedQuery));
   const visibleGroups = groups
     .map((group) => ({
       ...group,
       options: query
-        ? group.options.filter((option) => option.label.toLocaleLowerCase('en-IN').includes(query))
-        : group.options,
+        ? group.options.filter((option) => matches(option.label))
+        : group.searchOnly ? [] : group.options,
     }))
     .filter((group) => group.options.length > 0);
   const close = () => {
@@ -579,9 +882,10 @@ export function FacetFilter({
 
   return (
     <div
-      className="filterbar" ref={rootRef} aria-busy={busy}
+      className="filterbar band" ref={rootRef} aria-busy={busy}
       style={{ opacity: busy ? 0.6 : 1, transition: 'opacity var(--dur-fast) var(--ease-out)' }}
     >
+      {lead}
       <button
         ref={triggerRef} type="button" className="addfilter"
         aria-expanded={open} aria-haspopup="true"
@@ -603,8 +907,7 @@ export function FacetFilter({
       )}
 
       <span className="grow" />
-      {tally !== undefined && <span className="tally" role="status">{tally}</span>}
-      {trailing && <><span className="vrule" aria-hidden />{trailing}</>}
+      <BandTools tally={tally} search={search} sort={sort} view={view} />
 
       {open && (
         <div className={`fpop${searchPlaceholder ? ' searchable' : ''}`} role="group" aria-label={ariaLabel}>
@@ -635,7 +938,7 @@ export function FacetFilter({
                   >
                     <span className="box" aria-hidden>{on ? '✓' : ''}</span>
                     <span className="lbl">{option.label}</span>
-                    <span className="n">{option.count}</span>
+                    {option.count !== undefined && <span className="n">{option.count}</span>}
                   </button>
                 );
               })}
@@ -653,8 +956,8 @@ export function FacetFilter({
   );
 }
 
-/** The sort chip at the end of a filter row: "Sort: Newest first ⌄", and a
- *  press moves to the next order. It sits in `FacetFilter`'s `trailing` slot.
+/** The sort chip at the end of a filter row: "Sort: Newest first", and a
+ *  press moves to the next order. It sits in the band's `sort` slot.
  *
  *  Properties and Documents had each written this button out by hand, and the
  *  Holdings list would have been the third copy. The page owns the
@@ -663,10 +966,372 @@ export function FacetFilter({
 export function SortCycle({ label, onNext, ariaLabel }: {
   label: string; onNext: () => void; ariaLabel?: string;
 }) {
+  // No chevron: the chip is not a dropdown, and "⌄" promised a list that a
+  // press never opened (founder, 07/10/2026). The new order is said once,
+  // politely, after a press — not on first draw, where it is just the label.
+  const [said, setSaid] = useState('');
+  const pressed = useRef(false);
+  useEffect(() => {
+    if (!pressed.current) return;
+    pressed.current = false;
+    setSaid(`Sorted by ${label}`);
+  }, [label]);
   return (
-    <button type="button" className="sortcycle" aria-label={ariaLabel} onClick={onNext}>
-      Sort: {label} ⌄
-    </button>
+    <>
+      <button type="button" className="sortcycle" aria-label={ariaLabel}
+              onClick={() => { pressed.current = true; onNext(); }}>
+        <span className="sortcycle-t">Sort: {label}</span>
+      </button>
+      <span className="sr-only" aria-live="polite">{said}</span>
+    </>
+  );
+}
+
+/** A ledger's financial year, at the left of its band (the property's and the
+ *  holding's Expenses). A 44px target on a phone, as every band control is. */
+export function YearSelect({ years, value, onChange }: {
+  years: readonly string[]; value: string; onChange: (year: string) => void;
+}) {
+  return (
+    <select className="yearselect" value={value} aria-label="Financial year"
+            onChange={(e) => onChange(e.target.value)}>
+      {years.map((y) => <option key={y}>{y}</option>)}
+    </select>
+  );
+}
+
+/** The right side of the toolbar band, always in one order (design.md §
+ *  Page head, slot 5): the tally, then the page's own search, then sort,
+ *  then the view toggle. */
+function BandTools({ tally, search, sort, view }: {
+  tally?: ReactNode; search?: ReactNode; sort?: ReactNode; view?: ReactNode;
+}) {
+  const tools = !!(search || sort || view);
+  return (
+    <>
+      {tally !== undefined && tally !== null && tally !== ''
+        && <span className="tally" role="status">{tally}</span>}
+      {tools && (
+        <>
+          <span className="vrule" aria-hidden />
+          <span className="band-tools">{search}{sort}{view}</span>
+        </>
+      )}
+    </>
+  );
+}
+
+/** The toolbar band for a collection with nothing to filter by (design.md §
+ *  Page head, slot 5). A list that has facets uses `FacetFilter`, which is
+ *  this band with "+ Filter" and its chips on the left. Hairlines above and
+ *  below, 24px under the head and 24px above the content. */
+export function ToolbarBand({ left, tally, search, sort, view, busy = false, label }: {
+  left?: ReactNode; tally?: ReactNode; search?: ReactNode; sort?: ReactNode; view?: ReactNode;
+  busy?: boolean;
+  /** Names the band for assistive tech when it holds more than a sort. */
+  label?: string;
+}) {
+  return (
+    <div className="filterbar band" role={label ? 'toolbar' : undefined} aria-label={label}
+         aria-busy={busy} style={{ opacity: busy ? 0.6 : 1, transition: 'opacity var(--dur-fast) var(--ease-out)' }}>
+      {left}
+      <span className="grow" />
+      <BandTools tally={tally} search={search} sort={sort} view={view} />
+    </div>
+  );
+}
+
+/** A page's own search, in the toolbar band (design.md § Page head, slot 5).
+ *
+ *  On a wide screen it is a field. Under 600px it is a search icon that opens
+ *  a full-width field on its own row of the band; Escape or leaving an empty
+ *  field puts the icon back. A search with text in it stays open. `children`
+ *  rides inside the field's box, for a page whose search drops a list of
+ *  matches under it (Cadastral maps' villages). */
+export function BandSearch({ value, onChange, placeholder, label, inputRef, onKeyDown, children }: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  /** The field's accessible name, and the phone icon's. */
+  label: string;
+  inputRef?: RefObject<HTMLInputElement | null>;
+  onKeyDown?: (e: ReactKeyboardEvent<HTMLInputElement>) => void;
+  children?: ReactNode;
+}) {
+  const phone = useNarrow(PHONE_PX);
+  const [open, setOpen] = useState(false);
+  const own = useRef<HTMLInputElement>(null);
+  const field = inputRef ?? own;
+  const opener = useRef<HTMLButtonElement>(null);
+  const shut = useRef(false);
+  const expanded = !phone || open || value !== '';
+  useEffect(() => {
+    if (phone && open) field.current?.focus();
+  }, [phone, open, field]);
+  useEffect(() => {
+    if (!expanded && shut.current) { shut.current = false; opener.current?.focus(); }
+  }, [expanded]);
+  if (!expanded) {
+    return (
+      <button ref={opener} type="button" className="iconbtn bandsearch-open" aria-label={label}
+              onClick={() => setOpen(true)}>
+        <SearchOutlined sx={{ fontSize: 20 }} aria-hidden />
+      </button>
+    );
+  }
+  return (
+    <span className="search bandsearch" data-phone={phone || undefined}>
+      <SearchOutlined sx={{ fontSize: 17 }} aria-hidden />
+      <input ref={field} value={value} placeholder={placeholder} aria-label={label}
+             onChange={(e) => onChange(e.target.value)}
+             onBlur={() => { if (phone && !value) setOpen(false); }}
+             onKeyDown={(e) => {
+               if (phone && e.key === 'Escape' && !value) { shut.current = true; setOpen(false); }
+               onKeyDown?.(e);
+             }} />
+      {phone && (
+        <button type="button" className="iconbtn" aria-label="Close search"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => { onChange(''); shut.current = true; setOpen(false); }}>
+          <CloseOutlined sx={{ fontSize: 18 }} aria-hidden />
+        </button>
+      )}
+      {children}
+    </span>
+  );
+}
+
+/** One choice of a `Segmented` control. */
+export interface SegmentOption<T extends string> {
+  value: T;
+  label: string;
+  /** Drawn only where the control goes icon-only (a phone's view toggle). */
+  icon?: ReactNode;
+  disabled?: boolean;
+}
+
+/** A segmented control: a few mutually exclusive views of one thing, in a
+ *  wash, never the amber fill that means "act" (design.md § App-surface
+ *  rules). Buttons with `aria-pressed`, the WAI-ARIA toggle-button pattern
+ *  every page copy used. `iconOnlyOnPhone` draws only the icons under 600px,
+ *  each keeping its word as its accessible name. */
+export function Segmented<T extends string>({ label, options, value, onChange, iconOnlyOnPhone = false, className }: {
+  label: string;
+  options: readonly SegmentOption<T>[];
+  value: T;
+  onChange: (value: T) => void;
+  iconOnlyOnPhone?: boolean;
+  className?: string;
+}) {
+  const cls = ['segmented', iconOnlyOnPhone && 'icon-phone', className].filter(Boolean).join(' ');
+  return (
+    <div className={cls} role="group" aria-label={label}>
+      {options.map((o) => (
+        <button key={o.value} type="button" aria-pressed={o.value === value} disabled={o.disabled}
+                aria-label={iconOnlyOnPhone ? o.label : undefined}
+                title={iconOnlyOnPhone ? o.label : undefined}
+                onClick={() => onChange(o.value)}>
+          {iconOnlyOnPhone && o.icon && <span className="seg-icon" aria-hidden>{o.icon}</span>}
+          <span className="seg-label">{o.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** The shapes a collection can be drawn in, in the one order every view
+ *  toggle shows them. */
+export type ViewKind = 'grid' | 'list' | 'table' | 'map';
+const VIEW_ORDER: readonly ViewKind[] = ['grid', 'list', 'table', 'map'];
+const VIEW_OPTION: Record<ViewKind, SegmentOption<ViewKind>> = {
+  grid: { value: 'grid', label: 'Grid', icon: <GridViewOutlined sx={{ fontSize: 18 }} /> },
+  list: { value: 'list', label: 'List', icon: <ViewListOutlined sx={{ fontSize: 18 }} /> },
+  table: { value: 'table', label: 'Table', icon: <TableRowsOutlined sx={{ fontSize: 18 }} /> },
+  map: { value: 'map', label: 'Map', icon: <MapOutlined sx={{ fontSize: 18 }} /> },
+};
+
+/** The view toggle at the end of the toolbar band (design.md § Page head,
+ *  slot 5): Grid · List · Table · Map, in that order whatever order `views`
+ *  lists them. Icon and word on a wide screen ("three unlabelled glyphs gave
+ *  no clue that a map existed"), icons alone under 600px. A rows-and-columns
+ *  view is "Table" (founder, 10/10/2026); "List" is only a view that is not. */
+export function ViewToggle<T extends ViewKind>({ views, value, onChange, label = 'View' }: {
+  views: readonly T[];
+  value: T;
+  onChange: (value: T) => void;
+  label?: string;
+}) {
+  const options = VIEW_ORDER.filter((v): v is T => views.includes(v as T))
+    .map((v) => VIEW_OPTION[v] as SegmentOption<T>);
+  return <Segmented label={label} options={options} value={value} onChange={onChange} iconOnlyOnPhone className="icons" />;
+}
+
+// ── Tables ─────────────────────────────────────────────────────────────
+//
+// The table standard (founder, 10/10/2026: "apply the same standards across
+// the platform"). A data table — one whose rows can pass 20 — pages with
+// `usePaged` + `TablePager`, sorts with `Th` + `sortBy`, selects with
+// `SelectAllBox`, and sums its summable columns in a plain <tfoot> whose
+// label is a <th scope="row">: "Total · N things", or "N selected" when rows
+// are ticked. There is no footer component; what a footer adds differs.
+
+export const PAGE_SIZES = [5, 10, 20, 50] as const;
+export const PAGE_DEFAULT = 20;
+
+export type SortState<K extends string> = { key: K; dir: 1 | -1 } | null;
+
+/** `rows` in `sort`'s order, or as they came when there is no sort. */
+export function sortBy<R, K extends string>(
+  rows: readonly R[], sort: SortState<K>, get: Record<K, (r: R) => string | number>,
+): R[] {
+  if (!sort) return [...rows];
+  const val = get[sort.key];
+  return [...rows].sort((x, y) => {
+    const a = val(x), b = val(y);
+    return (a < b ? -1 : a > b ? 1 : 0) * sort.dir;
+  });
+}
+
+/** A sortable column heading: up, down, off. Module scope so a re-render
+ *  does not remount the button a keyboard user just pressed. */
+export function Th<K extends string>({ k, label, right, sort, setSort, className }: {
+  k: K; label: string; right?: boolean; className?: string;
+  sort: SortState<K>; setSort: (s: SortState<K>) => void;
+}) {
+  const dir = sort?.key === k ? sort.dir : 0;
+  const Arrow = dir === 1 ? ArrowUpwardRounded : ArrowDownwardRounded;
+  return (
+    <th className={[right && 'right', className].filter(Boolean).join(' ') || undefined}
+        aria-sort={dir === 0 ? undefined : dir === 1 ? 'ascending' : 'descending'}>
+      <button type="button" className="sortbtn"
+              onClick={() => setSort(dir === 0 ? { key: k, dir: 1 }
+                : dir === 1 ? { key: k, dir: -1 } : null)}>
+        {label}
+        <span className="arrow" aria-hidden>{dir !== 0 && <Arrow sx={{ fontSize: 12 }} />}</span>
+      </button>
+    </th>
+  );
+}
+
+/** The header tick box. It covers every row the filter lets through (as the
+ *  footer does), says so in its name, and shows "some" as indeterminate. */
+export function SelectAllBox({ total, picked, onToggle, noun = ['row', 'rows'] }: {
+  total: number; picked: number; onToggle: () => void; noun?: readonly [string, string];
+}) {
+  const all = total > 0 && picked >= total;
+  return (
+    <input type="checkbox" checked={all} onChange={onToggle} disabled={total === 0}
+           ref={(el) => { if (el) el.indeterminate = picked > 0 && !all; }}
+           aria-label={`Select all ${plural(total, noun[0], noun[1])}`} />
+  );
+}
+
+export interface Paged<T> {
+  shown: T[]; page: number; pages: number; size: number; total: number;
+  setPage: (n: number) => void; setSize: (n: number) => void;
+}
+
+/** One page of `rows`. The page is clamped (a shrinking list lands on its
+ *  last page) and returns to 1 when `resetKey` changes — pass the sort and
+ *  whatever narrows the list, never the data itself, so a refresh keeps the
+ *  reader's place. `storeKey` remembers the chosen size per table. */
+export function usePaged<T>(rows: readonly T[], { size: initial = PAGE_DEFAULT, resetKey, storeKey }: {
+  size?: number; resetKey?: string; storeKey?: string;
+} = {}): Paged<T> {
+  const [size, setSizeState] = useState(() => {
+    try {
+      const n = Number(storeKey ? localStorage.getItem(storeKey) : NaN);
+      return (PAGE_SIZES as readonly number[]).includes(n) ? n : initial;
+    } catch { return initial; }
+  });
+  const [page, setPage] = useState(1);
+  useEffect(() => { setPage(1); }, [resetKey]);
+  const pages = Math.max(1, Math.ceil(rows.length / size));
+  const cur = Math.min(page, pages);
+  const shown = useMemo(() => rows.slice((cur - 1) * size, cur * size), [rows, cur, size]);
+  const setSize = (n: number) => {
+    setSizeState(n); setPage(1);
+    try { if (storeKey) localStorage.setItem(storeKey, String(n)); } catch { /* private window */ }
+  };
+  return { shown, page: cur, pages, size, total: rows.length, setPage, setSize };
+}
+
+/** Under a data table: rows-per-page (when `onSize` is given), "a–b of N"
+ *  announced politely, and Previous/Next. Nothing when it would page nothing.
+ *  Previous/Next are aria-disabled, not disabled, so the button a keyboard
+ *  user is on keeps focus at either end. */
+export function TablePager({ page, pages, size, total, setPage, onSize, label, sizes = PAGE_SIZES }: {
+  page: number; pages: number; size: number; total: number;
+  setPage: (n: number) => void; onSize?: (n: number) => void;
+  label: string; sizes?: readonly number[];
+}) {
+  if (total <= (onSize ? sizes[0] : size)) return null;
+  const from = (page - 1) * size + 1;
+  const to = Math.min(page * size, total);
+  const turn = (n: number) => { if (n >= 1 && n <= pages) setPage(n); };
+  return (
+    <nav className="tablepager" aria-label={label}>
+      {onSize && <>
+        <span className="note" aria-hidden>Per page</span>
+        <Segmented label="Per page" value={String(size)}
+                   options={sizes.map((n) => ({ value: String(n), label: String(n) }))}
+                   onChange={(v) => onSize(Number(v))} />
+      </>}
+      <span className="note num" aria-live="polite">{`${num(from)}–${num(to)} of ${num(total)}`}</span>
+      {pages > 1 && <>
+        <button type="button" className="btn sm" aria-disabled={page === 1}
+                onClick={() => turn(page - 1)}>Previous</button>
+        <button type="button" className="btn sm" aria-disabled={page === pages}
+                onClick={() => turn(page + 1)}>Next</button>
+      </>}
+    </nav>
+  );
+}
+
+/** Ticked rows of a data table. Every data table has them (founder,
+ *  10/10/2026): ticking is how a reader gets a spreadsheet's status-bar sum
+ *  out of the footer, whether or not the table has anything to do in bulk.
+ *  `rows` is what the filter lets through; a change of `resetKey` (whatever
+ *  narrows the list) drops the selection rather than act on hidden rows. */
+export function useRowSelection<T>(rows: readonly T[], idOf: (r: T) => string, resetKey = '') {
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  useEffect(() => { setSelected(new Set()); }, [resetKey]);
+  const picked = useMemo(() => rows.filter((r) => selected.has(idOf(r))), [rows, selected, idOf]);
+  const toggle = useCallback((id: string) => setSelected((was) => {
+    const next = new Set(was);
+    if (!next.delete(id)) next.add(id);
+    return next;
+  }), []);
+  const toggleAll = () => setSelected(picked.length === rows.length ? new Set() : new Set(rows.map(idOf)));
+  const clear = () => setSelected(new Set());
+  return { selected, picked, toggle, toggleAll, clear };
+}
+
+/** A row's tick box. The whole cell is the target: a near miss on the box
+ *  ticks it rather than opening the row. */
+export function SelectCell({ checked, label, onToggle }: { checked: boolean; label: string; onToggle: () => void }) {
+  return (
+    <td className="selcol" onClick={(e) => { if (!(e.target instanceof HTMLInputElement)) onToggle(); }}>
+      <input type="checkbox" checked={checked} aria-label={label} onChange={onToggle} />
+    </td>
+  );
+}
+
+/** The floating bar that exists only while rows are ticked: how many, what
+ *  can be done with them, and Clear. Every label in it counts the selection. */
+export function SelectionBar({ count, noun, label, onClear, children }: {
+  count: number; noun: readonly [string, string]; label: string;
+  onClear: () => void; children?: ReactNode;
+}) {
+  if (count === 0) return null;
+  return (
+    <div className="selbar">
+      <div className="bulkbar" role="group" aria-label={label}>
+        <span className="count" role="status">{plural(count, noun[0], noun[1])} selected</span>
+        {children && <><span className="vrule" aria-hidden /><span className="acts">{children}</span></>}
+        <button type="button" className="clearall" onClick={onClear}>Clear</button>
+      </div>
+    </div>
   );
 }
 
@@ -808,7 +1473,7 @@ export const Tag = ({ children, alert, onClick, label }: {
  *  blank pill is the one outcome that tells the reader nothing at all. */
 export const STATUS_WORD: Record<string, string> = {
   owned: 'Owned', for_sale: 'For sale', disputed: 'Disputed',
-  managed: 'Managed', watch: 'Watch', archived: 'Archived',
+  managed: 'Managed', watch: 'Watching', archived: 'Archived',
 };
 
 export function statusWord(key: string): string {
@@ -824,23 +1489,28 @@ export function statusWord(key: string): string {
  *  paper to" menu — and a shelf renamed in one of them and not the others is a
  *  paper the owner can no longer find. */
 export const SHELF_WORD: Record<string, string> = {
-  title: 'Title', revenue: 'Revenue record', map: 'Map', search: 'Search & tax',
-  identity: 'Identity', old: 'Old record', photos: 'Photos & video', unsorted: 'Unsorted',
+  title: 'Title deeds', revenue: 'Revenue records', map: 'Map', search: 'EC & tax receipts',
+  identity: 'Identity', old: 'Old records', photos: 'Photos & video', unsorted: 'Not sorted yet',
 };
 
-/** What the app calls several properties held as one piece of ground.
+/** What the app calls several properties that make one piece of ground.
+ *
+ *  A holding says WHICH properties make one farm; a family or group says WHO
+ *  holds them. "Held by" and "holds" belong to groups only, so a holding is
+ *  never "held": it is "part of {name}" and "one piece of ground" (memo
+ *  06/10/2026). Its properties may have different holders.
  *
  *  The rail, the list's head, its crumbs, its CSV filename
  *  (`holdings-YYYY-MM-DD.csv`) and the Documents section all print this noun.
  *  "Holding" was approved by Reddy on 03/10/2026, superseding "Combined view"
  *  (design.md § App vocabulary). Web files, identifiers and routes say holding
- *  (`/app/holdings`; old `/app/combined…` links redirect); GraphQL fields,
+ *  (`/holdings`); GraphQL fields,
  *  query keys and tables keep `combined`. Never "your holdings" to
- *  mean all of an owner's land, and never "Holdings" for the Properties list. */
+ *  mean all of an owner's land, and never "Holdings" for the Properties list.
+ *  It has no eyebrow: Holdings is a top-level page (V2; founder, 09/10/2026). */
 export const HOLDING_WORD = {
   one: 'Holding',
   many: 'Holdings',
-  eyebrow: 'Several properties held as one',
 } as const;
 
 /** One cell of a CSV, safe to hand to a spreadsheet.
@@ -892,12 +1562,14 @@ export const State = ({ state, children }: { state: string; children: ReactNode 
   <span className={`state ${state}`}>{children}</span>
 );
 
-export function Cell({ k, v, unit, note, tone, to }: {
+export function Cell({ k, v, unit, note, tone, to, icon }: {
   k: string; v: ReactNode; unit?: string; note?: ReactNode; tone?: string; to?: string;
+  /** An ICONS name drawn before the label. */
+  icon?: string;
 }) {
   const content = (
     <>
-      <span className="k">{k}</span>
+      <span className="k">{icon && <Icon name={icon} size={13} className="k-icon" />}{k}</span>
       <span className={`v ${tone === 'up' ? 'up' : tone === 'down' ? 'down' : ''}`}>
         {v}
         {unit && <small> {unit}</small>}
@@ -950,21 +1622,39 @@ export function KV(
 }
 
 export function Card({
-  title, link, linkTo, children, className, aside, busy,
+  title, icon, info, link, linkTo, children, className, aside, busy, flush, style, ref, labelledBy, tabIndex,
 }: {
   title?: ReactNode; link?: string; linkTo?: string; children: ReactNode;
+  /** An ICONS name drawn before the title (decorative; not in its name). */
+  icon?: string;
   className?: string; aside?: ReactNode;
+  /** No padding: a table or file list that runs edge to edge inside the
+   *  card's border (Properties' and Documents' list views). */
+  flush?: boolean;
+  style?: CSSProperties;
+  /** An ⓘ (InfoTip) drawn BESIDE the heading, not inside it — inside, the
+   *  button became part of the heading's accessible name ("Cost About cost")
+   *  and put an interactive control in a heading. PageHead and SectionHead
+   *  place theirs the same way. */
+  info?: ReactNode;
   /** The card is showing the last good answer while a new one is fetched.
    *  Screens were wrapping cards in a bare div just to carry this, because a
    *  panel that refreshes in place has to say so — otherwise changing a rate
    *  looks like nothing happened until the numbers silently change. */
   busy?: boolean;
+  /** An untitled card that is still a landmark: the id of a (visually
+   *  hidden) heading inside it, and a ref + tabIndex={-1} so focus can be
+   *  put on it after the control that had focus is gone (Ticket's Next step). */
+  labelledBy?: string; ref?: Ref<HTMLElement>; tabIndex?: number;
 }) {
   return (
-    <section className={`card pad-lg ${className ?? ''}`} aria-busy={busy || undefined}>
+    <section ref={ref} className={`card ${flush ? 'flush' : 'pad-lg'} ${className ?? ''}`} style={style}
+             aria-busy={busy || undefined} aria-labelledby={labelledBy} tabIndex={tabIndex}>
       {(title || link || aside) && (
         <div className="cardhead">
-          {title && <h2>{title}</h2>}
+          {title && (info
+            ? <span className="pagehead-title"><h2>{icon && <Icon name={icon} size={20} className="h-icon" />}{title}</h2>{info}</span>
+            : <h2>{icon && <Icon name={icon} size={20} className="h-icon" />}{title}</h2>)}
           {aside}
           {link && linkTo && <Link className="link" to={linkTo}>{link} ›</Link>}
         </div>
@@ -994,6 +1684,9 @@ export interface MenuItem {
    *  it. The rule rides on the item rather than being a node of its own, so
    *  the arrow-key roving in `Menu` has nothing extra to skip over. */
   rule?: boolean;
+  /** Drawn but not actionable — a page-head secondary that is disabled on a
+   *  wide screen stays disabled when a phone moves it into the ⋮. */
+  disabled?: boolean;
 }
 
 /** Where a portalled list sits beside its trigger: `left` is the trigger's
@@ -1045,7 +1738,7 @@ function useListStyle(
  *  keyboard user could not edit or delete a record at all.
  *
  *  Clicks stop propagation so a menu inside a Link never navigates. */
-export function Menu({ label, items, className, header, trigger, triggerClassName }: {
+export function Menu({ label, items, className, header, trigger, triggerClassName, triggerRef }: {
   label: string; items: MenuItem[]; className?: string;
   /** Named above the items — "which record will this act on". A menu opened
    *  from a grid of forty cards is otherwise a column of verbs with no
@@ -1058,6 +1751,9 @@ export function Menu({ label, items, className, header, trigger, triggerClassNam
   trigger?: ReactNode;
   /** Class for the trigger when it is not an `iconbtn` — see `trigger`. */
   triggerClassName?: string;
+  /** Also reaches the trigger: a page head points a command it moved into
+   *  this menu at it, so focus comes back here. */
+  triggerRef?: Ref<HTMLButtonElement>;
 }) {
   const [pos, setPos] = useState<ListAnchor | null>(null);
   const ref = useRef<HTMLDivElement>(null);
@@ -1087,7 +1783,7 @@ export function Menu({ label, items, className, header, trigger, triggerClassNam
     if (takeFocus.current) {
       takeFocus.current = false;
       listRef.current?.querySelector<HTMLElement>(
-        '[role="menuitem"], [role="menuitemradio"]',
+        '[role="menuitem"]:not(:disabled), [role="menuitemradio"]:not(:disabled)',
       )?.focus();
     }
     const away = (e: PointerEvent) => {
@@ -1107,7 +1803,7 @@ export function Menu({ label, items, className, header, trigger, triggerClassNam
       if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
       const all = Array.from(
         listRef.current?.querySelectorAll<HTMLElement>(
-          '[role="menuitem"], [role="menuitemradio"]',
+          '[role="menuitem"]:not(:disabled), [role="menuitemradio"]:not(:disabled)',
         ) ?? []);
       if (!all.length) return;
       e.preventDefault();
@@ -1147,7 +1843,7 @@ export function Menu({ label, items, className, header, trigger, triggerClassNam
   return (
     <div className={`menu ${className ?? ''}`} ref={ref}>
       <button
-        ref={btnRef}
+        ref={(el) => { btnRef.current = el; setRef(triggerRef, el); }}
         type="button" className={triggerClassName ?? 'iconbtn'} aria-label={label}
         aria-haspopup="menu" aria-expanded={!!pos}
         onClick={(e) => {
@@ -1184,7 +1880,7 @@ export function Menu({ label, items, className, header, trigger, triggerClassNam
             ) : (
               <button
                 key={it.label} type="button" role={role} aria-checked={it.selected}
-                className={cls}
+                className={cls} disabled={it.disabled}
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -1214,6 +1910,88 @@ export function Menu({ label, items, className, header, trigger, triggerClassNam
  *  where a section's actions sit, so "which boundaries are on the map" reads as
  *  an action on the view rather than a rail of checkboxes competing with the
  *  data beside them. Closes on Escape, Tab, or a click away. */
+/** Pick several items from a list too long to show, by typing (WAI-ARIA
+ *  combobox with a listbox). What is picked sits in front of the field as the
+ *  band's removable chips; at most `max` matches are listed at a time, so the
+ *  same control serves 2 states or 700 districts. `single` keeps one pick.
+ *  The Service catalogue uses it for the states and districts a service is
+ *  offered in, and for choosing another place to price. */
+export function ChipPicker({ label, options, selected, onChange, placeholder, single = false, max = 8, empty }: {
+  /** Names the field and its list: "States". */
+  label: string;
+  options: { id: string; label: string }[];
+  selected: string[];
+  onChange: (ids: string[]) => void;
+  placeholder: string;
+  single?: boolean;
+  max?: number;
+  /** Said where the chips would be while nothing is picked: "All districts". */
+  empty?: ReactNode;
+}) {
+  const [text, setText] = useState('');
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const base = useId();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const names = new Map(options.map((o) => [o.id, o.label]));
+  const needle = text.trim().toLowerCase();
+  const matches = options
+    .filter((o) => !selected.includes(o.id))
+    .filter((o) => !needle || o.label.toLowerCase().includes(needle))
+    .slice(0, max);
+  const more = options.filter((o) => !selected.includes(o.id)
+    && (!needle || o.label.toLowerCase().includes(needle))).length - matches.length;
+  const pick = (id: string) => {
+    onChange(single ? [id] : [...selected, id]);
+    setText(''); setActive(0);
+    if (single) setOpen(false);
+    inputRef.current?.focus();
+  };
+  const drop = (id: string) => { onChange(selected.filter((s) => s !== id)); inputRef.current?.focus(); };
+  const listId = `${base}-list`;
+  const showList = open && matches.length > 0;
+  return (
+    <div className="chippick">
+      {selected.length === 0 && empty && <span className="note">{empty}</span>}
+      {selected.map((id) => (
+        <span className="fchip" key={id}>
+          <span className="val">{names.get(id) ?? id}</span>
+          <button type="button" aria-label={`Remove ${names.get(id) ?? id}`} onClick={() => drop(id)}>×</button>
+        </span>
+      ))}
+      <div className="chippick-field">
+        <input
+          ref={inputRef} type="text" value={text} placeholder={placeholder} aria-label={label}
+          role="combobox" aria-expanded={showList} aria-controls={listId} aria-autocomplete="list"
+          aria-activedescendant={showList ? `${base}-o${active}` : undefined}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 120)}
+          onChange={(e) => { setText(e.target.value); setOpen(true); setActive(0); }}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setActive((i) => Math.min(i + 1, matches.length - 1)); }
+            else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((i) => Math.max(i - 1, 0)); }
+            else if (e.key === 'Enter' && showList) { e.preventDefault(); pick(matches[active].id); }
+            else if (e.key === 'Escape' && open) { e.preventDefault(); e.stopPropagation(); setOpen(false); }
+            else if (e.key === 'Backspace' && !text && selected.length) drop(selected[selected.length - 1]);
+          }}
+        />
+        {showList && (
+          <ul id={listId} role="listbox" aria-label={label} className="chippick-list">
+            {matches.map((o, i) => (
+              <li key={o.id} id={`${base}-o${i}`} role="option" aria-selected={i === active}
+                  onMouseDown={(e) => { e.preventDefault(); pick(o.id); }}
+                  onMouseEnter={() => setActive(i)}>
+                {o.label}
+              </li>
+            ))}
+            {more > 0 && <li className="note" aria-hidden>{num(more)} more; type to narrow the list</li>}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function MultiSelect({ label, summary, options, selected, onToggle, onAll }: {
   /** What the choice is about — "Which boundaries to show". It names the open
    *  list, and it is read BEFORE the summary in the trigger's name. The trigger
@@ -1356,6 +2134,14 @@ export function useFullscreen<T extends HTMLElement = HTMLDivElement>() {
  *
  *  `what` names the thing being fetched and should match the noun the same
  *  screen gives `Failed what=`, so the waiting word and the failure word agree. */
+/** A write that did not go through, said under the form that asked for it
+ *  (design.md § Errors: "{Thing} could not be {done}. {Next step}."). Draws
+ *  nothing while there is nothing to say. Not `Failed`: that is a read's
+ *  blank state, with a retry. */
+export const FormError = ({ children }: { children?: ReactNode }) => (
+  children ? <p className="note bad" role="alert">{children}</p> : null
+);
+
 export const Loading = ({ h = '10rem', what }: { h?: string; what?: string }) => (
   <div role="status" aria-busy="true" style={{ display: 'grid', gap: 'var(--space-sm)' }}>
     <div className="skeleton" style={{ height: h }} aria-hidden />
@@ -1491,6 +2277,56 @@ export function Rail({ stage, steps, word, pipsOnly }:
 /** The four stages a work_request's `stage` integer indexes. Mirrors
  *  _STAGES in services/api/src/web360.py. */
 export const ORDER_STAGES = ['Placed', 'Assigned', 'On site', 'Delivered'];
+
+/** One step of an order's progress. `done` carries ✓ and its date; `current`
+ *  is filled and bold with a caption; `todo` is quiet with no date; `stopped`
+ *  is the terminal "Cancelled" that replaces every step not reached. */
+export interface TrackerStep {
+  label: string;
+  state: 'done' | 'current' | 'todo' | 'stopped';
+  date?: string;
+  caption?: ReactNode;
+  /** Tints the caption only, never the step: stalled and overdue are warn,
+   *  a failed payment is bad. */
+  tone?: 'warn' | 'bad';
+  /** A step that was reached and then undone (work sent back): drawn struck
+   *  through. */
+  undone?: boolean;
+  /** Where the order stands when that is a finished step (Accepted). */
+  here?: boolean;
+  /** A finished step a flow can go back to: its label becomes a button. */
+  onClick?: () => void;
+}
+
+/** Where an order stands, as steps (service order spec §2): horizontal at
+ *  600px and up, a vertical stepper under it. An `<ol>` with the current
+ *  step marked `aria-current="step"`. The page decides the steps from the
+ *  order's status and events; this only draws them, so the Orders list's
+ *  four `Rail` pips stay what they are. */
+export function OrderTracker({ steps, label = 'Order progress' }: { steps: TrackerStep[]; label?: string }) {
+  return (
+    <ol className="tracker" aria-label={label}>
+      {steps.map((s, i) => (
+        <li key={`${s.label}-${i}`} className={`tracker-step ${s.state}${s.undone ? ' undone' : ''}`}
+            aria-current={s.state === 'current' || s.here ? 'step' : undefined}>
+          <span className="tracker-dot" aria-hidden>
+            {s.state === 'done' && <CheckRounded sx={{ fontSize: 14 }} />}
+          </span>
+          <span className="tracker-text">
+            <span className="tracker-label">
+              {s.onClick
+                ? <button type="button" className="link" onClick={s.onClick}>{s.label}</button>
+                : s.label}
+              {s.state === 'done' && <span className="sr-only"> (done)</span>}
+            </span>
+            {s.date && s.state !== 'current' && <span className="tracker-date num">{s.date}</span>}
+            {s.caption && <span className={`tracker-caption${s.tone ? ` ${s.tone}` : ''}`}>{s.caption}</span>}
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
 
 /** True while the viewport is at most `px` wide.
  *

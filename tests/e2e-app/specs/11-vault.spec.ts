@@ -1,9 +1,10 @@
 /**
  * W15 — the vault and its shelves.
  *
- * Two screens: the wall at `/app/papers` (eight shelf cards, the search across
- * everything filed, and every link out of the vault) and one shelf at
- * `/app/papers/shelf/:key`. Between them they are the whole of
+ * Two screens: Documents at `/papers` (a file list — once a wall of eight
+ * shelf cards — the search across it, and every link out of the vault; the
+ * folders, filters and moves are 11c-documents-files.spec.ts) and one shelf at
+ * `/papers/shelf/:key`. Between them they are the whole of
  * apps/web/src/w360/pages/Vault.tsx and apps/web/src/w360/pages/Shelf.tsx —
  * loaded, empty, still loading, failed, refused, and each branch in between.
  *
@@ -26,19 +27,18 @@
  *    it, and a test that mixed them up would be obvious.
  *
  * 3. A paper row is asserted by its destination rather than opened. The Reader
- *    at `/app/papers/:id` is another spec's screen; what this one owes is that
+ *    at `/papers/:id` is another spec's screen; what this one owes is that
  *    a shelf row and a search hit point at the right paper.
  *
- * Six test.fail()s, each naming its cause: the share log never says what went
- * out or whether it was opened; Extend is gone from a screen whose server-side
- * reason for losing it has since been fixed; an empty vault still draws the
- * whole wall and a lecture about revoking links; the property picker prints an
- * ungrouped extent; a loading shelf announces nothing; and two of the eight
- * empty-shelf sentences do not parse. Each one goes green the day it is fixed.
+ * Two test.fail()s, each naming its cause: Extend is gone from a screen whose
+ * server-side reason for losing it has since been fixed; and a loading shelf
+ * announces nothing. Each one goes green the day it is fixed.
  */
 import { test, expect, World } from '../fixtures/harness';
 import type { Page } from '../fixtures/harness';
 import { ID, PAPER, LINK, SHELVES } from '../fixtures/ids';
+import { SEED } from '../fixtures/seed';
+import type { AnswerFn } from '../fixtures/world';
 
 // ── the shapes these two screens read ──────────────────────────────────
 
@@ -91,237 +91,178 @@ const bigPortfolio = (n: number) => ({
 
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/** Every shelf on the wall is an h2 holding a link to its shelf page — the
- *  Unsorted strip, a shelf row with spines, or a dashed empty slot alike. */
-const shelfHeadings = (page: Page) => page.getByRole('main').getByRole('heading', { level: 2 })
-  .filter({ has: page.locator('a[href^="/app/papers/shelf/"]') });
-const shelfLink = (page: Page, label: string) => page.getByRole('main')
-  .getByRole('heading', { level: 2, name: label, exact: true }).getByRole('link');
-/** The search answer, as its own named region above the wall. The wall's
- *  spines below it can carry the same names, and they are not results. */
-const searchHits = (page: Page) => page.getByRole('main')
-  .getByRole('region', { name: /^Documents named like/ });
-/** The whole entry a shelf heading belongs to: its row, strip or slot. */
-const shelfEntry = (page: Page, label: string) => page.getByRole('main').locator('li, section')
-  .filter({ has: page.getByRole('heading', { level: 2, name: label, exact: true }) }).last();
+/** The file list Documents draws (Vault.tsx `role="table"`), and one row of it. */
+const fileTable = (page: Page) => page.getByRole('table', { name: 'Your private documents' });
+const fileRow = (page: Page, name: string) => fileTable(page).getByRole('row').filter({ hasText: name });
+/** A shelf's table rows (Shelf.tsx, the Table view). */
+const shelfRows = (page: Page) => page.getByRole('main').locator('table.rectable tbody tr');
+
+/** Every file the eight shelves hold, as `vaultPapers('all')` answers it.
+ *
+ *  FIXTURE GAP: the seeded `vaultPapers` is keyed on a shelf, so the
+ *  `shelf: 'all'` read Documents makes since it became a file list answers
+ *  nothing, and its rows carry none of `createdAt`, `mimeType`, `sizeBytes`,
+ *  `folderId` or `linkedProperties`. Until fixtures/seed.ts answers 'all',
+ *  this spec answers it itself from the same per-shelf rows, so the 27 files
+ *  the vault head counts are the 27 the list draws. */
+const SHELF_SEED = SEED.vaultPapers as AnswerFn;
+const allFiles = (): Record<string, unknown>[] => SHELVES.flatMap((key, s) =>
+  (SHELF_SEED({ shelf: key }, '') as Record<string, unknown>[]).map((p, i) => ({
+    mimeType: 'application/pdf', sizeBytes: 0, folderId: '', jointFmbId: '', aadhaarCard: false,
+    // Newest first is the list's default order: Title deeds is made the newest
+    // shelf so the deed every test reaches for is on the first page of 25.
+    linkedProperties: [], createdAt: `2026-09-${String(28 - s).padStart(2, '0')}T10:${String(59 - i).padStart(2, '0')}:00`,
+    ...p,
+  })));
+const vaultPapersWithAll: AnswerFn = (vars, query) => (String(vars.shelf) === 'all'
+  ? allFiles() : SHELF_SEED(vars, query));
+
+test.beforeEach(async ({ world }) => {
+  world.set('vaultPapers', vaultPapersWithAll);
+});
 
 // ═══════════════════════════════════════════════════════════════════════
-test.describe('the wall', () => {
-  test('every shelf says what it holds and how many are on it', async ({ page, world }) => {
-    const vault = world.seedOf<VaultAnswer>('vault');
-    await page.goto('/app/papers');
+// The wall of eight shelf cards was replaced by a file manager (W15 —
+// "Documents: a file list, folders and every link you have out", Vault.tsx:1,
+// specified in 11c-documents-files.spec.ts). Its card links, spines, empty
+// slots and "Unsorted first" ordering no longer exist; what the wall promised
+// that still stands — a count that agrees with the list, where the bytes are
+// kept, an honest loading and failed state — is asserted on the list instead.
+test.describe('the file list', () => {
+  test('every document is listed, and the head counts what the list holds', async ({ page }) => {
+    await page.goto('/papers');
 
     await expect(page.getByRole('heading', { level: 1, name: 'Documents' })).toBeVisible();
-
-    for (const shelf of vault.shelves) {
-      // Each shelf is an h2 whose link opens the shelf page; the note and the
-      // count sit beside it. The count carries its unit, so it is never a
-      // bare number: photos are counted as photos, everything else as
-      // documents.
-      const unit = shelf.key === 'photos' ? 'photo' : 'document';
-      const counted = `${shelf.count} ${unit}${shelf.count === 1 ? '' : 's'}`;
-      await expect(shelfLink(page, shelf.label)).toHaveAttribute('href', `/app/papers/shelf/${shelf.key}`);
-      await expect(shelfEntry(page, shelf.label)).toContainText(`${shelf.note} · ${counted}`);
-    }
-
-    // The wall is the server's list and nothing else: a ninth shelf hard-coded
-    // into the wall, or an eighth dropped from it, is caught here rather than
-    // by the loop above, which only walks what the answer contains.
-    await expect(shelfHeadings(page)).toHaveCount(vault.shelves.length);
-    expect(vault.shelves).toHaveLength(SHELVES.length);
+    // The head counts every document. Unfiltered, the filter bar adds no
+    // tally of its own: "27 of 27 shown" next to "27 documents" said it twice.
+    await expect(page.locator('.pagehead-summary'))
+      .toHaveText(/^27 documents( · \d+ folders?)? · .+ · Private unless shared$/);
+    await expect(page.getByRole('main').getByRole('status').filter({ hasText: / shown$/ })).toHaveCount(0);
+    await expect(page.getByRole('heading', { level: 2, name: /^Documents · 27 documents$/ })).toBeAttached();
+    // 25 to a page: the head's count is every file, not the page.
+    await expect(fileTable(page).getByRole('checkbox', { name: /^Select (?!all)/ })).toHaveCount(25);
+    await expect(page.getByRole('navigation', { name: 'Document pages' })).toContainText('1–25 of 27');
+    await expect(fileRow(page, 'Sale deed 4412 of 1998')).toBeVisible();
   });
 
-  test('the wall counts the papers and says where they are kept', async ({ page, world }) => {
+  test('where the documents are kept is said in the summary line, in the server’s words', async ({ page, world }) => {
     const vault = world.seedOf<VaultAnswer>('vault');
-    await page.goto('/app/papers');
+    await page.goto('/papers');
 
-    await expect(page.getByText(`27 documents · ${vault.regionNote}`)).toBeVisible();
-    // The sentence is the server's, not the screen's: change the answer and
-    // the screen repeats the new one rather than its own idea of where the
-    // bytes live.
+    // A data fact, not guidance: the summary carries it and there is no ⓘ
+    // (design.md § Page head, ⓘ; F19).
+    await expect(page.locator('.pagehead-summary')).toContainText(`${vault.regionNote} · Private unless shared`);
+    await expect(page.getByRole('main').getByRole('button', { name: 'About Documents' })).toHaveCount(0);
+    // The sentence is the server's, not the screen's.
     expect(vault.regionNote).toContain('ap-south-1');
   });
 
-  test('a vault holding one paper does not call it 1 papers', async ({ page, world }) => {
-    world.patch('vault', { total: 1 });
-    await page.goto('/app/papers');
+  test('a vault holding one paper does not call it 1 documents', async ({ page, world }) => {
+    world.set('vaultPapers', (vars: Record<string, unknown>) => (String(vars.shelf) === 'all'
+      ? allFiles().filter((p) => p.title === 'Sale deed 4412 of 1998') : []));
+    await page.goto('/papers');
 
-    await expect(page.getByText('1 document · Stored in Mumbai')).toBeVisible();
-    // The count is told once, in the status line; the search box does not
-    // repeat it.
-    await expect(page.getByLabel('Search your documents by name'))
-      .toHaveAttribute('placeholder', 'Search documents by name');
+    await expect(page.locator('.pagehead-summary')).toHaveText(/^1 document( · \d+ folders?)? · /);
+    await expect(page.getByRole('main').getByText(/\b1 documents\b/)).toHaveCount(0);
   });
 
-  test('a shelf card opens that shelf, and the list agrees with the count on the card',
-    async ({ page, world }) => {
-      const vault = world.seedOf<VaultAnswer>('vault');
-      await page.goto('/app/papers');
-
-      for (const shelf of vault.shelves) {
-        // Photos is the one shelf that is empty by construction — counted from
-        // parcel_photos, never from documents — and it has its own test below.
-        if (shelf.key === 'photos') continue;
-
-        await expect(shelfEntry(page, shelf.label))
-          .toContainText(new RegExp(`· ${shelf.count} documents?`));
-        await shelfLink(page, shelf.label).click();
-
-        await expect(page).toHaveURL(new RegExp(`/app/papers/shelf/${shelf.key}$`));
-        await expect(page.getByRole('heading', { level: 1, name: shelf.label })).toBeVisible();
-        // Every row ends in its page count, which the crumb back to the wall
-        // does not — that is what separates the list from the chrome.
-        const rows = page.getByRole('main').getByRole('link', { name: /\d+ pages?$/ });
-        await expect(rows, `the ${shelf.label} shelf lists what its card counts`)
-          .toHaveCount(shelf.count);
-
-        await page.goBack();
-        await expect(page).toHaveURL(/\/app\/papers$/);
-      }
-    });
-
-  test('the photos card opens a shelf that sends you to the records instead', async ({ page }) => {
-    await page.goto('/app/papers');
-    await shelfLink(page, 'Photos').click();
-
-    await expect(page).toHaveURL(/\/app\/papers\/shelf\/photos$/);
-    await expect(page.getByText('Photos are kept on each property')).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Open your properties' }))
-      .toHaveAttribute('href', '/app/properties');
-    await expect(page.getByText('Open a record’s Photos tab.')).toBeVisible();
-  });
-
-  test('a vault that has not answered yet holds its shape and claims nothing', async ({ page, world }) => {
+  // The share register is its own read (`vault`); the documents are another.
+  // Waiting on, or losing, the register must not hide a library that loaded.
+  test('share links that have not answered yet hold back nothing else', async ({ page, world }) => {
     world.set('vault', World.never());
-    await page.goto('/app/papers');
+    await page.goto('/papers');
 
-    await expect(page.getByText('Loading your documents…')).toBeVisible();
-    await expect(page.getByRole('heading', { level: 2, name: 'Title' })).toBeHidden();
-    await expect(page.getByText('No active share links.')).toBeHidden();
+    await expect(page.getByRole('heading', { level: 1, name: 'Documents' })).toBeVisible();
+    await expect(fileRow(page, 'Sale deed 4412 of 1998')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Add documents' })).toBeVisible();
+    // No register is drawn until there is a link to list.
+    await expect(page.getByText(/Active share links/)).toBeHidden();
   });
 
-  test('a vault that will not load says so, and says it lost nothing', async ({ page, world }) => {
+  test('share links that will not load say so, and the documents still list', async ({ page, world }) => {
     world.set('vault', World.gqlError('the paper store is down'));
-    await page.goto('/app/papers');
+    await page.goto('/papers');
 
-    await expect(page.getByRole('alert')).toContainText('Your documents did not load');
-    await expect(page.getByText('Check your connection and try again.')).toBeVisible();
+    await expect(page.getByRole('alert')).toContainText('Your share links did not load');
     // The reason is printed verbatim, for whoever is being asked "what does it
     // say?" down a phone line.
     await expect(page.getByText('the paper store is down')).toBeVisible();
-    await expect(page.getByRole('heading', { level: 2, name: 'Title' })).toBeHidden();
+    await expect(fileRow(page, 'Sale deed 4412 of 1998')).toBeVisible();
   });
 
-  test('Try again on a failed vault actually draws the wall', async ({ page, world }) => {
+  test('Try again on failed share links draws the register', async ({ page, world }) => {
     const vault = world.seedOf<VaultAnswer>('vault');
     world.set('vault', World.gqlError('the paper store is down'));
-    await page.goto('/app/papers');
-    await expect(page.getByRole('alert')).toContainText('Your documents did not load');
+    await page.goto('/papers');
+    await expect(page.getByRole('alert')).toContainText('Your share links did not load');
 
     world.set('vault', vault);
     await page.getByRole('button', { name: 'Try again' }).click();
 
-    await expect(page.getByRole('heading', { level: 2, name: 'Title' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Active share links', exact: true })).toBeVisible();
     await expect(page.getByRole('alert')).toBeHidden();
   });
 
-  // ── DEFECT ────────────────────────────────────────────────────────────
-  // apps/web/src/w360/pages/Vault.tsx:422-570 — Vault() has no branch for a
-  // vault with nothing in it. With total 0, no shelves and no links it still
-  // draws a search box over nothing to search, an empty shelf grid, the share
-  // log with "No active share links." and the four-sentence
-  // footnote about revoking links nobody has. The founder's zero-state rule is
-  // one sentence and the one thing to do; the owner is owed an Empty naming
-  // that the vault is empty, with "Add documents" as its action, and none of the
-  // chrome that describes papers that are not there.
-  test.fail('a vault with nothing in it says one thing instead of drawing the whole wall',
+  test('documents still loading hold the list’s shape and claim no count', async ({ page, world }) => {
+    world.set('vaultPapers', World.never());
+    await page.goto('/papers');
+
+    await expect(page.getByText('Loading your documents…')).toBeAttached();
+    await expect(page.getByText(/\b0 documents\b/)).toHaveCount(0);
+    await expect(fileTable(page)).toBeHidden();
+  });
+
+  // The founder's zero-state rule: one sentence and the one thing to do, and
+  // none of the chrome that describes documents that are not there.
+  test('a vault with nothing in it says one thing instead of drawing the whole page',
     async ({ page, world }) => {
       world.patch('vault', { total: 0, shelves: [], links: [] });
-      await page.goto('/app/papers');
+      world.set('vaultPapers', []);
+      world.set('vaultFolders', []);
+      await page.goto('/papers');
 
-      await expect(page.getByRole('button', { name: 'Add documents' })).toBeVisible();
-      await expect(page.getByLabel('Search your documents by name')).toBeHidden({ timeout: 3_000 });
-      await expect(page.getByText('New links are view-only for 30 days.')).toBeHidden({ timeout: 3_000 });
+      await expect(page.getByText('No documents yet')).toBeVisible();
+      // Add documents once, in the empty state — not twice, six inches apart.
+      await expect(page.getByRole('button', { name: 'Add documents' })).toHaveCount(1);
+      await expect(page.getByRole('button', { name: '+ Filter' })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'New folder' })).toHaveCount(0);
+      await expect(page.getByPlaceholder('Search documents')).toBeHidden({ timeout: 3_000 });
+      await expect(page.getByText('New links let the person view and download for 30 days.')).toBeHidden({ timeout: 3_000 });
       await expect(page.getByText('No active share links.')).toBeHidden({ timeout: 3_000 });
     });
 
   test('the page reads h1 then h2, and standing guidance waits behind the ⓘ', async ({ page }) => {
-    await page.goto('/app/papers');
+    await page.goto('/papers');
     const main = page.getByRole('main');
 
     await expect(main.getByRole('heading', { level: 1, name: 'Documents' })).toBeVisible();
     // No eyebrow repeats the rail label over the title.
     await expect(main.getByText('Your documents', { exact: true })).toHaveCount(0);
-    // Shelves and the share log are the page's second level; nothing skips to h3.
-    await expect(main.getByRole('heading', { level: 2, name: /^Active share links · \d+$/ })).toBeVisible();
+    // The list and the share log are the page's second level; nothing skips to h3.
+    await expect(main.getByRole('heading', { level: 2, name: 'Active share links', exact: true })).toBeVisible();
     await expect(main.getByRole('heading', { level: 3 })).toHaveCount(0);
 
     // The 30-day rule is behind the ⓘ, still announced to a screen reader.
     const tip = main.getByRole('button', { name: 'About Active share links' });
-    await expect(tip).toHaveAccessibleDescription('New links are view-only for 30 days.');
-    await expect(main.getByText('New links are view-only for 30 days.')).toBeHidden();
+    await expect(tip).toHaveAccessibleDescription('New links let the person view and download for 30 days.');
+    await expect(main.getByText('New links let the person view and download for 30 days.')).toBeHidden();
     await tip.focus();
-    await expect(main.getByText('New links are view-only for 30 days.')).toBeVisible();
+    await expect(main.getByText('New links let the person view and download for 30 days.')).toBeVisible();
   });
 
-  test('Unsorted comes first, because it is the shelf that still needs a decision', async ({ page }) => {
-    await page.goto('/app/papers');
-    await expect(shelfHeadings(page)).toHaveCount(SHELVES.length);
-    await expect(shelfHeadings(page).first()).toHaveText('Unsorted');
-    const unsorted = page.getByRole('main').getByRole('region', { name: 'Unsorted' });
-    await expect(unsorted).toContainText('1 document');
-    await expect(unsorted.getByRole('link', { name: /^Scan 2026-08-02 \(S 2026\)$/ })).toBeVisible();
-  });
-
-  test('a shelf shows its papers as spines, each coded from its own title', async ({ page }) => {
-    await page.goto('/app/papers');
-    const title = shelfEntry(page, 'Title');
-    // "Sale deed 4412 of 1998" is SD 1998 — the code and year come from the
-    // paper, and the accessible name is the paper's title.
-    const deed = title.getByRole('link', { name: 'Sale deed 4412 of 1998 (SD 1998)' });
-    await expect(deed).toBeVisible();
-    await expect(deed).toHaveAttribute('href', `/app/papers/${PAPER.deed}`);
-    await expect(shelfEntry(page, 'Revenue record').getByRole('link', { name: /^Adangal 2025-26 \(AD 2025-26\)$/ }))
-      .toBeVisible();
-    // FMB sketch names no year, so its spine says none rather than guessing one.
-    await expect(shelfEntry(page, 'Map').getByRole('link', { name: 'FMB sketch (FM)' })).toBeVisible();
-    // Photos live on each property, so that row draws no spines.
-    await expect(shelfEntry(page, 'Photos').locator('.spine')).toHaveCount(0);
-  });
-
-  test('an empty shelf is a slot that says what belongs there, not a zero', async ({ page, world }) => {
-    const vault = world.seedOf<VaultAnswer>('vault');
-    world.patch('vault', {
-      shelves: vault.shelves.map((s) => (s.key === 'identity' || s.key === 'old'
-        ? { ...s, count: 0 } : s)),
+  test('a list whose papers cannot be read says so, and the share log still stands',
+    async ({ page, world }) => {
+      world.set('vaultPapers', World.gqlError('the paper store is down'));
+      await page.goto('/papers');
+      await expect(page.getByRole('alert')).toContainText('Your documents did not load');
+      await expect(fileTable(page)).toBeHidden();
+      await expect(page.getByRole('heading', { level: 2, name: 'Active share links', exact: true })).toBeVisible();
     });
-    await page.goto('/app/papers');
 
-    const identity = shelfEntry(page, 'Identity');
-    await expect(identity).toContainText('Aadhaar, PAN, passbooks');
-    await expect(identity).not.toContainText('0 documents');
-    await expect(shelfLink(page, 'Identity')).toHaveAttribute('href', '/app/papers/shelf/identity');
-    // Empty shelves come last, after every shelf that holds something.
-    await expect(shelfHeadings(page).last()).toHaveText('Old record');
-    // Nothing is fetched for a shelf with nothing on it.
-    expect(world.calls('vaultPapers').map((c) => c.vars.shelf)).not.toContain('identity');
-  });
-
-  test('a shelf whose papers cannot be read says so in one sentence', async ({ page, world }) => {
-    world.set('vaultPapers', World.gqlError('the paper store is down'));
-    await page.goto('/app/papers');
-    await expect(shelfEntry(page, 'Title'))
-      .toContainText('The live service is not reachable — nothing is shown until it responds.');
-    await expect(page.locator('.spine')).toHaveCount(0);
-  });
-
-  test('the wall is still one tap per shelf on a phone @phone', async ({ page }) => {
-    await page.goto('/app/papers');
-    await expect(shelfHeadings(page)).toHaveCount(SHELVES.length);
-
-    await shelfLink(page, 'Revenue record').click();
-    await expect(page).toHaveURL(/\/app\/papers\/shelf\/revenue$/);
-    await expect(page.getByRole('heading', { level: 1, name: 'Revenue record' })).toBeVisible();
+  test('the list still opens a file on a phone @phone', async ({ page }) => {
+    await page.goto('/papers');
+    await expect(fileRow(page, 'Sale deed 4412 of 1998')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Actions for Sale deed 4412 of 1998' })).toBeVisible();
   });
 });
 
@@ -339,13 +280,14 @@ test.describe('the share log', () => {
           }),
         ],
       });
-      await page.goto('/app/papers');
+      await page.goto('/papers');
 
-      await expect(page.getByText('Active share links · 2')).toBeVisible();
+      await expect(page.getByRole('heading', { level: 2, name: 'Active share links', exact: true })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Active share links' }).locator('xpath=ancestor::header[1]')).toContainText('2 links');
       await expect(page.getByText('Prospective buyer — Sy 214/2')).toBeVisible();
       await expect(page.getByText('View only · no download')).toBeVisible();
       await expect(page.getByText('Union Bank, Markapur — Flat 4B, Sai Residency')).toBeVisible();
-      await expect(page.getByText('View and download')).toBeVisible();
+      await expect(page.getByText('View and download', { exact: true })).toBeVisible();
       await expect(page.getByRole('button', { name: 'Revoke' })).toHaveCount(2);
       // A register, not a contact list: the entries are an ordered list, each
       // numbered in the order drawn, and each says the day it lapses.
@@ -354,7 +296,7 @@ test.describe('the share log', () => {
       expect(await register.evaluate((el) => el.tagName)).toBe('OL');
       await expect(register.getByRole('listitem').first()).toContainText('01');
       await expect(register.getByRole('listitem').nth(1)).toContainText('02');
-      await expect(register.getByRole('listitem').first()).toContainText(`lapses ${inDays(18)}`);
+      await expect(register.getByRole('listitem').first()).toContainText(`expires ${inDays(18)}`);
     });
 
   test('a link says what is left of it in days, not in a date to be worked out',
@@ -366,14 +308,15 @@ test.describe('the share log', () => {
           aLink({ id: 'w-link-today', audience: 'Surveyor', expiresOn: inDays(0) }),
         ],
       });
-      await page.goto('/app/papers');
+      await page.goto('/papers');
 
       await expect(page.getByText('18 days left')).toBeVisible();
       await expect(page.getByText('expires tomorrow')).toBeVisible();
       // A link that runs out today still opens today, so it stays in the live
       // list and says which day it is.
       await expect(page.getByText('expires today')).toBeVisible();
-      await expect(page.getByText('Active share links · 3')).toBeVisible();
+      await expect(page.getByRole('heading', { level: 2, name: 'Active share links', exact: true })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Active share links' }).locator('xpath=ancestor::header[1]')).toContainText('3 links');
     });
 
   test('a lapsed link is shown as lapsed, not as one expiring soon', async ({ page, world }) => {
@@ -390,10 +333,12 @@ test.describe('the share log', () => {
         }),
       ],
     });
-    await page.goto('/app/papers');
+    await page.goto('/papers');
 
-    await expect(page.getByText('Active share links · 1')).toBeVisible();
-    await expect(page.getByText('Expired links · 1')).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Active share links', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Active share links' }).locator('xpath=ancestor::header[1]')).toContainText('1 link');
+    await expect(page.getByRole('heading', { level: 2, name: 'Expired share links', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Expired share links' }).locator('xpath=ancestor::header[1]')).toContainText('1 link');
     await expect(page.getByText(`expired ${inDays(-43)}`)).toBeVisible();
     await expect(page.getByText('expires tomorrow')).toBeHidden();
   });
@@ -404,11 +349,12 @@ test.describe('the share log', () => {
       // screen read the server's clamped daysLeft and said "expires tomorrow"
       // over it.
       world.patch('vault', { links: [aLink({ id: LINK.buyer, expiresOn: '', daysLeft: 0 })] });
-      await page.goto('/app/papers');
+      await page.goto('/papers');
 
       await expect(page.getByText('no expiry recorded')).toBeVisible();
-      await expect(page.getByText('Active share links · 1')).toBeVisible();
-      await expect(page.getByText('Expired links ·')).toBeHidden();
+      await expect(page.getByRole('heading', { level: 2, name: 'Active share links', exact: true })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Active share links' }).locator('xpath=ancestor::header[1]')).toContainText('1 link');
+      await expect(page.getByRole('heading', { name: 'Expired share links' })).toBeHidden();
     });
 
   test('a link whose date could never have existed is not given four more days',
@@ -419,33 +365,56 @@ test.describe('the share log', () => {
       // true thing instead. (The ISO dates fixtures/seed.ts holds fall into
       // the same answer one line earlier, at the regex.)
       world.patch('vault', { links: [aLink({ id: LINK.buyer, expiresOn: '31/02/2026', daysLeft: 4 })] });
-      await page.goto('/app/papers');
+      await page.goto('/papers');
 
       await expect(page.getByText('no expiry recorded')).toBeVisible();
       await expect(page.getByText(/days? left/)).toBeHidden();
-      await expect(page.getByText('Active share links · 1')).toBeVisible();
+      await expect(page.getByRole('heading', { level: 2, name: 'Active share links', exact: true })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Active share links' }).locator('xpath=ancestor::header[1]')).toContainText('1 link');
     });
 
-  test('nothing out on a link says that, and draws no lapsed shelf', async ({ page, world }) => {
+  test('with no link out, no register is drawn at all', async ({ page, world }) => {
     world.patch('vault', { links: [] });
-    await page.goto('/app/papers');
+    await page.goto('/papers');
 
-    await expect(page.getByText('Active share links · 0')).toBeVisible();
-    await expect(page.getByText('No active share links.')).toBeVisible();
-    await expect(page.getByText('Expired links ·')).toBeHidden();
-    await expect(page.getByRole('button', { name: 'Revoke' })).toHaveCount(0);
+    await expect(fileRow(page, 'Sale deed 4412 of 1998')).toBeVisible();
+    await expect(page.getByText(/Active share links/)).toBeHidden();
+    await expect(page.getByText('No active share links.')).toBeHidden();
+    await expect(page.getByRole('heading', { name: 'Expired share links' })).toBeHidden();
+    await expect(page.getByRole('button', { name: /^Revoke/ })).toHaveCount(0);
   });
 
-  test('the log points at the full share log rather than pretending to be it', async ({ page }) => {
-    await page.goto('/app/papers');
-    await expect(page.getByRole('link', { name: 'Share activity ›' }))
-      .toHaveAttribute('href', '/app/audit');
+  test('the register belongs to the top level, not inside a folder or a search', async ({ page, world }) => {
+    world.patch('vault', { links: [aLink({ id: LINK.buyer })] });
+    await page.goto('/papers');
+    await expect(page.getByRole('heading', { level: 2, name: 'Active share links', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Active share links' }).locator('xpath=ancestor::header[1]')).toContainText('1 link');
+
+    await page.getByPlaceholder('Search documents').fill('deed');
+    await expect(page.getByRole('heading', { name: 'Active share links' })).toBeHidden();
+    await page.getByPlaceholder('Search documents').fill('');
+    await expect(page.getByRole('heading', { level: 2, name: 'Active share links', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Active share links' }).locator('xpath=ancestor::header[1]')).toContainText('1 link');
+  });
+
+  test('the log points at Activity rather than pretending to be it', async ({ page, world }) => {
+    world.patch('vault', { links: [aLink({ id: LINK.buyer })] });
+    await page.goto('/papers');
+    await expect(page.getByRole('link', { name: 'Activity ›' }))
+      .toHaveAttribute('href', '/audit');
+  });
+
+  test('every Revoke names whose link it ends', async ({ page, world }) => {
+    world.patch('vault', { links: [aLink({ id: LINK.buyer }), aLink({ id: LINK.bank, audience: 'Union Bank, Markapur' })] });
+    await page.goto('/papers');
+    await expect(page.getByRole('button', { name: 'Revoke the link to Prospective buyer for Sy 214/2' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Revoke the link to Union Bank, Markapur for Sy 214/2' })).toBeVisible();
   });
 
   test('revoking asks first, and says what the person on the other end loses',
     async ({ page, world }) => {
       world.patch('vault', { links: [aLink({ id: LINK.buyer })] });
-      await page.goto('/app/papers');
+      await page.goto('/papers');
 
       await page.getByRole('button', { name: 'Revoke' }).click();
 
@@ -460,10 +429,10 @@ test.describe('the share log', () => {
 
   test('keeping the link changes nothing at all', async ({ page, world }) => {
     world.patch('vault', { links: [aLink({ id: LINK.buyer })] });
-    await page.goto('/app/papers');
+    await page.goto('/papers');
 
     await page.getByRole('button', { name: 'Revoke' }).click();
-    await page.getByRole('button', { name: 'Keep the link' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
 
     await expect(page.getByRole('dialog')).toBeHidden();
     await expect(page.getByText('Prospective buyer — Sy 214/2')).toBeVisible();
@@ -479,14 +448,15 @@ test.describe('the share log', () => {
         links = links.filter((l) => l.id !== String(vars.linkId));
         return true;
       });
-      await page.goto('/app/papers');
+      await page.goto('/papers');
 
       await page.getByRole('button', { name: 'Revoke' }).first().click();
-      await page.getByRole('button', { name: 'Revoke it' }).click();
+      await page.getByRole('button', { name: 'Revoke link' }).click();
 
       await expect(page.getByText('Prospective buyer can no longer open Sy 214/2.')).toBeVisible();
       await expect(page.getByText('Prospective buyer — Sy 214/2')).toBeHidden();
-      await expect(page.getByText('Active share links · 1')).toBeVisible();
+      await expect(page.getByRole('heading', { level: 2, name: 'Active share links', exact: true })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Active share links' }).locator('xpath=ancestor::header[1]')).toContainText('1 link');
       expect(world.lastVars('revokeShareLink')).toMatchObject({ linkId: LINK.buyer });
     });
 
@@ -498,27 +468,33 @@ test.describe('the share log', () => {
       links = links.filter((l) => l.id !== String(vars.linkId));
       return true;
     });
-    await page.goto('/app/papers');
+    await page.goto('/papers');
 
-    await page.getByRole('button', { name: 'Revoke' }).click();
+    // An expired link cuts nobody off, so its button is a plain "Remove from
+    // list", not a red Revoke.
+    await expect(page.getByRole('button', { name: /^Revoke/ })).toHaveCount(0);
+    const remove = page.getByRole('button', { name: 'Remove from list the expired link to Surveyor for Sy 214/2' });
+    await expect(remove).toHaveText('Remove from list');
+    await expect(remove).not.toHaveClass(/danger/);
+    await remove.click();
     await expect(page.getByRole('dialog')).toContainText(
-      'This link has already lapsed.',
+      'This link has already expired, so nobody loses access.',
     );
-    await page.getByRole('button', { name: 'Revoke it' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Remove from list' }).click();
 
-    await expect(page.getByText('The lapsed link to Surveyor is off this list. The full share log keeps it.'))
+    await expect(page.getByText('The expired link to Surveyor is off this list. Activity still records it.'))
       .toBeVisible();
-    await expect(page.getByText('Expired links ·')).toBeHidden();
+    await expect(page.getByRole('heading', { name: 'Expired share links' })).toBeHidden();
   });
 
   test('a link the server will not let go of stays on the list, and says so',
     async ({ page, world }) => {
       world.patch('vault', { links: [aLink({ id: LINK.buyer })] });
       world.set('revokeShareLink', false);
-      await page.goto('/app/papers');
+      await page.goto('/papers');
 
       await page.getByRole('button', { name: 'Revoke' }).click();
-      await page.getByRole('button', { name: 'Revoke it' }).click();
+      await page.getByRole('button', { name: 'Revoke link' }).click();
 
       await expect(page.getByText('That link could not be revoked. It may already be off the list — reload to check.'))
         .toBeVisible();
@@ -530,10 +506,10 @@ test.describe('the share log', () => {
   test('a revoke that never reached the server says nothing has changed', async ({ page, world }) => {
     world.patch('vault', { links: [aLink({ id: LINK.buyer })] });
     world.set('revokeShareLink', World.gqlError('the session has expired'));
-    await page.goto('/app/papers');
+    await page.goto('/papers');
 
     await page.getByRole('button', { name: 'Revoke' }).click();
-    await page.getByRole('button', { name: 'Revoke it' }).click();
+    await page.getByRole('button', { name: 'Revoke link' }).click();
 
     await expect(page.getByRole('alert')
       .filter({ hasText: 'Revoking that link could not be saved. Nothing has changed.' }))
@@ -552,15 +528,15 @@ test.describe('the share log', () => {
       ],
     });
     world.set('revokeShareLink', World.slow(2_500, true));
-    await page.goto('/app/papers');
+    await page.goto('/papers');
 
     await page.getByRole('button', { name: 'Revoke' }).first().click();
-    await page.getByRole('button', { name: 'Revoke it' }).click();
+    await page.getByRole('button', { name: 'Revoke link' }).click();
 
     // The row being cut off says so; the two links nobody touched keep their
     // own buttons, because each row holds its own mutation.
     await expect(page.getByRole('button', { name: 'Revoking…' }).first()).toBeVisible();
-    const others = page.getByRole('button', { name: 'Revoke', exact: true });
+    const others = page.getByRole('button', { name: /^Revoke the link to/ });
     await expect(others).toHaveCount(2);
     await expect(others.nth(0)).toBeEnabled();
     await expect(others.nth(1)).toBeEnabled();
@@ -569,39 +545,38 @@ test.describe('the share log', () => {
   test('a revoke already under way cannot be escaped out of half-done', async ({ page, world }) => {
     world.patch('vault', { links: [aLink({ id: LINK.buyer })] });
     world.set('revokeShareLink', World.slow(2_500, true));
-    await page.goto('/app/papers');
+    await page.goto('/papers');
 
     await page.getByRole('button', { name: 'Revoke' }).click();
-    await page.getByRole('button', { name: 'Revoke it' }).click();
+    await page.getByRole('button', { name: 'Revoke link' }).click();
 
     // The write is in flight and its answer is not back yet, so neither way
     // out is offered: Vault passes `busy` to the Dialog (Vault.tsx:147), which
     // refuses Keep the link and stops Escape from closing over a write whose
     // outcome nobody knows.
     await expect(page.getByRole('dialog')).toHaveAttribute('aria-busy', 'true');
-    await expect(page.getByRole('button', { name: 'Keep the link' })).toBeDisabled();
+    await expect(page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true })).toBeDisabled();
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog')).toBeVisible();
   });
 
-  // ── DEFECT ────────────────────────────────────────────────────────────
-  // apps/web/src/w360/pages/Vault.tsx:121-140 — LinkRow draws the audience,
+  // Once a defect: LinkRow drew the audience,
   // the subject, the terms and the span, and drops the three facts the query
   // paid for: `docCount`, `openedCount` and `lastOpenedAt` (api.ts:375 selects
   // all three). An owner deciding whether to cut a link off wants to know how
   // many papers went out on it and whether anybody ever opened it — "4 papers
   // · opened 3 times, last 10/09/2026" — and a share log that cannot answer
   // "did the bank ever read it?" is a list of promises, not a log.
-  test.fail('the share log says how many papers went out and whether they were opened',
+  test('the share log says how many papers went out and whether they were opened',
     async ({ page, world }) => {
       world.patch('vault', {
         links: [aLink({ id: LINK.buyer, docCount: 4, openedCount: 3, lastOpenedAt: inDays(-3) })],
       });
-      await page.goto('/app/papers');
+      await page.goto('/papers');
 
       await expect(page.getByText('Prospective buyer — Sy 214/2')).toBeVisible();
-      await expect(page.getByRole('main').getByText(/opened\s+3|3\s+(opens|times)/i))
-        .toBeVisible({ timeout: 3_000 });
+      await expect(page.getByRole('main').getByText(`4 documents · opened 3 times, last ${inDays(-3)}`))
+        .toBeVisible();
     });
 
   // ── DEFECT ────────────────────────────────────────────────────────────
@@ -618,7 +593,7 @@ test.describe('the share log', () => {
   // mutation selects `extendShareLink`, so the boolean reads back undefined.)
   test.fail('a link that lapses tomorrow can be given more days', async ({ page, world }) => {
     world.patch('vault', { links: [aLink({ id: LINK.buyer, expiresOn: inDays(1), daysLeft: 1 })] });
-    await page.goto('/app/papers');
+    await page.goto('/papers');
 
     await expect(page.getByText('expires tomorrow')).toBeVisible();
     await page.getByRole('button', { name: /Extend/i }).click({ timeout: 3_000 });
@@ -629,216 +604,128 @@ test.describe('the share log', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+// The server-side name search (`search`, five closest, "Documents named
+// like …") went with the wall: the box now narrows the list in the browser,
+// across every folder, by name, line, tag or linked property (Vault.tsx
+// `selectionRows`; 11c-documents-files.spec.ts "a search spans every folder").
 test.describe('searching the vault', () => {
-  test('the box says what it searches, and one letter is not a search', async ({ page, world }) => {
-    await page.goto('/app/papers');
-    const box = page.getByLabel('Search your documents by name');
+  test('the box says what it searches, and asks the server nothing', async ({ page, world }) => {
+    await page.goto('/papers');
+    const box = page.getByPlaceholder('Search documents');
+    // Short enough not to be cut off; the full scope is the accessible name.
+    await expect(box).toHaveAccessibleName('Search documents, folders, tags, types or linked properties');
 
-    // The placeholder used to promise "including their text". Nothing indexes
-    // the writing inside a scan.
-    await expect(box).toHaveAttribute('placeholder', 'Search documents by name');
-
-    await box.fill('d');
-    await expect(page.getByText('Documents named like')).toBeHidden();
+    await box.fill('deed');
+    await expect(fileRow(page, 'Sale deed 4412 of 1998')).toBeVisible();
     expect(world.calls('search')).toHaveLength(0);
   });
 
-  test('a paper is found by the name it was filed under', async ({ page, world }) => {
-    await page.goto('/app/papers');
-    await page.getByLabel('Search your documents by name').fill('deed');
+  test('a paper is found by the name it was filed under', async ({ page }) => {
+    await page.goto('/papers');
+    await page.getByPlaceholder('Search documents').fill('Sale deed 4412');
 
-    await expect(page.getByText('Documents named like “deed” · 1')).toBeVisible();
-    const hit = searchHits(page).getByRole('link', { name: /Sale deed 4412 of 1998/ });
-    await expect(hit).toHaveAttribute('href', `/app/papers/${PAPER.deed}`);
-    await expect(page.getByText('Markapur SRO · 1998 · 14 pages')).toBeVisible();
-    expect(world.lastVars('search')).toMatchObject({ q: 'deed' });
+    await expect(fileTable(page).getByRole('checkbox', { name: /^Select (?!all)/ })).toHaveCount(1);
+    await expect(fileRow(page, 'Sale deed 4412 of 1998')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Clear the search for Sale deed 4412' })).toBeVisible();
   });
 
-  test('a parcel that matches does not turn up on a screen called Papers', async ({ page }) => {
-    // `search` answers records, papers and people in one list; only papers
-    // belong here, and the heading would otherwise be denying its own results.
-    await page.goto('/app/papers');
-    await page.getByLabel('Search your documents by name').fill('Katragunta');
+  test('a search with no answer says so, and Clear all puts the list back', async ({ page }) => {
+    await page.goto('/papers');
+    const box = page.getByPlaceholder('Search documents');
+    await box.fill('zzzz');
 
-    await expect(page.getByText('Documents named like “Katragunta” · 0')).toBeVisible();
-    await expect(page.getByText('No document is named “Katragunta”')).toBeVisible();
-    await expect(page.getByRole('main').getByRole('link', { name: /Sy 214\/2/ })).toBeHidden();
-  });
-
-  test('a search with no answer says so', async ({ page }) => {
-    await page.goto('/app/papers');
-    await page.getByLabel('Search your documents by name').fill('zzzz');
-
-    await expect(page.getByText('No document is named “zzzz”')).toBeVisible();
-  });
-
-  test('the box answers five at a time and says that is what it did', async ({ page, world }) => {
-    world.set('search', Array.from({ length: 5 }, (_, i) => ({
-      id: `w-paper-hit-${i + 1}`, kind: 'paper', title: `Sale deed ${i + 1}`,
-      subtitle: 'Markapur SRO', route: `/app/papers/w-paper-hit-${i + 1}`,
-    })));
-    await page.goto('/app/papers');
-    await page.getByLabel('Search your documents by name').fill('sale');
-
-    await expect(page.getByText('Documents named like “sale” · 5')).toBeVisible();
-    // The sentence is only true if the list under it is the five: a screen
-    // drawing three and saying "the 5 closest" is the lie this asserts away.
-    await expect(searchHits(page).getByRole('link', { name: /^Sale deed \d/ })).toHaveCount(5);
-    await expect(page.getByText(
-      'The 5 closest by name.',
-    )).toBeVisible();
-  });
-
-  test('Clear puts the wall back and the caret back in the box', async ({ page }) => {
-    await page.goto('/app/papers');
-    const box = page.getByLabel('Search your documents by name');
-    await box.fill('deed');
-    await expect(page.getByText('Documents named like “deed” · 1')).toBeVisible();
-
-    await page.getByRole('button', { name: 'Clear' }).click();
-
-    await expect(page.getByText('Documents named like')).toBeHidden();
+    await expect(page.getByText('No document matches “zzzz”')).toBeVisible();
+    await page.locator('.emptypanel, .blank').getByRole('button', { name: 'Clear all' }).click();
     await expect(box).toHaveValue('');
-    await expect(box).toBeFocused();
-    await expect(page.getByRole('heading', { level: 2, name: 'Title' })).toBeVisible();
+    await expect(fileRow(page, 'Sale deed 4412 of 1998')).toBeVisible();
   });
-
-  test('the results sit above the wall, so an answer is never below the fold',
-    async ({ page }) => {
-      await page.goto('/app/papers');
-      await page.getByLabel('Search your documents by name').fill('deed');
-
-      const results = page.getByText('Documents named like “deed” · 1');
-      const firstShelf = page.getByRole('heading', { level: 2, name: 'Title' });
-      await expect(results).toBeVisible();
-      const resultsBox = await results.boundingBox();
-      const shelfBox = await firstShelf.boundingBox();
-      expect(resultsBox && shelfBox && resultsBox.y < shelfBox.y).toBe(true);
-    });
-
-  test('a search that could not run says so instead of saying nothing matched',
-    async ({ page, world }) => {
-      world.set('search', World.gqlError('the index is rebuilding'));
-      await page.goto('/app/papers');
-      await page.getByLabel('Search your documents by name').fill('deed');
-
-      await expect(page.getByRole('alert')).toContainText('That search did not load');
-      await expect(page.getByText('the index is rebuilding')).toBeVisible();
-      await expect(page.getByText('No document is named')).toBeHidden();
-    });
-
-  test('a search still in flight does not answer a question nobody asked', async ({ page, world }) => {
-    world.set('search', World.slow(6_000, []));
-    await page.goto('/app/papers');
-    await page.getByLabel('Search your documents by name').fill('deed');
-
-    await expect(page.getByText('Documents named like “deed” · 0')).toBeVisible();
-    await expect(page.getByRole('main').getByRole('status')).toBeVisible();
-    await expect(page.getByText('No document is named “deed”')).toBeHidden();
-  });
-
-  test('the answer already on screen stays there while the next letter is looked up',
-    async ({ page, world }) => {
-      // The first string answers at once; every later one hangs. Without
-      // `keepPreviousData` (api.ts:573) the list would blank on the keystroke
-      // and the owner would watch their own answer disappear as they typed.
-      world.set('search', (vars) => (String(vars.q) === 'deed'
-        ? [{
-            id: PAPER.deed, kind: 'paper', title: 'Sale deed 4412 of 1998',
-            subtitle: 'Markapur SRO · 1998 · 14 pages', route: `/app/papers/${PAPER.deed}`,
-          }]
-        : World.slow(4_000, [])));
-      await page.goto('/app/papers');
-      const box = page.getByLabel('Search your documents by name');
-
-      await box.fill('deed');
-      await expect(page.getByText('Documents named like “deed” · 1')).toBeVisible();
-
-      await box.fill('deeds');
-
-      await expect(page.getByText('Documents named like “deeds” · 1')).toBeVisible();
-      await expect(searchHits(page).getByRole('link', { name: /Sale deed 4412 of 1998/ }))
-        .toBeVisible();
-      await expect(page.getByText('No document is named “deeds”')).toBeHidden();
-    });
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+// Add documents no longer asks for a property first: files go into the
+// owner's private library and are linked later from their own actions
+// (Vault.tsx `AddPapers` → PaperDrawer with no record). The property picker
+// (`RecordPick`) lives on in Share a property, so its narrowing, its cap of
+// twelve and its waiting and failed states are asserted there.
 test.describe('adding papers', () => {
-  test('Add documents asks which property before anything else', async ({ page }) => {
-    await page.goto('/app/papers');
+  test('Add documents opens the drawer that adds to Documents, no property asked first', async ({ page }) => {
+    await page.goto('/papers');
     await page.getByRole('button', { name: 'Add documents' }).click();
 
-    await expect(page.getByRole('heading', { name: 'Which property are these documents for?' }))
-      .toBeVisible();
-    await expect(page.getByRole('button', { name: 'Sy 214/2' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Sy 88' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Flat 4B, Sai Residency' })).toBeVisible();
-    // The picker offers the portfolio, and an archived record is not in it —
-    // filing a fresh paper against a property you have put away is not a thing
-    // to be one mis-click from.
-    await expect(page.getByRole('button', { name: 'Shop 7, Market Road' })).toBeHidden();
+    const drawer = page.getByRole('dialog', { name: 'Add a document' });
+    await expect(drawer).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Which property are these documents for?' })).toHaveCount(0);
+    // One verb for one act: opened by Add documents, it adds.
+    await expect(drawer.getByRole('button', { name: 'Add the document' })).toBeDisabled();
   });
 
-  test('picking the property lands on that record, where filing actually works',
+  test('Escape closes the drawer and hands the keyboard back to the button that opened it',
     async ({ page }) => {
-      await page.goto('/app/papers');
-      await page.getByRole('button', { name: 'Add documents' }).click();
-      await page.getByRole('button', { name: 'Sy 214/2' }).click();
+      await page.goto('/papers');
+      const opener = page.getByRole('button', { name: 'Add documents' });
+      await opener.click();
+      await expect(page.getByRole('dialog')).toBeVisible();
+      // Nothing has been picked, so Escape is a dismissal, not a discarded draft.
+      await page.keyboard.press('Escape');
 
-      await expect(page).toHaveURL(new RegExp(`/app/records/${ID.parcel}$`));
       await expect(page.getByRole('dialog')).toBeHidden();
-      await expect(page.getByRole('heading', { name: 'Sy 214/2' }).first()).toBeVisible();
+      await expect(opener).toBeFocused();
+      await expect(page).toHaveURL(/\/papers$/);
     });
+});
+
+test.describe('the property picker', () => {
+  const openPicker = async (page: Page) => {
+    await page.goto('/papers?do=share');
+  };
+
+  test('the picker offers the portfolio, and not what is archived', async ({ page }) => {
+    await openPicker(page);
+    await expect(page.getByRole('dialog').getByRole('button', { name: 'Sy 214/2' })).toBeVisible();
+    await expect(page.getByRole('dialog').getByRole('button', { name: 'Sy 88' })).toBeVisible();
+    await expect(page.getByRole('dialog').getByRole('button', { name: 'Flat 4B, Sai Residency' })).toBeVisible();
+    await expect(page.getByRole('dialog').getByRole('button', { name: 'Shop 7, Market Road' })).toBeHidden();
+  });
 
   test('the picker narrows on village, survey number or khata', async ({ page }) => {
-    await page.goto('/app/papers');
-    await page.getByRole('button', { name: 'Add documents' }).click();
+    await openPicker(page);
     const box = page.getByLabel('Search your properties');
 
     await box.fill('Kukatpally');
-    await expect(page.getByRole('button', { name: 'Flat 4B, Sai Residency' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Sy 214/2' })).toBeHidden();
-    await expect(page.getByRole('button', { name: 'Sy 88' })).toBeHidden();
+    await expect(page.getByRole('dialog').getByRole('button', { name: 'Flat 4B, Sai Residency' })).toBeVisible();
+    await expect(page.getByRole('dialog').getByRole('button', { name: 'Sy 214/2' })).toBeHidden();
+    await expect(page.getByRole('dialog').getByRole('button', { name: 'Sy 88' })).toBeHidden();
 
-    // All three, because all three are how an owner refers to a piece of land
-    // — the placeholder promises survey no, village and khata by name.
     await box.fill('214');
-    await expect(page.getByRole('button', { name: 'Sy 214/2' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Flat 4B, Sai Residency' })).toBeHidden();
+    await expect(page.getByRole('dialog').getByRole('button', { name: 'Sy 214/2' })).toBeVisible();
+    await expect(page.getByRole('dialog').getByRole('button', { name: 'Flat 4B, Sai Residency' })).toBeHidden();
 
     await box.fill('1042');
-    await expect(page.getByRole('button', { name: 'Sy 214/2' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Sy 88' })).toBeHidden();
+    await expect(page.getByRole('dialog').getByRole('button', { name: 'Sy 214/2' })).toBeVisible();
+    await expect(page.getByRole('dialog').getByRole('button', { name: 'Sy 88' })).toBeHidden();
   });
 
   test('a picker with more properties than it draws says how many it is holding back',
     async ({ page, world }) => {
       world.set('properties', bigPortfolio(14));
-      await page.goto('/app/papers');
-      await page.getByRole('button', { name: 'Add documents' }).click();
+      await openPicker(page);
 
-      await expect(page.getByRole('button', { name: 'Sy 412' })).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Sy 413' })).toBeHidden();
-      await expect(page.getByText('The first 12 of 14 properties'))
-        .toBeVisible();
+      await expect(page.getByRole('dialog').getByRole('button', { name: 'Sy 412' })).toBeVisible();
+      await expect(page.getByRole('dialog').getByRole('button', { name: 'Sy 413' })).toBeHidden();
+      await expect(page.getByText('The first 12 of 14 properties')).toBeVisible();
     });
 
   test('a search that is still too wide says to narrow it further', async ({ page, world }) => {
     world.set('properties', bigPortfolio(14));
-    await page.goto('/app/papers');
-    await page.getByRole('button', { name: 'Add documents' }).click();
-    // Thirteen of the fourteen are in Katragunta; the list still stops at
-    // twelve, and the sentence counts matches rather than properties.
+    await openPicker(page);
     await page.getByLabel('Search your properties').fill('Katragunta');
 
     await expect(page.getByText('The first 12 of 13 matches')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Sy 401' })).toBeHidden();
+    await expect(page.getByRole('dialog').getByRole('button', { name: 'Sy 401' })).toBeHidden();
   });
 
   test('a picker search that matches nothing names what it looked for', async ({ page }) => {
-    await page.goto('/app/papers');
-    await page.getByRole('button', { name: 'Add documents' }).click();
+    await openPicker(page);
     await page.getByLabel('Search your properties').fill('Chennai');
 
     await expect(page.getByText('No property matches “Chennai”.')).toBeVisible();
@@ -847,93 +734,37 @@ test.describe('adding papers', () => {
   test('the picker waits for the properties rather than showing an empty list',
     async ({ page, world }) => {
       world.set('properties', World.never());
-      await page.goto('/app/papers');
-      await page.getByRole('button', { name: 'Add documents' }).click();
+      await openPicker(page);
 
       await expect(page.getByRole('dialog').getByRole('status')).toBeVisible();
       await expect(page.getByLabel('Search your properties')).toBeHidden();
     });
 
-  test('a picker whose properties will not load says so inside the dialog',
-    async ({ page, world }) => {
-      world.set('properties', World.gqlError('the record store is down'));
-      await page.goto('/app/papers');
-      await page.getByRole('button', { name: 'Add documents' }).click();
-
-      await expect(page.getByRole('dialog').getByRole('alert'))
-        .toContainText('Your properties did not load');
-      await expect(page.getByText('the record store is down')).toBeVisible();
-    });
-
-  test('with no properties at all, the dialog says a property comes first', async ({ page, world }) => {
-    // `properties` is seeded as a FUNCTION of the filter, so there is no
-    // object to patch — an account with nothing in it is set whole.
-    world.set('properties', EMPTY_PORTFOLIO);
-    await page.goto('/app/papers');
-    await page.getByRole('button', { name: 'Add documents' }).click();
-
-    await expect(page.getByText('Add a property before adding documents')).toBeVisible();
-    await page.getByRole('link', { name: 'Your properties' }).click();
-    await expect(page).toHaveURL(/\/app\/properties$/);
-  });
-
-  test('Escape closes the picker and hands the keyboard back to the button that opened it',
-    async ({ page }) => {
-      await page.goto('/app/papers');
-      const opener = page.getByRole('button', { name: 'Add documents' });
-      await opener.click();
-      await expect(page.getByRole('dialog')).toBeVisible();
-      // Nothing has been typed and nothing is in flight, so Escape is a
-      // dismissal rather than a discarded draft.
-      await page.keyboard.press('Escape');
-
-      await expect(page.getByRole('dialog')).toBeHidden();
-      await expect(opener).toBeFocused();
-    });
-
-  test('Cancel closes the picker and files nothing', async ({ page }) => {
-    await page.goto('/app/papers');
-    await page.getByRole('button', { name: 'Add documents' }).click();
-    await page.getByRole('button', { name: 'Cancel' }).click();
-
-    await expect(page.getByRole('dialog')).toBeHidden();
-    await expect(page).toHaveURL(/\/app\/papers$/);
-  });
-
-  test('a click outside the picker closes it, because nothing was typed into it',
-    async ({ page }) => {
-      await page.goto('/app/papers');
-      await page.getByRole('button', { name: 'Add documents' }).click();
-      await expect(page.getByRole('dialog')).toBeVisible();
-
-      // The scrim covers the viewport and the dialog is centred in it, so a
-      // click in the corner lands on the scrim itself.
-      await page.mouse.click(6, 6);
-      await expect(page.getByRole('dialog')).toBeHidden();
-    });
-
-  // ── DEFECT ────────────────────────────────────────────────────────────
-  // apps/web/src/w360/pages/Vault.tsx:218 — `<Chip>{c.extent} {c.extentUnit}</Chip>`
+  // Once a defect: `RecordPick` — `<Chip>{c.extent} {c.extentUnit}</Chip>`
   // prints the raw number, so a 1,450 sft flat reads "1450 sft" in the picker
   // while every other screen in the module writes it the Indian way (ui.tsx
   // inGroup/num/extent, and the card's own `extentAlt` already says
   // "1,450 sft"). The owner is owed the same figure in the same shape wherever
   // it appears.
-  test.fail('the picker writes an extent the way the rest of the app writes it',
+  test('the picker writes an extent the way the rest of the app writes it',
     async ({ page }) => {
-      await page.goto('/app/papers');
-      await page.getByRole('button', { name: 'Add documents' }).click();
-
-      await expect(page.getByRole('dialog').getByText('1,450 sft')).toBeVisible({ timeout: 3_000 });
+      await openPicker(page);
+      await expect(page.getByRole('dialog').getByText('1,450 sft')).toBeVisible();
     });
 });
 
 // ═══════════════════════════════════════════════════════════════════════
 test.describe('sharing a property', () => {
-  test('Share a property picks the property first, because a link is one property',
+  test('Documents has no Share a property in its head: a property is shared from its own page',
     async ({ page }) => {
-      await page.goto('/app/papers');
-      await page.getByRole('button', { name: 'Share a property' }).click();
+      await page.goto('/papers');
+      await expect(page.getByRole('heading', { level: 1, name: 'Documents' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Share a property' })).toHaveCount(0);
+    });
+
+  test('Home’s Share a property shortcut still picks the property first',
+    async ({ page }) => {
+      await page.goto('/papers?do=share');
 
       await expect(page.getByRole('heading', { name: 'Share a property' })).toBeVisible();
       await expect(page.getByRole('button', { name: 'Make the link' })).toBeDisabled();
@@ -941,34 +772,31 @@ test.describe('sharing a property', () => {
     });
 
   test('the property can be changed after it is chosen', async ({ page }) => {
-    await page.goto('/app/papers');
-    await page.getByRole('button', { name: 'Share a property' }).click();
-    await page.getByRole('button', { name: 'Sy 214/2' }).click();
+    await page.goto('/papers?do=share');
+    await page.getByRole('dialog').getByRole('button', { name: 'Sy 214/2' }).click();
 
     await expect(page.getByLabel('Who the link is for')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Make the link' })).toBeDisabled();
 
-    await page.getByRole('button', { name: 'Change' }).click();
+    await page.getByRole('button', { name: 'Change', exact: true }).click();
     await expect(page.getByLabel('Search your properties')).toBeVisible();
     await expect(page.getByLabel('Who the link is for')).toBeHidden();
   });
 
   test('the caret is in the box the step needs, and moves when the step does',
     async ({ page }) => {
-      await page.goto('/app/papers');
-      await page.getByRole('button', { name: 'Share a property' }).click();
+      await page.goto('/papers?do=share');
 
       // Two steps, one keyboard: the search is focused on open, and choosing a
       // property moves the caret to the only thing left to say (Vault.tsx:290).
       await expect(page.getByLabel('Search your properties')).toBeFocused();
-      await page.getByRole('button', { name: 'Sy 214/2' }).click();
+      await page.getByRole('dialog').getByRole('button', { name: 'Sy 214/2' }).click();
       await expect(page.getByLabel('Who the link is for')).toBeFocused();
     });
 
   test('a name of nothing but spaces does not make a link', async ({ page, world }) => {
-    await page.goto('/app/papers');
-    await page.getByRole('button', { name: 'Share a property' }).click();
-    await page.getByRole('button', { name: 'Sy 214/2' }).click();
+    await page.goto('/papers?do=share');
+    await page.getByRole('dialog').getByRole('button', { name: 'Sy 214/2' }).click();
     await page.getByLabel('Who the link is for').fill('   ');
 
     // A link that says it is for "   " is a link nobody can account for later,
@@ -979,9 +807,8 @@ test.describe('sharing a property', () => {
 
   test('Enter where the name was typed makes the link, without reaching for the mouse',
     async ({ page, world }) => {
-      await page.goto('/app/papers');
-      await page.getByRole('button', { name: 'Share a property' }).click();
-      await page.getByRole('button', { name: 'Sy 214/2' }).click();
+      await page.goto('/papers?do=share');
+      await page.getByRole('dialog').getByRole('button', { name: 'Sy 214/2' }).click();
       await page.getByLabel('Who the link is for').fill('Union Bank, Markapur');
 
       await page.getByLabel('Who the link is for').press('Enter');
@@ -1003,11 +830,11 @@ test.describe('sharing a property', () => {
       })];
       return '/share/tok-made';
     });
-    await page.goto('/app/papers');
-    await expect(page.getByText('Active share links · 0')).toBeVisible();
+    await page.goto('/papers');
+    await expect(page.getByText(/Active share links/)).toBeHidden();
 
-    await page.getByRole('button', { name: 'Share a property' }).click();
-    await page.getByRole('button', { name: 'Sy 214/2' }).click();
+    await page.goto('/papers?do=share');
+    await page.getByRole('dialog').getByRole('button', { name: 'Sy 214/2' }).click();
     await page.getByLabel('Who the link is for').fill('Union Bank, Markapur');
     await page.getByRole('button', { name: 'Make the link' }).click();
     await expect(page.getByLabel('Recipient link')).toBeVisible();
@@ -1018,25 +845,24 @@ test.describe('sharing a property', () => {
     // reload to go and look for it.
     await expect(page.getByRole('dialog')).toBeHidden();
     await expect(page.getByText('Union Bank, Markapur — Sy 214/2')).toBeVisible();
-    await expect(page.getByText('Active share links · 1')).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Active share links', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Active share links' }).locator('xpath=ancestor::header[1]')).toContainText('1 link');
     await expect(page.getByText('30 days left')).toBeVisible();
   });
 
   test('the dialog states the terms of the link before it is made', async ({ page }) => {
-    await page.goto('/app/papers');
-    await page.getByRole('button', { name: 'Share a property' }).click();
-    await page.getByRole('button', { name: 'Sy 214/2' }).click();
+    await page.goto('/papers?do=share');
+    await page.getByRole('dialog').getByRole('button', { name: 'Sy 214/2' }).click();
 
     await expect(page.getByText(
       'Anyone with the link can view and download the current documents for 30 days.',
     )).toBeVisible();
   });
 
-  test('naming who it is for makes a 30-day view-only link on that record',
+  test('naming who it is for makes a 30-day link on that record',
     async ({ page, world }) => {
-      await page.goto('/app/papers');
-      await page.getByRole('button', { name: 'Share a property' }).click();
-      await page.getByRole('button', { name: 'Sy 214/2' }).click();
+      await page.goto('/papers?do=share');
+      await page.getByRole('dialog').getByRole('button', { name: 'Sy 214/2' }).click();
       await page.getByLabel('Who the link is for').fill('Union Bank, Markapur');
       await page.getByRole('button', { name: 'Make the link' }).click();
 
@@ -1053,9 +879,8 @@ test.describe('sharing a property', () => {
     });
 
   test('the made link is kept on screen until it has been copied', async ({ page }) => {
-    await page.goto('/app/papers');
-    await page.getByRole('button', { name: 'Share a property' }).click();
-    await page.getByRole('button', { name: 'Sy 214/2' }).click();
+    await page.goto('/papers?do=share');
+    await page.getByRole('dialog').getByRole('button', { name: 'Sy 214/2' }).click();
     await page.getByLabel('Who the link is for').fill('Union Bank');
     await page.getByRole('button', { name: 'Make the link' }).click();
     await expect(page.getByLabel('Recipient link')).toBeVisible();
@@ -1075,9 +900,8 @@ test.describe('sharing a property', () => {
   test('a link the server refuses to make says the property may not be yours to share',
     async ({ page, world }) => {
       world.set('createShareLink', '');
-      await page.goto('/app/papers');
-      await page.getByRole('button', { name: 'Share a property' }).click();
-      await page.getByRole('button', { name: 'Sy 301' }).click();
+      await page.goto('/papers?do=share');
+      await page.getByRole('dialog').getByRole('button', { name: 'Sy 301' }).click();
       await page.getByLabel('Who the link is for').fill('Prospective buyer');
       await page.getByRole('button', { name: 'Make the link' }).click();
 
@@ -1090,9 +914,8 @@ test.describe('sharing a property', () => {
 
   test('a link that could not be saved keeps what was typed', async ({ page, world }) => {
     world.set('createShareLink', World.gqlError('the session has expired'));
-    await page.goto('/app/papers');
-    await page.getByRole('button', { name: 'Share a property' }).click();
-    await page.getByRole('button', { name: 'Sy 214/2' }).click();
+    await page.goto('/papers?do=share');
+    await page.getByRole('dialog').getByRole('button', { name: 'Sy 214/2' }).click();
     await page.getByLabel('Who the link is for').fill('Union Bank, Markapur');
     await page.getByRole('button', { name: 'Make the link' }).click();
 
@@ -1105,9 +928,8 @@ test.describe('sharing a property', () => {
   test('while the link is being made the dialog says so and refuses a second try',
     async ({ page, world }) => {
       world.set('createShareLink', World.slow(2_500, '/share/tok'));
-      await page.goto('/app/papers');
-      await page.getByRole('button', { name: 'Share a property' }).click();
-      await page.getByRole('button', { name: 'Sy 214/2' }).click();
+      await page.goto('/papers?do=share');
+      await page.getByRole('dialog').getByRole('button', { name: 'Sy 214/2' }).click();
       await page.getByLabel('Who the link is for').fill('Union Bank');
       await page.getByRole('button', { name: 'Make the link' }).click();
 
@@ -1120,9 +942,8 @@ test.describe('sharing a property', () => {
     });
 
   test('a click outside does not throw away who the link is for', async ({ page }) => {
-    await page.goto('/app/papers');
-    await page.getByRole('button', { name: 'Share a property' }).click();
-    await page.getByRole('button', { name: 'Sy 214/2' }).click();
+    await page.goto('/papers?do=share');
+    await page.getByRole('dialog').getByRole('button', { name: 'Sy 214/2' }).click();
     await page.getByLabel('Who the link is for').fill('Union Bank, Markapur');
 
     await page.mouse.click(6, 6);
@@ -1134,22 +955,20 @@ test.describe('sharing a property', () => {
   test('with no properties there is nothing to share, and the dialog says which way out',
     async ({ page, world }) => {
       world.set('properties', EMPTY_PORTFOLIO);
-      await page.goto('/app/papers');
-      await page.getByRole('button', { name: 'Share a property' }).click();
+      await page.goto('/papers?do=share');
 
       await expect(page.getByText('Nothing to share yet')).toBeVisible();
       // The primary stays on the footer and says what it is by being refused:
       // there is no property to make a link against, and the way out of that is
       // the Empty's own action, not this button.
       await expect(page.getByRole('button', { name: 'Make the link' })).toBeDisabled();
-      await expect(page.getByRole('link', { name: 'Your properties' })).toBeVisible();
+      await expect(page.getByRole('dialog').getByRole('link', { name: 'Properties' })).toBeVisible();
     });
 
   test('a share dialog whose properties will not load says so rather than offering none',
     async ({ page, world }) => {
       world.set('properties', World.gqlError('the record store is down'));
-      await page.goto('/app/papers');
-      await page.getByRole('button', { name: 'Share a property' }).click();
+      await page.goto('/papers?do=share');
 
       await expect(page.getByRole('dialog').getByRole('alert'))
         .toContainText('Your properties did not load');
@@ -1163,16 +982,19 @@ test.describe('sharing a property', () => {
 test.describe('one shelf', () => {
   test('a shelf names itself, says what belongs on it, and lists what is filed',
     async ({ page, world }) => {
-      await page.goto('/app/papers/shelf/title');
+      await page.goto('/papers/shelf/title');
 
-      await expect(page.getByRole('heading', { level: 1, name: 'Title' })).toBeVisible();
-      // The lede is Shelf.tsx's own table (line 24), not the server's note —
-      // the two agree in production and differ in the fixture.
-      await expect(page.getByText('Deeds, wills, agreements')).toBeVisible();
+      await expect(page.getByRole('heading', { level: 1, name: 'Title deeds' })).toBeVisible();
+      // What belongs on the shelf is standing guidance, so it is behind the ⓘ
+      // (design.md § Page head). It is Shelf.tsx's own table, not the
+      // server's note — the two agree in production and differ in the fixture.
+      await expect(page.getByRole('main').getByRole('button', { name: 'About Title deeds' }))
+        .toHaveAccessibleDescription(/Deeds, wills, agreements/);
       expect(world.lastVars('vaultPapers')).toMatchObject({ shelf: 'title' });
 
-      const deed = page.getByRole('main').getByRole('link', { name: /Sale deed 4412 of 1998/ });
-      await expect(deed).toHaveAttribute('href', `/app/papers/${PAPER.deed}`);
+      const link = page.getByRole('main').getByRole('link', { name: /Sale deed 4412 of 1998/ });
+      await expect(link).toHaveAttribute('href', `/papers/${PAPER.deed}`);
+      const deed = shelfRows(page).filter({ hasText: 'Sale deed 4412 of 1998' });
       await expect(deed).toContainText('Markapur SRO · 1998 · 14 pages');
       await expect(deed).toContainText('original');
       await expect(deed).toContainText('shared');
@@ -1180,37 +1002,37 @@ test.describe('one shelf', () => {
     });
 
   test('the crumb goes back to the wall it came from', async ({ page }) => {
-    await page.goto('/app/papers/shelf/revenue');
+    await page.goto('/papers/shelf/revenue');
     await expect(page.getByRole('navigation', { name: 'Breadcrumb' }))
-      .toContainText('Revenue record');
+      .toContainText('Revenue records');
 
     await page.getByRole('navigation', { name: 'Breadcrumb' })
       .getByRole('link', { name: 'Documents' }).click();
 
-    await expect(page).toHaveURL(/\/app\/papers$/);
+    await expect(page).toHaveURL(/\/papers$/);
     await expect(page.getByRole('heading', { level: 1, name: 'Documents' })).toBeVisible();
   });
 
   test('searching a shelf narrows it to the paper you meant', async ({ page }) => {
-    await page.goto('/app/papers/shelf/title');
-    const box = page.getByLabel('Search the Title shelf');
+    await page.goto('/papers/shelf/title');
+    const box = page.getByLabel('Search the Title deeds shelf');
     await expect(box).toHaveAttribute('placeholder', 'Search 6 documents on this shelf');
 
     await box.fill('Sale deed');
 
-    const rows = page.getByRole('main').getByRole('link', { name: /\d+ pages?$/ });
+    const rows = shelfRows(page);
     await expect(rows).toHaveCount(1);
     await expect(rows.first()).toContainText('Sale deed 4412 of 1998');
   });
 
   test('a shelf search reads the line under the name as well as the name', async ({ page }) => {
-    await page.goto('/app/papers/shelf/title');
+    await page.goto('/papers/shelf/title');
     // "Katragunta" is nowhere in any of these papers' names; it is in the one
     // line under five of them, which is exactly what the empty state below
     // promises search looks at.
-    await page.getByLabel('Search the Title shelf').fill('Katragunta');
+    await page.getByLabel('Search the Title deeds shelf').fill('Katragunta');
 
-    const rows = page.getByRole('main').getByRole('link', { name: /\d+ pages?$/ });
+    const rows = shelfRows(page);
     await expect(rows).toHaveCount(5);
     await expect(page.getByRole('main').getByRole('link', { name: /Sale deed 4412 of 1998/ }))
       .toBeHidden();
@@ -1225,14 +1047,49 @@ test.describe('one shelf', () => {
         id: PAPER.deed, title: 'Sale deed 4412 of 1998', detail: '', shelf: 'title',
         icon: 'title', tags: [], shared: false, pageCount: 0, fileRef: 'file-deed',
       }]);
-      await page.goto('/app/papers/shelf/title');
+      await page.goto('/papers/shelf/title');
 
       const row = page.getByRole('main').getByRole('link', { name: /Sale deed 4412 of 1998/ });
-      await expect(row).toHaveAttribute('href', `/app/papers/${PAPER.deed}`);
+      await expect(row).toHaveAttribute('href', `/papers/${PAPER.deed}`);
       await expect(row).toHaveText('Sale deed 4412 of 1998');
-      await expect(page.getByLabel('Search the Title shelf'))
+      await expect(page.getByLabel('Search the Title deeds shelf'))
         .toHaveAttribute('placeholder', 'Search 1 document on this shelf');
     });
+
+  test('Grid and Table show the same papers, and what is ticked in one stays ticked in the other', async ({ page }) => {
+    await page.goto('/papers/shelf/title');
+    const table = page.getByRole('table', { name: 'Documents on the Title deeds shelf' });
+    await expect(table.locator('tbody tr').first()).toBeVisible();
+    const rows = await table.locator('tbody tr').count();
+    expect(rows).toBeGreaterThan(1);
+
+    await page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Grid' }).click();
+    await expect(page).toHaveURL(/[?&]view=grid/);
+    const tiles = page.getByRole('list', { name: 'Documents on the Title deeds shelf' }).getByRole('listitem');
+    await expect(tiles).toHaveCount(rows);
+    await tiles.first().getByRole('checkbox').check();
+    await expect(page.getByRole('group', { name: 'Act on the selected documents' })).toContainText('1 document selected');
+
+    await page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Table' }).click();
+    await expect(table.locator('tbody tr').first().getByRole('checkbox')).toBeChecked();
+    await expect(table.locator('tfoot')).toContainText('1 document selected');
+  });
+
+  test('a long shelf pages its rows', async ({ page, world }) => {
+    world.set('vaultPapers', Array.from({ length: 23 }, (_, i) => ({
+      id: `pp-${i + 1}`, title: `Deed ${i + 1}`, detail: '', shelf: 'title',
+      icon: 'title', tags: [], shared: false, pageCount: 0, fileRef: '',
+    })));
+    await page.goto('/papers/shelf/title');
+
+    const pager = page.getByRole('navigation', { name: 'Title deeds pages' });
+    const rows = page.getByRole('main').getByRole('link', { name: /^Deed \d+$/ });
+    await expect(pager).toContainText('1–20 of 23');
+    await expect(rows).toHaveCount(20);
+    await pager.getByRole('button', { name: 'Next' }).click();
+    await expect(pager).toContainText('21–23 of 23');
+    await expect(rows).toHaveCount(3);
+  });
 
   test('an empty Title shelf says what would land on it', async ({ page, world }) => {
     // The other side of the Identity defect below: where the note IS a noun
@@ -1243,24 +1100,23 @@ test.describe('one shelf', () => {
       shelves: vault.shelves.map((s) => (s.key === 'title' ? { ...s, count: 0 } : s)),
     });
     world.set('vaultPapers', []);
-    await page.goto('/app/papers/shelf/title');
+    await page.goto('/papers/shelf/title');
 
-    await expect(page.getByText('Nothing is filed under Title yet')).toBeVisible();
+    await expect(page.getByText('Nothing is filed under Title deeds yet')).toBeVisible();
     await expect(page.getByText('The shelf count disagrees with this list')).toBeHidden();
     await expect(page.getByRole('link', { name: 'Back to your documents' }))
-      .toHaveAttribute('href', '/app/papers');
+      .toHaveAttribute('href', '/papers');
   });
 
   test('a shelf search that matches nothing offers the way back to the whole shelf',
     async ({ page }) => {
-      await page.goto('/app/papers/shelf/title');
-      await page.getByLabel('Search the Title shelf').fill('zzzz');
+      await page.goto('/papers/shelf/title');
+      await page.getByLabel('Search the Title deeds shelf').fill('zzzz');
 
       await expect(page.getByText('Nothing on this shelf matches “zzzz”')).toBeVisible();
 
       await page.getByRole('button', { name: 'Clear' }).click();
-      await expect(page.getByRole('main').getByRole('link', { name: /\d+ pages?$/ }))
-        .toHaveCount(6);
+      await expect(shelfRows(page)).toHaveCount(6);
     });
 
   test('a shelf with nothing on it is not offered a search box', async ({ page, world }) => {
@@ -1269,7 +1125,7 @@ test.describe('one shelf', () => {
       shelves: vault.shelves.map((s) => (s.key === 'identity' ? { ...s, count: 0 } : s)),
     });
     world.set('vaultPapers', []);
-    await page.goto('/app/papers/shelf/identity');
+    await page.goto('/papers/shelf/identity');
 
     await expect(page.getByText('Nothing is filed under Identity yet')).toBeVisible();
     await expect(page.getByLabel('Search the Identity shelf')).toBeHidden();
@@ -1280,25 +1136,25 @@ test.describe('one shelf', () => {
     // `vaultPapers` was written to make impossible, said out loud when the two
     // sides do fall out of step.
     world.set('vaultPapers', []);
-    await page.goto('/app/papers/shelf/title');
+    await page.goto('/papers/shelf/title');
 
-    await expect(page.getByText('Nothing is filed under Title yet')).toBeVisible();
+    await expect(page.getByText('Nothing is filed under Title deeds yet')).toBeVisible();
     await expect(page.getByText('The shelf count disagrees with this list.'))
       .toBeVisible();
   });
 
   test('a made-up shelf key is refused by name, not fetched', async ({ page, world }) => {
-    await page.goto('/app/papers/shelf/receipts');
+    await page.goto('/papers/shelf/receipts');
 
     await expect(page.getByText('There is no shelf by that name')).toBeVisible();
     await expect(page.getByRole('link', { name: 'Back to your documents' }))
-      .toHaveAttribute('href', '/app/papers');
+      .toHaveAttribute('href', '/papers');
     expect(world.asked('vaultPapers'), 'an unknown key must not reach the server').toBe(false);
   });
 
   test('a shelf that will not load says so and offers to try again', async ({ page, world }) => {
     world.set('vaultPapers', World.gqlError('the paper store is down'));
-    await page.goto('/app/papers/shelf/map');
+    await page.goto('/papers/shelf/map');
 
     await expect(page.getByRole('alert')).toContainText('The Map shelf did not load');
     await expect(page.getByText('the paper store is down')).toBeVisible();
@@ -1308,20 +1164,21 @@ test.describe('one shelf', () => {
   test('a shelf still lists its papers when the wall’s counts cannot be read',
     async ({ page, world }) => {
       world.set('vault', World.gqlError('the paper store is down'));
-      await page.goto('/app/papers/shelf/map');
+      await page.goto('/papers/shelf/map');
 
       await expect(page.getByRole('heading', { level: 1, name: 'Map' })).toBeVisible();
-      await expect(page.getByRole('main').getByRole('link', { name: /\d+ pages?$/ })).toHaveCount(3);
+      await expect(shelfRows(page)).toHaveCount(3);
       await expect(page.getByRole('alert')).toBeHidden();
     });
 
   test('the unsorted shelf is a shelf like any other', async ({ page }) => {
-    await page.goto('/app/papers/shelf/unsorted');
+    await page.goto('/papers/shelf/unsorted');
 
-    await expect(page.getByRole('heading', { level: 1, name: 'Unsorted' })).toBeVisible();
-    await expect(page.getByText('Nothing recognised it')).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'Not sorted yet' })).toBeVisible();
+    await expect(page.getByRole('main').getByRole('button', { name: 'About Not sorted yet' }))
+      .toHaveAccessibleDescription(/Nothing recognised it/);
     const row = page.getByRole('main').getByRole('link', { name: /Scan 2026-08-02/ });
-    await expect(row).toHaveAttribute('href', `/app/papers/${PAPER.unsorted}`);
+    await expect(row).toHaveAttribute('href', `/papers/${PAPER.unsorted}`);
   });
 
   // ── DEFECT ────────────────────────────────────────────────────────────
@@ -1336,27 +1193,21 @@ test.describe('one shelf', () => {
   test.fail('a shelf that is still loading says so instead of going quiet',
     async ({ page, world }) => {
       world.set('vaultPapers', World.never());
-      await page.goto('/app/papers/shelf/map');
+      await page.goto('/papers/shelf/map');
 
       await expect(page.getByRole('heading', { level: 1, name: 'Map' })).toBeVisible();
       await expect(page.getByRole('main').getByRole('status')).toBeVisible({ timeout: 3_000 });
     });
 
-  // ── DEFECT ────────────────────────────────────────────────────────────
-  // apps/web/src/w360/pages/Shelf.tsx:120 — the empty-shelf sentence is built
-  // as `${shelf.note} belong on this shelf.`, which needs every note to be a
-  // plural noun phrase. Six of the eight are. Identity's note is "Masked until
-  // you unlock" and Unsorted's is "Nothing recognised it" (lines 27 and 31), so
-  // an owner opening either empty shelf is told "Masked until you unlock belong
-  // on this shelf." The owner is owed a sentence that parses — either notes
-  // that are all noun phrases, or a per-shelf line that does not splice them.
-  test.fail('an empty Identity shelf says a sentence that parses', async ({ page, world }) => {
+  // Shelf.tsx once spliced the note into `${note} belong on this shelf.`, which
+  // read "Masked until you unlock belong on this shelf." — fixed; kept as a guard.
+  test('an empty Identity shelf says a sentence that parses', async ({ page, world }) => {
     const vault = world.seedOf<VaultAnswer>('vault');
     world.patch('vault', {
       shelves: vault.shelves.map((s) => (s.key === 'identity' ? { ...s, count: 0 } : s)),
     });
     world.set('vaultPapers', []);
-    await page.goto('/app/papers/shelf/identity');
+    await page.goto('/papers/shelf/identity');
 
     await expect(page.getByText('Nothing is filed under Identity yet')).toBeVisible();
     await expect(page.getByText('Masked until you unlock belong on this shelf.'))

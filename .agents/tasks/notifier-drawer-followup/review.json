@@ -1,0 +1,10 @@
+{
+  "verdict": "APPROVED",
+  "findings": [
+    "Non-blocking (confirmed): at 1512 the failure toast covers most of Save, which now holds focus; shared Toast/Drawer placement change is Reddy's call.",
+    "Non-blocking (confirmed): when the settings load fails, Save is disabled with no primaryWhy line; consider 'The current settings could not be loaded.' in a later pass.",
+    "Non-blocking (confirmed): isEligibleNotifier mirrors the server notifier rule for the add-select; removing it needs a server eligible-candidates field (backend contract change, Reddy's call).",
+    "Informational: DP-1 (safeguardNeedsAction stage membership) unchanged as required; remains Reddy's decision."
+  ],
+  "reviewDoc": "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/.agents/tasks/notifier-drawer-followup/review.md"
+}

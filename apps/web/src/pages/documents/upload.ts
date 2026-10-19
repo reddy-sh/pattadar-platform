@@ -99,6 +99,8 @@ export interface ReadingUsage {
   cacheWriteTokens: number;
   cacheReadTokens: number;
   usd: number;
+  ocrPages?: number;
+  ocrListUsd?: number;
 }
 
 /** What the reader made of a file. Nothing here has been written down yet. */
@@ -133,6 +135,8 @@ function readUsage(raw: unknown): ReadingUsage | undefined {
     cacheWriteTokens: num(u.cache_write_tokens),
     cacheReadTokens: num(u.cache_read_tokens),
     usd: num(u.usd),
+    ocrPages: num(u.ocr_pages),
+    ocrListUsd: num(u.ocr_list_usd),
   };
 }
 

@@ -98,7 +98,7 @@ private func compare(_ existing: RegisteredDocument,
         return FiledDocumentMatch(
             existing: existing,
             confidence: scanYear.isEmpty || filedYear.isEmpty ? .likely : .same,
-            because: "Document \(label) is already in your vault.")
+            because: "Document \(label) is already in Documents.")
     }
 
     // An unregistered paper — an FMB sheet, an adangal — is the land it maps.
@@ -127,6 +127,6 @@ private func compare(_ existing: RegisteredDocument,
         existing: existing,
         confidence: complete ? .same : .likely,
         because: complete
-            ? "A \(existing.docType) for \(where_) is already in your vault."
+            ? "A \(existing.docType) for \(where_) is already in Documents."
             : "A \(existing.docType) for \(where_) may be this same sheet — this reading did not name the village.")
 }

@@ -22,6 +22,7 @@ import AccessTimeOutlined from '@mui/icons-material/AccessTimeOutlined';
 import VerifiedOutlined from '@mui/icons-material/VerifiedOutlined';
 import AccountBalanceWalletOutlined from '@mui/icons-material/AccountBalanceWalletOutlined';
 import PhotoCameraOutlined from '@mui/icons-material/PhotoCameraOutlined';
+import FileDownloadOutlined from '@mui/icons-material/FileDownloadOutlined';
 
 import {
   useAddPerson, useDeleteOwner, useDeletePerson,
@@ -29,17 +30,44 @@ import {
 } from '../api';
 import type { Owner, Payment, Person } from '../api';
 import {
-  Card, Chip, Empty, Failed, Loading, PhotoImg, inGroup, initialsOf, inrFullish, plural,
+  Card, Chip, Empty, Failed, PhotoImg, Segmented, SelectAllBox, SelectCell, SelectionBar, TablePager,
+  ToolbarBand, downloadCsv, inGroup, initialsOf, inrFullish, plural, usePaged, useRowSelection,
 } from '../ui';
+import { useToast } from '../Toast';
+import { Sk, SkRows } from '../skeletons';
 import { Drawer, DrawerAction, drawerEyebrow } from '../Drawer';
 import { MAX_UPLOAD_BYTES, mb } from '../filePhotos';
 import { STORAGE_OFFLINE_MSG, uploadToDrive } from '../../pages/documents/storage';
-import { useRef, useState } from 'react';
-import { Link } from 'react-router';
+import { useEffect, useRef, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router';
+import EditOutlined from '@mui/icons-material/EditOutlined';
+import GavelOutlined from '@mui/icons-material/GavelOutlined';
+import ReceiptLongOutlined from '@mui/icons-material/ReceiptLongOutlined';
+import { orderHref } from '../orderFlow';
 import { useRecordCtx } from './Record';
 import { OwnerChain, TransferDrawer } from './OwnerChain';
 import { SectionHead } from './RecordHead';
 import { ConfirmDialog } from './PropertyActions';
+
+/** Where one of a person's action labels actually goes, or null when it goes
+ *  nowhere.
+ *
+ *  `person.actions` is free text: record_people stores a JSON list of words
+ *  with nothing behind most of them ("Message", "Change pay", "Permissions").
+ *  A data-driven label with no capability behind it is still a dead control,
+ *  so a label is drawn — as a link, inside the person's drawer — only when this
+ *  can name the screen that answers it; the drawer's footnote says where the
+ *  rest happen. Matched on the label because the label is all the row carries,
+ *  which is why each lands on the screen that holds the thing. */
+function destOf(label: string, recordId: string): string | null {
+  const id = encodeURIComponent(recordId);
+  // The agreement is a document saved on this property, on its Documents tab.
+  if (label === 'Lease agreement') return `/properties/${id}/documents`;
+  // Every order on this land, each with its own progress.
+  if (label === 'Track' || label === 'Track order') return `/properties/${id}/services`;
+  if (label === 'Invite to the app') return '/invitations';
+  return null;
+}
 
 /** The five people who actually turn up on a parcel. `role` is free text in the
  *  column, so these are a shortcut rather than an enumeration — "Someone else"
@@ -203,12 +231,12 @@ function AssignDrawer({ recordId, recordTitle, onClose, returnFocus }: {
         photoRef,
       });
       if (!res.web.addPerson) {
-        setErr('That person was not filed. This record may no longer be yours to edit.');
+        setErr('That person was not added. This property may no longer be yours to edit.');
         return;
       }
       onClose();
     } catch {
-      setErr('That person was not filed. Try again.');
+      setErr('That person was not added. Try again.');
     }
   };
 
@@ -307,8 +335,9 @@ function AssignDrawer({ recordId, recordTitle, onClose, returnFocus }: {
  * not sent (updatePerson skips empty arguments), so opening the drawer and
  * closing it changes nothing.
  */
-function PersonDrawer({ person, recordTitle, onClose, returnFocus }: {
+function PersonDrawer({ person, recordId, recordTitle, onClose, returnFocus }: {
   person: Person;
+  recordId: string;
   recordTitle: string;
   onClose: () => void;
   returnFocus: React.RefObject<HTMLElement | null>;
@@ -326,6 +355,10 @@ function PersonDrawer({ person, recordTitle, onClose, returnFocus }: {
   const [removeErr, setRemoveErr] = useState('');
 
   const cells = payCells(person);
+  /** The labels that lead somewhere, once each. */
+  const links = [...new Set(person.actions ?? [])]
+    .map((label) => ({ label, to: destOf(label, recordId) }))
+    .filter((a): a is { label: string; to: string } => !!a.to);
   const dirty = name.trim() !== person.name
     || role.trim() !== person.role
     || summary.trim() !== person.summary
@@ -368,7 +401,7 @@ function PersonDrawer({ person, recordTitle, onClose, returnFocus }: {
       }
       onClose();
     } catch {
-      setRemoveErr('That person could not be removed. They are still filed here.');
+      setRemoveErr('That person could not be removed. They are still on this property.');
     }
   };
 
@@ -462,6 +495,24 @@ function PersonDrawer({ person, recordTitle, onClose, returnFocus }: {
         </div>
       )}
 
+      {/* The actions that used to sit on the card live here now, as links to
+          the screens that do them; labels with nothing behind them are not
+          drawn, and the note says where those things happen. */}
+      {links.length > 0 && (
+        <div className="field">
+          <label>Elsewhere in Pattadar</label>
+          <div className="row tight">
+            {links.map((a) => <Link key={a.label} className="btn sm" to={a.to}>{a.label}</Link>)}
+          </div>
+        </div>
+      )}
+      <p className="note" style={{ margin: 0 }}>
+        Who can see this property is granted as a link: you make one on its Documents tab, and
+        every live link is listed on <Link className="accent" to="/papers">Documents</Link>.
+        Messaging a person, setting a visit schedule, changing what they are paid and paying them
+        from Pattadar are not switched on yet.
+      </p>
+
       <hr className="hr" />
 
       {/* Remove lives here, behind the shared confirmation (the drawer's
@@ -541,18 +592,49 @@ function PersonCard({ person, onOpen }: { person: Person; onOpen: () => void }) 
   );
 }
 
+/** A pay line's rupees, the way the server sums them (web360.py `_rupees`):
+ *  the digits before the "/" — "₹8,000 / month" is 8000. */
+const rupeesOf = (pay: string) => Number((pay.split('/')[0] ?? '').replace(/\D/g, '')) || 0;
+const monthlyOf = (ps: readonly Person[]) =>
+  ps.reduce((n, p) => n + (p.payValue.includes('month') ? rupeesOf(p.payValue) : 0), 0);
+
+const PEOPLE_NOUN = ['person', 'people'] as const;
+const OWNER_NOUN = ['owner', 'owners'] as const;
+const idOf = (r: { id: string }) => r.id;
+
 /** The same people as a dense table, each row opening the drawer. Both compact
  *  (ticket-remembered) and full people appear here — the table is one flat list
- *  by design, since its whole point is to scan many at once. */
-function PeopleTable({ people, onOpen }: {
+ *  by design, since its whole point is to scan many at once. It follows
+ *  design.md § Tables: ticks, a footer that counts the selection (or every
+ *  row) and sums the monthly pay, the shared pager and the selection bar. */
+function PeopleTable({ people, recordId, onOpen }: {
   people: Person[];
+  recordId: string;
   onOpen: (p: Person) => void;
 }) {
+  const toast = useToast();
+  const paged = usePaged(people, { storeKey: 'pattadar.table.people' });
+  const sel = useRowSelection(people, idOf);
+  const picking = sel.picked.length > 0;
+  const counted = picking ? sel.picked : people;
+  const exportCsv = (which: readonly Person[]) => {
+    try {
+      downloadCsv(`people-${recordId}.csv`, [['Name', 'Role', 'Details', 'Pay'],
+        ...which.map((p) => [p.name, p.role, p.summary, p.payValue])]);
+    } catch (cause) {
+      toast.bad('The people could not be exported.', cause);
+    }
+  };
   return (
+    <>
     <div className="card" style={{ padding: 0, overflowX: 'auto' }}>
-      <table className="peopletable" style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <table className="rectable peopletable" aria-label="Caretakers & staff" style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr>
+            <th className="selcol">
+              <SelectAllBox total={people.length} picked={sel.picked.length} noun={PEOPLE_NOUN}
+                            onToggle={sel.toggleAll} />
+            </th>
             <th style={{ textAlign: 'left' }}>Name</th>
             <th style={{ textAlign: 'left' }}>Role</th>
             <th style={{ textAlign: 'left' }}>Details</th>
@@ -560,7 +642,7 @@ function PeopleTable({ people, onOpen }: {
           </tr>
         </thead>
         <tbody>
-          {people.map((p) => {
+          {paged.shown.map((p) => {
             // The pay column reads the same figure the rail sums — the value
             // string after any label — and shows a dash when there is none, so
             // an owner's row is not blank where a tenant's has a number.
@@ -570,11 +652,13 @@ function PeopleTable({ people, onOpen }: {
             // is the real control; a click anywhere else on the row is the
             // pointer's shortcut to the same drawer.
             return (
-              <tr key={p.id} className="peoplerow" style={{ cursor: 'pointer' }}
+              <tr key={p.id} className={`peoplerow${sel.selected.has(p.id) ? ' selected' : ''}`} style={{ cursor: 'pointer' }}
                   onClick={(e) => {
-                    if ((e.target as HTMLElement).closest('button')) return;
+                    if ((e.target as HTMLElement).closest('button, .selcol')) return;
                     onOpen(p);
                   }}>
+                <SelectCell checked={sel.selected.has(p.id)} label={`Select ${p.name}`}
+                            onToggle={() => sel.toggle(p.id)} />
                 <td>
                   <button type="button" className="rowopen" aria-label={`Open ${p.name}`}
                           onClick={() => onOpen(p)}>
@@ -589,8 +673,25 @@ function PeopleTable({ people, onOpen }: {
             );
           })}
         </tbody>
+        <tfoot>
+          <tr>
+            <th scope="row" colSpan={4}>
+              {picking ? `${plural(counted.length, ...PEOPLE_NOUN)} selected`
+                : `Total · ${plural(counted.length, ...PEOPLE_NOUN)}`}
+            </th>
+            <td className="num">{`${inrFullish(monthlyOf(counted))} / month`}</td>
+          </tr>
+        </tfoot>
       </table>
     </div>
+    <TablePager {...paged} onSize={paged.setSize} label="People pages" />
+    <SelectionBar count={sel.picked.length} noun={PEOPLE_NOUN}
+                  label="Act on the selected people" onClear={sel.clear}>
+      <button type="button" className="btn sm" onClick={() => exportCsv(sel.picked)}>
+        <FileDownloadOutlined sx={{ fontSize: 15 }} /> Export
+      </button>
+    </SelectionBar>
+    </>
   );
 }
 
@@ -785,16 +886,39 @@ function OwnerCard({ owner, onOpen }: { owner: Owner; onOpen: () => void }) {
 }
 
 /** Owners as a dense table, current-first, each row opening the drawer. The
- *  status cell carries the same green/red worded pill as the card. */
-function OwnersTable({ owners, onOpen }: {
+ *  status cell carries the same green/red worded pill as the card. design.md
+ *  § Tables: ticks, a footer counting owners and how many hold it now (an
+ *  owner row carries no share — shares sit on the chain's transfers), the
+ *  shared pager and the selection bar with Export. */
+function OwnersTable({ owners, recordId, onOpen }: {
   owners: Owner[];
+  recordId: string;
   onOpen: (o: Owner) => void;
 }) {
+  const toast = useToast();
+  const paged = usePaged(owners, { storeKey: 'pattadar.table.owners' });
+  const sel = useRowSelection(owners, idOf);
+  const picking = sel.picked.length > 0;
+  const counted = picking ? sel.picked : owners;
+  const current = counted.filter((o) => o.isCurrent).length;
+  const exportCsv = (which: readonly Owner[]) => {
+    try {
+      downloadCsv(`owners-${recordId}.csv`, [['Name', 'Status', 'Role', 'Parentage', 'Address', 'Acquired via'],
+        ...which.map((o) => [o.name, ownerTone(o.isCurrent).word, o.role, o.parentage, o.address, o.acquiredVia])]);
+    } catch (cause) {
+      toast.bad('The owners could not be exported.', cause);
+    }
+  };
   return (
+    <>
     <div className="card" style={{ padding: 0, overflowX: 'auto' }}>
-      <table className="peopletable" style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <table className="rectable peopletable" aria-label="Owners" style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr>
+            <th className="selcol">
+              <SelectAllBox total={owners.length} picked={sel.picked.length} noun={OWNER_NOUN}
+                            onToggle={sel.toggleAll} />
+            </th>
             <th style={{ textAlign: 'left' }}>Name</th>
             <th style={{ textAlign: 'left' }}>Status</th>
             <th style={{ textAlign: 'left' }}>Parentage & address</th>
@@ -802,16 +926,18 @@ function OwnersTable({ owners, onOpen }: {
           </tr>
         </thead>
         <tbody>
-          {owners.map((o) => {
+          {paged.shown.map((o) => {
             const tone = ownerTone(o.isCurrent);
             const detail = [o.parentage, o.address].filter(Boolean).join(' · ');
             return (
-              <tr key={o.id} className={`peoplerow ${o.isCurrent ? 'ownerrow-current' : 'ownerrow-past'}`}
+              <tr key={o.id} className={`peoplerow ${o.isCurrent ? 'ownerrow-current' : 'ownerrow-past'}${sel.selected.has(o.id) ? ' selected' : ''}`}
                   style={{ cursor: 'pointer' }}
                   onClick={(e) => {
-                    if ((e.target as HTMLElement).closest('button')) return;
+                    if ((e.target as HTMLElement).closest('button, .selcol')) return;
                     onOpen(o);
                   }}>
+                <SelectCell checked={sel.selected.has(o.id)} label={`Select ${o.name}`}
+                            onToggle={() => sel.toggle(o.id)} />
                 <td>
                   <button type="button" className="rowopen" aria-label={`Open ${o.name}`}
                           onClick={() => onOpen(o)}>
@@ -826,14 +952,73 @@ function OwnersTable({ owners, onOpen }: {
             );
           })}
         </tbody>
+        <tfoot>
+          <tr>
+            <th scope="row" colSpan={5}>
+              {picking ? `${plural(counted.length, ...OWNER_NOUN)} selected` : `Total · ${plural(counted.length, ...OWNER_NOUN)}`}
+              {` · ${current} current`}
+            </th>
+          </tr>
+        </tfoot>
       </table>
+    </div>
+    <TablePager {...paged} onSize={paged.setSize} label="Owner pages" />
+    <SelectionBar count={sel.picked.length} noun={OWNER_NOUN}
+                  label="Act on the selected owners" onClear={sel.clear}>
+      <button type="button" className="btn sm" onClick={() => exportCsv(sel.picked)}>
+        <FileDownloadOutlined sx={{ fontSize: 15 }} /> Export
+      </button>
+    </SelectionBar>
+    </>
+  );
+}
+
+/** The staff side's first read: PersonCard's own boxes (photo, name and role,
+ *  summary, the pay grid) in the no-rail split the answer lands in.
+ *  shortcut: composed here, not in skeletons.tsx; move it there if a second
+ *  screen draws peoplecards. */
+function SkPeopleCards() {
+  return (
+    <div role="status" aria-busy="true" aria-label="Loading the people on this property"
+         className="split no-rail">
+      <div className="stack" aria-hidden>
+        {[0, 1].map((i) => (
+          <Card key={i} className="peoplecard">
+            <div className="row" style={{ flexWrap: 'nowrap', alignItems: 'flex-start', gap: 'var(--space-md)' }}>
+              <Sk w="2.75rem" h="2.75rem" r="var(--radius-pill)" style={{ flex: 'none' }} />
+              <div className="grow">
+                <div className="row" style={{ gap: 'var(--space-xs)' }}>
+                  <Sk w={i ? '8rem' : '10rem'} h="1.125rem" />
+                  <Sk w="4.5rem" h="1.25rem" r="var(--radius-pill)" style={{ flex: 'none' }} />
+                </div>
+                <Sk w="70%" style={{ marginTop: '0.5rem' }} />
+              </div>
+            </div>
+            <hr className="hr" />
+            <div className="grid4">
+              {[0, 1, 2, 3].map((j) => (
+                <div key={j}>
+                  <Sk w="50%" h="0.625rem" style={{ marginBottom: '0.3125rem' }} />
+                  <Sk w="70%" />
+                </div>
+              ))}
+            </div>
+          </Card>
+        ))}
+      </div>
     </div>
   );
 }
 
 export function RecordPeople() {
+  /** A link can name the side and the person — the jump box does
+   *  (`?section=staff&person=<id>`, web360.py `_person_hit_route`), because
+   *  everyone it finds is staff and the tab otherwise opens on Owners. */
+  const [params, setParams] = useSearchParams();
+  const wantedPerson = params.get('person') ?? '';
   /** Which side of the tab: the ownership chain, or the people who work it. */
-  const [section, setSection] = useState<'owners' | 'staff'>('owners');
+  const [section, setSection] = useState<'owners' | 'staff'>(
+    () => (params.get('section') === 'staff' || wantedPerson ? 'staff' : 'owners'));
   const [naming, setNaming] = useState(false);
   /** The person whose drawer is open, or null. One drawer, opened from either
    *  view. */
@@ -845,13 +1030,14 @@ export function RecordPeople() {
    *  control with no pressed option. */
   const [ownerView, setOwnerView] = useState<'chain' | 'cards' | 'table'>('chain');
   const [staffView, setStaffView] = useState<'cards' | 'table'>('cards');
-  const assignTrigger = useRef<HTMLButtonElement>(null);
+  const assignTrigger = useRef<HTMLButtonElement & HTMLAnchorElement>(null);
   /** Where focus goes when an owner's drawer closes and the card, row or chain
    *  node that opened it is gone — removing an owner takes it with them. The
    *  drawer returns focus to its opener when that is still on the page
    *  (Drawer.tsx useSealedPage); this is the Owners side's always-there
    *  control, as "Assign someone" is the staff side's. */
-  const ownersSegment = useRef<HTMLButtonElement>(null);
+  const sideSwitch = useRef<HTMLSpanElement>(null);
+  const ownersSegment = { get current() { return sideSwitch.current?.querySelector('button') ?? null; } };
   const rec = useRecordCtx();
   const { data, isLoading, error } = usePeople(rec.id);
   const ownersQ = useOwners(rec.id);
@@ -865,12 +1051,31 @@ export function RecordPeople() {
   const hasChain = (transfersQ.data?.count ?? 0) > 0;
   const showingChain = (owners.length > 0 || hasChain) && ownerView === 'chain';
 
+  // Open the person the link named once the list has them, then drop the
+  // two parameters (replacing the entry), so closing the drawer stays closed
+  // and Back does not reopen it. A person no longer on the record still lands
+  // on the staff side, where the list says who is.
+  useEffect(() => {
+    if (!wantedPerson || !data) return;
+    const hit = data.people.find((p) => p.id === wantedPerson);
+    if (hit) setOpenPerson(hit);
+    setParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete('person');
+      next.delete('section');
+      return next;
+    }, { replace: true });
+  }, [wantedPerson, data, setParams]);
+
   const openFrom = (person: Person) => setOpenPerson(person);
   const openOwnerFrom = (owner: Owner) => setOpenOwner(owner);
 
   /** The first transfer, filed from the empty Owners state. */
   const [firstTransfer, setFirstTransfer] = useState(false);
-  const transferTrigger = useRef<HTMLButtonElement>(null);
+  /** The chain's edit mode, driven from this tab's head ⋮. */
+  const [chainEditing, setChainEditing] = useState(false);
+  const nav = useNavigate();
+  const transferTrigger = useRef<HTMLButtonElement & HTMLAnchorElement>(null);
 
   // The rail only while it has something true to say: the pay figures wait
   // until somebody on this property has an arrangement (as Missing documents
@@ -892,45 +1097,69 @@ export function RecordPeople() {
           ? (ownersQ.data && (owners.length
               ? `${plural(owners.length, 'owner')} · ${ownersQ.data.currentName || 'Current owner not set'}`
               : ''))
-          : (data && plural(data.count, 'person', 'people'))}
-        actions={(
-          <div className="row tight">
-            {/* Owners | Caretakers & staff — the two concerns kept apart. */}
-            <div className="segmented" role="group" aria-label="Owners or staff">
-              <button ref={ownersSegment} type="button" aria-pressed={section === 'owners'}
-                      onClick={() => setSection('owners')}>Owners</button>
-              <button type="button" aria-pressed={section === 'staff'}
-                      onClick={() => setSection('staff')}>Caretakers & staff</button>
-            </div>
-            {/* One view choice per section. Chain is ownership-only because
-                staff have no succession relationship to draw. */}
-            {section === 'owners' && (owners.length > 0 || hasChain) && (
-              <div className="segmented" role="group" aria-label="Ownership view">
-                <button type="button" aria-pressed={ownerView === 'chain'}
-                        onClick={() => setOwnerView('chain')}>Chain</button>
-                <button type="button" aria-pressed={ownerView === 'cards'}
-                        onClick={() => setOwnerView('cards')}>Cards</button>
-                <button type="button" aria-pressed={ownerView === 'table'}
-                        onClick={() => setOwnerView('table')}>Table</button>
-              </div>
-            )}
-            {section === 'staff' && data && data.people.length > 0 && (
-              <div className="segmented" role="group" aria-label="Staff view">
-                <button type="button" aria-pressed={staffView === 'cards'}
-                        onClick={() => setStaffView('cards')}>Cards</button>
-                <button type="button" aria-pressed={staffView === 'table'}
-                        onClick={() => setStaffView('table')}>Table</button>
-              </div>
-            )}
-            {section === 'staff' && (
-              <button ref={assignTrigger} type="button" className="btn primary"
-                      aria-haspopup="dialog" aria-expanded={naming}
-                      onClick={() => setNaming(true)}>
-                <PersonAddAltOutlined sx={{ fontSize: 17 }} /> Assign someone
-              </button>
-            )}
-          </div>
+          // No line over a first-run empty side: the empty state says it.
+          : (data && data.count > 0 && plural(data.count, 'person', 'people'))}
+        actions={section === 'staff' ? {
+          primary: {
+            label: 'Assign someone', icon: <PersonAddAltOutlined sx={{ fontSize: 17 }} />,
+            ref: assignTrigger, haspopup: 'dialog', expanded: naming,
+            onClick: () => setNaming(true),
+          },
+        } : {
+          // The Owners side has its own add (Reddy, 13/10/2026): a chain of
+          // title grows by transfers, from any view, not only inside Chain.
+          primary: ownersQ.data ? {
+            label: 'Add a transfer', icon: <AddOutlined sx={{ fontSize: 17 }} />,
+            ref: transferTrigger, haspopup: 'dialog', expanded: firstTransfer,
+            onClick: () => setFirstTransfer(true),
+          } : undefined,
+          overflow: [
+            // Wherever the Chain view exists — owners on file or transfers filed.
+            ...(owners.length > 0 || hasChain ? [{
+              label: chainEditing ? 'Done editing' : 'Edit chain',
+              icon: <EditOutlined sx={{ fontSize: 17 }} />,
+              // Editing happens on the chain, so the view follows it there.
+              onClick: () => { setOwnerView('chain'); setChainEditing((v) => !v); },
+            }] : []),
+            {
+              label: 'Order a title opinion',
+              icon: <GavelOutlined sx={{ fontSize: 17 }} />,
+              onClick: () => nav(orderHref(rec.id, { service: 'title_opinion', why: 'owners' })),
+            },
+            {
+              label: 'Order an encumbrance certificate',
+              icon: <ReceiptLongOutlined sx={{ fontSize: 17 }} />,
+              onClick: () => nav(orderHref(rec.id, { service: 'ec', why: 'owners' })),
+            },
+          ],
+          overflowHeader: rec.title,
+        }}
+      />
+
+      {/* The band under the head (design.md § Page head, slot 5; Reddy,
+          13/10/2026): which side of the tab first, the view choice at the
+          right. The head keeps only commands. */}
+      <ToolbarBand
+        label="People"
+        left={(
+          // Owners | Caretakers & staff — the two concerns kept apart. The
+          // wrapper only gives the owner drawer a button to hand focus to.
+          <span ref={sideSwitch} style={{ display: 'contents' }}>
+            <Segmented label="Owners or staff" value={section} onChange={setSection}
+                       options={[{ value: 'owners', label: 'Owners' },
+                         { value: 'staff', label: 'Caretakers & staff' }]} />
+          </span>
         )}
+        // One view choice per section. Chain is ownership-only because staff
+        // have no succession relationship to draw.
+        view={section === 'owners' ? ((owners.length > 0 || hasChain) && (
+          <Segmented label="Ownership view" value={ownerView} onChange={setOwnerView}
+                     options={[{ value: 'chain', label: 'Chain' }, { value: 'cards', label: 'Cards' },
+                       { value: 'table', label: 'Table' }]} />
+        )) : (data && data.people.length > 0 && (
+          <Segmented label="Staff view" value={staffView} onChange={setStaffView}
+                     options={[{ value: 'cards', label: 'Cards' }, { value: 'table', label: 'Table' }]} />
+        ))}
       />
 
       {naming && (
@@ -950,6 +1179,7 @@ export function RecordPeople() {
       {openPerson && (
         <PersonDrawer
           person={openPerson}
+          recordId={rec.id}
           recordTitle={rec.title}
           returnFocus={assignTrigger}
           onClose={() => setOpenPerson(null)}
@@ -971,7 +1201,7 @@ export function RecordPeople() {
           recordTitle={rec.title}
           transfer={null}
           owners={owners}
-          others={[]}
+          others={transfersQ.data?.transfers ?? []}
           seed={null}
           returnFocus={transferTrigger}
           onClose={() => setFirstTransfer(false)}
@@ -986,19 +1216,17 @@ export function RecordPeople() {
       {section === 'owners' && (
         <div className={`people-owners${showingChain ? ' chain' : ''}`}>
           {ownersQ.isLoading ? (
-            <Loading h="18rem" />
+            // Owners are people with a name and a line under it, whichever of
+            // the three views lands; rows hold that shape without guessing it.
+            <SkRows rows={3} label="Loading the ownership chain" />
           ) : ownersQ.error && !ownersQ.data ? (
             <Failed what="The ownership chain" error={ownersQ.error} boxed h="18rem" />
           ) : owners.length === 0 && !hasChain ? (
-            // A chain of title starts with a transfer, and the only "Add a
-            // transfer" used to be drawn inside the chain view it would create.
-            <Empty boxed h="16rem" icon="person" title="No owners recorded yet"
-                   action={(
-                     <button ref={transferTrigger} type="button" className="btn sm"
-                             aria-haspopup="dialog" onClick={() => setFirstTransfer(true)}>
-                       <AddOutlined sx={{ fontSize: 15 }} aria-hidden /> Add a transfer
-                     </button>
-                   )} />
+            // A chain of title starts with a transfer. Its add is the head's
+            // filled "Add a transfer" now, so this card only says what is missing.
+            <Empty boxed h="16rem" icon="person" title="No owners recorded yet">
+              A chain of title starts with a transfer: who sold or gave this land, to whom, and when.
+            </Empty>
           ) : ownerView === 'chain' ? (
             <OwnerChain
               recordId={rec.id}
@@ -1006,10 +1234,13 @@ export function RecordPeople() {
               owners={owners}
               transfersQ={transfersQ}
               onOpenOwner={openOwnerFrom}
+              editing={chainEditing}
+              onEditingChange={setChainEditing}
             />
           ) : ownerView === 'table' ? (
             <OwnersTable
               owners={owners}
+              recordId={rec.id}
               onOpen={openOwnerFrom}
             />
           ) : (
@@ -1027,7 +1258,7 @@ export function RecordPeople() {
       )}
 
       {/* ── STAFF ──────────────────────────────────────────────────── */}
-      {section === 'staff' && isLoading && <Loading h="24rem" />}
+      {section === 'staff' && isLoading && <SkPeopleCards />}
 
       {section === 'staff' && error && !data && (
         <Failed what="The people on this property" error={error} boxed h="24rem" />
@@ -1043,6 +1274,7 @@ export function RecordPeople() {
             ) : staffView === 'table' ? (
               <PeopleTable
                 people={data.people}
+                recordId={rec.id}
                 onOpen={openFrom}
               />
             ) : (
@@ -1119,7 +1351,7 @@ export function RecordPeople() {
                     </span>
                   </span>
                 </div>
-                <Link to="/app/wallet" className="btn soft"
+                <Link to="/wallet" className="btn soft"
                       style={{ width: '100%', justifyContent: 'center', marginTop: 'var(--space-sm)' }}>
                   See the wallet
                 </Link>

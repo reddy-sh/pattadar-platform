@@ -1,5 +1,5 @@
 /**
- * /app/account — "your data": the consent record, the export, and the request
+ * /account — "your data": the consent record, the export, and the request
  * to be erased.
  *
  * One screen, one source file (apps/web/src/pages/AccountDataPage.tsx), and the
@@ -76,7 +76,7 @@ import type { Page } from '../fixtures/harness';
 // ── the world this screen lives in ─────────────────────────────────────
 
 /** The notice version the screen prints and posts (AccountDataPage.tsx:6). */
-const VERSION = '2026-09-12';
+const VERSION = '2026-10-06';
 
 /** The three purpose keys, as the screen and the API both spell them
  *  (AccountDataPage.tsx:7-11 / services/api/src/account.py:20). */
@@ -88,9 +88,9 @@ const KEY = {
 
 /** Enough of each purpose's sentence to name its checkbox. */
 const LABEL = {
-  records: 'Store and organise my records',
+  records: 'Store and organise my data',
   ai: 'Use AI providers to read documents',
-  messages: 'Send messages about my service requests',
+  messages: 'Send messages about my service orders',
 } as const;
 
 /** The eight stages the erasure runner reports (services/api/src/account.py:21). */
@@ -234,9 +234,9 @@ const says = (page: Page, text: string | RegExp) => screen(page).getByRole('stat
 test('the account page lists the three things my consent covers, and ticks the ones I have already agreed to', async ({ page, world }) => {
   seedConsent(world, { purposes: [KEY.records, KEY.ai] });
   seedErasure(world);
-  await page.goto('/app/account');
+  await page.goto('/account');
 
-  await expect(page.getByRole('heading', { name: 'Your account and data', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Privacy & your data', level: 1 })).toBeVisible();
   await expect(choices(page).getByText(`Notice version ${VERSION}`)).toBeVisible();
   await expect(screen(page).getByRole('checkbox')).toHaveCount(3);
   await expect(box(page, 'records')).toBeChecked();
@@ -247,23 +247,23 @@ test('the account page lists the three things my consent covers, and ticks the o
 test('each choice is a sentence about what happens, not a key out of the database', async ({ page, world }) => {
   seedConsent(world, { purposes: [] });
   seedErasure(world);
-  await page.goto('/app/account');
+  await page.goto('/account');
 
   // The words beside the box ARE the consent — this is the one screen where
   // the copy is the legal position, so it is asserted whole and in order
   // (AccountDataPage.tsx:8-10) rather than by a prefix that would survive an
   // edit to the end of any sentence.
   await expect(choices(page).locator('label')).toHaveText([
-    'Store and organise my records and the people connected to them.',
+    'Store and organise my data and the people connected to them.',
     'Use AI providers to read documents when I ask for a reading.',
-    'Send messages about my service requests and their progress.',
+    'Send messages about my service orders and their progress.',
   ]);
 });
 
 test('the page says plainly that changing a choice does not undo work already done', async ({ page, world }) => {
   seedConsent(world, { purposes: [KEY.records] });
   seedErasure(world);
-  await page.goto('/app/account');
+  await page.goto('/account');
 
   await expect(choices(page)).toContainText('Changes do not undo files already processed or messages already sent.');
 });
@@ -271,7 +271,7 @@ test('the page says plainly that changing a choice does not undo work already do
 test('the privacy notice, the terms and a person to complain to are all one click away', async ({ page, world }) => {
   seedConsent(world, { purposes: [KEY.records] });
   seedErasure(world);
-  await page.goto('/app/account');
+  await page.goto('/account');
 
   await expect(screen(page).getByRole('link', { name: 'privacy notice' })).toHaveAttribute('href', '/privacy');
   await expect(screen(page).getByRole('link', { name: 'terms of use' })).toHaveAttribute('href', '/terms');
@@ -282,7 +282,7 @@ test('the privacy notice, the terms and a person to complain to are all one clic
 test('an account with nothing recorded yet can still record its first choice', async ({ page, world }) => {
   seedConsent(world, { purposes: [] });
   seedErasure(world);
-  await page.goto('/app/account');
+  await page.goto('/account');
 
   // That this state is drawn as three bare empty boxes, indistinguishable from
   // an account that refused everything, is DEFECT 11 below. What is held here
@@ -306,7 +306,7 @@ test('an account with nothing recorded yet can still record its first choice', a
 test.fail('my recorded choices say what day they were recorded', async ({ page, world }) => {
   seedConsent(world, { purposes: [KEY.records, KEY.ai], acceptedAt: '2026-09-10T09:00:00+00:00' });
   seedErasure(world);
-  await page.goto('/app/account');
+  await page.goto('/account');
 
   await expect(box(page, 'records')).toBeChecked();   // the read has landed
   await expect(choices(page)).toContainText(/10 Sep|2026-09-10|10\/09\/2026/, { timeout: 3_000 });
@@ -324,7 +324,7 @@ test.fail('my recorded choices say what day they were recorded', async ({ page, 
 test.fail('an account that has never been asked does not look like one that refused everything', async ({ page, world }) => {
   seedConsent(world, { purposes: [], acceptedAt: null });
   seedErasure(world);
-  await page.goto('/app/account');
+  await page.goto('/account');
   await expect(saveButton(page)).toBeEnabled();
   const neverAsked = (await choices(page).innerText()).replace(/\s+/g, ' ').trim();
 
@@ -339,7 +339,7 @@ test.fail('an account that has never been asked does not look like one that refu
 test('nothing can be saved over my recorded choices while they are still being read', async ({ page, world }) => {
   seedConsent(world, { purposes: [KEY.records, KEY.ai], get: { delayMs: 1_500 } });
   seedErasure(world);
-  await page.goto('/app/account');
+  await page.goto('/account');
 
   // Before the answer lands the screen must not accept an edit — a POST built
   // from boxes it has not filled in yet would erase the real record.
@@ -361,7 +361,7 @@ test('nothing can be saved over my recorded choices while they are still being r
 test.fail('while my choices are being read the page says so instead of showing me three empty boxes', async ({ page, world }) => {
   seedConsent(world, { purposes: [KEY.records, KEY.ai], get: { delayMs: 2_500 } });
   seedErasure(world);
-  await page.goto('/app/account');
+  await page.goto('/account');
 
   await expect(choices(page).locator('[aria-busy="true"]')).toBeVisible({ timeout: 3_000 });
 });
@@ -371,7 +371,7 @@ test.fail('while my choices are being read the page says so instead of showing m
 test('changing one choice saves exactly the boxes I left ticked, under the notice version on screen', async ({ page, world }) => {
   const consent = seedConsent(world, { purposes: [KEY.records, KEY.ai] });
   seedErasure(world);
-  await page.goto('/app/account');
+  await page.goto('/account');
 
   await expect(box(page, 'ai')).toBeChecked();
   await box(page, 'ai').uncheck();
@@ -385,7 +385,7 @@ test('changing one choice saves exactly the boxes I left ticked, under the notic
 test('the choice I recorded is still the one showing when I come back to the page', async ({ page, world }) => {
   const consent = seedConsent(world, { purposes: [KEY.records, KEY.ai] });
   seedErasure(world);
-  await page.goto('/app/account');
+  await page.goto('/account');
 
   await box(page, 'ai').uncheck();
   await box(page, 'messages').check();
@@ -402,7 +402,7 @@ test('the choice I recorded is still the one showing when I come back to the pag
 test('withdrawing every choice records an empty list rather than quietly doing nothing', async ({ page, world }) => {
   const consent = seedConsent(world, { purposes: [KEY.records, KEY.ai, KEY.messages] });
   seedErasure(world);
-  await page.goto('/app/account');
+  await page.goto('/account');
 
   await box(page, 'records').uncheck();
   await box(page, 'ai').uncheck();
@@ -416,7 +416,7 @@ test('withdrawing every choice records an empty list rather than quietly doing n
 test('while my choices are saving the page says so and will not take a second click', async ({ page, world }) => {
   const consent = seedConsent(world, { purposes: [KEY.records], post: { json: { version: VERSION, purposes: [KEY.records, KEY.ai] }, delayMs: 1_500 } });
   seedErasure(world);
-  await page.goto('/app/account');
+  await page.goto('/account');
 
   await box(page, 'ai').check();
   await saveButton(page).click();
@@ -442,7 +442,7 @@ test('while my choices are saving the page says so and will not take a second cl
 test.fail('the choice the service cannot run without is marked required rather than left looking optional', async ({ page, world }) => {
   seedConsent(world, { purposes: [KEY.records, KEY.ai] });
   seedErasure(world);
-  await page.goto('/app/account');
+  await page.goto('/account');
 
   await expect(saveButton(page)).toBeEnabled();   // the read has landed
   const row = choices(page).locator('label').filter({ hasText: LABEL.records });
@@ -461,7 +461,7 @@ test.fail('the choice the service cannot run without is marked required rather t
 test.fail('the page stops claiming my choices are recorded the moment I change one', async ({ page, world }) => {
   seedConsent(world, { purposes: [KEY.records] });
   seedErasure(world);
-  await page.goto('/app/account');
+  await page.goto('/account');
 
   await box(page, 'ai').check();
   await saveButton(page).click();
@@ -480,7 +480,7 @@ test('downloading my data gives me a dated file with my records and the manifest
     json: EXPORT,
     headers: { 'Content-Disposition': 'attachment; filename="pattadar-account-export.json"' },
   }));
-  await page.goto('/app/account');
+  await page.goto('/account');
 
   const arriving = page.waitForEvent('download');
   await exportButton(page).click();
@@ -498,7 +498,7 @@ test('downloading my data gives me a dated file with my records and the manifest
 test('the export says my original files stay where they are', async ({ page, world }) => {
   seedConsent(world, { purposes: [KEY.records] });
   seedErasure(world);
-  await page.goto('/app/account');
+  await page.goto('/account');
 
   await expect(exporting(page)).toContainText('The original files remain available in Documents.');
 });
@@ -507,7 +507,7 @@ test('while my export is being built the button says so and the rest of the page
   seedConsent(world, { purposes: [KEY.records] });
   seedErasure(world);
   world.route(/\/api\/gateway\/account\/export/, () => ({ json: EXPORT, delayMs: 1_500 }));
-  await page.goto('/app/account');
+  await page.goto('/account');
 
   const arriving = page.waitForEvent('download');
   await exportButton(page).click();
@@ -526,7 +526,7 @@ test('while my export is being built the button says so and the rest of the page
 test('the deletion button stays out of reach until I have typed the words exactly', async ({ page, world }) => {
   seedConsent(world, { purposes: [KEY.records] });
   seedErasure(world);
-  await page.goto('/app/account');
+  await page.goto('/account');
 
   await expect(requestButton(page)).toBeDisabled();
   await confirmField(page).fill('delete my account');
@@ -540,7 +540,7 @@ test('the deletion button stays out of reach until I have typed the words exactl
 test('the page warns me to sign in again before asking for deletion, and says it happens in stages', async ({ page, world }) => {
   seedConsent(world, { purposes: [KEY.records] });
   seedErasure(world);
-  await page.goto('/app/account');
+  await page.goto('/account');
 
   await expect(deletion(page)).toContainText('Sign in again before requesting deletion.');
   await expect(deletion(page)).toContainText('it is complete only when every required stage succeeds');
@@ -549,7 +549,7 @@ test('the page warns me to sign in again before asking for deletion, and says it
 test('requesting deletion files the request and says plainly that nothing has been deleted yet', async ({ page, world }) => {
   const erasure = seedErasure(world);
   seedConsent(world, { purposes: [KEY.records] });
-  await page.goto('/app/account');
+  await page.goto('/account');
 
   await confirmField(page).fill('DELETE MY ACCOUNT');
   await requestButton(page).click();
@@ -565,7 +565,7 @@ test('requesting deletion files the request and says plainly that nothing has be
 test('while my deletion request is being recorded the button says so and will not take a second click', async ({ page, world }) => {
   seedConsent(world, { purposes: [KEY.records] });
   const erasure = seedErasure(world, { post: { status: 202, json: receiptOf('requested'), delayMs: 1_500 } });
-  await page.goto('/app/account');
+  await page.goto('/account');
 
   await confirmField(page).fill('DELETE MY ACCOUNT');
   await requestButton(page).click();
@@ -593,7 +593,7 @@ test('checking on my deletion holds the rest of the page until the answer is bac
     json: { request: receiptOf('processing', { freeze_access: 'complete' }) },
     delayMs: slow ? 1_500 : 0,
   }));
-  await page.goto('/app/account');
+  await page.goto('/account');
 
   const refresh = deletion(page).getByRole('button', { name: 'Refresh status' });
   await expect(refresh).toBeEnabled();
@@ -616,7 +616,7 @@ test('a deletion under way shows every stage it still has to get through', async
   seedConsent(world, { purposes: [KEY.records] });
   const done = { freeze_access: 'complete', storage_objects: 'complete' } as const;
   seedErasure(world, { current: receiptOf('processing', done) });
-  await page.goto('/app/account');
+  await page.goto('/account');
 
   await expect(says(page, 'Request erasure-7f3a9c21: processing')).toBeVisible();
   // All eight, in the order the runner works through them, each carrying the
@@ -636,7 +636,7 @@ test('a deletion under way shows every stage it still has to get through', async
 test('a deletion with stages left to run never tells me my account is gone', async ({ page, world }) => {
   seedConsent(world, { purposes: [KEY.records] });
   seedErasure(world, { current: receiptOf('processing', { freeze_access: 'complete' }) });
-  await page.goto('/app/account');
+  await page.goto('/account');
 
   await expect(says(page, 'Request erasure-7f3a9c21: processing')).toBeVisible();
   await expect(deletion(page)).not.toContainText(/your account has been deleted|deletion is complete|your data has been deleted/i);
@@ -645,7 +645,7 @@ test('a deletion with stages left to run never tells me my account is gone', asy
 test('a stage that failed is shown as failed rather than left looking like progress', async ({ page, world }) => {
   seedConsent(world, { purposes: [KEY.records] });
   const erasure = seedErasure(world, { current: receiptOf('processing', { freeze_access: 'complete' }) });
-  await page.goto('/app/account');
+  await page.goto('/account');
 
   await expect(deletion(page).getByText('freeze_access: complete')).toBeVisible();
 
@@ -660,7 +660,7 @@ test('a deletion that finished every stage says completed, and still offers noth
   seedConsent(world, { purposes: [KEY.records] });
   const done = Object.fromEntries(STAGES.map((s) => [s, 'complete'])) as Partial<Record<(typeof STAGES)[number], string>>;
   seedErasure(world, { current: { ...receiptOf('completed', done), completedAt: '2026-09-13T05:00:00+00:00', needsOperator: false } });
-  await page.goto('/app/account');
+  await page.goto('/account');
 
   await expect(says(page, 'Request erasure-7f3a9c21: completed')).toBeVisible();
   // "completed" at the top has to mean all eight underneath it said so too —
@@ -676,7 +676,7 @@ test('a deletion that finished every stage says completed, and still offers noth
 test.fail('the deletion stages are named in words rather than in the runner column names', async ({ page, world }) => {
   seedConsent(world, { purposes: [KEY.records] });
   seedErasure(world, { current: receiptOf('processing', { freeze_access: 'complete' }) });
-  await page.goto('/app/account');
+  await page.goto('/account');
 
   await expect(says(page, 'Request erasure-7f3a9c21: processing')).toBeVisible();
   await expect(deletion(page)).not.toContainText('cognito_identity', { timeout: 3_000 });
@@ -690,7 +690,7 @@ test.fail('the deletion stages are named in words rather than in the runner colu
 test.fail('a deletion request under way says when I asked for it', async ({ page, world }) => {
   seedConsent(world, { purposes: [KEY.records] });
   seedErasure(world, { current: receiptOf('processing', { freeze_access: 'complete' }) });
-  await page.goto('/app/account');
+  await page.goto('/account');
 
   await expect(says(page, 'Request erasure-7f3a9c21: processing')).toBeVisible();
   await expect(deletion(page)).toContainText(/13 Sep|2026-09-13|13\/09\/2026/, { timeout: 3_000 });
@@ -704,7 +704,7 @@ test.fail('a deletion request under way says when I asked for it', async ({ page
 test.fail('checking on my deletion does not throw away a choice I have not saved yet', async ({ page, world }) => {
   seedConsent(world, { purposes: [KEY.records] });
   const erasure = seedErasure(world, { current: receiptOf('requested') });
-  await page.goto('/app/account');
+  await page.goto('/account');
 
   await box(page, 'messages').check();
   await expect(box(page, 'messages')).toBeChecked();
@@ -721,11 +721,11 @@ test.fail('checking on my deletion does not throw away a choice I have not saved
 test('arriving here from sign-up explains why I am here before I file anything', async ({ page, world }) => {
   seedConsent(world, { purposes: [] });
   seedErasure(world);
-  await page.goto('/app/account?welcome=1');
+  await page.goto('/account?welcome=1');
 
-  await expect(screen(page)).toContainText('Welcome to Pattadar. Read the notice and record your choices before adding your first record.');
+  await expect(screen(page)).toContainText('Welcome to Pattadar. Read the notice and record your choices before adding your first property.');
   await expect(screen(page)).toContainText('AI readings and service messages have separate choices.');
-  await expect(screen(page).getByRole('link', { name: 'Continue to my records' })).toHaveAttribute('href', '/app');
+  await expect(screen(page).getByRole('link', { name: 'Continue to Pattadar' })).toHaveAttribute('href', '/home');
 });
 
 test('the welcome door sends me on to the page I was heading for', async ({ page, world }) => {
@@ -735,9 +735,9 @@ test('the welcome door sends me on to the page I was heading for', async ({ page
   // Both halves of the allowlist (AccountDataPage.tsx:18): the new app and the
   // previous one, which is still routed under /legacy (routes.tsx:311) and is
   // where a signed-up owner following an old link is heading.
-  for (const wanted of ['/app/papers', '/legacy/documents', '/legacy']) {
-    await page.goto(`/app/account?welcome=1&returnTo=${encodeURIComponent(wanted)}`);
-    await expect(screen(page).getByRole('link', { name: 'Continue to my records' })).toHaveAttribute('href', wanted);
+  for (const wanted of ['/papers', '/legacy/documents', '/legacy']) {
+    await page.goto(`/account?welcome=1&returnTo=${encodeURIComponent(wanted)}`);
+    await expect(screen(page).getByRole('link', { name: 'Continue to Pattadar' })).toHaveAttribute('href', wanted);
   }
 });
 
@@ -746,21 +746,35 @@ test('a returnTo pointing anywhere but this app is ignored and I am sent to my r
   seedErasure(world);
 
   for (const hostile of ['https://evil.example/steal', '//evil.example', '/appearances', 'javascript:alert(1)']) {
-    await page.goto(`/app/account?welcome=1&returnTo=${encodeURIComponent(hostile)}`);
-    await expect(screen(page).getByRole('link', { name: 'Continue to my records' })).toHaveAttribute('href', '/app');
+    await page.goto(`/account?welcome=1&returnTo=${encodeURIComponent(hostile)}`);
+    await expect(screen(page).getByRole('link', { name: 'Continue to Pattadar' })).toHaveAttribute('href', '/home');
   }
 });
 
 test('coming to my data page on my own shows no welcome banner and no way out of it', async ({ page, world }) => {
   seedConsent(world, { purposes: [KEY.records] });
   seedErasure(world);
-  await page.goto('/app/account');
+  await page.goto('/account');
 
   await expect(screen(page)).not.toContainText('Welcome to Pattadar');
-  await expect(screen(page).getByRole('link', { name: 'Continue to my records' })).toHaveCount(0);
+  await expect(screen(page).getByRole('link', { name: 'Continue to Pattadar' })).toHaveCount(0);
 });
 
 // ── when the server says no ────────────────────────────────────────────
+
+/** A 401 anywhere in /app is the end of this tab's session: apiFetch hands it
+ *  to the auth layer (api/client.ts onUnauthorized → AuthProvider drops the
+ *  user), and RequireAuth sends the owner to /login with the path they were
+ *  on, so signing in lands them back here. The account page's own "Sign out
+ *  and sign in again" sentence is never left on a screen that cannot load. */
+async function bouncedToSignIn(page: Page) {
+  await expect(page).toHaveURL(/\/login$/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Sign in' })).toBeVisible();
+  const aim = await page.evaluate(
+    () => (window.history.state as { usr?: { returnTo?: string } } | null)?.usr?.returnTo ?? null,
+  );
+  expect(aim).toBe('/account');
+}
 
 test.describe('when the server says no', () => {
   // Every test in here provokes an HTTP error on purpose, and Chrome logs a
@@ -768,20 +782,19 @@ test.describe('when the server says no', () => {
   // very tests whose point is that the screen survives the failure.
   test.use({ allowConsole: true });
 
-  test('a stale sign-in on the way in tells me to sign in again instead of showing me empty choices', async ({ page, world }) => {
+  test('a stale sign-in on the way in sends me to sign in again instead of showing me empty choices', async ({ page, world }) => {
     seedConsent(world, { get: { status: 401, json: { detail: { error: 'UNAUTHENTICATED' } } } });
     seedErasure(world);
-    await page.goto('/app/account');
+    await page.goto('/account');
 
-    await expect(alert(page)).toHaveText('Sign out and sign in again, then retry.');
-    await expect(box(page, 'records')).toBeDisabled();
-    await expect(saveButton(page)).toBeDisabled();
+    await bouncedToSignIn(page);
+    await expect(page.getByRole('checkbox')).toHaveCount(0);
   });
 
   test('a consent read that falls over says so and refuses to let me save over what it could not read', async ({ page, world }) => {
     seedConsent(world, { get: { status: 503, json: { detail: 'Account service unavailable; please retry' } } });
     seedErasure(world);
-    await page.goto('/app/account');
+    await page.goto('/account');
 
     await expect(alert(page)).toHaveText('Account service unavailable; please retry');
     await expect(saveButton(page)).toBeDisabled();
@@ -794,7 +807,7 @@ test.describe('when the server says no', () => {
       call.method === 'GET'
         ? { status: 503, json: { detail: 'Account service unavailable; please retry' } }
         : { status: 202, json: receiptOf('requested') });
-    await page.goto('/app/account');
+    await page.goto('/account');
 
     await expect(alert(page)).toHaveText('Account service unavailable; please retry');
     // The consent half of the same read is discarded with it: Promise.all
@@ -805,7 +818,7 @@ test.describe('when the server says no', () => {
   test('a save the server will not take says why, and leaves my ticks where I put them', async ({ page, world }) => {
     seedConsent(world, { purposes: [KEY.records], post: { status: 500, json: { detail: 'Unknown notice version or processing purpose' } } });
     seedErasure(world);
-    await page.goto('/app/account');
+    await page.goto('/account');
 
     await box(page, 'ai').check();
     await saveButton(page).click();
@@ -826,7 +839,7 @@ test.describe('when the server says no', () => {
       post: [{ status: 503, json: { detail: 'Account service unavailable; please retry' } }],
     });
     seedErasure(world);
-    await page.goto('/app/account');
+    await page.goto('/account');
 
     await box(page, 'ai').check();
     await saveButton(page).click();
@@ -844,23 +857,24 @@ test.describe('when the server says no', () => {
     expect(consent.state.purposes).toEqual([KEY.records, KEY.ai]);
   });
 
-  test('a save that needs a fresh sign-in says so rather than blaming the choices', async ({ page, world }) => {
-    seedConsent(world, { purposes: [KEY.records], post: { status: 401, json: { detail: { error: 'REAUTH_REQUIRED', message: 'Sign in again before requesting account deletion.' } } } });
+  test('a save that needs a fresh sign-in sends me to sign in rather than blaming the choices', async ({ page, world }) => {
+    const consent = seedConsent(world, { purposes: [KEY.records], post: { status: 401, json: { detail: { error: 'REAUTH_REQUIRED', message: 'Sign in again before requesting account deletion.' } } } });
     seedErasure(world);
-    await page.goto('/app/account');
+    await page.goto('/account');
 
     await box(page, 'ai').check();
     await saveButton(page).click();
 
-    await expect(alert(page)).toHaveText('Sign out and sign in again, then retry.');
-    await expect(box(page, 'ai')).toBeChecked();
+    await bouncedToSignIn(page);
+    // The refused save recorded nothing.
+    expect(consent.state.purposes).toEqual([KEY.records]);
   });
 
   test('an export the server cannot build says so and leaves the page usable', async ({ page, world }) => {
     seedConsent(world, { purposes: [KEY.records] });
     seedErasure(world);
     world.route(/\/api\/gateway\/account\/export/, () => ({ status: 503, json: { detail: 'Account service unavailable; please retry' } }));
-    await page.goto('/app/account');
+    await page.goto('/account');
 
     await exportButton(page).click();
 
@@ -870,34 +884,32 @@ test.describe('when the server says no', () => {
     await expect(says(page, 'Your export has been downloaded.')).toHaveCount(0);
   });
 
-  test('an export refused for a stale sign-in asks me to sign in again', async ({ page, world }) => {
+  test('an export refused for a stale sign-in sends me to sign in again', async ({ page, world }) => {
     seedConsent(world, { purposes: [KEY.records] });
     seedErasure(world);
     world.route(/\/api\/gateway\/account\/export/, () => ({ status: 401, json: { detail: { error: 'UNAUTHENTICATED' } } }));
-    await page.goto('/app/account');
+    await page.goto('/account');
 
     await exportButton(page).click();
-    await expect(alert(page)).toHaveText('Sign out and sign in again, then retry.');
+    await bouncedToSignIn(page);
   });
 
-  test('a deletion refused for a stale sign-in keeps my confirmation so I can sign in and try again', async ({ page, world }) => {
+  test('a deletion refused for a stale sign-in sends me to sign in, and brings me back here to try again', async ({ page, world }) => {
     seedConsent(world, { purposes: [KEY.records] });
     seedErasure(world, { post: { status: 401, json: { detail: { error: 'REAUTH_REQUIRED', message: 'Sign in again before requesting account deletion.' } } } });
-    await page.goto('/app/account');
+    await page.goto('/account');
 
     await confirmField(page).fill('DELETE MY ACCOUNT');
     await requestButton(page).click();
 
-    await expect(alert(page)).toHaveText('Sign out and sign in again, then retry.');
-    await expect(confirmField(page)).toHaveValue('DELETE MY ACCOUNT');
-    await expect(requestButton(page)).toBeEnabled();
+    await bouncedToSignIn(page);
     await expect(says(page, 'Your deletion request was recorded.')).toHaveCount(0);
   });
 
   test('a deletion the server rejects out of hand says what it rejected', async ({ page, world }) => {
     seedConsent(world, { purposes: [KEY.records] });
     seedErasure(world, { post: { status: 400, json: { detail: 'Type DELETE MY ACCOUNT to confirm' } } });
-    await page.goto('/app/account');
+    await page.goto('/account');
 
     await confirmField(page).fill('DELETE MY ACCOUNT');
     await requestButton(page).click();
@@ -918,7 +930,7 @@ test.describe('when the server says no', () => {
   test.fail('a refusal that names its reason shows the reason, not "try again"', async ({ page, world }) => {
     seedConsent(world, { purposes: [KEY.records], post: { status: 403, json: { detail: { error: 'ACCOUNT_ERASURE_IN_PROGRESS' } } } });
     seedErasure(world);
-    await page.goto('/app/account');
+    await page.goto('/account');
 
     await box(page, 'ai').check();
     await saveButton(page).click();
@@ -933,7 +945,7 @@ test.describe('when the server says no', () => {
   test.fail('a gateway that answers with an error page says something a person can read', async ({ page, world, consoleErrors }) => {
     seedConsent(world, { get: { status: 502, contentType: 'text/html', body: '<html><body><h1>502 Bad Gateway</h1></body></html>' } });
     seedErasure(world);
-    await page.goto('/app/account');
+    await page.goto('/account');
 
     await expect(alert(page)).toBeVisible();
     // The parse failure is caught, not thrown at the window: allowConsole is on
@@ -949,7 +961,7 @@ test.describe('when the server says no', () => {
   test.fail('a page that could not read my data offers me a way to try again', async ({ page, world }) => {
     seedConsent(world, { get: { status: 503, json: { detail: 'Account service unavailable; please retry' } } });
     seedErasure(world);
-    await page.goto('/app/account');
+    await page.goto('/account');
 
     await expect(alert(page)).toBeVisible();
     await expect(screen(page).getByRole('button', { name: /try again|retry|reload/i })).toBeVisible({ timeout: 3_000 });
@@ -961,9 +973,9 @@ test.describe('when the server says no', () => {
 test('@phone my data page keeps all three sections reachable on a phone', async ({ page, world }) => {
   seedConsent(world, { purposes: [KEY.records] });
   seedErasure(world);
-  await page.goto('/app/account');
+  await page.goto('/account');
 
-  await expect(page.getByRole('heading', { name: 'Your account and data', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Privacy & your data', level: 1 })).toBeVisible();
   await expect(box(page, 'records')).toBeVisible();
   await expect(exportButton(page)).toBeVisible();
   await expect(confirmField(page)).toBeVisible();

@@ -64,7 +64,7 @@ FEATURE_TYPES: tuple[dict[str, Any], ...] = (
                depends_on="pumpInstalled", depends_value="true"),
     ]),
     _type("pond", "Pond", "water", "pond", [
-        _field("areaSqFt", "Area", "number", unit="sq ft"),
+        _field("areaSqFt", "Area", "number", unit="sq.ft"),
         _field("depthFt", "Depth", "number", unit="ft"),
         _field("lining", "Lining", "select", options=("Earth", "Stone", "Concrete", "Plastic")),
         _field("waterSource", "Water source"),
@@ -110,12 +110,12 @@ FEATURE_TYPES: tuple[dict[str, Any], ...] = (
     ]),
     _type("shed", "Shed", "structures", "shed", [
         _field("use", "Used for"),
-        _field("areaSqFt", "Built-up area", "number", unit="sq ft"),
+        _field("areaSqFt", "Built-up area", "number", unit="sq.ft"),
         _field("roofMaterial", "Roof material"),
         _field("builtYear", "Built year", "number"),
     ], geometry_kind="polygon"),
     _type("house", "House", "structures", "house", [
-        _field("areaSqFt", "Built-up area", "number", unit="sq ft"),
+        _field("areaSqFt", "Built-up area", "number", unit="sq.ft"),
         _field("floors", "Floors", "number"),
         _field("rooms", "Rooms", "number"),
         _field("builtYear", "Built year", "number"),

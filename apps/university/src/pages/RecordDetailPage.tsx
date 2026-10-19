@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router';
 import { PageMeta } from '../components/PageMeta';
 import { officialReferencesById } from '../data/officialReferences';
-import { recordGuideBySlug, recordGuidePath, recordGuidesForState, recordVideoUrl } from '../data/recordGuides';
+import { hasRecordVideo, recordGuideBySlug, recordGuidePath, recordGuidesForState, recordVideoUrl } from '../data/recordGuides';
 import { publishedStateLandRecordBySlug } from '../data/stateLandRecords';
 
 export function RecordDetailPage() {
@@ -34,10 +34,10 @@ export function RecordDetailPage() {
         <span className="context-line">{profile.name} · {guide.kind}</span>
         <h1>{guide.title}</h1>
         <p>{guide.summary}</p>
-        <div className="record-detail-tags"><span>Fictional examples</span><span>Government sources</span><span>Captions + transcript</span></div>
+        <div className="record-detail-tags"><span>Fictional examples</span><span>Government sources</span>{hasRecordVideo(guide) && <span>Captions + transcript</span>}</div>
       </header>
 
-      <section className="record-film" aria-labelledby="record-film-title">
+      {hasRecordVideo(guide) && <section className="record-film" aria-labelledby="record-film-title">
         <div className="record-film__copy">
           <span className="context-line">Watch · pause · check</span>
           <h2 id="record-film-title">A guided visual lesson</h2>
@@ -52,7 +52,7 @@ export function RecordDetailPage() {
           </video>
           <p>Original Pattadar University animation. Names and numbers are invented for learning.</p>
         </div>
-      </section>
+      </section>}
 
       <section className="record-purpose" aria-label="Purpose and limit">
         <div><span className="context-line">What it helps you do</span><p>{guide.purpose}</p></div>

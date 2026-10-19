@@ -8,7 +8,7 @@
  * The sentence below is fixed; the signed-in app fetches the detail.
  */
 const BODY = 'A document reading has finished. Open Pattadar to see it.';
-const OPEN = '/app/notifications?open=latest';
+const OPEN = '/notifications?open=latest';
 
 self.addEventListener('install', () => { self.skipWaiting(); });
 self.addEventListener('activate', (event) => { event.waitUntil(self.clients.claim()); });

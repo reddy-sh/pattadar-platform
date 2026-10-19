@@ -4,7 +4,7 @@ Shared reporting contract for anyone producing test evidence in this
 repository — agent or human tester. `harness-map.md` decides which instrument
 runs; this file decides what may be claimed about the result.
 
-Adapted from the tester-role draft reviewed on 2026-09-26. General lifecycle
+Adapted from the tester-role draft reviewed on 26/09/2026. General lifecycle
 framing follows ISTQB Foundation Level concepts; no certification or compliance
 conformance is claimed by using this vocabulary.
 
@@ -24,9 +24,12 @@ retry is an open finding, not a green result.
 
 ## Count reconciliation
 
-A zero exit code is not evidence on its own. Report collected versus executed
-counts, and treat a clean exit with no relevant tests collected as `BLOCKED`.
-Path typos, an empty `testDir`, and a filter that matched nothing all exit `0`.
+An exit code is not evidence on its own. Report collected versus executed
+counts; a run that collected or executed nothing relevant is `BLOCKED`, whatever
+its exit code. pytest exits 5 when it collects nothing and 4 on a bad path;
+Playwright fails with `No tests found` except on a sharded run or with
+`--pass-with-no-tests` or `--only-changed`; a pytest fixture that skips and an
+env-gated Swift test that returns early both exit 0.
 
 Record the exact command, the build or revision under test, UTC timestamp,
 runner/tool versions, exit code, and where the evidence lives. Keep every
@@ -34,10 +37,11 @@ attempt including retries. Distinguish an expected application denial (a 403 the
 product is supposed to return) from an environment authentication failure (the
 harness never reached the product).
 
-Preserve original logs before cleanup. Publish redacted copies under the
-project's data policy; never overwrite the protected original with the redacted
-version, and never place Aadhaar/deed content, owner inventories, tokens, or
-account identifiers in a report.
+Keep original logs only under the gitignored `.local/test-evidence/<date>/`,
+never in a tracked path, and report them as intentionally retained (change
+governance cleanup); never overwrite an original with its redacted copy. Never
+place secrets, Aadhaar/deed content, private owner inventories, tokens, account
+IDs or unnecessary resource identifiers in a report or tracked file.
 
 ## Test basis independence
 
@@ -49,22 +53,23 @@ that nobody agreed to.
 
 Two repository-specific traps:
 
-- **Inverted tests.** `tests/e2e-app/specs` carries 118 executable `test.fail()`
-  markers across 23 of 29 spec files, and `tests/e2e-web360/specs` 9 more — 127
-  in total. An `e2e-app` run reports 138 expected-failure cases, measured
-  26/09/2026: four markers sit inside a table loop, and `@phone` markers run in
-  both projects. Rule 5 of `tests/e2e-app/AUTHORING.md` is that a found defect
-  becomes a `test.fail()` naming its cause, never a softened assertion or a
-  deleted scenario. Playwright treats such a test as expected-to-fail, so
-  repairing the underlying defect surfaces the case as a run failure until the
-  marker is removed as part of the fix. Read the marker's comment before
-  attributing a red case to your change. Count them by excluding comment lines;
-  a raw string count returns 144 for `e2e-app` and is how a wrong figure once
-  reached the documentation. The per-marker inventory, with proposed severities
-  and single-cause clusters, is `docs/qa/test-fail-register.md`.
-- **The seal.** `tests/e2e-app` answers an unanticipated `/api` call with a 501
-  and fails the test at teardown, naming it. That is the design. Answer the call
-  in the test with `world.set` / `world.route`; never loosen the seal.
+- **Inverted tests.** Both browser suites carry executable `test.fail()`
+  markers; take their counts from the commands in
+  `docs/qa/test-fail-register.md` (comment lines excluded), never from a
+  hard-coded figure. Rule 5 of `tests/e2e-app/AUTHORING.md` is that a found
+  defect becomes a `test.fail()` naming its cause, never a softened assertion or
+  a deleted scenario. A green run counts these as expected, so an operation
+  covered only by a marker is `FAIL` (a known defect), never `PASS`. Repairing
+  the defect surfaces the case red (`Expected to fail, but passed.`) until the
+  marker is removed as part of the fix; a marker that times out is also red
+  (`timedOut`) with the defect still there. See `harness-map.md`.
+- **The seal.** `tests/e2e-app` answers an unrouted `/api` REST call with a 501
+  and an unanswered `web { <field> }` with a 200 carrying `errors[]`; both fail
+  the test at teardown, naming the call. A root-level document with no
+  `root.<field>` answer gets a 400 and is not counted as an escape. Answer calls
+  in the test with `world.set` / `world.route`; never loosen the seal. Results
+  under `tests/e2e-app/noconsole.config.ts` (console and escape guards off) are
+  never evidence.
 
 ## Classifying a finding
 

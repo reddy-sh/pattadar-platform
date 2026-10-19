@@ -38,6 +38,9 @@ from . import providers as _providers
 _log = logging.getLogger("pattadar.gateway.admin_models")
 
 router = APIRouter(prefix="/api/gateway/admin", tags=["admin-models"])
+# The only env var a provider row may name as its key; a catalog row must not
+# be able to point model sync at an unrelated task secret (PG_PASSWORD, ...).
+_PROVIDER_KEYS = {"anthropic": "ANTHROPIC_API_KEY"}
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -80,7 +83,9 @@ def _audit(cur, model_id: str, action: str, before: Optional[dict], after: Optio
 
 
 def _resolve_api_key(secret_ref: str) -> str:
-    """Look up the API key — secret_ref is treated as an env var name."""
+    """Read only provider keys; a catalog row cannot select an unrelated secret."""
+    if secret_ref not in _PROVIDER_KEYS.values():
+        return ""
     return (os.getenv(secret_ref) or "").strip()
 
 
@@ -172,6 +177,8 @@ async def sync_models(
         return JSONResponse(status_code=404, content={"error": f"Unknown provider '{provider_id}'"})
     if not prov["enabled"]:
         return JSONResponse(status_code=400, content={"error": f"Provider '{provider_id}' is disabled"})
+    if prov["auth_secret"] != _PROVIDER_KEYS.get(provider_id):
+        return JSONResponse(status_code=400, content={"error": "Invalid provider credential reference"})
 
     adapter = _providers.get_adapter(provider_id)
     if adapter is None:
@@ -570,7 +577,8 @@ async def list_providers(
         known = set(_providers.known_providers())
         for r in rows:
             r["adapter_available"] = r["id"] in known
-            r["api_key_configured"] = bool(_resolve_api_key(r["auth_secret"]))
+            r["api_key_configured"] = (r["auth_secret"] == _PROVIDER_KEYS.get(r["id"])
+                                       and bool(_resolve_api_key(r["auth_secret"])))
         return rows
 
     try:
@@ -589,6 +597,8 @@ async def upsert_provider(
     deny = await _require_admin(request)
     if deny is not None:
         return deny
+    if body.auth_secret != _PROVIDER_KEYS.get(body.id):
+        return JSONResponse(status_code=400, content={"error": "Invalid provider credential reference"})
 
     def _apply() -> Dict[str, Any]:
         with psycopg.connect(_conninfo(), row_factory=dict_row) as conn, conn.cursor() as cur:

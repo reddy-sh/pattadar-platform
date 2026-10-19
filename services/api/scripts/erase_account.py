@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import sys
 
 import psycopg
@@ -18,7 +19,60 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from src.account import CHILD_LINKS, STAGES, ownership_predicates
+from src.account import CHILD_LINKS, STAGES, money_blockers_sync, ownership_predicates
+
+# Objects written since 30/09/2026 are keyed {node_id}/{version_id}: the owner
+# is deliberately not in the key (invariant 5), so no owner prefix can find
+# them. Their keys come from the owner's own storage_versions rows instead, and
+# each must be exactly that row's node and version — nothing else is deleted.
+NODE_VERSION_KEY = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+                              r"/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+
+def owned_object_keys(versions, owner):
+    """The owner's {node}/{version} object keys, from their version rows.
+
+    Legacy keys under the owner's prefix are left to delete_prefix. A key in
+    any other shape, or one naming a different node or version than its own
+    row, stops the erasure for review: deleting by a key we cannot account for
+    could remove somebody else's file."""
+    keys = set()
+    for row in versions:
+        key = str(row["object_key"])
+        if key.startswith(owner + "/"):
+            continue
+        if not NODE_VERSION_KEY.fullmatch(key) or key != f"{row['node_id']}/{row['id']}":
+            raise RuntimeError("An object key outside the reviewed layouts requires review before erasure")
+        keys.add(key)
+    return sorted(keys)
+
+
+def delete_keys(s3, bucket, keys):
+    """Remove every version and delete marker of exactly these keys."""
+    if not bucket:
+        raise ValueError("Refusing unscoped object deletion")
+    for key in keys:
+        if not NODE_VERSION_KEY.fullmatch(key):
+            raise ValueError("Refusing to delete an object outside the reviewed layout")
+    for _ in range(4):
+        removed = 0
+        for key in keys:
+            objects = []
+            for page in s3.get_paginator("list_object_versions").paginate(Bucket=bucket, Prefix=key):
+                objects += [{"Key": item["Key"], "VersionId": item["VersionId"]}
+                            for item in page.get("Versions", []) + page.get("DeleteMarkers", [])
+                            if item["Key"] == key]
+            for page in s3.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=key):
+                objects += [{"Key": item["Key"]} for item in page.get("Contents", []) if item["Key"] == key]
+            for start in range(0, len(objects), 1000):
+                batch = objects[start:start + 1000]
+                result = s3.delete_objects(Bucket=bucket, Delete={"Objects": batch, "Quiet": True})
+                if result.get("Errors"):
+                    raise RuntimeError("Object deletion incomplete; retry required")
+                removed += len(batch)
+        if removed == 0:
+            return
+    raise RuntimeError("Objects are still appearing; stop writers before retrying")
 
 
 def principal(issuer, subject):
@@ -225,19 +279,21 @@ def main():
             raise ValueError("Refusing invalid owner prefix")
         _, api_scopes, counts = snapshot(api, owner)
         require_settled_payments(api, owner)
+        money = money_blockers_sync(api, owner)
+        if money:
+            raise RuntimeError("Money remains in the account; settle it before erasure: " + " ".join(money))
         foreign_children(api, api_scopes, owner)
         if hub.execute("SELECT 1 FROM storage_nodes c JOIN storage_nodes p ON p.id=c.parent_id WHERE p.owner_id=%s AND c.owner_id<>%s LIMIT 1", (owner,owner)).fetchone():
             raise RuntimeError("Foreign-owned folder children require review before erasure")
-        keys = hub.execute("SELECT object_key FROM storage_versions WHERE owner_id=%s", (owner,)).fetchall()
-        if any(not row["object_key"].startswith(owner+"/") for row in keys):
-            raise RuntimeError("Legacy object keys outside the owner prefix require migration before erasure")
+        versions = hub.execute("SELECT id::text AS id, node_id::text AS node_id, object_key FROM storage_versions WHERE owner_id=%s", (owner,)).fetchall()
+        object_keys = owned_object_keys(versions, owner)
         attachments = assistant.execute("SELECT storage_path FROM r_attachments WHERE user_id=%s", (owner,)).fetchall()
         legacy = [Path(a["storage_path"]) for a in attachments if not a["storage_path"].startswith(("s3://","db:"))]
         for path in legacy:
             if not args.legacy_attachments_dir or not path.resolve().is_relative_to(args.legacy_attachments_dir.resolve()):
                 raise ValueError("Legacy attachment cleanup requires its verified storage root")
         if not args.execute:
-            print(json.dumps({"dryRun":True,"requestId":job["id"],"rowCounts":counts,"linkedSubjects":len(subjects),"legacyAttachmentFiles":len(legacy),"stages":STAGES},indent=2)); return
+            print(json.dumps({"dryRun":True,"requestId":job["id"],"rowCounts":counts,"objectKeys":len(object_keys),"linkedSubjects":len(subjects),"legacyAttachmentFiles":len(legacy),"stages":STAGES},indent=2)); return
         import boto3
         storage_bucket = os.environ["STORAGE_BUCKET"]
         assistant_bucket = os.environ["ASSISTANT_ATTACHMENTS_BUCKET"] if args.assistant_storage == "s3" else None
@@ -299,13 +355,17 @@ def main():
             # Object/provider stages already verify exhaustion. Re-run checks so
             # retries after a process crash cannot finish over a resumed writer.
             delete_prefix(s3,storage_bucket,owner+"/")
+            delete_keys(s3,storage_bucket,object_keys)
             if assistant_bucket:
                 delete_prefix(s3,assistant_bucket,"assistant/"+hashlib.sha256(owner.encode()).hexdigest()+"/")
             for sub in subjects:
                 if cognito.list_users(UserPoolId=pool_id,Filter='sub = '+json.dumps(sub),Limit=1).get("Users"):
                     raise RuntimeError("Cognito identity remains")
         stage("freeze_access",freeze)
-        stage("storage_objects",lambda: delete_prefix(s3,storage_bucket,owner+"/"))
+        def storage_objects():
+            delete_prefix(s3,storage_bucket,owner+"/")
+            delete_keys(s3,storage_bucket,object_keys)
+        stage("storage_objects",storage_objects)
         stage("assistant_objects",assistant_objects)
         stage("assistant_data",lambda: purge_assistant(assistant,owner))
         stage("api_data",lambda: purge_api(api,owner,job["id"],args.audit_retention_days))

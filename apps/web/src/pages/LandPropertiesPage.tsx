@@ -6,9 +6,9 @@
  * export, status+stake badges on hairline hero cards, and the Add flows
  * (AI-classified Add for properties/deeds, manual Add Parcel).
  *
- * Deep links: /app/parcels?pb=<passbookId> lands on Land Parcels filtered to
+ * Deep links: /legacy/parcels?pb=<passbookId> lands on Land Parcels filtered to
  * that khata; ?group=<groupId> pre-filters by family; ?tab=properties opens
- * the Properties tab (the old /app/properties route redirects here).
+ * the Properties tab (the old /legacy/properties route redirects here).
  */
 import { useMemo, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
@@ -334,7 +334,7 @@ export function LandPropertiesPage() {
 
   // Parcels open the parcel 360, properties the property detail (source parity).
   const openDetail = (h: Holding) =>
-    navigate(`/app/${h.kind === 'parcel' ? 'parcels' : 'properties'}/${h.id}`);
+    navigate(`/properties/${h.id}`);
 
   const rowActions = (h: Holding) => [
     { key: 'open', label: 'Open', onClick: () => openDetail(h) },

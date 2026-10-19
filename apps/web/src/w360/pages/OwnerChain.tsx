@@ -710,7 +710,7 @@ export function TransferDrawer({
       });
       const id = created.web.addTransfer;
       if (!id) {
-        setErr('That transfer was not filed. This record may no longer be yours to edit.');
+        setErr('That transfer was not saved. This property may no longer be yours to edit.');
         return;
       }
       await addEndpoint(id, 'from', fromName);
@@ -1010,16 +1010,27 @@ export function TransferDrawer({
   );
 }
 
-export function OwnerChain({ recordId, recordTitle, owners, transfersQ, onOpenOwner }: {
+export function OwnerChain({ recordId, recordTitle, owners, transfersQ, onOpenOwner, editing: editingProp, onEditingChange }: {
   recordId: string;
   recordTitle: string;
   owners: Owner[];
   transfersQ: { data?: TransfersView; isLoading: boolean };
   onOpenOwner: (owner: Owner, trigger: HTMLElement) => void;
+  /** Edit mode, owned by the People tab's head when it passes these: Edit
+   *  chain and Add a transfer then live in the head (Reddy, 13/10/2026), and
+   *  this card draws neither button. */
+  editing?: boolean;
+  onEditingChange?: (on: boolean) => void;
 }) {
   const orientation = useChainOrientation();
   const rem = useRootRem();
-  const [editing, setEditing] = useState(false);
+  const [editingOwn, setEditingOwn] = useState(false);
+  const headOwned = onEditingChange !== undefined;
+  const editing = headOwned ? !!editingProp : editingOwn;
+  const setEditing = (next: boolean | ((v: boolean) => boolean)) => {
+    const v = typeof next === 'function' ? next(editing) : next;
+    if (headOwned) onEditingChange(v); else setEditingOwn(v);
+  };
   /** The drawer holds an ID, never a copy of the row. Its controls save as soon
    *  as they are used, so a snapshot taken at open time would show the old
    *  prior-link and the old party list immediately after changing them. */
@@ -1184,7 +1195,7 @@ export function OwnerChain({ recordId, recordTitle, owners, transfersQ, onOpenOw
                 : 'No transfers filed'}
             </strong>
           </span>
-          <div className="row tight">
+          {!headOwned && <div className="row tight">
             <button ref={editButton} type="button" className={`btn sm${editing ? ' primary' : ''}`}
                     aria-pressed={editing} onClick={() => setEditing((v) => !v)}>
               <EditOutlined sx={{ fontSize: 15 }} /> {editing ? 'Done editing' : 'Edit chain'}
@@ -1195,7 +1206,7 @@ export function OwnerChain({ recordId, recordTitle, owners, transfersQ, onOpenOw
             }}>
               <AddOutlined sx={{ fontSize: 15 }} /> Add a transfer
             </button>
-          </div>
+          </div>}
         </div>
 
         {unverified > 0 && (

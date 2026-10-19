@@ -191,15 +191,15 @@ public enum HoldingKind: String, CaseIterable, Codable, Sendable {
         }
     }
 
-    /// The unit as a person SAYS it — "acres", not "Acres"; "sq. yd", not
+    /// The unit as a person SAYS it — "acres", not "Acres"; "sq.yd", not
     /// "Sq. yards". For where the figure beside it is already large enough to
     /// carry the sentence. Here rather than on a card, because the dashboard
     /// and the Home Screen widget are two processes drawing the same row.
     public var shortUnit: String {
         switch unit {
         case .acre: "acres"
-        case .sqyd: "sq. yd"
-        case .sqft: "sq. ft"
+        case .sqyd: "sq.yd"
+        case .sqft: "sq.ft"
         default: unit.label
         }
     }

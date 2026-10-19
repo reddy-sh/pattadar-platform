@@ -37,7 +37,7 @@ struct GetItDoneScreen: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Space.xl) {
-                Text("Land work needs someone standing on the land or queueing at an office. Ask, then watch it move.")
+                Text("Land work needs a person standing on the land or queueing at an office. Ask, then watch it move.")
                     .font(.subheadline).foregroundStyle(.secondary)
 
                 if !open.isEmpty {
@@ -181,7 +181,7 @@ struct GetItDoneScreen: View {
         VStack(alignment: .leading, spacing: Space.sm) {
             Text("Nothing asked for yet")
                 .font(.subheadline.weight(.semibold))
-            Text("Record the work you have asked somebody to do — a survey, a title opinion, an errand at the MRO — and it stops living in your head.")
+            Text("Keep track of the work you have handed out — a survey, a title opinion, an errand at the MRO — and it stops living in your head.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

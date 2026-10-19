@@ -1,4 +1,4 @@
-/** Profile — drawn in this app (the redrawn /app/profile).
+/** Profile — drawn in this app (the redrawn /profile).
  *
  *  This replaces the "still in the previous version" signpost and the MUI
  *  screen it pointed at (pages/ProfilePage.tsx, now deleted; /legacy/profile
@@ -17,6 +17,13 @@
  *  translation layer and nothing enforces step-up — but their stored values are
  *  sent back unchanged, because a sent "" clears.
  *
+ *  Account facts and display defaults. "You" also states what the account
+ *  is — last visit, access, how many properties — read from `me` and the
+ *  portfolio the Shell already holds, so they cost no request. "Display" is
+ *  the device's default look: the same scheme and page width the header's
+ *  theme menu sets, applied at once and kept in this browser, not by Save.
+ *  "Member since" is not drawn: the users table records no creation date.
+ *
  *  Name and photo from the sign-in provider. A Google sign-in carries the
  *  account's `name` and `picture` in the ID token (AuthProvider claimsUser).
  *  The photo is drawn from Google's URL (Face.tsx) and never stored here; it
@@ -27,15 +34,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
+import ShieldOutlined from '@mui/icons-material/ShieldOutlined';
 import { formatAadhaarMask } from '@pattadar/core';
 
 import { useAuth } from '../../auth/AuthProvider';
 import { personName } from '../../lib/identity';
-import { useDistricts, useMe, useUpdateMe, useUpdateProfile } from '../api';
+import { useDistricts, useMe, usePortfolio, useUpdateMe, useUpdateProfile } from '../api';
 import type { Me } from '../api';
 import { useToast } from '../Toast';
-import { Card, Chip, Failed, Loading, MultiSelect, PageHead, plural } from '../ui';
+import { useThemeChoice } from '../../components/useThemeChoice';
+import { setPageWidth, usePageWidth } from '../pageWidth';
+import type { PageWidth } from '../pageWidth';
+import { Card, Chip, Failed, KV, MultiSelect, PageHead, Segmented, ddmmyyyy, plural } from '../ui';
+import type { HeadActions } from '../ui';
 import { Face } from '../Face';
+import { Sk } from '../skeletons';
 
 /** The reason a disabled Save is disabled, printed beside it. */
 const Why = ({ children }: { children: ReactNode }) => <span className="note">{children}</span>;
@@ -47,6 +60,21 @@ const split = (csv: string) => (csv || '').split(',').map((s) => s.trim()).filte
 const sameSet = (a: string[], b: string[]) =>
   a.length === b.length && a.every((x) => b.includes(x));
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const WIDTHS = [
+  { value: 'centred', label: 'Centred page' },
+  { value: 'full', label: 'Full-width page' },
+] as const;
+
+/** The head's one command (design.md § Page head): consent, export and
+ *  deletion live on one screen, named as the rail names it. */
+const HEAD_ACTIONS: HeadActions = {
+  secondaries: [{ label: 'Privacy & your data', to: '/account',
+                  icon: <ShieldOutlined sx={{ fontSize: 16 }} aria-hidden /> }],
+};
+/** A text input's height, for the skeleton's field boxes. */
+const FIELD_H = '2.5rem';
+/** Loading and failed draw this same head too (design.md § Every state has the head). */
+const INFO = 'Your name, how to reach you, and your address and Aadhaar for family and property records.';
 
 export function Profile() {
   const me = useMe();
@@ -56,6 +84,9 @@ export function Profile() {
   const toast = useToast();
   const updateMe = useUpdateMe();
   const updateProfile = useUpdateProfile();
+  const portfolio = usePortfolio().data;
+  const theme = useThemeChoice();
+  const width = usePageWidth();
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -89,8 +120,36 @@ export function Profile() {
   if (me.isLoading) {
     return (
       <main>
-        <PageHead eyebrow="Account" title="Profile" />
-        <Loading h="18rem" what="your profile" />
+        <PageHead title="Profile" info={INFO} actions={HEAD_ACTIONS}
+                  summary={<Sk w="18rem" h="1rem" r="var(--radius-xs)" />} />
+        {/* The form's own cards, titled, so nothing moves when the read lands. */}
+        <div role="status" aria-busy="true" aria-label="Loading your profile" className="stack lg">
+          <div aria-hidden className="stack lg">
+            <Card title="You" className="stack">
+              <div className="row" style={{ alignItems: 'center', gap: 'var(--space-md)' }}>
+                <Sk w="3rem" h="3rem" r="var(--radius-pill)" style={{ flex: 'none' }} />
+                <span className="grow"><Sk w="10rem" /><Sk w="14rem" h="0.8125rem" /></span>
+              </div>
+              <div className="two">
+                {[0, 1].map((i) => <span key={i} className="field"><Sk w="7rem" /><Sk h={FIELD_H} /></span>)}
+              </div>
+            </Card>
+            <Card title="Address and interests" className="stack">
+              <span className="field"><Sk w="6rem" /><Sk h="4rem" /><Sk w="20rem" h="0.8125rem" /></span>
+              <span className="field"><Sk w="9rem" /><Sk w="12rem" h={FIELD_H} /></span>
+              <span className="field"><Sk w="10rem" /><Sk w="8rem" /></span>
+            </Card>
+            <Card title="Aadhaar" className="stack">
+              <Sk w="9rem" />
+              <span className="field"><Sk w="8rem" /><Sk h={FIELD_H} /><Sk w="18rem" h="0.8125rem" /></span>
+            </Card>
+            <div className="row"><Sk w="8rem" h={FIELD_H} /></div>
+            <Card title="Display" className="stack">
+              <Sk w="24rem" />
+              {[0, 1].map((i) => <span key={i} className="field"><Sk w="8rem" /><Sk w="16rem" h={FIELD_H} /></span>)}
+            </Card>
+          </div>
+        </div>
       </main>
     );
   }
@@ -99,13 +158,20 @@ export function Profile() {
   if (me.isError || !me.data) {
     return (
       <main>
-        <PageHead eyebrow="Account" title="Profile" />
+        <PageHead title="Profile" info={INFO} actions={HEAD_ACTIONS} />
         <Failed boxed what="Your profile" error={me.error} onRetry={() => void me.refetch()} />
       </main>
     );
   }
 
   const m = me.data;
+  // The head states what is saved, not the form's unsaved edits; an absent
+  // fact is left out, so an account with neither draws the title alone.
+  const savedDistricts = split(m.districtsOfInterest).length;
+  const factsLine = [
+    savedDistricts ? `${plural(savedDistricts, 'district')} of interest` : '',
+    m.kycRefMasked ? 'Aadhaar on file' : '',
+  ].filter(Boolean).join(' · ');
   const storedName = realName(m);
   const nameDirty = name.trim() !== storedName || email.trim() !== (m.email || '');
   const prefsDirty = address !== (m.address || '')
@@ -162,6 +228,19 @@ export function Profile() {
   };
 
   const shown = name.trim() || storedName;
+  // Only facts that are known: a portfolio still loading leaves its rows out.
+  const properties = portfolio
+    && portfolio.farmCount + portfolio.plotCount + portfolio.builtFlats + portfolio.builtShops;
+  type Fact = { k: string; v: ReactNode };
+  const facts = ([
+    m.lastActiveAt ? { k: 'Last visit', v: ddmmyyyy(m.lastActiveAt) } : null,
+    portfolio && { k: 'Access', v: portfolio.isSuperAdmin ? 'Super admin'
+                     : portfolio.isPlatformAdmin ? 'Platform admin' : 'Owner' },
+    portfolio && { k: 'Properties',
+                   v: <Link className="link" to="/properties">
+                        {plural(properties || 0, 'property', 'properties')}
+                      </Link> },
+  ] as (Fact | false | undefined | null)[]).filter((r): r is Fact => !!r);
   const options = (districts.data ?? []).map((d) => ({ id: d.id, label: d.name }));
   // A stored district the list no longer carries still shows, by id, so a
   // save cannot quietly drop it.
@@ -171,18 +250,14 @@ export function Profile() {
 
   return (
     <main>
-      <PageHead eyebrow="Account" title="Profile">
-        <p className="lede" style={{ maxWidth: '46rem' }}>
-          Your name, how to reach you, and your address and Aadhaar for family and property records.
-        </p>
-        {/* Consent, export and deletion live on one screen; this says where. */}
-        <p className="note" style={{ marginTop: '0.5rem' }}>
-          <Link className="link" to="/app/account">Privacy, export and account deletion</Link>
-        </p>
-      </PageHead>
+      <PageHead
+        title="Profile"
+        info={INFO}
+        summary={factsLine}
+        actions={HEAD_ACTIONS}
+      />
       <form
         className="stack lg"
-        style={{ maxWidth: '48rem', marginTop: 'var(--space-md)' }}
         onSubmit={(e) => { e.preventDefault(); void save(); }}
       >
         <Card title="You" className="stack">
@@ -193,6 +268,7 @@ export function Profile() {
               {user?.email && <span className="note">Signed in as {user.email}</span>}
             </span>
           </div>
+          {facts.length > 0 && <KV as="dl" rows={facts} />}
           <div className="two">
             <label className="field">
               Your name
@@ -283,6 +359,26 @@ export function Profile() {
           {blocked && !saving && <Why>{blocked}</Why>}
         </div>
       </form>
+
+      {/* Outside the form: these apply at once, like the header menu they
+          mirror, so Save never owns them. */}
+      <Card title="Display" className="stack" style={{ marginTop: 'var(--space-lg)' }}>
+        <p className="note" style={{ margin: 0 }}>
+          How Pattadar looks on this device. Changes apply at once; the theme
+          button in the header holds the same choices.
+        </p>
+        <div className="field">
+          <span aria-hidden>Colour scheme</span>
+          <Segmented label="Colour scheme" value={theme.choice}
+                     options={theme.options.map((o) => ({ value: o.id, label: o.label }))}
+                     onChange={theme.choose} />
+        </div>
+        <div className="field">
+          <span aria-hidden>Page width</span>
+          <Segmented<PageWidth> label="Page width" value={width} options={WIDTHS}
+                                onChange={setPageWidth} />
+        </div>
+      </Card>
     </main>
   );
 }

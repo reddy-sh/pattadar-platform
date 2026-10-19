@@ -200,9 +200,9 @@ export function MoveToFolderDialog({ title, folders, currentId, exclude, busy, e
               </>
             }>
       <div className="vault-move-list" role="group" aria-label="Folders">
-        {choice('', 'My files', 0, 'Top level')}
+        {choice('', 'Documents', 0, 'Top level')}
         {rows.map(({ folder, depth }) => choice(folder.id, folder.name, depth + 1,
-          plural(folder.fileCount, 'file')))}
+          plural(folder.fileCount, 'document')))}
       </div>
       {rows.length === 0 && (
         <p className="note" style={{ margin: 0 }}>You have no folders yet. Make one with New folder.</p>
@@ -237,11 +237,12 @@ export function EditTagsDialog({ paperId, title, tags, known, onClose }: {
   };
 
   return (
-    <Dialog title={`Tags on ${title}`} onClose={onClose} busy={tag.isPending}
+    <Dialog title="Edit tags" onClose={onClose} busy={tag.isPending}
             initialFocus="#vault-tag-word"
             footer={<button type="button" className="btn" onClick={onClose}>Done</button>}>
+      <p className="note" style={{ margin: 0 }}>{title}</p>
       {tags.length > 0 ? (
-        <ul className="vault-tag-edit" aria-label="Tags on this file">
+        <ul className="vault-tag-edit" aria-label="Tags on this document">
           {tags.map((t) => (
             <li key={t}>
               <span className="tag">{t}</span>
@@ -252,7 +253,7 @@ export function EditTagsDialog({ paperId, title, tags, known, onClose }: {
             </li>
           ))}
         </ul>
-      ) : <p className="note" style={{ margin: 0 }}>No tags on this file yet.</p>}
+      ) : <p className="note" style={{ margin: 0 }}>No tags on this document yet.</p>}
       <form className="row tight" onSubmit={(e) => { e.preventDefault(); void change(word, true); }}>
         <div className="field grow" style={{ margin: 0 }}>
           <label htmlFor="vault-tag-word">Add a tag</label>
@@ -265,7 +266,7 @@ export function EditTagsDialog({ paperId, title, tags, known, onClose }: {
         </button>
       </form>
       {suggestions.length > 0 && (
-        <div className="row tight" aria-label="Tags used on other files" role="group">
+        <div className="row tight" aria-label="Tags used on other documents" role="group">
           {suggestions.map((t) => (
             <Chip key={t} onClick={() => { void change(t, true); }}>{t}</Chip>
           ))}

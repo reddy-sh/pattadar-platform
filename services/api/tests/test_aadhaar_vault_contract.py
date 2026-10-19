@@ -38,10 +38,11 @@ CREATE TABLE users (
   address TEXT NOT NULL DEFAULT '', last_active_at TEXT NOT NULL DEFAULT '',
   inactivity_email_enabled BOOLEAN NOT NULL DEFAULT true
 );
-CREATE TABLE groups (id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, type TEXT NOT NULL DEFAULT 'family');
+CREATE TABLE groups (id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, type TEXT NOT NULL DEFAULT 'family',
+  facts TEXT NOT NULL DEFAULT '{}');
 CREATE TABLE family_members (
   id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, group_id TEXT NOT NULL DEFAULT '',
-  role TEXT NOT NULL DEFAULT '', name TEXT NOT NULL DEFAULT '', relation TEXT NOT NULL DEFAULT 'other',
+  role TEXT NOT NULL DEFAULT '', facts TEXT NOT NULL DEFAULT '{}', name TEXT NOT NULL DEFAULT '', relation TEXT NOT NULL DEFAULT 'other',
   gender TEXT NOT NULL DEFAULT '', dob TEXT NOT NULL DEFAULT '', phone TEXT NOT NULL DEFAULT '',
   email TEXT NOT NULL DEFAULT '', bio TEXT NOT NULL DEFAULT '', photo TEXT NOT NULL DEFAULT '',
   is_self BOOLEAN NOT NULL DEFAULT false, father_id TEXT NOT NULL DEFAULT '',

@@ -3,7 +3,7 @@
  * exact mutations/endpoints the rhub pattadar app calls (RemoteApp.tsx,
  * shared.ts, PassbookCreateModal.tsx, AddPropertyModal.tsx).
  */
-import { apiFetch, gql } from '../api/client';
+import { apiFetch, gql, GraphQLRequestError } from '../api/client';
 
 // ── GraphQL mutation strings (verbatim from source) ──────────────────────
 export const CREATE_PASSBOOK_MUT =
@@ -103,11 +103,18 @@ export async function deleteProperty(id: string): Promise<void> {
   await trashDocuments(d?.propertyDocuments ?? [], { keepRows: true });
 }
 
-/** Record my relationship to a holding (owned / managed / watch). */
-export async function setStake(kind: 'parcel' | 'property', id: string, stake: string): Promise<boolean> {
-  const r = await gql<{ setStake: boolean }>(
-    'mutation($k:String!,$id:String!,$s:String!){ setStake(kind:$k, id:$id, stake:$s) }',
-    { k: kind, id, s: stake },
-  ).catch(() => ({ setStake: false }));
-  return !!r?.setStake;
+/** Record my relationship to a holding (owned / managed / watch).
+ *  true when saved; otherwise the api's own refusal sentence (for example a
+ *  record inside a web 360 holding, which keeps the holding's one stake), or ''
+ *  when there is none to show. */
+export async function setStake(kind: 'parcel' | 'property', id: string, stake: string): Promise<true | string> {
+  try {
+    const r = await gql<{ setStake: boolean }>(
+      'mutation($k:String!,$id:String!,$s:String!){ setStake(kind:$k, id:$id, stake:$s) }',
+      { k: kind, id, s: stake },
+    );
+    return r?.setStake ? true : '';
+  } catch (error) {
+    return error instanceof GraphQLRequestError && error.message ? error.message : '';
+  }
 }

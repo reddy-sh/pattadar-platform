@@ -146,17 +146,38 @@ export class GraphQLRequestError extends Error {
   }
 }
 
+/** The GraphQL request itself failed with an HTTP status (no GraphQL body).
+ *  409 is the idempotency middleware saying the same key is still running. */
+export class GraphQLHttpError extends Error {
+  readonly status: number;
+
+  constructor(status: number) {
+    super(`GraphQL HTTP ${status}`);
+    this.name = 'GraphQLHttpError';
+    this.status = status;
+  }
+}
+
+export interface GqlOptions {
+  /** Sent as `x-idempotency-key`: the api runs a mutation carrying it at most
+   *  once per (user, key) and replays the stored answer on a repeat
+   *  (main.py idempotency middleware). A duplicate still in flight is a 409. */
+  idempotencyKey?: string;
+}
+
 /** POST a GraphQL query to the pattadar service via the gateway. */
-export async function gql<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
+export async function gql<T>(query: string, variables?: Record<string, unknown>, opts?: GqlOptions): Promise<T> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (opts?.idempotencyKey) headers['x-idempotency-key'] = opts.idempotencyKey;
   const res = await apiFetch(GRAPHQL_PATH, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify({ query, variables }),
   });
   // The 401 sentence is what the owner reads in the error card while the auth
   // layer takes them back to sign-in; an HTTP status is not that sentence.
   if (res.status === 401) throw new Error(SESSION_ENDED_MESSAGE);
-  if (!res.ok) throw new Error(`GraphQL HTTP ${res.status}`);
+  if (!res.ok) throw new GraphQLHttpError(res.status);
   const body = (await res.json()) as GraphQLResponse<T>;
   if (body.errors?.length) {
     throw new GraphQLRequestError(

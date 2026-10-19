@@ -15,7 +15,7 @@
  * Operations group, drawn only for whoever runs the platform, so a staff job
  * queue never sits among the owner's own money.
  *
- * Below 900px the rail becomes a drawer behind a hamburger — it used to
+ * Below 600px the rail becomes a drawer behind a hamburger — it used to
  * simply vanish, leaving a phone with no navigation at all. And the jump box
  * is a real search: it asks the API for parcels, papers and people as you
  * type and takes you straight to the hit, exactly as its placeholder promises.
@@ -28,15 +28,17 @@ import AssignmentOutlined from '@mui/icons-material/AssignmentOutlined';
 import CalculateOutlined from '@mui/icons-material/CalculateOutlined';
 import CardGiftcardOutlined from '@mui/icons-material/CardGiftcardOutlined';
 import ContrastOutlined from '@mui/icons-material/ContrastOutlined';
+import WidthFullOutlined from '@mui/icons-material/WidthFullOutlined';
+import WidthNormalOutlined from '@mui/icons-material/WidthNormalOutlined';
 import DescriptionOutlined from '@mui/icons-material/DescriptionOutlined';
 import FactCheckOutlined from '@mui/icons-material/FactCheckOutlined';
 import HomeOutlined from '@mui/icons-material/HomeOutlined';
+import HomeWorkOutlined from '@mui/icons-material/HomeWorkOutlined';
 import GroupsOutlined from '@mui/icons-material/GroupsOutlined';
 import HandshakeOutlined from '@mui/icons-material/HandshakeOutlined';
 import HelpOutlineOutlined from '@mui/icons-material/HelpOutlineOutlined';
 import LogoutOutlined from '@mui/icons-material/LogoutOutlined';
 import MailOutlined from '@mui/icons-material/MailOutlined';
-import MapOutlined from '@mui/icons-material/MapOutlined';
 import LayersOutlined from '@mui/icons-material/LayersOutlined';
 import JoinFullOutlined from '@mui/icons-material/JoinFullOutlined';
 import MenuOutlined from '@mui/icons-material/MenuOutlined';
@@ -44,6 +46,7 @@ import NotificationsNoneOutlined from '@mui/icons-material/NotificationsNoneOutl
 import OpenInNewOutlined from '@mui/icons-material/OpenInNewOutlined';
 import PersonOutlined from '@mui/icons-material/PersonOutlined';
 import PolicyOutlined from '@mui/icons-material/PolicyOutlined';
+import SellOutlined from '@mui/icons-material/SellOutlined';
 import PublicOutlined from '@mui/icons-material/PublicOutlined';
 import SaveAltOutlined from '@mui/icons-material/SaveAltOutlined';
 import SchoolOutlined from '@mui/icons-material/SchoolOutlined';
@@ -52,9 +55,11 @@ import ShieldOutlined from '@mui/icons-material/ShieldOutlined';
 import SmartToyOutlined from '@mui/icons-material/SmartToyOutlined';
 import SupportAgentOutlined from '@mui/icons-material/SupportAgentOutlined';
 
-import { useDesk, useOrders, usePortfolio, useSearch } from './api';
+import { useDesk, useHoldings, useOrders, usePortfolio, useSearch } from './api';
 import { HOLDING_WORD, Icon, Menu, plural } from './ui';
+import { isPlatformAdmin } from './adminOnly';
 import { ToastHost } from './Toast';
+import { useFocusTrap } from './Dialog';
 import { InboxWatcher } from './InboxWatcher';
 import { Face } from './Face';
 import { useInbox } from './inbox';
@@ -64,6 +69,7 @@ import { PENDING_INVITE, PENDING_REFERRAL, redeemReferral } from './growthData';
 import { UNIVERSITY_URL } from '../lib/links';
 import { SCHEME_ICON } from '../components/schemeIcons';
 import { useThemeChoice } from '../components/useThemeChoice';
+import { setPageWidth, usePageWidth } from './pageWidth';
 import './w360.css';
 
 const RAIL_KEY = 'w360.rail';
@@ -77,7 +83,7 @@ const HIT_KIND: Record<string, string> = { record: 'property', paper: 'document'
 interface NavItem {
   to: string;
   label: string;
-  icon: typeof MapOutlined;
+  icon: typeof HomeOutlined;
   end?: boolean;
   count?: number;
   dot?: boolean;
@@ -92,6 +98,12 @@ export interface ShellContext {
   openAssistant: () => void;
 }
 
+/** The jump box's shortcut as this keyboard writes it. The handler takes
+ *  either chord; the hint names the one on the keys in front of the reader. */
+const SHORTCUT = typeof navigator !== 'undefined'
+  && /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent)
+  ? '⌘K' : 'Ctrl K';
+
 /** One named group of rail entries.
  *
  *  `desk` marks the single group the Pattadar desk hangs off when the account
@@ -103,6 +115,19 @@ interface NavSection {
   desk?: boolean;
   /** Pinned to the foot of the rail and ruled off (Help & resources). */
   foot?: boolean;
+}
+
+/** Whether a media query matches, kept current as the window changes. */
+function useMedia(query: string): boolean {
+  const [on, setOn] = useState(() => window.matchMedia(query).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    const onChange = (e: MediaQueryListEvent) => setOn(e.matches);
+    mq.addEventListener('change', onChange);
+    setOn(mq.matches);
+    return () => mq.removeEventListener('change', onChange);
+  }, [query]);
+  return on;
 }
 
 /** One entry in the rail.
@@ -176,7 +201,7 @@ function DeskRail({ railHidden, onNavigate }: { railHidden: boolean; onNavigate:
   return (
     <RailLink
       it={{
-        to: '/app/desk',
+        to: '/desk',
         label: 'Pattadar desk',
         icon: SupportAgentOutlined,
         count: desk.data?.unassigned || undefined,
@@ -192,6 +217,17 @@ export function Shell() {
   const location = useLocation();
   const portfolio = usePortfolio();
   const orders = useOrders();
+  // Holdings is in the rail only once the account has one (memo 06/10 §4.1):
+  // an owner with a single parcel should never meet the word. Until then the
+  // way in is "Combine" on Properties. While the list is still loading — or
+  // if it failed — the item stays out: nearly every account has no holding, so
+  // showing it first and pulling it away would flash for almost everyone, and
+  // the few who have one see it arrive with the rest of the first paint's
+  // data. Standing on a holdings page keeps it in regardless, so deleting the
+  // last one never yanks the rail item you are on out from under you.
+  const holdings = useHoldings();
+  const onHoldings = /^\/holdings(\/|$)/.test(location.pathname);
+  const showHoldings = onHoldings || (holdings.data?.length ?? 0) > 0;
   // The signed-in identity, for the account menu. `user.email` is the one name
   // that exists before the portfolio query lands — and the only one at all for
   // an account with no records yet.
@@ -215,26 +251,32 @@ export function Shell() {
   // a preference and survives a reload; the drawer is transient and never does.
   const [navOpen, setNavOpen] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false);
-  const [railHidden, setRailHidden] = useState(() => localStorage.getItem(RAIL_KEY) === 'hidden');
+  // Guarded as pageWidth.ts is: storage throws in a locked-down browser, and
+  // that must not take the whole frame down with it.
+  const [railHidden, setRailHidden] = useState(() => {
+    try { return localStorage.getItem(RAIL_KEY) === 'hidden'; } catch { return false; }
+  });
 
-  useEffect(() => { localStorage.setItem(RAIL_KEY, railHidden ? 'hidden' : 'open'); }, [railHidden]);
-
-  // The drawer breakpoint, watched rather than sampled. Reading matchMedia once
-  // inside the click handler answered for the width at click time but told the
-  // rest of the component nothing, so `inert` below could not depend on it.
-  const [narrow, setNarrow] = useState(() => window.matchMedia('(max-width: 900px)').matches);
   useEffect(() => {
-    const mq = window.matchMedia('(max-width: 900px)');
-    const onChange = (e: MediaQueryListEvent) => setNarrow(e.matches);
-    mq.addEventListener('change', onChange);
-    setNarrow(mq.matches);
-    return () => mq.removeEventListener('change', onChange);
-  }, []);
+    try { localStorage.setItem(RAIL_KEY, railHidden ? 'hidden' : 'open'); } catch { /* holds for this visit */ }
+  }, [railHidden]);
+  // Shared with Profile's Display card (pageWidth.ts), so either one redraws the other.
+  const fullWidth = usePageWidth() === 'full';
 
-  // One button, two behaviours: below the drawer breakpoint it slides the
-  // drawer; above it it collapses the rail in place.
+  // The breakpoints, watched rather than sampled, so `inert` below can depend
+  // on them: under 600px the rail is a drawer; from 600 to
+  // 900 it is the 4rem icon rail, expanded only on request and never saved;
+  // above 900 the collapse is the saved preference.
+  const narrow = useMedia('(max-width: 599px)');
+  const medium = useMedia('(min-width: 600px) and (max-width: 900px)');
+  const [mediumOpen, setMediumOpen] = useState(false);
+  const collapsed = medium ? !mediumOpen : railHidden;
+
+  // One button, three behaviours: it slides the drawer on a phone, and
+  // otherwise collapses or expands the rail in place.
   const onMenu = () => {
     if (narrow) setNavOpen((v) => !v);
+    else if (medium) setMediumOpen((v) => !v);
     else setRailHidden((v) => !v);
   };
 
@@ -247,23 +289,44 @@ export function Shell() {
    *  to the topbar, away from what just loaded. */
   const dismissNav = () => { setNavOpen(false); menuRef.current?.focus(); };
 
-  // An open drawer is a modal surface: Escape closes it, and focus moves into
-  // it so a keyboard user is not left behind it.
-  useEffect(() => {
-    if (!navOpen || !narrow) return undefined;
-    navRef.current?.querySelector<HTMLAnchorElement>('a')?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { e.preventDefault(); setNavOpen(false); menuRef.current?.focus(); }
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [navOpen, narrow]);
+  // An open drawer is a modal surface: focus moves into it, Tab and Shift+Tab
+  // stay inside it, and Escape closes it back to the hamburger.
+  useFocusTrap(navRef, { onClose: dismissNav, active: navOpen && narrow });
+
+  // A drawer link that routes sends focus to the page that loaded, not back to
+  // the hamburger the trap returns it to. The link closes the drawer itself,
+  // before the route changes, so the flag is set there.
+  const routedFromDrawer = useRef<string | null>(null);
+  const closeFromLink = () => {
+    routedFromDrawer.current = navOpen && narrow ? location.pathname : null;
+    setNavOpen(false);
+  };
 
   // Navigation closes everything transient — drawer, results, the typed text.
   useEffect(() => {
     setNavOpen(false);
     setOpenResults(false);
     setQ('');
+    const from = routedFromDrawer.current;
+    routedFromDrawer.current = null;
+    const body = document.querySelector('.w360 .body');
+    if (!from || from === location.pathname || !body) return undefined;
+    // Pages are lazy, and a loading frame can stand in first, so keep putting
+    // focus on the visible heading while it would otherwise fall to <body>
+    // (three seconds at most). Never takes it from a control someone chose.
+    const land = () => {
+      const at = document.activeElement;
+      if (at && at !== document.body && at.isConnected && at.tagName !== 'H1' && at !== menuRef.current) return;
+      const h1 = Array.from(body.querySelectorAll<HTMLElement>('h1')).find((h) => h.offsetParent !== null);
+      if (!h1 || h1 === at) return;
+      h1.tabIndex = -1;
+      h1.focus();
+    };
+    land();
+    const mo = new MutationObserver(land);
+    mo.observe(body, { childList: true, subtree: true });
+    const stop = setTimeout(() => mo.disconnect(), 3000);
+    return () => { mo.disconnect(); clearTimeout(stop); };
   }, [location.pathname]);
 
   useEffect(() => { setActiveHit(0); }, [deferredQ]);
@@ -343,40 +406,48 @@ export function Shell() {
     {
       title: 'Your portfolio',
       items: [
-        { to: '/app', label: 'Home', icon: HomeOutlined, end: true },
-        { to: '/app/properties', label: 'Properties', icon: MapOutlined },
-        // Holdings: several properties held as one piece of ground. Beside
-        // Properties because it is the same land seen another way. It merges
-        // no title, boundary or record — each member stays separate.
-        { to: '/app/holdings', label: HOLDING_WORD.many, icon: JoinFullOutlined },
+        { to: '/home', label: 'Home', icon: HomeOutlined, end: true },
+        // A house beside a building: land and built property together. Not a
+        // map — the map is Cadastral maps' job and a view inside Properties.
+        { to: '/properties', label: 'Properties', icon: HomeWorkOutlined },
+        // Who holds the land (WHO): families and the other groups (HUF, firm,
+        // trust) that own it together. Portfolio, not Shared — the account
+        // keeps these, nobody sends them in. Above Holdings: groups hold land
+        // on most accounts, holdings exist on few.
+        { to: '/groups', label: 'Families & groups', icon: GroupsOutlined },
+        // Holdings (WHICH): several properties, one piece of ground. It
+        // merges no title, boundary or property — each stays separate, and
+        // each keeps its own holder. Hidden until the account has one.
+        ...(showHoldings
+          ? [{ to: '/holdings', label: HOLDING_WORD.many, icon: JoinFullOutlined }]
+          : []),
         // Cadastral maps: village and plot geometry, distinct from the
         // Properties Map view and each record's Location tab.
-        { to: '/app/maps', label: 'Cadastral maps', icon: LayersOutlined },
-        { to: '/app/papers', label: 'Documents', icon: DescriptionOutlined },
+        { to: '/maps', label: 'Cadastral maps', icon: LayersOutlined },
+        { to: '/papers', label: 'Documents', icon: DescriptionOutlined },
       ],
     },
     {
       // What somebody else sent you, what somebody else is waiting on you for,
-      // and the people either can arrive from. Invitations sits with them
+      // and how people arrive. Invitations sits with them
       // because an invitation is how sharing starts, not an account setting.
       title: 'Shared',
       items: [
-        { to: '/app/shared', label: 'Shared with me', icon: SaveAltOutlined },
-        { to: '/app/assigned', label: 'Waiting on you', icon: AssignmentOutlined,
+        { to: '/shared', label: 'Shared with me', icon: SaveAltOutlined },
+        { to: '/assigned', label: 'Waiting on you', icon: AssignmentOutlined,
           count: needsReview || undefined },
-        { to: '/app/invitations', label: 'Invitations', icon: MailOutlined },
-        { to: '/app/groups', label: 'Families & groups', icon: GroupsOutlined },
+        { to: '/invitations', label: 'Invitations', icon: MailOutlined },
         // Referral is how Pattadar grows, so it sits with the other ways
         // people arrive, not buried in settings.
-        { to: '/app/refer', label: 'Invite & earn', icon: CardGiftcardOutlined },
+        { to: '/refer', label: 'Invite & earn', icon: CardGiftcardOutlined },
       ],
     },
     {
       // Work you have ordered and the balance it comes out of.
       title: 'Money',
       items: [
-        { to: '/app/services', label: 'Services', icon: HandshakeOutlined, count: ordered || undefined },
-        { to: '/app/wallet', label: 'Wallet', icon: AccountBalanceWalletOutlined },
+        { to: '/services', label: 'Services', icon: HandshakeOutlined, count: ordered || undefined },
+        { to: '/wallet', label: 'Wallet', icon: AccountBalanceWalletOutlined },
       ],
     },
     {
@@ -386,13 +457,13 @@ export function Shell() {
       // DeskRail under Operations now, drawn for an admin and nobody else.
       title: 'Account',
       items: [
-        { to: '/app/profile', label: 'Profile', icon: PersonOutlined },
+        { to: '/profile', label: 'Profile', icon: PersonOutlined },
         // The DPDP screen (consent, export, deletion). It was reachable only
         // from the avatar menu; settings-shaped screens belong in the rail too.
-        { to: '/app/account', label: 'Privacy & your data', icon: ShieldOutlined },
+        { to: '/account', label: 'Privacy & your data', icon: ShieldOutlined },
         // The owner's own trail. "Activity", not "Audit log": that name
         // belongs to a compliance surface, and this one is the owner's.
-        { to: '/app/audit', label: 'Activity', icon: FactCheckOutlined },
+        { to: '/audit', label: 'Activity', icon: FactCheckOutlined },
       ],
     },
     // The operator's desk has its own group. It used to hang off Money & help,
@@ -405,9 +476,11 @@ export function Shell() {
     ...(portfolio.data?.isSuperAdmin ? [{
       title: 'Administration',
       items: [
-        { to: '/app/admin/members', label: 'Company members', icon: GroupsOutlined },
-        { to: '/app/admin/compliance', label: 'Compliance rules', icon: PolicyOutlined },
-        { to: '/app/admin/geography', label: 'Government geography', icon: PublicOutlined },
+        { to: '/admin/members', label: 'Company members', icon: GroupsOutlined },
+        { to: '/admin/catalogue', label: 'Service catalogue', icon: SellOutlined },
+        { to: '/admin/compliance', label: 'Compliance rules', icon: PolicyOutlined },
+        { to: '/admin/intelligence', label: 'Intelligence', icon: SmartToyOutlined },
+        { to: '/admin/geography', label: 'Government geography', icon: PublicOutlined },
       ],
     }] : []),
     {
@@ -416,12 +489,28 @@ export function Shell() {
       title: 'Help & resources',
       foot: true,
       items: [
-        { to: '/app/tools', label: 'Tools', icon: CalculateOutlined },
+        { to: '/tools', label: 'Tools', icon: CalculateOutlined },
         { to: UNIVERSITY_URL, label: 'Pattadar University', icon: SchoolOutlined, external: true },
-        { to: '/app/help', label: 'Help & support', icon: HelpOutlineOutlined },
+        { to: '/help', label: 'Help & support', icon: HelpOutlineOutlined },
       ],
     },
   ];
+
+  const navGroup = (sec: NavSection) => (
+    <div className={sec.foot ? 'navsec foot' : 'navsec'} key={sec.title}
+         role="group" aria-label={sec.title}>
+      <p className="navsec-t" aria-hidden>{sec.title}</p>
+      {sec.items.map((it) => (
+        <RailLink key={it.to} it={it} railHidden={collapsed} onNavigate={closeFromLink} />
+      ))}
+      {/* Only for one account, and only in the group that claims it.
+          It is the operator's entry, and it is the only thing in this
+          rail whose absence for everybody else is the whole point. */}
+      {sec.desk && portfolio.data?.isPlatformAdmin && (
+        <DeskRail railHidden={collapsed} onNavigate={closeFromLink} />
+      )}
+    </div>
+  );
 
   return (
     // ToastHost sits INSIDE .w360, not around it: it renders its stack as a
@@ -429,7 +518,7 @@ export function Shell() {
     // Outside, the toasts resolve none of the design tokens and paint as
     // unstyled text in the corner. The scheme is not repeated here: the
     // provider puts it on <html data-scheme>, where w360.css's slots read it.
-    <div className="w360" data-rail={railHidden ? 'hidden' : 'open'}>
+    <div className="w360" data-rail={collapsed ? 'hidden' : 'open'} data-width={fullWidth ? 'full' : 'centred'}>
       <ToastHost>
       <InboxWatcher />
       <header className="topbar">
@@ -441,13 +530,13 @@ export function Shell() {
             ref={menuRef}
             type="button"
             className="iconbtn menu-btn"
-            aria-label={narrow ? 'Menu' : railHidden ? 'Show the rail' : 'Collapse the rail'}
-            aria-expanded={narrow ? navOpen : !railHidden}
+            aria-label={narrow ? 'Menu' : collapsed ? 'Show navigation' : 'Hide navigation'}
+            aria-expanded={narrow ? navOpen : !collapsed}
             onClick={onMenu}
           >
             <MenuOutlined sx={{ fontSize: 20 }} />
           </button>
-          <NavLink to="/app" className="brand">Pattadar<span>.</span></NavLink>
+          <NavLink to="/home" className="brand">Pattadar<span>.</span></NavLink>
         </span>
 
         <div className="jump" ref={jumpRef}>
@@ -458,7 +547,7 @@ export function Shell() {
               e.preventDefault();
               const hit = hits[activeHit] ?? hits[0];
               if (hit) go(hit.route);
-              else if (q.trim()) go(`/app/properties?q=${encodeURIComponent(q.trim())}`);
+              else if (q.trim()) go(`/properties?q=${encodeURIComponent(q.trim())}`);
             }}
           >
             <SearchOutlined sx={{ fontSize: 18 }} aria-hidden />
@@ -478,8 +567,8 @@ export function Shell() {
                   setActiveHit((i) => Math.max(0, i - 1));
                 }
               }}
-              placeholder="Jump to a property, document, person…"
-              aria-label="Jump to a property, document, person"
+              placeholder="Search properties, documents, people…"
+              aria-label="Search properties, documents, people"
               role="combobox"
               aria-expanded={showResults}
               aria-controls="w360-jump-list"
@@ -490,7 +579,7 @@ export function Shell() {
                 ? `w360-hit-${activeHit}` : undefined}
               autoComplete="off"
             />
-            <kbd>⌘K</kbd>
+            <kbd>{SHORTCUT}</kbd>
           </form>
 
           {showResults && (
@@ -583,7 +672,7 @@ export function Shell() {
           <Menu
             label="Change theme"
             trigger={<ContrastOutlined sx={{ fontSize: 18 }} aria-hidden />}
-            items={theme.options.map((o) => {
+            items={[...theme.options.map((o) => {
               const Glyph = SCHEME_ICON[o.icon];
               return {
                 label: o.label,
@@ -591,7 +680,14 @@ export function Shell() {
                 icon: <Glyph sx={{ fontSize: 16 }} aria-hidden />,
                 onClick: () => theme.choose(o.id),
               };
-            })}
+            }),
+              { label: 'Centred page', selected: !fullWidth, rule: true,
+                icon: <WidthNormalOutlined sx={{ fontSize: 16 }} aria-hidden />,
+                onClick: () => setPageWidth('centred') },
+              { label: 'Full-width page', selected: fullWidth,
+                icon: <WidthFullOutlined sx={{ fontSize: 16 }} aria-hidden />,
+                onClick: () => setPageWidth('full') },
+            ]}
           />
           {/* Wired, not removed: AssistantPanel is a finished SSE chat drawer
               that the legacy shell has always opened, and it degrades to its
@@ -605,14 +701,14 @@ export function Shell() {
             <SmartToyOutlined sx={{ fontSize: 18 }} />
           </button>
           {/* Notifications, moved up from the rail's Account group. A link,
-              not a popup: /app/notifications is the whole list. The badge is
-              the same `waiting` count the rail carried — never `waiting + 1`,
-              a number nobody could explain — and it is folded into the
-              accessible name because the badge itself is aria-hidden. */}
+              not a popup: /notifications is the whole list. The badge is
+              `bell`: the rail's `waiting` count plus unread notifications,
+              so it can read higher than "Waiting on you". It is folded into
+              the accessible name because the badge itself is aria-hidden. */}
           <NavLink
-            to="/app/notifications"
+            to="/notifications"
             className="iconbtn notify-btn"
-            aria-label={bell ? `Notifications, ${bell} waiting` : 'Notifications'}
+            aria-label={bell ? `Notifications, ${bell} new` : 'Notifications'}
             title="Notifications"
           >
             <NotificationsNoneOutlined sx={{ fontSize: 18 }} aria-hidden />
@@ -650,13 +746,13 @@ export function Shell() {
             items={[
               { label: 'Profile',
                 icon: <PersonOutlined sx={{ fontSize: 16 }} />,
-                onClick: () => navigate('/app/profile') },
+                onClick: () => navigate('/profile') },
               // The DPDP screen — consent, export, deletion. It has been
-              // routed at /app/account all along and reachable from nowhere
+              // routed at /account all along and reachable from nowhere
               // inside this module.
               { label: 'Privacy & your data',
                 icon: <ShieldOutlined sx={{ fontSize: 16 }} />,
-                onClick: () => navigate('/app/account') },
+                onClick: () => navigate('/account') },
               // `signOut` clears whichever session is live and then assigns
               // the location, so the react-query cache and every screen's
               // state go with the page. Nothing to tear down by hand here.
@@ -691,26 +787,18 @@ export function Shell() {
               heading text is display:none at 4rem wide, the group's name is
               not. The visible label is aria-hidden so the same four words are
               not announced twice on the way into each group. */}
-          {sections.map((sec) => (
-            <div className={sec.foot ? 'navsec foot' : 'navsec'} key={sec.title}
-                 role="group" aria-label={sec.title}>
-              <p className="navsec-t" aria-hidden>{sec.title}</p>
-              {sec.items.map((it) => (
-                <RailLink key={it.to} it={it} railHidden={railHidden}
-                          onNavigate={() => setNavOpen(false)} />
-              ))}
-              {/* Only for one account, and only in the group that claims it.
-                  It is the operator's entry, and it is the only thing in this
-                  rail whose absence for everybody else is the whole point. */}
-              {sec.desk && portfolio.data?.isPlatformAdmin && (
-                <DeskRail railHidden={railHidden} onNavigate={() => setNavOpen(false)} />
-              )}
-            </div>
-          ))}
+          {/* The product groups scroll; Help & resources stays pinned at the
+              foot, always in reach. */}
+          <div className="navscroll">
+            {sections.filter((sec) => !sec.foot).map(navGroup)}
+          </div>
+          {sections.filter((sec) => sec.foot).map(navGroup)}
         </nav>
         <Outlet context={{ openAssistant: () => setAssistantOpen(true) } satisfies ShellContext} />
       </div>
-      <AssistantPanel open={assistantOpen} onClose={() => setAssistantOpen(false)} />
+      {/* AI cost, spend and model are for platform admins only (06/10/2026). */}
+      <AssistantPanel open={assistantOpen} onClose={() => setAssistantOpen(false)}
+                      showCosts={isPlatformAdmin(portfolio.data)} />
       </ToastHost>
     </div>
   );

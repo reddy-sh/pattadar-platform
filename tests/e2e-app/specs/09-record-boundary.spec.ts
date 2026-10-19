@@ -1,5 +1,5 @@
 /**
- * W04 · the record map — /app/records/:id/map.
+ * W04 · the record map — /properties/:id/location.
  *
  * The screen that claims to show real ground, so it is the screen that must
  * never invent any. Four questions run through every test below:
@@ -114,7 +114,7 @@ function parcelRecord(over: Record<string, unknown> = {}): Record<string, unknow
     boughtYear: '1998', lat: 15.7406698, lon: 79.2698502, ring: RING,
     mapCaption: 'Walked 12 Aug 2026 · 8 corners',
     paperCount: 12, featureCount: 14, peopleCount: 3, serviceCount: 2,
-    photoCount: 18, photoNote: 'Last visit 12 Aug 2026', tags: ['ancestral'],
+    photoCount: 18, mediaCount: 18, photoNote: 'Last visit 12 Aug 2026', tags: ['ancestral'],
     noteBody: '', noteAuthor: '', noteAt: '',
     ...over,
   };
@@ -135,13 +135,13 @@ async function clickMapAt(page: Page, fx: number, fy: number): Promise<void> {
 /** The map is behind a lazy import and Leaflet is 150 kB; nothing on this
  *  screen can be driven until it has mounted. */
 async function openMap(page: Page, id: string): Promise<void> {
-  await page.goto(`/app/records/${id}/map`);
+  await page.goto(`/properties/${id}/location`);
   await expect(page.locator('.leaflet-container')).toBeVisible({ timeout: 40_000 });
 }
 
 const marksCard = (page: Page) => page.locator('.card', { hasText: 'Boundary marks' });
 
-/** One of the map's own tools, in the panel headed "Changes the record".
+/** One of the map's own tools, in the panel headed "Changes this property's saved boundary".
  *  Scoped because the FMB sheet card in the rail now offers "Draw boundary"
  *  under the same name (it said "Draw it instead"), and it arms this tool. */
 const mapTool = (page: Page, name: string) =>
@@ -194,12 +194,16 @@ test('a surveyed record draws its ring and letters every corner of it', async ({
 test('the map names which land this is, before anyone has to click anything', async ({ page }) => {
   await openMap(page, ID.parcel);
 
-  await expect(page.locator('main > p.eyebrow')).toHaveText('Sy 214/2 · boundary');
-  await expect(page.getByRole('heading', { name: 'Map & boundary' })).toBeVisible();
-  await expect(page.locator('.pagehead .lede'))
-    .toHaveText('Katragunta, Markapur, Prakasam — Andhra Pradesh');
-  await expect(page.locator('.pagehead .note'))
-    .toHaveText('Khata 1042 · 4 acres 12 guntas · Telukutla Shankar Reddy');
+  // The map is the Location tab of the property's shared frame now: the
+  // property is the h1 and its place the header's meta row, the tab's own noun is
+  // the h2 (design.md § Property tabs), and the khata and holder ride on the
+  // section's line. The extent is the header's chip, told once.
+  await expect(page.getByRole('heading', { level: 1, name: 'Sy 214/2' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 2, name: 'Location & boundary' })).toBeVisible();
+  await expect(page.locator('.pagehead-meta'))
+    .toContainText('Katragunta, Markapur, Prakasam — Andhra Pradesh');
+  await expect(page.locator('header.sechead'))
+    .toContainText('Khata 1042 · Telukutla Shankar Reddy');
 });
 
 test('the caption says when the land was walked and which imagery it is drawn on', async ({ page }) => {
@@ -219,8 +223,8 @@ test('with nothing armed, the map says what its tools are for and which of them 
   await expect(page.locator('.mapsays .hint')).toHaveCount(0);
   // And the panel says out loud which of its three tools touch the record —
   // the header used to be seven buttons of three different kinds in one row.
-  await expect(page.locator('.maptools .tools .eyebrow')).toHaveText('Changes the record');
-  for (const tool of ['Add boundary mark', 'Move the pin', 'Redraw boundary']) {
+  await expect(page.locator('.maptools .tools .eyebrow')).toHaveText("Changes this property's saved boundary");
+  for (const tool of ['Add a boundary mark', 'Move the pin', 'Redraw boundary']) {
     await expect(page.getByRole('button', { name: tool, exact: true })).toHaveAttribute('aria-pressed', 'false');
   }
   await expect(page.locator('.editbar')).toHaveCount(0);
@@ -283,10 +287,10 @@ test('the filed sheet opens on the paper it actually is', async ({ page }) => {
 
   await expect(card).toContainText('Survey 214/2 · Katragunta');
   await expect(card.getByRole('link', { name: 'Open sheet' }))
-    .toHaveAttribute('href', `/app/papers/${PAPER.map}`);
+    .toHaveAttribute('href', `/papers/${PAPER.map}`);
 
   await card.getByRole('link', { name: 'Open sheet' }).click();
-  await expect(page).toHaveURL(new RegExp(`/app/papers/${PAPER.map}$`));
+  await expect(page).toHaveURL(new RegExp(`/papers/${PAPER.map}$`));
 });
 
 test('a sheet whose corners were never placed says why nothing is drawn', async ({ page, world }) => {
@@ -450,7 +454,7 @@ test('hovering a row in the table lights that side on the ground', async ({ page
   await expect(page.getByRole('dialog', { name: 'Side details' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'B → C' })).toHaveAttribute('aria-pressed', 'false');
 
-  await page.getByRole('heading', { name: 'Map & boundary' }).hover();
+  await page.getByRole('heading', { name: 'Location & boundary' }).hover();
   await expect(page.locator('.w-side-lit')).toHaveCount(0);
 });
 
@@ -495,11 +499,15 @@ test('a corner picked on the map answers about that corner and nothing else', as
 test.describe('in the light scheme', () => {
   test.use({ scheme: 'light' });
 
-  test('the boundary is drawn in the light scheme\'s own accent', async ({ page }) => {
+  test('the boundary is drawn in the high-contrast ground gold, whatever the scheme', async ({ page }) => {
     await openMap(page, ID.parcel);
-    // Leaflet's bare SVG path, by class, as above. Light's amber (#aa5910)
-    // is darkened so it reads on light paper and on imagery.
-    await expect(page.locator('path.w-ring')).toHaveCSS('stroke', 'rgb(170, 89, 16)');
+    // Since 13/10/2026 (Reddy): the outline sits on imagery, which looks the
+    // same in every scheme, so it takes the Dark palette's gold (#f5ae39) over
+    // a dark casing instead of the light scheme's darkened amber, which was
+    // lost on dark scrub and under the water-flow areas.
+    await expect(page.locator('path.w-ring')).toHaveCSS('stroke', 'rgb(245, 174, 57)');
+    await expect(page.locator('path.w-ring')).toHaveCSS('stroke-width', '3px');
+    await expect(page.locator('path.w-ring-casing')).toHaveCSS('stroke-width', '6px');
   });
 });
 
@@ -588,12 +596,15 @@ test('a traced outline within a few percent of the record is called close, not w
     .toContainText(/Within \d+\.\d% of the extent on record\./);
 });
 
-test('an outline a fifth off the record is worth a look rather than an alarm', async ({ page, world }) => {
+test('an outline a fifth off the record is stated, without an alarm', async ({ page, world }) => {
   world.set('record', () => parcelRecord({ extent: 2 }));
   await openMap(page, ID.parcel);
 
-  await expect(page.locator('.card', { hasText: 'Measurements' })).toContainText(
-    /\d+\.\d% larger than the extent on record\. A traced outline drifts by a few percent, so this is worth a look rather than an alarm\./);
+  // A drift a traced outline can explain is said as a figure and nothing more
+  // (BoundaryMeasurementsCard); only a gap no tracing explains adds an ask.
+  const card = page.locator('.card', { hasText: 'Measurements' });
+  await expect(card).toContainText(/\d+\.\d% larger than the extent on record\./);
+  await expect(card).not.toContainText('Check the outline.');
 });
 
 test('an outline nowhere near the recorded extent is called a mistake', async ({ page, world }) => {
@@ -601,7 +612,7 @@ test('an outline nowhere near the recorded extent is called a mistake', async ({
   await openMap(page, ID.parcel);
 
   await expect(page.locator('.card', { hasText: 'Measurements' })).toContainText(
-    /\d+% smaller than the extent on record\. That is far too big a gap to be tracing error — either this outline is not the parcel, or the recorded extent is wrong\./);
+    /\d+% smaller than the extent on record\. Check the outline\./);
 });
 
 // ── the basemap ────────────────────────────────────────────────────────
@@ -835,9 +846,9 @@ test('one stone being deleted does not make every other stone say it is being de
 test('a mark is never filed without a name', async ({ page }) => {
   await openMap(page, ID.parcel);
 
-  await page.getByRole('button', { name: 'Add boundary mark', exact: true }).click();
+  await page.getByRole('button', { name: 'Add a boundary mark', exact: true }).click();
   await expect(page.locator('.mapsays .hint')).toHaveText(
-    'Click where the stone is.');
+    'Choose where the stone is.');
   await clickMapAt(page, 0.45, 0.45);
 
   const form = marksCard(page).locator('.marknote');
@@ -852,7 +863,7 @@ test('a mark is never filed without a name', async ({ page }) => {
 test('adding a mark files the name and the note at the point that was clicked', async ({ page, world }) => {
   await openMap(page, ID.parcel);
 
-  await page.getByRole('button', { name: 'Add boundary mark', exact: true }).click();
+  await page.getByRole('button', { name: 'Add a boundary mark', exact: true }).click();
   await clickMapAt(page, 0.45, 0.45);
 
   const form = marksCard(page).locator('.marknote');
@@ -876,7 +887,7 @@ test('adding a mark files the name and the note at the point that was clicked', 
 test('the name field files the mark on Enter, without reaching for the button', async ({ page, world }) => {
   await openMap(page, ID.parcel);
 
-  await page.getByRole('button', { name: 'Add boundary mark', exact: true }).click();
+  await page.getByRole('button', { name: 'Add a boundary mark', exact: true }).click();
   await clickMapAt(page, 0.45, 0.45);
 
   const form = marksCard(page).locator('.marknote');
@@ -894,12 +905,12 @@ test('an unanswered naming form holds the map, and Cancel gives it back', async 
   // them here is how a mark gets placed while a different one is being named.
   await openMap(page, ID.parcel);
 
-  await page.getByRole('button', { name: 'Add boundary mark', exact: true }).click();
+  await page.getByRole('button', { name: 'Add a boundary mark', exact: true }).click();
   await clickMapAt(page, 0.45, 0.45);
   const form = marksCard(page).locator('.marknote');
   await expect(form).toBeVisible();
 
-  for (const tool of ['Add boundary mark', 'Move the pin', 'Redraw boundary']) {
+  for (const tool of ['Add a boundary mark', 'Move the pin', 'Redraw boundary']) {
     await expect(page.getByRole('button', { name: tool, exact: true })).toBeDisabled();
   }
 
@@ -907,7 +918,7 @@ test('an unanswered naming form holds the map, and Cancel gives it back', async 
 
   await expect(form).toHaveCount(0);
   expect(world.calls('addMark')).toHaveLength(0);
-  for (const tool of ['Add boundary mark', 'Move the pin', 'Redraw boundary']) {
+  for (const tool of ['Add a boundary mark', 'Move the pin', 'Redraw boundary']) {
     await expect(page.getByRole('button', { name: tool, exact: true })).toBeEnabled();
   }
 });
@@ -916,13 +927,13 @@ test('a mark the server will not file says so and keeps the form open', async ({
   world.set('addMark', '');            // the resolver's own "refused"
   await openMap(page, ID.parcel);
 
-  await page.getByRole('button', { name: 'Add boundary mark', exact: true }).click();
+  await page.getByRole('button', { name: 'Add a boundary mark', exact: true }).click();
   await clickMapAt(page, 0.45, 0.45);
   const form = marksCard(page).locator('.marknote');
   await form.locator('input').first().fill('South-west stone');
   await form.getByRole('button', { name: 'Add this mark' }).click();
 
-  await expect(mapError(page)).toHaveText('That mark could not be saved to this record.');
+  await expect(mapError(page)).toHaveText('That mark could not be saved to this property.');
   await expect(form).toBeVisible();
   await expect(form.locator('input').first()).toHaveValue('South-west stone');
 });
@@ -954,7 +965,7 @@ test('moving a mark can be cancelled, and nothing is written', async ({ page, wo
   await page.getByRole('menuitem', { name: 'Move this mark', exact: true }).click();
 
   await expect(page.locator('.mapsays .hint')).toHaveText(
-    'Click the corrected location for North-east stone. Its previous position is kept.');
+    'Choose the corrected location for North-east stone.');
 
   await page.locator('.editbar').getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page.locator('.editbar')).toHaveCount(0);
@@ -1050,8 +1061,7 @@ test('stones nowhere near the boundary are called out, with the distance', async
   await openMap(page, ID.parcel);
 
   const card = marksCard(page);
-  await expect(card).toContainText('None of these 3 stones is near the boundary. Nearest:');
-  await expect(card).toContainText(/\d[\d,.]* km away/);
+  await expect(card).toContainText(/None of these 3 stones is near the boundary\. Nearest: \d[\d,.]* km\./);
 });
 
 test('one stray stone among three is counted as one, not as all of them', async ({ page, world }) => {
@@ -1060,16 +1070,16 @@ test('one stray stone among three is counted as one, not as all of them', async 
   world.set('boundary', boundary({ marks: mixed }));
   await openMap(page, ID.parcel);
 
-  await expect(marksCard(page)).toContainText('1 of these 3 stones is not near the boundary');
+  await expect(marksCard(page)).toContainText('1 of 3 stones is not near the boundary');
 });
 
-test("a mark's menu opens the record's own gallery, and says that is what it is", async ({ page }) => {
+test("a mark's menu opens the property's own gallery, and says that is what it is", async ({ page }) => {
   await openMap(page, ID.parcel);
 
   await marksCard(page).getByRole('button', { name: 'Actions for North-east stone' }).click();
-  await page.getByRole('menuitem', { name: "Open the record's photos" }).click();
+  await page.getByRole('menuitem', { name: "Open this property's photos" }).click();
 
-  await expect(page).toHaveURL(new RegExp(`/app/records/${ID.parcel}/photos$`));
+  await expect(page).toHaveURL(new RegExp(`/properties/${ID.parcel}/media$`));
 });
 
 // ── the pin ────────────────────────────────────────────────────────────
@@ -1106,14 +1116,14 @@ test('Move the pin arms the map, a click places a draft, and Save pin writes it'
   await expect(page.getByRole('button', { name: 'Placing the pin — or cancel' })).toBeVisible();
   await expect(page.locator('.plot .map.picking')).toBeVisible();
   const hint = page.locator('.mapsays .hint');
-  await expect(hint).toHaveText('Click where the land is.');
+  await expect(hint).toHaveText('Choose where the land is.');
   const save = page.getByRole('button', { name: 'Save pin' });
   await expect(save).toBeDisabled();
 
   await clickMapAt(page, 0.5, 0.45);
 
   // A draft, not a write: nothing has gone to the server yet.
-  await expect(hint).toHaveText('Pin placed. Save it, or click again to move it.');
+  await expect(hint).toHaveText('Pin placed. Save it, or choose again to move it.');
   await expect(save).toBeEnabled();
   expect(world.calls('setPin')).toHaveLength(0);
 
@@ -1128,7 +1138,7 @@ test('a placed pin that is cancelled writes nothing', async ({ page, world }) =>
   await openMap(page, ID.parcel);
   await page.getByRole('button', { name: 'Move the pin' }).click();
   await clickMapAt(page, 0.5, 0.45);
-  await expect(page.locator('.mapsays .hint')).toHaveText('Pin placed. Save it, or click again to move it.');
+  await expect(page.locator('.mapsays .hint')).toHaveText('Pin placed. Save it, or choose again to move it.');
 
   await page.getByRole('button', { name: 'Placing the pin — or cancel' }).click();
 
@@ -1208,7 +1218,7 @@ test('the phone standing on the land can set the pin itself', async ({ page, wor
   // the sealed world has no village map for Katragunta (/vm/ is routed, not
   // trusted to the dev server's build).
   await expect(page.locator('.mapsays .hint')).toHaveText(
-    'There is no village map for Katragunta, so the survey could not be found. You can still save the pin where you are.');
+    'There is no cadastral map for Katragunta, so the survey number could not be found. You can still save the pin where you are.');
   expect(world.calls('setPin')).toHaveLength(0);
   await page.getByRole('button', { name: 'Save pin' }).click();
 
@@ -1258,7 +1268,7 @@ test('an empty record offers the phone, finds its survey, and writes nothing unt
   await page.locator('.mapsays').getByRole('button', { name: 'Use my current location' }).click();
 
   await expect(page.locator('.mapsays .hint')).toHaveText(
-    "You're in Sy 214, Katragunta (±6 m). Save the pin here, or click the map to move it.");
+    'You are in Sy 214, Katragunta (±6 m). Save the pin here, or choose a point on the map to move it.');
   await expect(page.locator('path.w-here')).toHaveCount(1);
   await expect(page.locator('path.w-here-plot')).toHaveCount(1);
   // The dot names itself — a permanent label, since the dot is not interactive.
@@ -1281,7 +1291,7 @@ test('an empty record offers the phone, finds its survey, and writes nothing unt
 
   // The survey is offered, not taken: the plot card, and nothing written yet.
   const card = page.locator('.plotpick');
-  await expect(card).toContainText('Plot 214');
+  await expect(card).toContainText('Parcel 214');
   expect(world.calls('setBoundary')).toHaveLength(0);
   await card.getByRole('button', { name: 'This is my land' }).click();
   await expect.poll(() => world.calls('setBoundary').length).toBe(1);
@@ -1296,7 +1306,7 @@ test('a phone outside every plot says so, and the pin can still be saved', async
 
   await page.locator('.mapsays').getByRole('button', { name: 'Use my current location' }).click();
   await expect(page.locator('.mapsays .hint')).toHaveText(
-    'Your location is not inside any plot on the Katragunta village map. You can still save the pin where you are.');
+    'Your location is not inside any parcel on the Katragunta cadastral map. You can still save the pin where you are.');
 
   await page.getByRole('button', { name: 'Save pin' }).click();
   await expect.poll(() => world.calls('setPin').length).toBe(1);
@@ -1313,7 +1323,7 @@ test('with no village map the survey is not guessed', async ({ page, world }) =>
 
   await page.locator('.mapsays').getByRole('button', { name: 'Use my current location' }).click();
   await expect(page.locator('.mapsays .hint')).toHaveText(
-    'There is no village map for Katragunta, so the survey could not be found. You can still save the pin where you are.');
+    'There is no cadastral map for Katragunta, so the survey number could not be found. You can still save the pin where you are.');
   expect(world.calls('setPin')).toHaveLength(0);
 });
 
@@ -1329,7 +1339,7 @@ test('Redraw opens on the corners already saved, and Clear empties the draft', a
   // — 2.36 ac to two decimals, 2 acres 14 guntas rounded to whole guntas.
   await expect(bar.locator('.num')).toHaveText('4 corners · 2.36 ac · 392 m around');
   await expect(page.locator('.mapsays .hint')).toHaveText(
-    'Click each corner in order.');
+    'Choose each corner in order.');
 
   await bar.getByRole('button', { name: 'Undo corner' }).click();
   await expect(bar).toContainText('3 corners');
@@ -1458,7 +1468,7 @@ test('a boundary the server refuses says so and keeps the draft on screen', asyn
   }
   await page.locator('.editbar').getByRole('button', { name: 'Save boundary' }).click();
 
-  await expect(mapError(page)).toHaveText('That boundary could not be saved to this record.');
+  await expect(mapError(page)).toHaveText('That boundary could not be saved to this property.');
   await expect(page.locator('.editbar')).toContainText('3 corners');
 });
 
@@ -1520,12 +1530,12 @@ test('confirming the removal sends an empty ring for this record, once', async (
  *  here the way the app builds it — the same two params, the same encoding —
  *  so a change to either half surfaces as a failure rather than as a test that
  *  only agrees with itself. */
-const orderStep = (id: string) => `/app/records/${id}/order?service=survey&step=pick`;
+const orderStep = (id: string) => `/order?for=${id}&service=survey&step=review`;
 const handOff = (id: string) => `draw=1&back=${encodeURIComponent(orderStep(id))}`;
 
 /** openMap, with the order's params on the URL. */
 async function openMapWith(page: Page, id: string, query: string): Promise<void> {
-  await page.goto(`/app/records/${id}/map?${query}`);
+  await page.goto(`/properties/${id}/location?${query}`);
   await expect(page.locator('.leaflet-container')).toBeVisible({ timeout: 40_000 });
 }
 
@@ -1544,7 +1554,7 @@ test('an order that needs corners arms the drawing tool on the corners already o
   // a blank draft and asked to trace it again from scratch.
   await expect(page.locator('.editbar .num')).toHaveText('4 corners · 2.36 ac · 392 m around');
   await expect(page.locator('.mapsays .hint')).toHaveText(
-    'Click each corner in order.');
+    'Choose each corner in order.');
   // Arriving armed is not the same as arriving and writing.
   expect(world.calls('setBoundary')).toHaveLength(0);
 });
@@ -1589,6 +1599,9 @@ test('a corner taken off the draft is not put back when the record is read again
   // forces — the map itself has nothing to press mid-draft that reads again.
   await marksCard(page).getByRole('button', { name: 'Actions for South-east stone' }).click();
   await page.getByRole('menuitem', { name: 'Delete this mark' }).click();
+  // Removing asks first, in the shared confirmation (design.md § Property tabs).
+  await page.getByRole('dialog', { name: 'Delete South-east stone?' })
+    .getByRole('button', { name: 'Delete', exact: true }).click();
   await expect(marksCard(page).getByRole('button', { name: /^Actions for / })).toHaveCount(2);
   await expect.poll(() => world.calls('boundary').length).toBeGreaterThan(1);
 
@@ -1619,13 +1632,11 @@ test('a boundary drawn for an order hands the owner back to the order they left'
   // Back to the step the order was left on, not to the record's front page and
   // not to a fresh order.
   await expect(page).toHaveURL(
-    new RegExp(`/app/records/${ID.plot}/order\\?service=survey&step=pick$`));
-  await expect(page.getByRole('heading', { name: 'What do you want done on this land?' }))
-    .toBeVisible();
-  // …with the service still chosen, so the errand cost the owner nothing but
-  // the drawing they came to do.
-  await expect(page.getByRole('button', { name: /Boundary re-survey/ }))
-    .toHaveAttribute('aria-pressed', 'true');
+    new RegExp(`/order\\?for=${ID.plot}&service=survey&step=review$`));
+  // …with the land and the service still chosen, so the errand cost the owner
+  // nothing but the drawing they came to do.
+  await expect(page.getByRole('heading', { name: 'Review and place' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Boundary re-survey' })).toBeVisible();
 });
 
 test('withdrawing a boundary keeps the owner on the map, not back in an order with nothing to send', async ({ page, world }) => {
@@ -1655,7 +1666,7 @@ test('withdrawing a boundary keeps the owner on the map, not back in an order wi
   // success path the navigation would have run in, immediately before it.
   await expect(bar).toHaveCount(0);
 
-  await expect(page).toHaveURL(new RegExp(`/app/records/${ID.parcel}/map\\?draw=1&back=`));
+  await expect(page).toHaveURL(new RegExp(`/properties/${ID.parcel}/location\\?draw=1&back=`));
   await expect(page.getByRole('heading', { level: 2, name: 'Location & boundary', exact: true })).toBeVisible();
 });
 
@@ -1665,23 +1676,23 @@ test('a back= pointing off this app is ignored rather than followed', async ({ p
   // this app mid-order and onto whatever host the link named — which is free
   // to dress as this one and ask them to sign in again.
   await openMapWith(page, ID.parcel,
-    `draw=1&back=${encodeURIComponent('https://evil.example.com/app/records/x/order')}`);
+    `draw=1&back=${encodeURIComponent('https://evil.example.com/app/order')}`);
   await page.locator('.editbar').getByRole('button', { name: 'Save boundary' }).click();
 
   await expect.poll(() => world.calls('setBoundary').length).toBe(1);
   await expect(page.locator('.editbar')).toHaveCount(0);
-  await expect(page).toHaveURL(new RegExp(`/app/records/${ID.parcel}/map\\?draw=1`));
+  await expect(page).toHaveURL(new RegExp(`/properties/${ID.parcel}/location\\?draw=1`));
 
   // And again protocol-relative, which is the shape that gets past a guard
   // written as "does it start with a slash" — //host/path is a different
   // origin, not a path on this one.
   await openMapWith(page, ID.parcel,
-    `draw=1&back=${encodeURIComponent('//evil.example.com/app/records/x/order')}`);
+    `draw=1&back=${encodeURIComponent('//evil.example.com/app/order')}`);
   await page.locator('.editbar').getByRole('button', { name: 'Save boundary' }).click();
 
   await expect.poll(() => world.calls('setBoundary').length).toBe(2);
   await expect(page.locator('.editbar')).toHaveCount(0);
-  await expect(page).toHaveURL(new RegExp(`/app/records/${ID.parcel}/map\\?draw=1`));
+  await expect(page).toHaveURL(new RegExp(`/properties/${ID.parcel}/location\\?draw=1`));
 });
 
 // ── a file the owner already has ───────────────────────────────────────
@@ -1704,13 +1715,15 @@ test('a GeoJSON the owner already has previews before it becomes the boundary', 
   await openMap(page, ID.plot);
 
   const chooser = page.waitForEvent('filechooser');
-  await page.locator('.pagehead').getByRole('button', { name: 'Import KML / GeoJSON' }).click();
+  // In the head's More menu since 13/10/2026 (Reddy).
+  await page.locator('header.sechead').getByRole('button', { name: 'More actions for Location & boundary' }).click();
+  await page.getByRole('menuitem', { name: 'Add boundary from a map file (KML or GeoJSON)' }).click();
   await (await chooser).setFiles({
     name: 'corners.geojson', mimeType: 'application/geo+json', buffer: Buffer.from(GEOJSON),
   });
 
   await expect(page.locator('.mapsays .hint')).toHaveText(
-    'Previewing corners.geojson. Check the outline, then save it to this record.');
+    'Previewing corners.geojson.');
   await expect(page.locator('.editbar')).toContainText('4 corners');
   // Nothing is written by looking at it.
   expect(world.calls('setBoundary')).toHaveLength(0);
@@ -1738,7 +1751,9 @@ test('the KML a surveyor sent becomes the boundary, corner for corner', async ({
   await openMap(page, ID.plot);
 
   const chooser = page.waitForEvent('filechooser');
-  await page.locator('.pagehead').getByRole('button', { name: 'Import KML / GeoJSON' }).click();
+  // In the head's More menu since 13/10/2026 (Reddy).
+  await page.locator('header.sechead').getByRole('button', { name: 'More actions for Location & boundary' }).click();
+  await page.getByRole('menuitem', { name: 'Add boundary from a map file (KML or GeoJSON)' }).click();
   await (await chooser).setFiles({
     name: 'sy-88.kml',
     mimeType: 'application/vnd.google-earth.kml+xml',
@@ -1746,7 +1761,7 @@ test('the KML a surveyor sent becomes the boundary, corner for corner', async ({
   });
 
   await expect(page.locator('.mapsays .hint')).toHaveText(
-    'Previewing sy-88.kml. Check the outline, then save it to this record.');
+    'Previewing sy-88.kml.');
   await expect(page.locator('.editbar')).toContainText('4 corners');
   await expect(page.locator('path.w-draft-dot')).toHaveCount(4);
   expect(world.calls('setBoundary')).toHaveLength(0);
@@ -1763,7 +1778,9 @@ test('a file with fewer than three corners is refused with the reason', async ({
   await openMap(page, ID.plot);
 
   const chooser = page.waitForEvent('filechooser');
-  await page.locator('.pagehead').getByRole('button', { name: 'Import KML / GeoJSON' }).click();
+  // In the head's More menu since 13/10/2026 (Reddy).
+  await page.locator('header.sechead').getByRole('button', { name: 'More actions for Location & boundary' }).click();
+  await page.getByRole('menuitem', { name: 'Add boundary from a map file (KML or GeoJSON)' }).click();
   await (await chooser).setFiles({
     name: 'two.geojson',
     mimeType: 'application/geo+json',
@@ -1786,14 +1803,15 @@ test('the filed sheet can be replaced by a better one, from the card that names 
   const card = page.locator('.card', { hasText: 'FMB sketch' });
 
   const chooser = page.waitForEvent('filechooser');
-  await card.getByRole('button', { name: 'Import replacement boundary' }).click();
+  // One name for one action wherever it appears (RecordBoundary.tsx).
+  await card.getByRole('button', { name: 'Add boundary from a map file (KML or GeoJSON)' }).click();
   await (await chooser).setFiles({
     name: 'resurvey.geojson', mimeType: 'application/geo+json', buffer: Buffer.from(GEOJSON),
   });
 
   const bar = page.locator('.editbar');
   await expect(page.locator('.mapsays .hint')).toHaveText(
-    'Previewing resurvey.geojson. Check the outline, then save it to this record.');
+    'Previewing resurvey.geojson.');
   await expect(bar).toContainText('4 corners');
   // The ring on file is still the ring on file until the preview is saved.
   expect(world.calls('setBoundary')).toHaveLength(0);
@@ -1809,7 +1827,9 @@ test('a file that is not a boundary at all is refused with the reason', async ({
   await openMap(page, ID.plot);
 
   const chooser = page.waitForEvent('filechooser');
-  await page.locator('.pagehead').getByRole('button', { name: 'Import KML / GeoJSON' }).click();
+  // In the head's More menu since 13/10/2026 (Reddy).
+  await page.locator('header.sechead').getByRole('button', { name: 'More actions for Location & boundary' }).click();
+  await page.getByRole('menuitem', { name: 'Add boundary from a map file (KML or GeoJSON)' }).click();
   await (await chooser).setFiles({
     name: 'notes.json', mimeType: 'application/json', buffer: Buffer.from('{"hello":"world"}'),
   });
@@ -1837,15 +1857,15 @@ test('an unsurveyed record offers to have its corners established', async ({ pag
   // Into the order flow, not the old free-text /request form: a survey asked
   // for from the map is the same catalogue order as one placed from
   // Properties, priced and made idempotent the same way, and it arrives on the
-  // step that chooses a service with the service already chosen. `why=boundary`
+  // services step with this property and the survey already chosen. `why=boundary`
   // is the one thing this route knows that the flow does not — it writes onto
   // the order that the owner was looking at their own land when they asked.
   await expect(page.getByRole('link', { name: 'Order a survey' })).toHaveAttribute(
-    'href', `/app/records/${ID.plot}/order?service=survey&step=pick&why=boundary`);
+    'href', `/order?for=${ID.plot}&step=services&service=survey&why=boundary`);
 
   const sheet = page.locator('.card', { hasText: 'FMB sheet' });
-  await expect(sheet).toContainText('No FMB or survey sheet filed yet.');
-  await expect(sheet.getByRole('button', { name: 'Import KML / GeoJSON' })).toBeVisible();
+  await expect(sheet).toContainText('No FMB sheet filed yet.');
+  await expect(sheet.getByRole('button', { name: 'Add boundary from a map file (KML or GeoJSON)' })).toBeVisible();
   // The map tool's own name, so one action has one name on the screen (it
   // said "Draw it instead").
   await expect(sheet.getByRole('button', { name: 'Draw boundary', exact: true })).toBeVisible();
@@ -1880,7 +1900,7 @@ test('a record with a pin and no survey says the pin is all it has', async ({ pa
   // record that carries neither, and the two used to be the same one.
   await openMap(page, ID.shop);
 
-  await expect(page.locator('.plot p.nogeo')).toHaveText('No surveyed boundary on this record.');
+  await expect(page.locator('.plot p.nogeo')).toHaveText('No boundary saved on this property.');
   await expect(page.locator('path.w-ring')).toHaveCount(0);
   // And the pin it is talking about is actually drawn, named for the record it
   // belongs to. Saying "the pin is where it was filed from" over an empty map
@@ -1901,9 +1921,12 @@ test('a pin filed in another district is called out by distance, once', async ({
   }));
   await openMap(page, ID.shop);
 
+  // Markapur has a village map, so the pin is judged against the village's
+  // own surveyed shape (MapCanvas.tsx's village-shape branch), not against a
+  // geocoder's guess — and named by the village it is filed in.
   const note = page.locator('.plot p.nogeo');
   await expect(note).toHaveText(
-    /^This location is \d[\d,]* km from Markapur, Markapuram\. Phones report where you are standing, not where the land is\.$/);
+    /^This location is \d[\d,]* km from Markapur\. Phones report where you are standing, not where the land is\.$/);
   // Once. The map has its own sentence for a pin it cannot believe, and the
   // two of them printed together used to contradict each other.
   await expect(note).toHaveCount(1);
@@ -1919,7 +1942,7 @@ test('a record nowhere on the map says it has no location at all', async ({ page
   await openMap(page, ID.plot);
 
   await expect(page.locator('.plot p.nogeo')).toHaveText(
-    'This record has no location yet.');
+    'This property has no location yet.');
   await expect(page.locator('path.w-ring')).toHaveCount(0);
   await expect(page.locator('path.w-mark')).toHaveCount(0);
   // The two ways out of that state are still on the screen.
@@ -1931,7 +1954,7 @@ test('an archived record still opens its map, and says it is archived', async ({
   await openMap(page, ID.shop);
 
   await expect(page.locator('.pagehead').getByText('Archived')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Map & boundary' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Location & boundary' })).toBeVisible();
 });
 
 test('a record whose only location is its stones draws them and joins nothing', async ({ page, world }) => {
@@ -1942,7 +1965,7 @@ test('a record whose only location is its stones draws them and joins nothing', 
   }));
   await openMap(page, ID.plot);
 
-  await expect(page.locator('.plot p.nogeo')).toHaveText('No surveyed boundary on this record.');
+  await expect(page.locator('.plot p.nogeo')).toHaveText('No boundary saved on this property.');
   await expect(page.locator('path.w-ring')).toHaveCount(0);
   await expect(marksCard(page)).toContainText('North-east stone');
   // Drawn, and numbered to match the list — the sentence above is about stones
@@ -1957,13 +1980,13 @@ test('a record whose only location is its stones draws them and joins nothing', 
 test('a village with no shape file on the wall says so and changes nothing', async ({ page, world }) => {
   await openMap(page, ID.parcel);
 
-  await page.getByRole('button', { name: 'Village map' }).click();
+  await page.getByRole('button', { name: 'Cadastral map' }).click();
 
-  await expect(page.locator('.vmnote')).toHaveText('No village map on file for Katragunta');
+  await expect(page.locator('.vmnote')).toHaveText('No cadastral map on file for Katragunta');
   // It opens on the record's own survey number, because that is the one
   // question an owner turning this on is asking.
   await expect(page.locator('#w360-plotfind')).toHaveValue('214');
-  await expect(page.locator('.plotfind')).toContainText('No plot 214 in this village map.');
+  await expect(page.locator('.plotfind')).toContainText('No parcel 214 on this cadastral map.');
   // Nothing was written, and the record's own ring is untouched.
   expect(world.calls('setBoundary')).toHaveLength(0);
   await expect(page.locator('path.w-ring')).toHaveCount(1);
@@ -1973,7 +1996,7 @@ test('the village map is not offered while the record is being edited', async ({
   await openMap(page, ID.parcel);
 
   await page.getByRole('button', { name: 'Redraw boundary' }).click();
-  await expect(page.getByRole('button', { name: 'Village map' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Cadastral map' })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Measure', exact: true })).toBeDisabled();
   // And the measurements go with them: they are of the SAVED outline, and
   // leaving them beside a draft that is being moved about states them of a
@@ -1985,7 +2008,7 @@ test('the village map is not offered while the record is being edited', async ({
 test('the whole-parcel hand-off is Google Maps directions to the middle of the land', async ({ page }) => {
   await openMap(page, ID.parcel);
 
-  await page.getByRole('button', { name: 'More for this map' }).click();
+  await page.getByRole('button', { name: 'More actions for Location & boundary' }).click();
   // The same link on every device: Google Maps directions, like the corner and
   // side tips. The old user-agent-sniffed "Open in Apple Maps / OpenStreetMap"
   // item is gone (Reddy, 03/10/2026).
@@ -2004,14 +2027,14 @@ test('the whole-parcel hand-off is Google Maps directions to the middle of the l
 
 test('GeoJSON is offered for export only where there is a boundary to export', async ({ page }) => {
   await openMap(page, ID.parcel);
-  await page.getByRole('button', { name: 'More for this map' }).click();
-  await expect(page.getByRole('menuitem', { name: 'Export GeoJSON' })).toBeVisible();
+  await page.getByRole('button', { name: 'More actions for Location & boundary' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Download boundary (map file, GeoJSON)' })).toBeVisible();
   await expect(page.getByRole('menuitem', { name: 'Print this map' })).toBeVisible();
   await page.keyboard.press('Escape');
 
   await openMap(page, ID.plot);
-  await page.getByRole('button', { name: 'More for this map' }).click();
-  await expect(page.getByRole('menuitem', { name: 'Export GeoJSON' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'More actions for Location & boundary' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Download boundary (map file, GeoJSON)' })).toHaveCount(0);
   // Nor a hand-off: this record has no ring and no pin, so there is no point
   // to drop in any maps app (the away memo in RecordBoundary.tsx). A hand-off
   // that lands on 0,0 puts an Andhra parcel in the Gulf of Guinea.
@@ -2024,9 +2047,9 @@ test('GeoJSON is offered for export only where there is a boundary to export', a
 
 test('the screen holds its shape while the boundary is still being read', async ({ page, world }) => {
   world.set('boundary', World.never());
-  await page.goto(`/app/records/${ID.parcel}/map`);
+  await page.goto(`/properties/${ID.parcel}/location`);
 
-  await expect(page.getByRole('status').filter({ hasText: 'Loading this boundary…' }))
+  await expect(page.getByRole('status', { name: 'Loading this boundary' }))
     .toBeVisible();
   // Still loading is not the same as nothing there, and must never say so.
   await expect(page.getByText('never been surveyed')).toHaveCount(0);
@@ -2035,9 +2058,9 @@ test('the screen holds its shape while the boundary is still being read', async 
 
 test('a slow boundary arrives, and the map is drawn when it does', async ({ page, world }) => {
   world.set('boundary', World.slow(1200, boundary()));
-  await page.goto(`/app/records/${ID.parcel}/map`);
+  await page.goto(`/properties/${ID.parcel}/location`);
 
-  await expect(page.getByRole('status').filter({ hasText: 'Loading this boundary…' }))
+  await expect(page.getByRole('status', { name: 'Loading this boundary' }))
     .toBeVisible();
   await expect(page.locator('path.w-ring')).toHaveCount(1, { timeout: 20_000 });
   await expect(page.locator('.plot .cap')).toContainText('8 corners walked 12 Aug 2026');
@@ -2045,7 +2068,7 @@ test('a slow boundary arrives, and the map is drawn when it does', async ({ page
 
 test('a boundary the server refused says so, with the reason, and offers to try again', async ({ page, world }) => {
   world.set('boundary', World.gqlError('the boundary store is down'));
-  await page.goto(`/app/records/${ID.parcel}/map`);
+  await page.goto(`/properties/${ID.parcel}/location`);
 
   const failed = page.getByRole('alert');
   await expect(failed).toContainText('This boundary did not load');
@@ -2061,7 +2084,7 @@ test.describe('when the transport itself drops the read', () => {
 
   test('a boundary the transport dropped says so too', async ({ page, world }) => {
     world.set('boundary', World.httpError(503));
-    await page.goto(`/app/records/${ID.parcel}/map`);
+    await page.goto(`/properties/${ID.parcel}/location`);
 
     await expect(page.getByRole('alert')).toContainText('This boundary did not load');
   });
@@ -2069,22 +2092,22 @@ test.describe('when the transport itself drops the read', () => {
 
 test('a record with no boundary row at all is a failure, not a blank map', async ({ page, world }) => {
   world.set('boundary', null);
-  await page.goto(`/app/records/${ID.parcel}/map`);
+  await page.goto(`/properties/${ID.parcel}/location`);
 
   await expect(page.getByRole('alert')).toContainText('This boundary did not load');
   await expect(page.locator('.leaflet-container')).toHaveCount(0);
 });
 
 test('a record that is not in the portfolio never reaches the map at all', async ({ page, world }) => {
-  await page.goto(`/app/records/${ID.missing}/map`);
+  await page.goto(`/properties/${ID.missing}/location`);
 
-  await expect(page.getByRole('heading', { name: "This property isn't in your account" })).toBeVisible();
+  await expect(page.getByRole('heading', { name: "This property is not in your account" })).toBeVisible();
   expect(world.asked('boundary'), 'no record, no boundary read').toBe(false);
 });
 
 test('a record read that failed never pretends the boundary is missing', async ({ page, world }) => {
   world.set('record', World.gqlError('the record store is down'));
-  await page.goto(`/app/records/${ID.parcel}/map`);
+  await page.goto(`/properties/${ID.parcel}/location`);
 
   const failed = page.getByRole('alert');
   await expect(failed).toContainText('This property did not load');
@@ -2102,14 +2125,14 @@ test('@phone the map, its tools and the mark list all fit a phone', async ({ pag
   // On a phone the tools that change the record fold behind one button, so
   // three rows of them do not take the top of a 390px map; above 640px that
   // button is not drawn and the tools stand open (`.tools-toggle`).
-  const toggle = page.getByRole('button', { name: 'Changes the record' });
+  const toggle = page.getByRole('button', { name: "Changes this property's saved boundary" });
   if (await toggle.isVisible()) {
     await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    await expect(page.getByRole('button', { name: 'Add boundary mark', exact: true })).toBeHidden();
+    await expect(page.getByRole('button', { name: 'Add a boundary mark', exact: true })).toBeHidden();
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
   }
-  await expect(page.getByRole('button', { name: 'Add boundary mark', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add a boundary mark', exact: true })).toBeVisible();
   await expect(marksCard(page)).toContainText('North-east stone');
 
   const overflow = await page.evaluate(() =>

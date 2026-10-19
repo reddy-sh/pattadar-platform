@@ -68,11 +68,12 @@ async def run():
         assert (hints["readOnlyHint"], hints["destructiveHint"], hints["idempotentHint"], hints["openWorldHint"]) == (True, False, True, False)
 
     allowed = AssistantAgent._qualified_tool_names()
-    assert len(allowed) == 13
+    assert len(allowed) == 15
+    assert len(AssistantAgent._qualified_tool_names(incognito=True)) == 13
     assert {name.rsplit("__", 1)[-1] for name in allowed if "pattadar_records" in name} == set(PUBLIC_RECORD_TOOL_NAMES)
-    action_json = json.dumps({"action": "navigate", "path": "/app"})
+    action_json = json.dumps({"action": "navigate", "path": "/home"})
     assert AssistantAgent._action_event(action_json, "mcp__pattadar_records__get_record_by_rid") is None
-    assert AssistantAgent._action_event(action_json, "mcp__pattadar_ui__navigate_user") == {"type": "action", "action": "navigate", "path": "/app"}
+    assert AssistantAgent._action_event(action_json, "mcp__pattadar_ui__navigate_user") == {"type": "action", "action": "navigate", "path": "/home"}
 
     agent = AssistantAgent(AssistantConfig())
     options = agent._options("claude-sonnet-4-6", [])

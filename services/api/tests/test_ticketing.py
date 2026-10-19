@@ -81,11 +81,11 @@ def test_a_worker_cannot_accept_cancel_or_send_back():
 
 
 def test_the_desk_cannot_take_the_decisions_that_move_the_owners_money():
-    # `system` is the Pattadar desk. It exists so an operator can put somebody
-    # on a job and take them off again without impersonating the landowner —
-    # not so it can spend his money. Accepting releases the payout and sending
-    # back re-opens a delivered job; both are the owner's alone, forever.
-    for action in ("accept", "send_back", "start", "deliver", "withdraw"):
+    # `system` is the Pattadar desk. It exists so an operator can find, send
+    # to, assign and relay for a provider without impersonating the
+    # landowner — not so it can spend his money. Accepting releases the payout
+    # and sending back re-opens a delivered job; both are the owner's alone.
+    for action in ("accept", "send_back"):
         for status in t.STATUSES:
             got = t.transition(status, action, "system")
             assert not got["ok"], (status, action)
@@ -103,21 +103,22 @@ def test_a_silent_surveyor_can_be_taken_off_the_job_without_killing_it():
     # answering. Before this pair the only exit was cancel, which refunds the
     # owner and destroys a job he still wants done. Unassign returns the
     # ticket to `placed` — open, funded, offerable to somebody else.
-    for actor in ("owner", "system"):
-        got = t.transition("on_site", "unassign", actor)
-        assert got["ok"], actor
-        assert got["to"] == "placed"
-        assert got["closed"] is False
-        assert t.transition("assigned", "unassign", actor)["to"] == "placed"
-    # The worker cannot resign from the job; somebody must be told first.
+    got = t.transition("on_site", "unassign", "system")
+    assert got["ok"]
+    assert got["to"] == "placed"
+    assert got["closed"] is False
+    assert t.transition("assigned", "unassign", "system")["to"] == "placed"
+    # The worker cannot resign from the job; somebody must be told first. And
+    # the owner does not reshuffle providers — that is the desk's work.
     assert not t.transition("on_site", "unassign", "worker")["ok"]
+    assert not t.transition("on_site", "unassign", "owner")["ok"]
 
 
 def test_an_accepted_or_cancelled_ticket_has_no_way_out():
     # A released payout cannot be un-released on any rail we will use, so the
     # remedy for a wrong acceptance is a fresh ticket, not a reopened one.
     for status in ("accepted", "cancelled"):
-        assert t.can(status) == []
+        assert t.can(status, "owner") == []
         assert t.can(status, "worker") == []
         assert t.can(status, "system") == []
         for action in t.ACTIONS:
@@ -149,9 +150,71 @@ def test_can_lists_exactly_what_transition_will_allow():
 
 
 def test_the_owners_buttons_on_a_submitted_ticket():
-    assert t.can("submitted") == ["accept", "cancel", "dispatch", "send_back"]
-    assert t.can("placed") == ["assign", "cancel", "dispatch"]
+    assert t.can("submitted", "owner") == ["accept", "cancel", "send_back"]
+    assert t.can("placed", "owner") == ["cancel"]
     assert t.can("sent", "worker") == ["assign"]
+
+
+def test_the_owner_never_holds_a_desk_move():
+    # Service order spec §7: finding, sending to, assigning, starting and
+    # recording for a provider are desk (system) or provider (worker) moves.
+    # The owner keeps cancel, accept and send back — on every status.
+    for status in t.STATUSES:
+        assert set(t.can(status, "owner")) <= {"cancel", "accept", "send_back"}, status
+        for action in ("dispatch", "withdraw", "assign", "unassign", "start", "deliver"):
+            assert not t.transition(status, action, "owner")["ok"], (status, action)
+    # …and every one of those moves still has somebody who can make it.
+    for (status, action), (_to, who) in t.TRANSITIONS.items():
+        if action in ("dispatch", "withdraw", "assign", "unassign", "start", "deliver"):
+            assert "system" in who, (status, action)
+
+
+def test_the_owners_page_actions_are_a_subset_of_six():
+    for status in t.STATUSES:
+        for quiet in (0, 9):
+            for overdue in (0, 2):
+                got = t.owner_can(status, quiet_days=quiet, overdue_days=overdue,
+                                  rateable=True)
+                assert set(got) <= set(t.OWNER_ACTIONS), (status, got)
+
+
+def test_asking_for_an_update_is_offered_once_a_day_when_quiet_or_late():
+    assert "nudge" not in t.owner_can("placed", quiet_days=3)
+    assert "nudge" in t.owner_can("placed", quiet_days=4)
+    assert "nudge" in t.owner_can("on_site", overdue_days=1)
+    assert "nudge" not in t.owner_can("on_site", overdue_days=1, asked_recently=True)
+    # Paying is the next step on an unpaid order, not asking.
+    assert "nudge" not in t.owner_can("placed", quiet_days=9, unpaid=True)
+    # While the owner holds the decision there is nobody to chase…
+    for status in ("submitted", "accepted", "cancelled"):
+        assert "nudge" not in t.owner_can(status, quiet_days=30, overdue_days=30)
+    # …but work sent back for rework is the provider's move again, and a
+    # provider who goes silent on it is the commonest stall (standards S6).
+    assert "nudge" in t.owner_can("changes", quiet_days=4)
+    assert "nudge" in t.owner_can("changes", overdue_days=1)
+    assert "nudge" not in t.owner_can("changes", quiet_days=3)
+
+
+def test_message_and_rating_follow_the_order():
+    assert "message" in t.owner_can("accepted")
+    assert t.owner_can("cancelled") == []
+    assert "rate" in t.owner_can("accepted", rateable=True)
+    assert "rate" not in t.owner_can("accepted")
+    assert "rate" not in t.owner_can("submitted", rateable=True)
+
+
+def test_the_requester_reads_in_progress_and_never_sent_out():
+    assert t.label_of("on_site") == "In progress"
+    assert t.owner_label("on_site") == "In progress"
+    assert t.owner_label("sent") == "Placed"
+    assert t.label_of("sent") == "Sent out"   # the desk keeps its word
+
+
+def test_a_stored_title_is_sentence_case_and_keeps_acronyms():
+    assert t.sentence_case("Encumbrance Certificate") == "Encumbrance certificate"
+    assert t.sentence_case("FMB / Survey Map Copy") == "FMB / survey map copy"
+    assert t.sentence_case("Title opinion") == "Title opinion"
+    assert t.sentence_case("   ") == ""
 
 
 def test_a_row_with_no_status_is_read_through_its_stage_and_never_backfilled():
@@ -712,7 +775,7 @@ def test_the_owner_can_overrule_the_shelf_a_service_implies():
                           "file_ref": "n", "file_as": "revenue"},
                          TICKET, PARCEL)
     assert plan["values"]["shelf"] == "revenue"
-    assert plan["summary"] == "Filed on the Revenue record shelf"
+    assert plan["summary"] == "Filed on the Revenue records shelf"
     # A shelf nobody has heard of files as unsorted rather than inventing one.
     junk = t.filing_plan({"kind": "paper", "label": "x", "file_ref": "n",
                           "file_as": "nonsense"}, TICKET, PARCEL)
@@ -751,7 +814,7 @@ def test_a_relayed_photo_claims_no_coordinates_and_no_photographer():
     assert v["accuracy_m"] == 0 and v["device_clock_ok"] is False
     assert v["is_cover"] is False and v["sha256"] == ""
     assert v["source"] == "order" and v["order_ref"] == "w360-PT-2094"
-    assert plan["summary"] == "Added to the record's photos"
+    assert plan["summary"] == "Added to the property's photos"
     assert "not the person who stood in the field" in plan["why"]
 
 
@@ -860,18 +923,18 @@ def test_filing_a_plan_never_raises_on_rubbish():
 
 
 def test_the_review_card_says_where_a_thing_will_land_before_it_lands():
-    assert t.goes_to("paper", "map") == "Papers · Map shelf"
-    assert t.goes_to("paper", "", "ec") == "Papers · Search & tax shelf"
-    assert t.goes_to("paper", "", "") == "Papers · Unsorted shelf"
-    assert t.goes_to("photo", "boundary") == "The record's photos · Boundary"
-    assert t.goes_to("photo", "") == "The record's photos · General"
+    assert t.goes_to("paper", "map") == "Documents · Map shelf"
+    assert t.goes_to("paper", "", "ec") == "Documents · EC & tax receipts shelf"
+    assert t.goes_to("paper", "", "") == "Documents · Not sorted yet shelf"
+    assert t.goes_to("photo", "boundary") == "The property's photos · Boundary"
+    assert t.goes_to("photo", "") == "The property's photos · General"
     assert t.goes_to("boundary", "") == "The outline on file"
     assert t.goes_to("feature", "") == "What stands on this land"
     assert t.goes_to("nonsense", "") == ""
 
 
 def test_only_papers_and_photos_offer_a_choice_of_where_to_file():
-    assert t.file_targets("paper")[0] == ("title", "Title")
+    assert t.file_targets("paper")[0] == ("title", "Title deeds")
     assert [v for v, _ in t.file_targets("paper")] == list(t.SHELVES)
     assert [v for v, _ in t.file_targets("photo")] == list(t.PHOTO_CATEGORIES)
     # A boundary and a feature have exactly one place to go, so the select is
@@ -962,26 +1025,34 @@ def test_days_between_reads_both_date_shapes_the_columns_carry():
 
 def test_a_trail_line_is_composed_when_it_happens_not_when_it_is_read():
     # Written at write time so 2027 code cannot re-word a 2026 event.
+    # In the requester's words (service order spec §3.5).
+    desk = {"actor_label": "Pattadar desk", "actor_kind": "system"}
+    assert t.event_headline("status", "place", {}) == "You placed this order"
+    assert t.event_headline("status", "assign", {
+        "actor_label": "G. Srinivas", "actor_kind": "worker", "assignee": "G. Srinivas"}) == (
+        "G. Srinivas accepted this order")
+    assert t.event_headline("status", "assign", {**desk, "assignee": "G. Srinivas"}) == (
+        "Pattadar desk assigned G. Srinivas")
+    assert t.event_headline("status", "unassign", {**desk, "assignee": "B. Ravi"}) == (
+        "Pattadar desk took B. Ravi off this order")
+    assert t.event_headline("status", "start", {"assignee": "G. Srinivas"}) == (
+        "G. Srinivas started work")
+    assert t.event_headline("status", "deliver", {"assignee": "G. Srinivas"}) == (
+        "G. Srinivas delivered the work")
+    assert t.event_headline("status", "dispatch", desk) == (
+        "Pattadar desk sent this order to providers")
+    assert t.event_headline("status", "withdraw", desk) == (
+        "Pattadar desk withdrew the offer to providers")
     assert t.event_headline("status", "accept", {"actor_label": "You"}) == (
         "You accepted the work")
-    assert t.event_headline("status", "assign",
-                            {"actor_label": "You", "assignee": "G. Srinivas"}) == (
-        "You put G. Srinivas on it")
-    assert t.event_headline("status", "unassign",
-                            {"actor_label": "You", "assignee": "B. Ravi"}) == (
-        "You took B. Ravi off it")
-    assert t.event_headline("status", "start", {"assignee": "G. Srinivas"}) == (
-        "G. Srinivas is on site")
-    assert t.event_headline("status", "deliver", {}) == "Work came back"
-    assert t.event_headline("status", "dispatch", {"actor_label": "You"}) == (
-        "You sent it out")
-    assert t.event_headline("status", "withdraw", {"actor_label": "You"}) == (
-        "You withdrew it")
     assert t.event_headline("status", "send_back", {"actor_label": "You"}) == (
-        "You sent it back")
+        "You sent the work back")
     assert t.event_headline("status", "cancel", {"actor_label": "You"}) == (
-        "You cancelled it")
-    assert t.event_headline("status", "place", {}) == "Placed"
+        "You cancelled this order")
+    assert t.event_headline("status", "cancel", desk) == (
+        "Pattadar desk cancelled this order")
+    assert t.event_headline("nudge", "nudge", {}) == (
+        "You asked Pattadar desk for an update")
 
 
 def test_a_dispatch_line_says_on_its_face_that_nothing_was_sent():
@@ -998,19 +1069,28 @@ def test_a_dispatch_line_says_on_its_face_that_nothing_was_sent():
 
 
 def test_a_deliverable_a_filing_and_a_payment_each_read_as_a_sentence():
+    assert t.event_headline("deliverable", "", {"label": "Re-survey sketch",
+                                                "by": "Ravi Kumar"}) == (
+        "Ravi Kumar delivered “Re-survey sketch”")
     assert t.event_headline("deliverable", "", {"label": "Re-survey sketch"}) == (
-        "'Re-survey sketch' came back")
+        "“Re-survey sketch” was delivered")
+    assert t.event_headline("filed", "", {"label": "EC", "table": "documents"}) == (
+        "“EC” was added to this property's Documents")
+    assert t.event_headline("filed", "", {"label": "Gate", "table": "parcel_photos"}) == (
+        "“Gate” was added to this property's photos")
     assert t.event_headline("filed", "", {"summary": "Filed on the Map shelf"}) == (
         "Filed on the Map shelf")
+    # Money words only: Added · Held · Released · Refunded · Pattadar fee.
     assert t.event_headline("payment", "", {"entry": "hold",
-                                            "amount": 2900.0}) == "₹2,900 set aside"
+                                            "amount": 2900.0}) == "₹2,900 held"
     assert t.event_headline("payment", "", {"entry": "release", "amount": 405.0,
                                             "payee": "K. Prasad"}) == (
-        "₹405 recorded as owed to K. Prasad")
+        "₹405 released to K. Prasad")
     assert t.event_headline("payment", "", {"entry": "return",
                                             "amount": 1500.0}) == "₹1,500 refunded"
     assert t.event_headline("payment", "", {"entry": "fee",
-                                            "amount": 45.0}) == "₹45 to Pattadar"
+                                            "amount": 45.0}) == "₹45 Pattadar fee"
+    assert t.ENTRY_LABEL["release"] == "Released"
     assert t.event_headline("refused", "", {"why": "not a legal move"}) == (
         "A move was refused: not a legal move")
 

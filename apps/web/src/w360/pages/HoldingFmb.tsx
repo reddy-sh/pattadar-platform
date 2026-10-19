@@ -36,7 +36,7 @@ import { useHoldingFmb, useDeleteJointFmb } from '../api';
 import type { HoldingJointSheet, HoldingRelation, HoldingSurveyShape } from '../api';
 import { BoundaryMeasurementsCard } from '../BoundaryMeasurementsCard';
 import {
-  Card, Empty, Failed, KV, Menu, MultiSelect, Pill, num, pairs, plural, useFullscreen,
+  Card, Empty, Failed, KV, Menu, MultiSelect, Pill, ToolbarBand, num, pairs, plural, useFullscreen,
 } from '../ui';
 import { SkPortfolioMap } from '../skeletons';
 import { PortfolioCanvas } from '../PortfolioCanvasLazy';
@@ -48,6 +48,7 @@ import type { GeoPdfReading } from '@pattadar/core';
 import { fetchFileBlob } from '../../pages/documents/storage';
 import { readGeoPdfFile } from '../geoPdfFile';
 import { ConfirmDialog } from './PropertyActions';
+import { SectionHead } from './RecordHead';
 
 /** How a relation reads as a capsule. `disputed` is the token for "the sources
  *  disagree", which is exactly what an overlap is — not a verdict on the land. */
@@ -127,8 +128,8 @@ export function HoldingFmbTab() {
 
 
 
-  if (isLoading) return <SkPortfolioMap label="Loading the combined map" />;
-  if (!data) return <Failed what="The combined map" error={error} boxed h="26rem" />;
+  if (isLoading) return <SkPortfolioMap label="Loading the boundaries" />;
+  if (!data) return <Failed what="These boundaries" error={error} boxed h="26rem" />;
 
   const byRecord = new Map(data.shapes.map((s) => [s.recordId, s]));
   // The records the rail lists: the drawn ones the dropdown has ticked. The rail
@@ -141,11 +142,12 @@ export function HoldingFmbTab() {
   // One sheet covering several survey numbers is uploaded here, once, and
   // filed as a flagged copy on each record it covers. The single place this tab
   // offers it is the section header's actions.
-  const addJoint = (
-    <button type="button" className="btn" onClick={() => setAddingJoint(true)}>
-      <UploadFileOutlined sx={{ fontSize: 16 }} /> Add joint FMB
-    </button>
-  );
+  const addJoint = {
+    secondaries: [{
+      label: 'Add a joint FMB', icon: <UploadFileOutlined sx={{ fontSize: 16 }} />,
+      onClick: () => setAddingJoint(true),
+    }],
+  };
   const jointDialog = addingJoint && (
     <JointFmbDialog holding={holding} onClose={() => setAddingJoint(false)} />
   );
@@ -153,18 +155,13 @@ export function HoldingFmbTab() {
   if (data.drawnCount === 0) {
     return (
       <>
-        <header className="sechead">
-          <div className="grow">
-            <h2>Boundaries side by side</h2>
-            <p className="note" style={{ margin: '0.25rem 0 0' }}>{data.caption}</p>
-          </div>
-          <div className="actions">{addJoint}</div>
-        </header>
+        {/* First-run empty: no sub — the empty state below already says it. */}
+        <SectionHead title="Boundaries" actions={addJoint} />
         {/* A stack, so the empty state and the cards under it keep their
             spacing instead of meeting border to border. */}
         <div className="stack">
           <Empty boxed h="22rem" icon="parcel" title="No boundaries saved yet">
-            None of the {plural(holding.memberCount, 'record')} in this holding has a
+            None of the {plural(holding.memberCount, 'property', 'properties')} in this holding has a
             saved boundary.
           </Empty>
           <JointSheets sheets={data.jointSheets} />
@@ -177,19 +174,24 @@ export function HoldingFmbTab() {
 
   return (
     <>
-      <header className="sechead">
-        <div className="grow">
-          <h2>Boundaries side by side</h2>
-          <p className="note" style={{ margin: '0.25rem 0 0' }}>{data.caption}</p>
-        </div>
-        {/* Which boundaries are on the map, chosen where a section's actions
-            live — the same place a record's own screen puts "Order a service".
-            A dropdown rather than a rail of checkboxes: it does not compete with
-            the measurements beside the map, and it reads as an action on the
-            view. It counts BOUNDARIES, not records: a record with nothing to
-            draw is not on the list, and "All 2 records" under a "Records 3" tab
-            would read as a record gone missing. */}
-        <div className="actions">
+      {/* The server's caption is the line under the heading, on screen and not
+          behind an ⓘ: it says how the outlines lie (overlaps first, then any
+          measured gap) and that this is not a merged or official FMB — which
+          has to show wherever somebody might screenshot it (web360.py,
+          _combined_fmb_caption). */}
+      <SectionHead
+        title="Boundaries"
+        sub={data.caption}
+        actions={addJoint}
+      />
+      {/* Which boundaries are on the map, in the tab's band: a view control,
+          not a command, so it stays out of the head (design.md § Page head,
+          slot 5). A dropdown rather than a rail of checkboxes: it does not
+          compete with the measurements beside the map. It counts BOUNDARIES,
+          not records: a record with nothing to draw is not on the list, and
+          "All 2 records" under a "Records 3" tab would read as a record gone
+          missing. */}
+      <ToolbarBand left={
           <MultiSelect
             label="Which boundaries to show"
             summary={shown.size === drawnIds.size
@@ -205,9 +207,7 @@ export function HoldingFmbTab() {
               setSel({ key: drawnKey, ids: on ? new Set(drawnIds) : new Set() });
             }}
           />
-          {addJoint}
-        </div>
-      </header>
+      } />
 
       {/* ONE map, with every boundary in it.
           Land that is miles apart is small at a zoom that fits both, so the
@@ -238,7 +238,7 @@ export function HoldingFmbTab() {
             />
             <div className="maptools">
               <span className="row tight mapchips">
-                <button type="button" className="chip" aria-pressed={satellite}
+                <button type="button" className="chip wash" aria-pressed={satellite}
                         title={satellite ? 'Turn the imagery off' : 'Turn the imagery on'}
                         onClick={() => setSatellite((on) => !on)}>
                   Satellite
@@ -274,8 +274,8 @@ export function HoldingFmbTab() {
                       MEASURED area and the two are rarely equal. */}
                   <span className="note">On record {byRecord.get(picked)!.extentLabel}</span>
                 </div>
-                <Link className="btn sm" to={`/app/records/${picked}`}>Open record</Link>
-                <Link className="btn sm" to={`/app/records/${picked}/map`}>Its boundary</Link>
+                <Link className="btn sm" to={`/properties/${picked}`}>Open property</Link>
+                <Link className="btn sm" to={`/properties/${picked}/location`}>Its boundary</Link>
               </div>
             )}
 
@@ -481,9 +481,9 @@ function MissingList({ shapes }: { shapes: HoldingSurveyShape[] }) {
             </span>
             {s.sheetJoint && <Pill kind="managed">Joint FMB</Pill>}
             {s.sheetId && (
-              <Link className="btn sm" to={`/app/papers/${s.sheetId}`}>Open sheet</Link>
+              <Link className="btn sm" to={`/papers/${s.sheetId}`}>Open sheet</Link>
             )}
-            <Link className="btn sm" to={`/app/records/${s.recordId}/map`}>
+            <Link className="btn sm" to={`/properties/${s.recordId}/location`}>
               Give it a boundary
             </Link>
           </div>
@@ -520,8 +520,8 @@ function JointSheets({ sheets }: { sheets: HoldingJointSheet[] }) {
       const geo = await readGeoPdfFile(await fetchFileBlob(s.fileRef));
       if (geo) setOutlines(geo);
       else {
-        setReadErr({ id: s.id, msg: 'No georeferenced survey lines were found in this sheet. '
-          + 'Give each record its boundary on its own Location tab.' });
+        setReadErr({ id: s.id, msg: 'This sheet does not carry map positions for its survey lines. '
+          + 'Give each property its boundary on its own Location tab.' });
       }
     } catch {
       setReadErr({ id: s.id, msg: 'The sheet could not be opened. Try again.' });
@@ -553,7 +553,7 @@ function JointSheets({ sheets }: { sheets: HoldingJointSheet[] }) {
             <span className="grow">
               <strong>{s.name}</strong>
               <small className="note" style={{ display: 'block' }}>
-                Filed on {s.recordTitles.join(', ')}
+                Saved on {s.recordTitles.join(', ')}
               </small>
               {readErr?.id === s.id && (
                 <small className="note" role="alert"
@@ -564,7 +564,7 @@ function JointSheets({ sheets }: { sheets: HoldingJointSheet[] }) {
             </span>
             <Pill kind="managed">Joint FMB</Pill>
             {s.paperIds[0] && (
-              <Link className="btn sm" to={`/app/papers/${s.paperIds[0]}`}>Open sheet</Link>
+              <Link className="btn sm" to={`/papers/${s.paperIds[0]}`}>Open sheet</Link>
             )}
             {s.fileRef && (
               <button type="button" className="linkbtn" disabled={reading !== null}
@@ -583,7 +583,7 @@ function JointSheets({ sheets }: { sheets: HoldingJointSheet[] }) {
       {removing && (
         <ConfirmDialog
           title={`Remove ${removing.name}?`}
-          body={`It comes off all ${removing.recordIds.length} records it was filed on. `
+          body={`It comes off all ${removing.recordIds.length} properties it was saved on. `
             + 'The uploaded file itself is kept.'}
           actionLabel="Remove"
           danger

@@ -27,11 +27,14 @@ import type { ChangeEvent, ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 
-import { parseAreaSqYd, round2, toAcres, unitKey } from '@pattadar/core';
+import {
+  BoundaryFileError, SQ_M_PER_ACRE, parseAreaSqYd, parseBoundaryFile, ringAreaSqM, round2, toAcres, unitKey,
+} from '@pattadar/core';
+import { checkBoundaryDraft } from './boundaryDraft';
 
 import {
-  useAddNote, useAddOwner, useAddPaper, useAddTransfer, useRefreshW360,
-  useLinkPapers, useSaveRecord, useSetTransferParty,
+  useAddNote, useAddOwner, useAddPaper, useAddTransfer, useFileDeedReading, useRefreshW360,
+  useLinkPapers, useSaveRecord, useSetTransferParty, useSetBoundary,
 } from '../api';
 import type { Paper, RecordCard, RecordInput } from '../api';
 import { Dialog } from '../Dialog';
@@ -42,7 +45,8 @@ import { INBOX_KEY, fetchReading, fileFor, markJobRead } from '../inbox';
 import type { Inbox } from '../inbox';
 import { describeReading } from '../paperFiling';
 import { STORAGE_OFFLINE_MSG, uploadToDrive } from '../../pages/documents/storage';
-import { Chip, inGroup } from '../ui';
+import { Chip, InfoLink, inGroup } from '../ui';
+import { passbookGuideHref, stateCodeOf } from '../serviceGuides';
 import { RecordComplianceGuidance } from '../GovernanceGuidance';
 
 /** How the AI's reading is credited on the note it becomes. Notes have no
@@ -141,7 +145,7 @@ export function aiNoteBody(fields: Record<string, unknown>): string {
   parts.push(summary);
   if (caveats.length) parts.push('Worth checking yourself:\n' + caveats.map((c) => `• ${c}`).join('\n'));
   // Read by AI, said plainly so the note never reads as the owner's own words.
-  parts.push('Read from the uploaded document by AI — check it against the paper.');
+  parts.push('Read from the uploaded document by AI. Check it against the original document.');
   return parts.join('\n\n');
 }
 
@@ -358,6 +362,7 @@ export function RecordDrawer({ card, onClose, onCreated, fromJob, sourcePaper }:
   // The deed's transfer, staged unconfirmed. See fileReadingTransfer.
   const addTransfer = useAddTransfer();
   const setTransferParty = useSetTransferParty();
+  const fileDeedReading = useFileDeedReading();
   const editing = !!card;
   /** The list hands an archived record the status 'archived' — web360.py
    *  substitutes it so one status test covers both worlds — and this form has
@@ -388,6 +393,11 @@ export function RecordDrawer({ card, onClose, onCreated, fromJob, sourcePaper }:
   const [market, setMarket] = useState(
     card && card.marketValue > 0 ? String(Math.round(card.marketValue)) : '');
   const [paid, setPaid] = useState('');
+  /** The title deed, as the registrar wrote it. Typed here, it is captured on
+   *  the record (saveRecord's doc_no / sro / reg_date) and audited per field. */
+  const [docNo, setDocNo] = useState(card?.docNo ?? '');
+  const [sro, setSro] = useState(card?.sro ?? '');
+  const [regDate, setRegDate] = useState(card?.regDate ?? '');
   /** The hand-entry form. An edit IS the form — there is nothing to read when
    *  the record already exists. An add starts folded and opens on request, on
    *  a successful read, or on a failed one. */
@@ -408,7 +418,7 @@ export function RecordDrawer({ card, onClose, onCreated, fromJob, sourcePaper }:
       || qc.getQueryData<Inbox>(INBOX_KEY)?.items.find((i) => i.jobId === fromJob)?.body
       || 'the document';
     fetchReading(fromJob)
-      .then((reading) => { if (live) setReopened({ file, name, reading }); })
+      .then((reading) => { if (live) setReopened({ file, name, reading, jobId: fromJob }); })
       .catch((e: unknown) => {
         if (!live) return;
         setManualOpen(true);
@@ -422,6 +432,10 @@ export function RecordDrawer({ card, onClose, onCreated, fromJob, sourcePaper }:
   /** Set once the record exists, so a second press cannot create a duplicate
    *  when only the filing half failed. */
   const [savedId, setSavedId] = useState('');
+  /** A boundary read from a KML or GeoJSON the property was started from,
+   *  saved onto it once it exists. */
+  const [mapShape, setMapShape] = useState<{ ring: Array<[number, number]>; file: string; acres: number } | null>(null);
+  const setBoundary = useSetBoundary();
   const [err, setErr] = useState('');
   /** The rows a passbook listed, when it listed more than one. `choice` is
    *  undefined until the person answers; the primary stays disabled until then,
@@ -504,9 +518,14 @@ export function RecordDrawer({ card, onClose, onCreated, fromJob, sourcePaper }:
     // alone. Sending `Number('') || 0` silently wrote ₹0 over a real figure
     // the moment anyone cleared the box to see what was in it.
     if (market && Number(market) !== Math.round(card.marketValue)) d.marketValue = Number(market);
+    // Sent "" clears a deed fact (web360 `_deed_sets`), which is what emptying
+    // the box means here: the number was wrong, not unknown.
+    if (docNo.trim() !== (card.docNo ?? '')) d.docNo = docNo.trim();
+    if (sro.trim() !== (card.sro ?? '')) d.sro = sro.trim();
+    if (regDate !== (card.regDate ?? '')) d.regDate = regDate;
     return d;
   }, [card, archived, title, classification, status, stake, khata, owner, village,
-      mandal, district, extentTouched, extent, unit, market]);
+      mandal, district, extentTouched, extent, unit, market, docNo, sro, regDate]);
 
   /** Is there anything here that closing the drawer would throw away?
    *
@@ -537,17 +556,17 @@ export function RecordDrawer({ card, onClose, onCreated, fromJob, sourcePaper }:
    *  because this panel is the one place that says so. */
   const askAbout = batchDone.length > 0 && !savedId
     ? {
-      title: batchMade ? 'Close this summary?' : 'Leave the rest unfiled?',
+      title: batchMade ? 'Close this summary?' : 'Leave the rest out?',
       body: batchMade
-        ? `${batchDone.length} records were added. This summary is the only place that lists them together — closing it leaves the records, not the list.`
-        : `${batchDone.length} of these records have already been added and will stay. Closing now leaves the remaining surveys unfiled, and you will have to add them by hand.`,
+        ? `${batchDone.length} properties were added. This summary is the only place that lists them together. Closing it keeps the properties, not the list.`
+        : `${batchDone.length} of these properties have already been added and will stay. Closing now leaves the remaining survey numbers out, and you will have to add them by hand.`,
       keep: batchMade ? 'Keep it open' : 'Keep going',
       discard: batchMade ? 'Close' : 'Leave the rest',
     }
     : savedId
     ? {
       title: 'Close this notice?',
-      body: 'The property is saved, but its deed was not filed. Add the deed later from Documents.',
+      body: 'The property is saved, but its deed was not saved with it. Add the deed later from Documents.',
       keep: 'Keep it open',
       discard: 'Close',
     }
@@ -566,42 +585,35 @@ export function RecordDrawer({ card, onClose, onCreated, fromJob, sourcePaper }:
    *  record is already saved, and a storage gateway that is down must not undo
    *  that or turn a successful save into a failure. It throws so the caller can
    *  say what happened instead of navigating away from the message. */
-  async function fileDeed(recordId: string, read: DeedRead) {
+  async function fileDeed(recordId: string, read: DeedRead): Promise<string> {
     if (read.paperId) {
       const linked = (await linkPapers.mutateAsync({ paperIds: [read.paperId], recordIds: [recordId] })).web.linkPapers;
-      if (!linked) throw new Error('That document could not be filed under this property.');
-      return;
+      if (!linked) throw new Error('That document could not be added to this property.');
+      return read.paperId;
     }
     // Reopened after a reload: the bytes are gone, and the drawer said so.
-    if (!read.file) return;
+    if (!read.file) return '';
     const node = await uploadToDrive(read.file);
     if (!node) throw new Error(STORAGE_OFFLINE_MSG);
-    await attachPaper(recordId, read, node);
+    return attachPaper(recordId, read, node);
   }
 
-  /** Point one record at bytes that are already in storage.
-   *
-   *  Split out of fileDeed for the batch: one passbook filed against twelve
-   *  records is ONE upload and twelve pointers, not twelve copies of the same
-   *  photo. The storage POST carries onConflict=duplicate, so uploading per
-   *  record would really mint twelve nodes named "passbook (2)…(12)".
-   *
-   *  The survey rides along in the subtitle because describeReading reads the
-   *  document, and the document is identical for every row — without it the
-   *  Vault shows twelve cards nobody can tell apart. */
+  /** Point one record at bytes that are already in storage; returns the new
+   *  Documents row. Split out of fileDeed for the batch, which files the
+   *  passbook ONCE and then links that one row to every survey it lists. */
   async function attachPaper(
     recordId: string, read: DeedRead,
-    node: Awaited<ReturnType<typeof uploadToDrive>>, survey = '',
+    node: Awaited<ReturnType<typeof uploadToDrive>>,
   ) {
     if (!read.file) throw new Error('the document itself is not in this tab any more');
     const row = describeReading(read.reading, read.file);
     const res = await addPaper.mutateAsync({
-      recordId, fileRef: node.id, name: row.name,
-      subtitle: [row.subtitle, survey && `Sy ${survey}`].filter(Boolean).join(' · '),
+      recordId, fileRef: node.id, name: row.name, subtitle: row.subtitle,
       shelf: row.shelf, pageCount: row.pageCount,
       mimeType: node.mimeType, sizeBytes: node.sizeBytes,
     });
     if (!res.web.addPaper) throw new Error('the property would not accept it');
+    return res.web.addPaper;
   }
 
   /** File every row of a passbook as its own record.
@@ -631,6 +643,8 @@ export function RecordDrawer({ card, onClose, onCreated, fromJob, sourcePaper }:
       ownerName: owner.trim(),
       mandal: mandal.trim(),
       district: district.trim(),
+      // The passbook's read job, so the server labels these as its claims.
+      ...(scanned?.jobId ? { readingJobId: scanned.jobId } : {}),
     };
     // No marketValue or purchasePrice on purpose. Both are whole-DOCUMENT
     // figures, and portfolio worth is a plain sum — stamping one deed's
@@ -660,50 +674,55 @@ export function RecordDrawer({ card, onClose, onCreated, fromJob, sourcePaper }:
               extentUnit: 'ac',
             },
           })).web.saveRecord;
-          if (!id) why = 'the server would not file it';
+          if (!id) why = 'it was not saved';
         } catch (e) {
-          why = e instanceof Error ? e.message : 'the server refused it';
+          why = e instanceof Error ? e.message : 'it was not saved';
         }
         if (why) {
           setBatchDone(done);
           const missing = rows.filter((r) => !done.some((d) => d.survey === r.survey));
-          setErr(`Only ${done.length} of ${rows.length} records were added — Sy ${row.survey} would not save (${why}). Still to add: ${
+          setErr(`Only ${done.length} of ${rows.length} properties were added. Sy ${row.survey} did not save (${why}). Still to add: ${
             missing.map((r) => `Sy ${r.survey}`).join(', ')
-          }. Press Add property again to finish the rest; the ones already added will not be repeated.`);
+          }. Press Add the property again to finish the rest. The ones already added will not be repeated.`);
           return;
         }
         done.push({ survey: row.survey, id });
       }
       setBatchDone(done);
 
-      // The paper, once, against all of them.
-      if (scanned && !scanned.file && done.length) {
+      // The paper, once, against all of them. One Telugu-states passbook lists
+      // every survey of one khata, so it is ONE document linked to each new
+      // record — not a copy per survey (that showed the owner N passbooks for
+      // the one they uploaded).
+      if (scanned && done.length) {
+        let failed = false;
+        let filedOn = '';
+        if (scanned.paperId || scanned.file) {
+          setFiling('Filing the passbook…');
+          try {
+            let paperId = scanned.paperId ?? '';
+            if (!paperId && scanned.file) {
+              const node = await uploadToDrive(scanned.file);
+              if (node) paperId = await attachPaper(done[0].id, scanned, node);
+              if (paperId) filedOn = done[0].survey;
+            }
+            failed = !paperId || !(await linkPapers.mutateAsync({
+              paperIds: [paperId], recordIds: done.map((d) => d.id),
+            })).web.linkPapers;
+          } catch { failed = true; }
+        }
+        // Same owner and same reading behind every row of one passbook, so each
+        // record gets the owner and the AI note too. Best-effort and separate
+        // from the paper — a note that did not file is not a paper that did not.
         for (const d of done) {
           await fileReadingExtras(d.id, scanned.reading.fields as Record<string, unknown>);
         }
-      }
-      if (scanned?.file && done.length) {
-        setFiling('Filing the passbook…');
-        let failed = 0;
-        try {
-          const node = await uploadToDrive(scanned.file);
-          for (const d of done) {
-            try {
-              await attachPaper(d.id, scanned, node, d.survey);
-            } catch { failed += 1; }
-            // Same owner and same reading behind every row of one passbook, so
-            // each record gets the owner and the AI note too. Best-effort and
-            // separate from the paper's own failure count — a note that did not
-            // file is not a paper that did not file.
-            await fileReadingExtras(d.id, scanned.reading.fields as Record<string, unknown>);
-          }
-        } catch {
-          failed = done.length;
-        }
+        // Filed on the first survey but not linked to the rest: say so, so the
+        // owner links it from Documents instead of uploading a second copy.
         if (failed) {
-          setErr(`All ${done.length} records were added, but the passbook could not be filed against ${
-            failed === done.length ? 'any of them' : `${failed} of them`
-          }. You can add it from a record's Papers.`);
+          setErr(filedOn
+            ? `All ${done.length} properties were added. The passbook is in Documents on Sy ${filedOn}, but could not be linked to the others. Link it to them from Documents.`
+            : `All ${done.length} properties were added, but the passbook could not be added to them. You can add it from a property's Documents tab.`);
         }
       }
       setBatchMade(done.length);
@@ -719,9 +738,33 @@ export function RecordDrawer({ card, onClose, onCreated, fromJob, sourcePaper }:
    *  add it from there — the same "Add to Properties" that screen already
    *  offers. Nothing here has been saved yet, so this leaves the same way
    *  Cancel does: at once, with no discard prompt. */
+  /** Start from a map file: its corners become the boundary, its area the
+   *  extent, and a name it carries the title. Read here; nothing is uploaded. */
+  const startFromMapFile = async (file: File) => {
+    setErr('');
+    try {
+      const parsed = parseBoundaryFile(await file.text(), file.name);
+      const problem = checkBoundaryDraft(parsed.ring).error;
+      if (problem) { setErr(`${file.name}: ${problem}`); setManualOpen(true); return; }
+      const acres = ringAreaSqM(parsed.ring) / SQ_M_PER_ACRE;
+      setMapShape({ ring: parsed.ring, file: file.name, acres });
+      setKind('parcel');
+      setUnit('ac');
+      setExtent(acres.toFixed(2));
+      // Google Earth names every unnamed drawing "Untitled …" or "New placemark";
+      // that is not a survey number.
+      const named = parsed.name && !/^(untitled\b|new placemark$)/i.test(parsed.name.trim());
+      if (named && !title.trim()) setTitle(parsed.name);
+      setManualOpen(true);
+    } catch (e) {
+      setErr(e instanceof BoundaryFileError ? `${file.name}: ${e.message}` : `${file.name} could not be read.`);
+      setManualOpen(true);
+    }
+  };
+
   const pickFromMap = () => {
     close();
-    nav('/app/maps');
+    nav('/maps');
   };
 
   const submit = async () => {
@@ -759,25 +802,47 @@ export function RecordDrawer({ card, onClose, onCreated, fromJob, sourcePaper }:
       // as the column, which cannot yet hold NULL.)
       if (market) input.marketValue = Number(market);
       if (paid) input.purchasePrice = Number(paid);
+      if (docNo.trim()) input.docNo = docNo.trim();
+      if (sro.trim()) input.sro = sro.trim();
+      if (regDate) input.regDate = regDate;
+      // The reading's own job, as the passbook batch sends it: without it the
+      // server files every value read off the deed as "you entered".
+      if (scanned?.jobId) input.readingJobId = scanned.jobId;
     }
     let newId = '';
     try {
       newId = (await save.mutateAsync({ input })).web.saveRecord;
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'The record did not save. Try again.');
+      setErr(e instanceof Error ? e.message : 'The property did not save. Try again.');
       return;
+    }
+    if (!editing && mapShape && newId) {
+      setFiling('Saving the boundary…');
+      try {
+        const ok = (await setBoundary.mutateAsync({ recordId: newId, ring: mapShape.ring.flat() }))?.web?.setBoundary;
+        if (!ok) throw new Error('the boundary was refused');
+      } catch (e) {
+        setSavedId(newId);
+        setErr(`The property was saved, but the boundary from ${mapShape.file} could not be (${
+          e instanceof Error ? e.message : 'try again'
+        }). Add it from the property's Location tab.`);
+        return;
+      } finally {
+        setFiling('');
+      }
     }
     if (!editing && scanned && newId) {
       setFiling('Filing the deed…');
+      let paperId = '';
       try {
-        await fileDeed(newId, scanned);
+        paperId = await fileDeed(newId, scanned);
       } catch (e) {
         // Closing here would carry the message away with the drawer. The
         // record IS saved, so the drawer becomes a report of what happened.
         setSavedId(newId);
-        setErr(`The property was saved, but its deed could not be filed — ${
-          e instanceof Error ? e.message : 'the file did not reach storage'
-        }. You can add it from the record's Papers.`);
+        setErr(`The property was saved, but its deed could not be saved (${
+          e instanceof Error ? e.message : 'the upload did not finish'
+        }). You can add it from the property's Documents tab.`);
         return;
       } finally {
         setFiling('');
@@ -787,7 +852,8 @@ export function RecordDrawer({ card, onClose, onCreated, fromJob, sourcePaper }:
       // save: unlike a missing deed, a person or a note that did not file is
       // not worth turning a saved record into an error the owner must read —
       // both are re-addable by hand, and the record itself is safe.
-      await fileReadingExtras(newId, scanned.reading.fields as Record<string, unknown>);
+      await fileReadingExtras(newId, scanned.reading.fields as Record<string, unknown>,
+        await fileOnServer(newId, paperId, scanned));
     }
     // Reading a stored document is optional for creation: if the file is not
     // readable (or has no storage bytes), keep the user's chosen source paper
@@ -801,9 +867,9 @@ export function RecordDrawer({ card, onClose, onCreated, fromJob, sourcePaper }:
         if (!linked) throw new Error('The document could not be linked.');
       } catch (e) {
         setSavedId(newId);
-        setErr(`The property was saved, but its document could not be filed — ${
-          e instanceof Error ? e.message : 'try again from the Documents list'
-        }.`);
+        setErr(`The property was saved, but its document could not be added to it (${
+          e instanceof Error ? e.message : 'try again from Documents'
+        }).`);
         return;
       } finally {
         setFiling('');
@@ -821,7 +887,16 @@ export function RecordDrawer({ card, onClose, onCreated, fromJob, sourcePaper }:
    *  Owners go to record_owners (the Owners history tab), NOT the staff list:
    *  a seller is a former owner, not a caretaker. Sequential and current-owner
    *  first, so the chain reads current → previous in order. */
-  async function fileReadingExtras(recordId: string, fields: Record<string, unknown>) {
+  async function fileReadingExtras(recordId: string, fields: Record<string, unknown>, onServer = false) {
+    // The server filed the acquisition, its parties and the owners from the
+    // reading itself (fileDeedReading); only the AI note is left to add here.
+    if (onServer) {
+      const body = aiNoteBody(fields);
+      if (body) {
+        try { await addNote.mutateAsync({ entityId: recordId, body }); } catch { /* best-effort */ }
+      }
+      return;
+    }
     const acquiredVia = String(fields.doc_type ?? '').trim();
     /** The owner rows, keyed by name, so the transfer below can LINK to the
      *  person rather than adding a second node with the same name. */
@@ -848,6 +923,21 @@ export function RecordDrawer({ card, onClose, onCreated, fromJob, sourcePaper }:
       try {
         await addNote.mutateAsync({ entityId: recordId, body: noteBody });
       } catch { /* best-effort; the summary is still on the deed's Papers view */ }
+    }
+  }
+
+  /** Hand the deed reading to the server (fileDeedReading): it loads the
+   *  caller's own read job and writes the acquisition, its parties and the
+   *  field claims in one transaction. False when there is no job or paper to
+   *  name, or the server refused (not a deed reading, or an older API); the
+   *  client-side filing below then runs instead, so nothing is lost. */
+  async function fileOnServer(recordId: string, paperId: string, read: DeedRead): Promise<boolean> {
+    if (!paperId || !read.jobId) return false;
+    try {
+      const res = await fileDeedReading.mutateAsync({ recordId, paperId, jobId: read.jobId });
+      return !!res.web.fileDeedReading;
+    } catch {
+      return false;
     }
   }
 
@@ -1026,7 +1116,7 @@ export function RecordDrawer({ card, onClose, onCreated, fromJob, sourcePaper }:
       primary={(
         <DrawerAction
           submit={false}
-          label={savedId || batchMade ? 'Done' : editing ? 'Save changes' : 'Add property'}
+          label={savedId || batchMade ? 'Done' : editing ? 'Save changes' : 'Add the property'}
           working={filing || 'Saving…'}
           pending={save.isPending || !!filing}
           paused={save.isPaused}
@@ -1048,7 +1138,15 @@ export function RecordDrawer({ card, onClose, onCreated, fromJob, sourcePaper }:
         {!editing && (
           <ScanFirst manualOpen={manualOpen} onManualOpenChange={setManualOpen}
                      onRead={applyReading} onPickFromMap={pickFromMap} initial={reopened}
-                     sourcePaper={sourcePaper} />
+                     sourcePaper={sourcePaper} onMapFile={(f) => void startFromMapFile(f)} />
+        )}
+
+        {!editing && mapShape && (
+          <p className="note" role="status" style={{ margin: 0 }}>
+            Boundary from {mapShape.file}: {mapShape.ring.length} corners, {mapShape.acres.toFixed(2)} ac.
+            It is saved as this property&rsquo;s boundary.{' '}
+            <button type="button" className="linkbtn" onClick={() => setMapShape(null)}>Remove</button>
+          </p>
         )}
 
         {/* Honest about what a reopened reading cannot do: the server drops
@@ -1068,6 +1166,10 @@ export function RecordDrawer({ card, onClose, onCreated, fromJob, sourcePaper }:
           <div className="callout">
             <p className="scanhead">
               This document lists {multiSurvey.all.length} survey numbers
+              {/passbook|ppb|ror|1-?b/i.test(String(scanned?.reading.fields?.doc_type ?? '')) && (
+                <>{' '}<InfoLink label="passbooks with several survey numbers"
+                          href={passbookGuideHref(stateCodeOf(String(scanned?.reading.fields?.state ?? '')))} /></>
+              )}
             </p>
             <ul className="surveylist">
               {multiSurvey.all.map((r) => (
@@ -1078,12 +1180,12 @@ export function RecordDrawer({ card, onClose, onCreated, fromJob, sourcePaper }:
               ))}
             </ul>
             <p style={{ margin: 0, fontSize: '0.875rem' }}>
-              File each one as its own record, or keep just the first?
+              Add each one as its own property, or keep just the first?
             </p>
             <div className="row tight">
               <button type="button" className="btn primary sm"
                       onClick={() => setMultiSurvey({ ...multiSurvey, choice: 'each' })}>
-                One record per survey
+                One property per survey number
               </button>
               <button type="button" className="btn sm"
                       onClick={() => {
@@ -1106,7 +1208,7 @@ export function RecordDrawer({ card, onClose, onCreated, fromJob, sourcePaper }:
             </p>
             <p className="note" style={{ margin: 0 }}>
               {batchDone.map((d) => `Sy ${d.survey}`).join(', ')}.
-              {scanned && !err && ' The passbook is filed against each of them.'}
+              {scanned && (scanned.file || scanned.paperId) && !err && ' The passbook is added to each of them.'}
             </p>
           </div>
         )}
@@ -1114,7 +1216,7 @@ export function RecordDrawer({ card, onClose, onCreated, fromJob, sourcePaper }:
           <>
             {!editing && !batching && (
               <div className="field">
-                <label>What kind of record</label>
+                <label>What kind of property</label>
                 <div className="choice">
                   <button type="button" aria-pressed={isParcel}
                           onClick={() => reclassify('agri', 'parcel')}>
@@ -1136,7 +1238,7 @@ export function RecordDrawer({ card, onClose, onCreated, fromJob, sourcePaper }:
             {batching && multiSurvey ? (
               <div className="callout">
                 <p className="scanhead">
-                  {multiSurvey.all.length} records, one per survey
+                  {multiSurvey.all.length} properties, one per survey number
                 </p>
                 <ul className="surveylist">
                   {multiSurvey.all.map((r) => (
@@ -1147,7 +1249,7 @@ export function RecordDrawer({ card, onClose, onCreated, fromJob, sourcePaper }:
                   ))}
                 </ul>
                 <p className="note" style={{ margin: 0 }}>
-                  Shared by all {multiSurvey.all.length} records.
+                  Shared by all {multiSurvey.all.length} properties.
                   {' '}<button type="button" className="linkbtn"
                           onClick={() => {
                             setMultiSurvey({ ...multiSurvey, choice: 'one' });
@@ -1250,7 +1352,7 @@ export function RecordDrawer({ card, onClose, onCreated, fromJob, sourcePaper }:
                 <select id="rd-stake" value={stake} onChange={(e) => setStake(e.target.value)}>
                   <option value="owned">Owned</option>
                   <option value="managed">Managed</option>
-                  <option value="watch">Watch</option>
+                  <option value="watch">Watching</option>
                 </select>
               </div>
             </div>
@@ -1261,10 +1363,32 @@ export function RecordDrawer({ card, onClose, onCreated, fromJob, sourcePaper }:
                 paid. A box whose value is discarded is a lie, so it goes. */}
             {!batching && (
               <div className="row" style={{ gap: 'var(--space-sm)', flexWrap: 'nowrap' }}>
-                <MoneyField id="rd-market" label="Worth today" value={market} onChange={setMarket} />
+                <MoneyField id="rd-market" label="Market estimate" value={market} onChange={setMarket} />
                 {!editing && (
                   <MoneyField id="rd-paid" label="What you paid" value={paid} onChange={setPaid} />
                 )}
+              </div>
+            )}
+
+            {/* The title deed. Hidden while batching for the reason the money
+                boxes are: the batch input does not carry them. */}
+            {!batching && (
+              <div className="row" style={{ gap: 'var(--space-sm)', flexWrap: 'nowrap' }}>
+                <div className="field grow">
+                  <label htmlFor="rd-docno">Deed number</label>
+                  <input id="rd-docno" type="text" value={docNo} placeholder="1234/2019"
+                         onChange={(e) => setDocNo(e.target.value)} />
+                </div>
+                <div className="field grow">
+                  <label htmlFor="rd-sro">SRO</label>
+                  <input id="rd-sro" type="text" value={sro} placeholder="Markapur"
+                         onChange={(e) => setSro(e.target.value)} />
+                </div>
+                <div className="field" style={{ width: '10rem', flex: 'none' }}>
+                  <label htmlFor="rd-regdate">Registered on</label>
+                  <input id="rd-regdate" type="date" value={regDate}
+                         onChange={(e) => setRegDate(e.target.value)} />
+                </div>
               </div>
             )}
 
@@ -1289,8 +1413,13 @@ export function RecordDrawer({ card, onClose, onCreated, fromJob, sourcePaper }:
  *  reader to ignore, and TagDialog left focus on `<body>` when it closed, so
  *  the next Tab started again from the top of the document. They are the
  *  shared Dialog now, which is the WAI-ARIA pattern in one place. */
-export function ConfirmDialog({ title, body, actionLabel, danger, busy, error, onConfirm, onClose }: {
+export function ConfirmDialog({ title, body, extra, actionLabel, busyLabel = 'Working…', danger, busy, error, onConfirm, onClose }: {
   title: string; body: ReactNode; actionLabel: string; danger?: boolean;
+  /** What the button says while the write is in flight; it names the action
+   *  (naming standard A5: "Publishing…", not "Working…"). */
+  busyLabel?: string;
+  /** Block content under the sentence (the sentence itself is one <p>). */
+  extra?: ReactNode;
   busy?: boolean; error?: string; onConfirm: () => void; onClose: () => void;
 }) {
   return (
@@ -1305,12 +1434,13 @@ export function ConfirmDialog({ title, body, actionLabel, danger, busy, error, o
           <button type="button" className="btn" onClick={onClose}>Cancel</button>
           <button type="button" className={danger ? 'btn danger' : 'btn primary'}
                   disabled={busy} onClick={onConfirm}>
-            {busy ? 'Working…' : actionLabel}
+            {busy ? busyLabel : actionLabel}
           </button>
         </>
       )}
     >
       <p className="note" style={{ margin: 0 }}>{body}</p>
+      {extra}
       {error && (
         <p className="note" role="alert" style={{ margin: 0, color: 'var(--w-danger)' }}>{error}</p>
       )}

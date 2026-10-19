@@ -51,18 +51,24 @@ export function RecordComplianceGuidance({
   );
 }
 
+/** Which guide a service kind reads: the survey one, or the document one. */
+export const SURVEY_GUIDE = /survey|boundary|fmb|demarc/i;
+
 export function ServiceRequestGuidance({
-  serviceKind, district = '*',
-}: { serviceKind: string; district?: string }) {
+  serviceKind, district = '*', ground,
+}: { serviceKind: string; district?: string; ground?: boolean }) {
   const query = useGovernancePolicy('IN', 'AP', district || '*');
   const document = parseGovernanceDocument(query.data);
   if (!document) return null;
-  const survey = /survey|boundary|fmb|demarc/i.test(serviceKind);
+  // Work on the ground (a survey, a bore point, a visit) is told what fieldwork
+  // needs; the key pattern is only the fallback for callers that do not know
+  // the service's group — a bore point is not a "survey" by name.
+  const survey = ground ?? SURVEY_GUIDE.test(serviceKind);
   const guide = document.serviceRequests.find((item) => item.key === (survey ? 'land_survey' : 'document_fetch'));
   if (!guide) return null;
 
   return (
-    <section className="governance-guidance service-guidance" aria-label="Service request sharing guidance">
+    <section className="governance-guidance service-guidance" aria-label="Service order sharing guidance">
       <div className="governance-guidance-head">
         <PrivacyTipOutlined sx={{ fontSize: 18 }} aria-hidden />
         <span><strong>What this request needs</strong><small>{guide.label}</small></span>

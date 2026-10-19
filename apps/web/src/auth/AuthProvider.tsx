@@ -134,7 +134,7 @@ if (!isAuthMocked) {
   // ── Mock mode, and only ever inside `vite dev` ───────────────────────
   //
   // Mock mode used to talk to the gateway with no Bearer at all, which made
-  // it a half-door: RequireAuth let you into /app and GraphQL answered (the
+  // it a half-door: RequireAuth let you into the app and GraphQL answered (the
   // Vite proxy injects x-user-id), but every storage route 401'd, so papers
   // and photos rendered as empty shelves. That reads as missing data rather
   // than as missing auth, which is the worst way for a dev door to fail.
@@ -229,10 +229,10 @@ function hostedUiLogoutUrl(): string {
  * /auth/callback route). Returns the in-app path to continue to.
  */
 export async function completeSignIn(): Promise<string> {
-  if (!userManager) return '/app';
+  if (!userManager) return '/home';
   const user = await userManager.signinRedirectCallback();
   const state = user.state as { returnTo?: string } | undefined;
-  const returnTo = state?.returnTo ?? '/app';
+  const returnTo = state?.returnTo ?? '/home';
   await seedNameFromProvider(toAuthUser(user).name ?? '');
   // Social sign-up does not visit SignupPage. Offer the same account notice
   // after the verified session exists, without turning a settings outage
@@ -240,7 +240,7 @@ export async function completeSignIn(): Promise<string> {
   try {
     const response = await apiFetch('/api/gateway/account/consent');
     if (response.ok && !(await response.json()).acceptedAt) {
-      return `/app/account?welcome=1&returnTo=${encodeURIComponent(returnTo)}`;
+      return `/account?welcome=1&returnTo=${encodeURIComponent(returnTo)}`;
     }
   } catch { /* Account settings remain reachable from the profile. */ }
   return returnTo;
@@ -320,11 +320,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signInSocial: async (provider: SocialProvider, returnTo?: string) => {
         if (!userManager) {
           // Mock mode: no provider — go straight into the app.
-          window.location.assign(returnTo ?? '/app');
+          window.location.assign(returnTo ?? '/home');
           return;
         }
         await userManager.signinRedirect({
-          state: { returnTo: returnTo ?? '/app' },
+          state: { returnTo: returnTo ?? '/home' },
           extraQueryParams: { identity_provider: provider },
         });
       },

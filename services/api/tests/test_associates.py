@@ -175,9 +175,9 @@ def test_somebody_who_said_whatsapp_only_is_not_overridden_by_the_shape():
 # ── The disciplines cover both vocabularies ────────────────────────────
 
 def test_every_catalogue_kind_has_somebody_who_can_take_it():
-    """SERVICE_CATALOGUE's six keys. A kind with no discipline is never
+    """Every SERVICE_CATALOGUE key. A kind with no discipline is never
     enqueued, so a gap here is a service that silently never dispatches."""
-    for kind in ("ec", "survey", "site_visit", "title_opinion", "mutation", "patta_copy"):
+    for kind in a.catalogue.SERVICE_CATALOGUE:
         assert a.disciplines_for(kind), kind
 
 

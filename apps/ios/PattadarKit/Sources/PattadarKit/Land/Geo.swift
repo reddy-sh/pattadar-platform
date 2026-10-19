@@ -77,7 +77,7 @@ public func checkLocation(
     guard distanceKm > radiusKm else {
         return LocationSanity(suspect: false, distanceKm: distanceKm, message: "")
     }
-    let where_ = placeName.isEmpty ? " from this record’s village" : " from \(placeName)"
+    let where_ = placeName.isEmpty ? " from this property’s village" : " from \(placeName)"
     return LocationSanity(
         suspect: true,
         distanceKm: distanceKm,
@@ -202,7 +202,7 @@ public func checkPhotoOnRecord(
         return PhotoGeoCheck(status: .inside, distanceM: rounded, suspect: false, message: "")
     }
     let far = distanceM > radiusM * 10
-    let location = ring.count >= 3 ? "from the property" : "from where this record is pinned"
+    let location = ring.count >= 3 ? "from the property" : "from where this property is pinned"
     return PhotoGeoCheck(status: far ? .far : .outside, distanceM: rounded, suspect: true,
         message: "This photo's location is \(formatDistance(distanceM / 1000)) \(location). The phone's location may be wrong, or this may not be a photo of this land.")
 }

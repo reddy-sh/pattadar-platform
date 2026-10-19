@@ -41,30 +41,28 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import AddOutlined from '@mui/icons-material/AddOutlined';
 import CloseOutlined from '@mui/icons-material/CloseOutlined';
-import DeleteOutlined from '@mui/icons-material/DeleteOutlined';
-import EditOutlined from '@mui/icons-material/EditOutlined';
 import FileDownloadOutlined from '@mui/icons-material/FileDownloadOutlined';
-import HandshakeOutlined from '@mui/icons-material/HandshakeOutlined';
-import Inventory2Outlined from '@mui/icons-material/Inventory2Outlined';
 import MyLocationOutlined from '@mui/icons-material/MyLocationOutlined';
-import PersonAddOutlined from '@mui/icons-material/PersonAddOutlined';
 import PlaceOutlined from '@mui/icons-material/PlaceOutlined';
 import SearchOutlined from '@mui/icons-material/SearchOutlined';
 
 import {
-  useProperties, useArchiveRecords, useDeleteRecords, useOrderService,
-  useTagRecords, placeOrder, EMPTY_FILTER,
+  useProperties, useArchiveRecords, useDeleteRecords,
+  useTagRecords, EMPTY_FILTER, OWN_NAME,
 } from '../api';
 import type { FacetGroup, PropertyFilter, PropertyList, RecordCard } from '../api';
-import { mintKey } from '../orderFlow';
-import type { MenuItem } from '../ui';
+import { orderHref } from '../orderFlow';
 import {
-  Chip, Empty, FacetFilter, Failed, Icon, Menu, PageHead, PhotoImg, Pill, SortCycle, Tag,
-  coords, csvCell, inr, inrOr, num, plural, statusWord,
+  Chip, Empty, FacetFilter, Failed, Icon, Menu, PageHead, PhotoImg, Pill, SelectionBar, SortCycle, Tag, ViewToggle,
+  classWord, coords, ddmmyyyy, downloadCsv, extentText, inr, inrOr, istDay, num, plural, statusWord,
 } from '../ui';
+import type { HeadActions } from '../ui';
 import { Sk, SkPortfolioMap, SkRecordCards, SkRecordTable } from '../skeletons';
 import { RecordDrawer, ConfirmDialog, TagDialog } from './PropertyActions';
-import { CombineDialog } from './HoldingActions';
+import { PropertyTable, actionWord, inAcres, managerOf, recMenu, sortRows } from '../PropertyTable';
+import type { RowActions, Sort, SortKey } from '../PropertyTable';
+import { SetHolderDialog } from '../SetHolderDialog';
+import { CombineDialog, HoldingsGoToo } from './HoldingActions';
 import { PortfolioCanvas } from '../PortfolioCanvasLazy';
 import type { PortfolioCanvasHandle, PortfolioPin } from '../PortfolioCanvasLazy';
 import { hasBoundaryRing, isLocated, pairRing } from '../portfolioGeo';
@@ -75,13 +73,7 @@ import { MapThumb } from '../MapThumb';
 // apart; the shared one is also total, so a status the server starts sending
 // tomorrow is humanised rather than printed as an empty capsule.
 
-const fmtExtent = (r: RecordCard) =>
-  r.extentUnit === 'ac' ? `${num(r.extent, 2)} ac` : `${num(r.extent)} ${r.extentUnit}`;
-
-// Extents live in three units; sorting and the portfolio line both need them
-// on common ground.
-const SQYD: Record<string, number> = { ac: 4840, 'sq.yd': 1, 'sq.ft': 1 / 9 };
-const inAcres = (r: RecordCard) => (r.extent * (SQYD[r.extentUnit] ?? 1)) / 4840;
+const fmtExtent = (r: RecordCard) => extentText(r);
 
 /** One capsule, not three. A card used to wear its status, its stake AND its
  *  classification, which on an ordinary owned parcel reads "Owned / Owned /
@@ -100,45 +92,14 @@ function badgeOf(rec: RecordCard): { kind: string; word: string } | null {
   return null;
 }
 
-type CardActions = {
+type CardActions = RowActions & {
   selected: boolean;
   onSelect: (id: string) => void;
-  onEdit: (rec: RecordCard) => void;
-  onOrder: (rec: RecordCard) => void;
-  onShare: (rec: RecordCard) => void;
-  onArchive: (rec: RecordCard) => void;
-  onDelete: (rec: RecordCard) => void;
 };
 
-const ico = (El: typeof EditOutlined) => <El sx={{ fontSize: 17 }} />;
-
-/** What one record's kebab offers.
- *
- *  Everything here acts on exactly this record and goes somewhere real:
- *  Order lands on the record's own order screen, Share opens the share panel
- *  on its papers. The two rules group them — change it / hand it on / put it
- *  away — and Archive is worded for the state the record is actually in, so an
- *  archived record is not offered "Archive" again.
- *
- *  There is deliberately no "Open record" item. The card's title is a link,
- *  the whole card is that link's click target, and the table row's title is a
- *  link too — a menu item for the one thing the surrounding surface already
- *  does is a fourth way to do it and a row of dead space in a menu whose last
- *  item is Delete. */
-function recMenu(rec: RecordCard, a: Omit<CardActions, 'selected'>): MenuItem[] {
-  return [
-    { label: 'Edit…', icon: ico(EditOutlined), onClick: () => a.onEdit(rec) },
-    { label: 'Order a service…', icon: ico(HandshakeOutlined), onClick: () => a.onOrder(rec) },
-    { label: 'Share…', icon: ico(PersonAddOutlined), onClick: () => a.onShare(rec), rule: true },
-    {
-      label: rec.status === 'archived' ? 'Unarchive' : 'Archive',
-      icon: ico(Inventory2Outlined),
-      onClick: () => a.onArchive(rec),
-      rule: true,
-    },
-    { label: 'Delete…', icon: ico(DeleteOutlined), onClick: () => a.onDelete(rec), danger: true },
-  ];
-}
+// What one record's kebab offers lives with the table (PropertyTable.tsx
+// recMenu), so the grid's cards, the List view and a group's Properties tab
+// offer the same things in the same words.
 
 function SelectBox({ rec, a }: { rec: RecordCard; a: CardActions }) {
   // A sibling of the card's link now rather than a child of it, so there is no
@@ -186,19 +147,37 @@ function digestOf(rec: RecordCard): { text: string; empty: boolean } {
   // not, and the quiet styling would silently attach to the wrong line.
   return filed.length > 0
     ? { text: filed.join(' · '), empty: false }
-    : { text: 'Nothing filed against it yet', empty: true };
+    : { text: 'Nothing added yet', empty: true };
+}
+
+/** WHO holds it and WHICH holding it is part of, as the card's small detail
+ *  labels (decision memo 06/10/2026, § 4.4).
+ *
+ *  Only what is NOT the ordinary case is said, for the reason `badgeOf` gives:
+ *  on an account without families or groups every card would otherwise read
+ *  "In your own name", a word that has stopped carrying information by the
+ *  third card. The List view's "Held by" column says it in full, because a
+ *  blank cell in a column reads as broken. "Held" is the group's verb only; a
+ *  holding is something a property is part of. */
+function standingOf(rec: RecordCard): string {
+  return [
+    rec.groupId ? `Held by ${rec.holderLabel || rec.groupName}` : '',
+    rec.holdingId ? `Part of ${rec.holdingName}` : '',
+  ].filter(Boolean).join(' · ');
 }
 
 function Card({ rec, a }: { rec: RecordCard; a: CardActions }) {
   const art = rec.classification === 'flat' || rec.classification === 'open_plot'
     ? 'built' : rec.classification === 'shop' ? 'shop' : '';
 
-  /** What a card shows of itself, in order: the photograph the owner took, the
-   *  ground the record sits on, a paper the owner filed, and — when it knows
-   *  none of them — the illustration for what kind of thing it is.
+  /** What a card shows of itself, in order (Reddy, 11/10/2026): a saved
+   *  boundary on the map, the photograph the owner took, a pin-only map, a
+   *  paper the owner filed, and — when it knows none of them — the
+   *  illustration for what kind of thing it is.
    *
-   *  The photo wins because it is the only one of the four the OWNER made. The
-   *  map beats the rest because it is about THIS record. The paper comes next
+   *  A drawn boundary wins outright: it is the one picture that is provably
+   *  THIS parcel, where a "photo" is often a screenshot of a record. A pin is
+   *  only a village, so the owner's photo beats it. The paper comes next
    *  for the same reason the map beats the drawing: a scanned sketch or
    *  passbook page is this land's own paper, and the illustration is the same
    *  illustration on every agricultural parcel in the account — decoration,
@@ -228,6 +207,7 @@ function Card({ rec, a }: { rec: RecordCard; a: CardActions }) {
   // `coords` is already empty for a record with no fix, so there is nothing to
   // guard: an unlocated parcel prints no coordinate rather than "0.0000° N".
   const where = coords(rec.lat, rec.lon);
+  const standing = standingOf(rec);
 
   /** The card is a div, and only the title is a link. It used to be one <a>
    *  wrapped around the whole card with the select box and the kebab nested
@@ -242,7 +222,7 @@ function Card({ rec, a }: { rec: RecordCard; a: CardActions }) {
     <div className={`rec ${a.selected ? 'selected' : ''}`} style={{ position: 'relative' }}>
       <div className={`art ${art}`}>
         <Icon name={rec.classification} size={46} />
-        {rec.coverFileRef
+        {rec.coverFileRef && !hasBoundaryRing(geo.ring)
           ? (
             <PhotoImg className="cardphoto" fileRef={rec.coverFileRef} alt=""
                       thumb={512} fallback={thumb} />
@@ -290,7 +270,7 @@ function Card({ rec, a }: { rec: RecordCard; a: CardActions }) {
             band, so a built property's real name is not squeezed into half a
             card. */}
         <h3>
-          <Link className="recgo" to={`/app/records/${rec.id}`}
+          <Link className="recgo" to={`/properties/${rec.id}`}
                 style={{ color: 'inherit', textDecoration: 'none' }}>
             {rec.title}
             {/* The card's click target, stretched over `.rec` from inside the
@@ -313,6 +293,15 @@ function Card({ rec, a }: { rec: RecordCard; a: CardActions }) {
         <p className="note row tight" style={{ marginTop: '0.1875rem' }}>
           <PlaceOutlined sx={{ fontSize: 13 }} aria-hidden /> {rec.placeLine}
         </p>
+        {standing && (
+          <p className="note" data-testid="card-standing" title={standing}
+             style={{
+               margin: '0.1875rem 0 0', fontSize: '0.6875rem', lineHeight: 1.35,
+               whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+             }}>
+            {standing}
+          </p>
+        )}
         <hr className="hr" style={{ margin: '0.625rem 0' }} />
         {/* One line, always: the extent reads big and the money stays pinned
             right. Wrapping here made a card look like it held two figures.
@@ -356,66 +345,31 @@ function Card({ rec, a }: { rec: RecordCard; a: CardActions }) {
   );
 }
 
-type SortKey = 'title' | 'owner' | 'where' | 'status' | 'extent' | 'worth';
-type Sort = { key: SortKey; dir: 1 | -1 } | null;
-
-const SORT_GET: Record<SortKey, (r: RecordCard) => string | number> = {
-  title: (r) => r.title.toLowerCase(),
-  owner: (r) => r.ownerName.toLowerCase(),
-  where: (r) => r.placeLine.toLowerCase(),
-  status: (r) => r.status,
-  extent: (r) => r.extent * (SQYD[r.extentUnit] ?? 1),
-  worth: (r) => r.marketValue,
-};
-
 /** What the sort chip cycles through.
  *
- *  Three orderings and the one the server sent. There is deliberately no
- *  "Recent activity" preset: a record carries no timestamp of any kind on this
- *  query — not a created date, not a modified date — so the option would sort
- *  by nothing and the list would sit still while claiming to have reordered.
- *  It goes in the day `RecordCard` grows a real one. */
+ *  Four orderings and the one the server sent. "Recently changed" sorts by
+ *  the newest audited change (`lastActivityAt`, else when it was added). */
 const SORT_PRESETS: { label: string; sort: Sort }[] = [
-  { label: 'As filed', sort: null },
-  { label: 'Name A–Z', sort: { key: 'title', dir: 1 } },
+  { label: 'Order added', sort: null },
+  { label: 'Recently changed', sort: { key: 'activity', dir: -1 } },
+  { label: 'Survey No / LP', sort: { key: 'title', dir: 1 } },
   { label: 'Largest extent', sort: { key: 'extent', dir: -1 } },
-  { label: 'Highest worth', sort: { key: 'worth', dir: -1 } },
+  { label: 'Highest market estimate', sort: { key: 'worth', dir: -1 } },
 ];
 
 const SORT_WORD: Record<SortKey, string> = {
-  title: 'Name', owner: 'Owner', where: 'Where',
-  status: 'Status', extent: 'Extent', worth: 'Worth',
+  title: 'Survey No / LP', type: 'Type', owner: 'Owner', where: 'Where', holder: 'Held by',
+  holding: 'Holding', managed: 'Managed by', status: 'Status', extent: 'Extent',
+  worth: 'Market estimate', deed: 'Title deed', activity: 'Last activity',
 };
 
 /** The chip and the table's column headings write the same `sort`, so the chip
  *  has to be able to say what a column click did as well as what it set
  *  itself. */
 function sortLabel(s: Sort): string {
-  if (!s) return 'As filed';
+  if (!s) return 'Order added';
   const preset = SORT_PRESETS.find((p) => p.sort && p.sort.key === s.key && p.sort.dir === s.dir);
   return preset ? preset.label : `${SORT_WORD[s.key]} ${s.dir === 1 ? '↑' : '↓'}`;
-}
-
-/** A sortable column heading. Declared at module scope, not inside the page:
- *  a component defined in a render body is a new type every render, so React
- *  would rebuild all six headings on every keystroke and selection — and the
- *  sort button a keyboard user just pressed would vanish from under them. */
-function Th({ k, label, right, sort, setSort }: {
-  k: SortKey; label: string; right?: boolean;
-  sort: Sort; setSort: (s: Sort) => void;
-}) {
-  const dir = sort?.key === k ? sort.dir : 0;
-  return (
-    <th className={right ? 'right' : undefined}
-        aria-sort={dir === 0 ? undefined : dir === 1 ? 'ascending' : 'descending'}>
-      <button type="button" className="sortbtn"
-              onClick={() => setSort(dir === 0 ? { key: k, dir: 1 }
-                : dir === 1 ? { key: k, dir: -1 } : null)}>
-        {label}
-        <span className="arrow" aria-hidden>{dir === 1 ? '▲' : dir === -1 ? '▼' : ''}</span>
-      </button>
-    </th>
-  );
 }
 
 /** Every facet arrives named, so this screen keeps no list of the words.
@@ -466,8 +420,8 @@ export function Properties() {
    *  a thing people send each other, and `?view=list` in a link somebody saved
    *  last week has to keep opening the same view. */
   const view = params.get('view') === 'map' ? 'map'
-    : params.get('view') === 'list' ? 'list' : 'grid';
-  const setView = (nextView: 'grid' | 'list' | 'map') => {
+    : params.get('view') === 'table' ? 'table' : 'grid';
+  const setView = (nextView: 'grid' | 'table' | 'map') => {
     const next = new URLSearchParams(params);
     next.set('view', nextView);
     setParams(next);
@@ -482,18 +436,22 @@ export function Properties() {
   const [limit, setLimit] = useState(PAGE);
   const [drawer, setDrawer] = useState<{ card: RecordCard | null; job?: string } | null>(null);
   const [confirm, setConfirm] =
-    useState<{ kind: 'delete' | 'archive' | 'unarchive' | 'order'; ids: string[] } | null>(null);
+    useState<{ kind: 'delete' | 'archive' | 'unarchive'; ids: string[] } | null>(null);
   const [tagIds, setTagIds] = useState<string[] | null>(null);
   /** The records the Combine dialog is open over. Ids rather than cards, like
    *  `tagIds`, so the dialog always reads the current answer rather than a copy
    *  of the rows as they were when the bar was clicked. */
   const [combineIds, setCombineIds] = useState<string[] | null>(null);
+  /** The properties "Set holder" is open over — ids, for the same reason. */
+  const [holderIds, setHolderIds] = useState<string[] | null>(null);
   const [err, setErr] = useState('');
 
   const del = useDeleteRecords(false);
   const arch = useArchiveRecords(false);
   const tagRecs = useTagRecords(false);
-  const order = useOrderService(false);
+  // shortcut: the unscoped (Andhra Pradesh) EC price; the server prices each
+  // property by its own place, so a district-priced revision can differ. Read
+  // per record if district pricing is ever published.
 
   // The URL is the filter — a filtered list is a thing you send someone.
   const filter: PropertyFilter = {
@@ -510,11 +468,12 @@ export function Properties() {
     // their own. Nothing else is needed to honour it: the facet rail, the
     // chips, Clear all and the shareable URL all fall out of the three maps.
     groups: params.getAll('group'),
+    holdings: params.getAll('holding'),
   };
   const PARAM: Record<string, string> = {
     kind: 'kind', status: 'status', stake: 'stake',
     village: 'village', khata: 'khata', owner: 'owner',
-    tags: 'tag', group: 'group',
+    tags: 'tag', group: 'group', holding: 'holding',
   };
 
   /** Which array of `filter` a facet group writes into. The popover's boxes
@@ -526,7 +485,7 @@ export function Properties() {
   const FIELD: Record<string, keyof PropertyFilter> = {
     kind: 'kinds', status: 'statuses', stake: 'stakes',
     village: 'villages', khata: 'khatas', owner: 'owners',
-    tags: 'tags', group: 'groups',
+    tags: 'tags', group: 'groups', holding: 'holdings',
   };
 
   const toggle = (group: string, key: string) => {
@@ -583,7 +542,7 @@ export function Properties() {
   /** "New holding" on the Holdings list lands here with `?combine=1`, because
    *  a holding is made of records and the records are here. The flag stays in
    *  the URL while the hint shows, so a reload or a shared link keeps it, and
-   *  it is not a facet: Clear filters leaves it, and dismissing deletes only
+   *  it is not a facet: Clear all leaves it, and dismissing deletes only
    *  `combine`, so the view, the search and every facet survive. */
   const combineHint = params.get('combine') === '1';
   const dropCombine = () => {
@@ -618,35 +577,34 @@ export function Properties() {
 
   const cards = useMemo(() => {
     const kept = (data?.cards ?? []).filter((c) =>
-      !q || `${c.title} ${c.village} ${c.mandal} ${c.district} ${c.khataNo} ${c.ownerName}`
+      !q || `${c.title} ${c.surveyNo} ${c.id} ${c.village} ${c.mandal} ${c.district} ${c.khataNo} ${c.ownerName} ${c.parentage} ${c.managerLine} ${c.docNo} ${c.groupName} ${c.holdingName}`
         .toLowerCase().includes(q));
-    if (!sort) return kept;
-    const get = SORT_GET[sort.key];
-    return [...kept].sort((x, y) => {
-      const a = get(x), b = get(y);
-      return (a < b ? -1 : a > b ? 1 : 0) * sort.dir;
-    });
+    return sortRows(kept, sort);
   }, [data, q, sort]);
   const shownCount = q ? cards.length : data?.shown ?? 0;
 
-  /** What is actually on this screen, in the two figures a portfolio is
-   *  measured in.
+  /** The portfolio's own totals, in the two figures it is measured in — the
+   *  head's summary line (design.md § Page head, "Summary").
    *
-   *  Summed from `cards`, which IS the whole answer — this query paginates
-   *  nothing, so with no filter on, these are the portfolio's own totals, and
-   *  with one on they describe exactly the set the reader is looking at. The
+   *  Each count is told once: what a filter or search lets through is the
+   *  band's "x of y shown", so the summary keeps the totals and does not
+   *  shrink with the filter. They are summed from the unfiltered answer —
+   *  the same query this screen reads with no facet on, so with nothing
+   *  ticked it is the very same cache entry and costs no second request. The
    *  extents are converted to acres before adding because the list mixes ac,
    *  sq.yd and sq.ft and adding those as-is would produce a number in no unit
    *  at all. Either figure is dropped when it is zero rather than printed as
    *  "0.00 ac" or "₹0", both of which claim somebody measured. */
-  const totals = useMemo(() => cards.reduce(
+  const whole = useProperties(EMPTY_FILTER);
+  const allCards = whole.data?.cards ?? (active === 0 ? data?.cards : undefined);
+  const totals = useMemo(() => (allCards ?? []).reduce(
     (acc, r) => ({ ac: acc.ac + inAcres(r), worth: acc.worth + r.marketValue }),
-    { ac: 0, worth: 0 }), [cards]);
-  const portfolioLine = [
-    plural(cards.length, 'property', 'properties'),
+    { ac: 0, worth: 0 }), [allCards]);
+  const portfolioLine = allCards ? [
+    plural(allCards.length, 'property', 'properties'),
     totals.ac >= 0.005 ? `${num(totals.ac, 2)} ac` : '',
-    totals.worth > 0 ? `${inr(totals.worth)} valued` : '',
-  ].filter(Boolean).join(' · ');
+    totals.worth > 0 ? `${inr(totals.worth)} market estimate` : '',
+  ].filter(Boolean).join(' · ') : undefined;
 
   /** Archived records are outside `total` (web360.py: `rows = base` unless the
    *  Archived facet is ticked), so an account whose every record has been
@@ -769,7 +727,7 @@ export function Properties() {
       <button type="button" className="pf-result-pick" aria-pressed={picked === c.id}
               onClick={() => {
                 if (located) { setPicked(c.id); mapRef.current?.goTo(c.id); }
-                else nav(`/app/records/${c.id}/map`);
+                else nav(`/properties/${c.id}/location`);
               }}>
         <strong>{c.title}</strong>
         <span className="note">{[c.village, c.mandal].filter(Boolean).join(', ') || 'Place not added'}</span>
@@ -785,7 +743,7 @@ export function Properties() {
                onChange={() => onSelect(c.id)} />
         Select
       </label>
-      <Link className="link" to={`/app/records/${c.id}/map`}>
+      <Link className="link" to={`/properties/${c.id}/location`}>
         {pin.ring.length >= 3 ? 'View / measure boundary' : 'Locate / draw boundary'}
       </Link>
     </div>;
@@ -794,11 +752,11 @@ export function Properties() {
   const cardActions: Omit<CardActions, 'selected'> = {
     onSelect,
     onEdit: (rec) => setDrawer({ card: rec }),
-    onOrder: (rec) => nav(`/app/records/${rec.id}/order`),
+    onOrder: (rec) => nav(orderHref(rec.id)),
     // The share panel lives on the record's papers, which is the record's own
     // index route; `?share=1` opens it there rather than landing the reader on
     // a page and leaving them to find the button.
-    onShare: (rec) => nav(`/app/records/${rec.id}?share=1`),
+    onShare: (rec) => nav(`/properties/${rec.id}?share=1`),
     onArchive: (rec) => setConfirm({
       kind: rec.status === 'archived' ? 'unarchive' : 'archive', ids: [rec.id] }),
     onDelete: (rec) => setConfirm({ kind: 'delete', ids: [rec.id] }),
@@ -808,7 +766,7 @@ export function Properties() {
    *
    *  This used to fall back to "everything shown" when nothing was picked,
    *  which is how a bar sitting at rest under the grid came to offer
-   *  "Order EC ×14" — fourteen certificates at ₹1,180 each, to a reader who had
+   *  "Order EC ×14" — fourteen certificates, to a reader who had
    *  selected nothing. The bar does not exist unless a selection does. */
   const targetsArchived = selShown.length > 0 &&
     selShown.every((id) => byId.get(id)?.status === 'archived');
@@ -818,42 +776,6 @@ export function Properties() {
   // nothing on screen to explain why the records had not moved.
   const said = (_e: unknown, fallback: string) => setErr(fallback);
 
-  /** One idempotency key per intent, not one per press.
-   *
-   *  The bulk order used to reach `orderService` with no key on it at all. A
-   *  press that timed out, or a second press while the first was still in
-   *  flight on a village connection, filed the whole selection again — twelve
-   *  parcels at ₹1,180 each, bought twice, with nobody having asked for them
-   *  twice. It goes through `placeOrder` now, and the key is minted against the
-   *  INTENT rather than against the press: every attempt at the same order —
-   *  the retry inside the dialog that is still open reporting the failure, the
-   *  dialog dismissed and armed again on the same selection — carries the key
-   *  the first attempt carried, so the server replays its answer instead of
-   *  inserting a second set of orders.
-   *
-   *  It is re-minted the moment the selection or the service changes, because
-   *  the server only replays for a matching (key, request hash) pair: the same
-   *  key against a different hash answers 0, and 0 is the same number it uses
-   *  to say it refused, which this screen reports as "None of those records
-   *  could be changed."
-   *
-   *  The fingerprint holds the ids in the order they are SENT, deliberately
-   *  unsorted: `order_service` hashes `record_ids` as a list, so the same
-   *  twelve records in a different order — the sort chip cycled between one
-   *  attempt and the next — are already a different request to the server.
-   *  Sorting them here would hold the key steady across exactly that change
-   *  and collect the 0 this note is about.
-   *
-   *  `placeOrder` hands the count back raw and throws only when the request
-   *  never arrived, so the two sentences below still say different things — a
-   *  refusal is counted, a network failure is caught. */
-  const orderIntent = useRef<{ fp: string; key: string } | null>(null);
-  const orderKeyFor = (serviceKind: string, ids: string[]): string => {
-    const fp = JSON.stringify([serviceKind, ids]);
-    if (orderIntent.current?.fp !== fp) orderIntent.current = { fp, key: mintKey() };
-    return orderIntent.current.key;
-  };
-
   const runConfirm = async () => {
     if (!confirm) return;
     const { kind, ids } = confirm;
@@ -861,25 +783,15 @@ export function Properties() {
     try {
       const changed = kind === 'delete'
         ? (await del.mutateAsync({ ids })).web.deleteRecords
-        : kind === 'order'
-          ? await placeOrder(order.mutateAsync,
-            { recordIds: ids, kind: 'ec', idempotencyKey: orderKeyFor('ec', ids) })
-          : (await arch.mutateAsync({ ids, archived: kind === 'archive' })).web.archiveRecords;
+        : (await arch.mutateAsync({ ids, archived: kind === 'archive' })).web.archiveRecords;
       if (changed !== ids.length) {
         setErr(changed > 0
-          ? `Only ${changed} of ${ids.length} records were changed. Reload before trying the rest again.`
-          : 'None of those records could be changed. Reload the list and try again.');
+          ? `Only ${changed} of ${ids.length} properties were changed. Reload before trying the rest again.`
+          : 'None of those properties could be changed. Reload the list and try again.');
         return;
       }
-      // Filed in full, so this intent is spent. Selecting those same records
-      // next month and ordering again is a second, genuine order, and it must
-      // mint its own key rather than replay the answer this one already got.
-      // A partial or refused order deliberately keeps the key: it returns above
-      // with a sentence that says to reload, and until the reader does, another
-      // press must not file the rest twice.
-      if (kind === 'order') orderIntent.current = null;
     } catch (e) {
-      said(e, 'That did not go through. Nothing was changed — try again.');
+      said(e, 'That did not go through. Nothing was changed. Try again.');
       return;
     }
     setSelected(new Set());
@@ -893,8 +805,8 @@ export function Properties() {
       const changed = (await tagRecs.mutateAsync({ ids: tagIds, tag })).web.tagRecords;
       if (changed !== tagIds.length) {
         setErr(changed > 0
-          ? `The tag reached ${changed} of ${tagIds.length} records. Reload before trying the rest again.`
-          : 'That tag was not added to any record. Reload the list and try again.');
+          ? `The tag reached ${changed} of ${tagIds.length} properties. Reload before trying the rest again.`
+          : 'That tag was not added to any property. Reload the list and try again.');
         return;
       }
     } catch (e) {
@@ -915,45 +827,40 @@ export function Properties() {
     // The deed and the three counts go out with the rest. An export is what an
     // owner hands an advocate or a bank, and the first thing either of them
     // asks is which document registered the land.
-    const head = ['Record', 'Kind', 'Owner', 'Village', 'Mandal', 'District', 'Khata',
-      'Status', 'Stake', 'Extent', 'Unit', 'Reading', 'Worth (₹)', 'Deed',
-      'Documents', 'Photos', 'Site features', 'In court', 'Tags'];
-    const lines = rows.map((r) => [r.title, r.kind, r.ownerName, r.village, r.mandal,
-      r.district, r.khataNo, r.status, r.stake, r.extent, r.extentUnit, r.extentDetail,
-      Math.round(r.marketValue), r.deedLine,
-      r.paperCount, r.photoCount, r.featureCount, r.litigation ? 'yes' : '',
-      r.tags.join('; ')].map(csvCell).join(','));
-    // The BOM makes Excel read the ₹ column as UTF-8 instead of mojibake.
-    const blob = new Blob(['﻿' + [head.join(','), ...lines].join('\n')],
-      { type: 'text/csv;charset=utf-8' });
-    // In the document, then revoked a beat later. The anchor used to be
-    // detached and the object URL released on the very next statement: starting
-    // a download is a queued task, so releasing it in the same tick can cancel
-    // the file before it is written and the button looks dead — on some
-    // browsers every single time. This is the shape the record's own GeoJSON
-    // export settled on after hitting exactly that.
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `properties-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    // The register as a file: both ids first (ours, then the government's
+    // LP), then every fact the table states — flat, one column each, so a
+    // bank or an auditor can sort and sum it. Dates are DD/MM/YYYY in India.
+    const head = ['Pattadar ID', 'Survey No / LP', 'Property', 'Kind', 'Type', 'Owner',
+      'Father/husband', 'Other owners', 'Village', 'Mandal', 'District', 'Khata',
+      'Held by', 'Holding', 'Managed by', 'Status', 'Stake', 'Mutation', 'EC', 'In court',
+      'Extent', 'Unit', 'Reading', 'Market estimate (₹)', 'Paid (₹)', 'Bought on',
+      'Deed', 'Registered on', 'Documents', 'Photos', 'Site features',
+      'Added', 'Last activity', 'By', 'What changed', 'Tags'];
+    downloadCsv(`properties-${new Date().toISOString().slice(0, 10)}.csv`, [head, ...rows.map((r) => [
+      r.id, r.surveyNo, r.title, r.kind, classWord(r.classification || r.kind), r.ownerName,
+      r.parentage, r.coOwnerCount || '', r.village, r.mandal, r.district, r.khataNo,
+      r.holderLabel || OWN_NAME, r.holdingName, managerOf(r), r.status, r.stake,
+      r.mutationStatus, r.ecStatus, r.litigation ? 'yes' : '',
+      r.extent, r.extentUnit, r.extentDetail, Math.round(r.marketValue),
+      r.purchasePrice > 0 ? Math.round(r.purchasePrice) : '', istDay(r.purchaseDate),
+      r.deedLine, ddmmyyyy(r.regDate), r.paperCount, r.photoCount, r.featureCount,
+      istDay(r.createdAt), istDay(r.lastActivityAt), r.lastActivityBy,
+      actionWord(r.lastActivityAction), r.tags.join('; '),
+    ])]);
   };
 
   const confirmCopy = confirm && {
     delete: {
       title: confirm.ids.length === 1 ? 'Delete this property?'
         : `Delete ${confirm.ids.length} properties?`,
-      body: <>Everything filed under {confirm.ids.length === 1
+      body: <>Everything saved under {confirm.ids.length === 1
           ? <strong>{byId.get(confirm.ids[0])?.title ?? 'it'}</strong>
           : 'them'} is deleted too. There is no undo.</>,
       action: 'Delete', danger: true,
     },
     archive: {
       title: `Archive ${plural(confirm.ids.length, 'property', 'properties')}?`,
-      body: <>Archived properties leave lists, maps and totals. Everything filed under them is kept.</>,
+      body: <>Archived properties leave lists, maps and totals. Everything saved under them is kept.</>,
       action: 'Archive', danger: false,
     },
     unarchive: {
@@ -962,12 +869,24 @@ export function Properties() {
         the map and the portfolio totals.</>,
       action: 'Unarchive', danger: false,
     },
-    order: {
-      title: `Order ${confirm.ids.length === 1 ? 'an EC' : `${confirm.ids.length} ECs`}?`,
-      body: <>One Encumbrance Certificate order per record, ₹1,180 each.</>,
-      action: `Order EC ×${confirm.ids.length}`, danger: false,
-    },
   }[confirm.kind];
+
+  /** The head's commands (design.md § Page head): Export outlined, "Add a
+   *  property" filled and rightmost — "Add a property", never a bare "Add"
+   *  (A1). Nothing on an empty account ("First-run empty"): Export, the view
+   *  toggle and the sort chip are all furniture for rows that do not exist,
+   *  and the one thing to do is already the button in the middle of the
+   *  screen — offering it twice, six inches apart, reads as two actions. */
+  const headActions: HeadActions | undefined = virgin ? undefined : {
+    secondaries: [{
+      label: 'Export', icon: <FileDownloadOutlined sx={{ fontSize: 16 }} />,
+      onClick: () => exportCsv(cards), disabled: cards.length === 0,
+    }],
+    primary: {
+      label: 'Add a property', icon: <AddOutlined sx={{ fontSize: 17 }} />,
+      onClick: () => setDrawer({ card: null }),
+    },
+  };
 
   const paged = view === 'grid' ? cards.slice(0, limit) : cards;
 
@@ -975,57 +894,18 @@ export function Properties() {
     <div className="onecol">
       <main ref={mainRef} tabIndex={-1}>
         <PageHead
-          eyebrow="Your properties"
           title="Properties"
-          // Nothing in the head on an empty account. Export, the three view
-          // shapes and the sort chip are all furniture for rows that do not
-          // exist, and the one thing to do is already the button in the middle
-          // of the screen — offering it twice, six inches apart, reads as two
-          // different actions and makes a blank screen look busy.
-          actions={
-            virgin ? undefined : (
-            <>
-              {/* Words, not icons. Three unlabelled glyphs gave no clue that a
-                  map of the whole portfolio existed at all. */}
-              <div className="segmented" role="group" aria-label="View">
-                <button type="button" aria-pressed={view === 'grid'} onClick={() => setView('grid')}>
-                  Grid
-                </button>
-                <button type="button" aria-pressed={view === 'list'} onClick={() => setView('list')}>
-                  List
-                </button>
-                <button type="button" aria-pressed={view === 'map'} onClick={() => setView('map')}>
-                  Map
-                </button>
-              </div>
-              <button type="button" className="btn" onClick={() => exportCsv(cards)}
-                      disabled={cards.length === 0}>
-                <FileDownloadOutlined sx={{ fontSize: 16 }} /> Export
-              </button>
-              {/* "Add", not "Add a record". The empty state's CTA and the
-                  drawer's own heading are both "Add a record", and a second
-                  button with that exact accessible name standing in the head
-                  while the drawer is open is two different controls answering
-                  to one name. */}
-              <button type="button" className="btn primary" onClick={() => setDrawer({ card: null })}>
-                <AddOutlined sx={{ fontSize: 17 }} /> Add
-              </button>
-            </>
-            )
-          }
-        >
-          {/* What the reader is looking at, in the two figures a portfolio is
-              measured in. The count chip that used to sit beside the title read
-              "1 of 1 shown", which is a fact about the filter rather than about
-              the land; the filter's own count now lives in the filter row where
-              the filter is. */}
-          {data && !virgin && (
-            <p className="note num" style={{ marginTop: '0.375rem' }}>{portfolioLine}</p>
-          )}
-          {firstLoad && <Sk w="18rem" h="1rem" r="var(--radius-xs)" />}
-        </PageHead>
+          actions={headActions}
+          // The portfolio's own totals, in the two figures it is measured in.
+          // The count of what the filter lets through is the band's tally, so
+          // it is not told twice (§ Page head, "Summary").
+          summary={firstLoad
+            ? <Sk w="18rem" h="1rem" r="var(--radius-xs)" />
+            : data && !virgin ? portfolioLine : undefined}
+        />
 
-        {/* The filter row. Not drawn on an account with nothing in it: there is
+        {/* The toolbar band: + Filter and its chips, then the tally, sort and
+            view toggle. Not drawn on an account with nothing in it: there is
             nothing to narrow, and a row of controls over an empty page is the
             furniture problem the rail had, moved sideways. */}
         {data && !virgin && (
@@ -1043,7 +923,7 @@ export function Properties() {
               removeLabel: `Clear the search for ${params.get('q')}`,
               onRemove: dropQ,
             }] : []}
-            trailing={(
+            sort={(
               <SortCycle
                 label={sortLabel(sort)}
                 onNext={() => {
@@ -1052,6 +932,10 @@ export function Properties() {
                 }}
               />
             )}
+            // Words, not icons, on a wide screen: three unlabelled glyphs gave
+            // no clue that a map of the whole portfolio existed at all. On a
+            // phone each icon keeps its word as its name.
+            view={<ViewToggle views={['grid', 'table', 'map']} value={view} onChange={setView} />}
           />
         )}
 
@@ -1062,7 +946,7 @@ export function Properties() {
           <div className="callout" role="status"
                style={{ gridTemplateColumns: '1fr auto', alignItems: 'center', marginBottom: 'var(--space-md)' }}>
             <p className="note" style={{ margin: 0 }}>
-              Select two or more properties, then choose Combine to make a holding.
+              Select two or more properties, then choose Combine into a holding.
             </p>
             <button type="button" className="iconbtn" aria-label="Dismiss the combine hint" onClick={dropCombine}>
               <CloseOutlined sx={{ fontSize: 16 }} />
@@ -1075,7 +959,7 @@ export function Properties() {
             cards has been told the wrong thing twice: once about the shape
             of the answer, and again when it rearranges itself. */}
         {firstLoad && view === 'grid' && <SkRecordCards />}
-        {firstLoad && view === 'list' && <SkRecordTable />}
+        {firstLoad && view === 'table' && <SkRecordTable />}
         {firstLoad && view === 'map' && <SkPortfolioMap />}
 
         {/* A failed list used to render a page head over an empty column —
@@ -1120,7 +1004,7 @@ export function Properties() {
               </button>
             }
           >
-            Add a parcel or property, or upload a pattadar passbook.
+            Add a property, or upload a pattadar passbook.
           </Empty>
         )}
 
@@ -1155,7 +1039,7 @@ export function Properties() {
                 nothing used to be a dead end whenever no facet happened to be
                 on beside it. */}
             <button type="button" className="btn" onClick={clearAll}>
-              {q && active === 0 ? 'Clear search' : 'Clear filters'}
+              {q && active === 0 ? 'Clear search' : 'Clear all'}
             </button>
           </div>
         )}
@@ -1187,7 +1071,7 @@ export function Properties() {
               <label className="search">
                 <SearchOutlined sx={{ fontSize: 17 }} aria-hidden />
                 <input aria-label="Search your land on the map" type="search"
-                       placeholder="Survey no., village, khata or owner"
+                       placeholder="Survey number, village, khata or owner"
                        value={params.get('q') ?? ''}
                        onChange={(e) => {
                          const next = new URLSearchParams(params);
@@ -1195,7 +1079,7 @@ export function Properties() {
                          setParams(next, { replace: true });
                        }} />
               </label>
-              <Link className="btn sm" to="/app/maps">Search cadastral maps</Link>
+              <Link className="btn sm" to="/maps">Search cadastral maps</Link>
             </div>
             <div className="pf-body">
             <div className="plot live pf-stage">
@@ -1207,12 +1091,14 @@ export function Properties() {
                 hovered={lit}
                 onHover={setLit}
                 onSelect={setPicked}
-                onOpen={(id) => nav(`/app/records/${id}`)}
+                // Opened from the map, so onto its Location tab, as every
+                // other way in from this view lands.
+                onOpen={(id) => nav(`/properties/${id}/location`)}
               />
 
               <div className="maptools">
                 <span className="row tight">
-                  <button type="button" className="chip" aria-pressed={satellite}
+                  <button type="button" className="chip wash" aria-pressed={satellite}
                           title={satellite ? 'Turn the imagery off' : 'Turn the imagery on'}
                           onClick={() => setSatellite((on) => !on)}>
                     Satellite
@@ -1237,8 +1123,8 @@ export function Properties() {
                         .filter(Boolean).join(', ')} · {fmtExtent(byId.get(picked)!)}
                     </span>
                   </div>
-                  <Link className="btn sm" to={`/app/records/${picked}`}>Open</Link>
-                  <Link className="btn sm" to={`/app/records/${picked}/map`}>Location &amp; boundary</Link>
+                  <Link className="btn sm" to={`/properties/${picked}`}>Open</Link>
+                  <Link className="btn sm" to={`/properties/${picked}/location`}>Location &amp; boundary</Link>
                 </div>
               )}
 
@@ -1262,7 +1148,7 @@ export function Properties() {
             </div>
 
             <aside className="pf-results" aria-label="Map search results" aria-busy={isFetching}>
-              <p className="eyebrow" role="status">{plural(cards.length, 'matching record')} · {drawn.length} on map</p>
+              <p className="eyebrow" role="status">{plural(cards.length, 'matching property', 'matching properties')} · {drawn.length} on map</p>
               {results}
             </aside>
             </div>
@@ -1305,60 +1191,22 @@ export function Properties() {
           </div>
         )}
 
-        {data && !virgin && cards.length > 0 && view === 'list' && (
-          <div className="card scroll-x" style={{ padding: 0, ...settling }}>
-            <table className="rectable" style={{ minWidth: '46rem' }}>
-              <thead>
-                <tr>
-                  <th className="selcol">
-                    <input
-                      type="checkbox" aria-label="Select all shown"
-                      checked={cards.length > 0 && selShown.length === cards.length}
-                      onChange={() => setSelected(
-                        selShown.length === cards.length
-                          ? new Set() : new Set(cards.map((c) => c.id)))}
-                    />
-                  </th>
-                  <Th k="title" label="Record" sort={sort} setSort={setSort} />
-                  <Th k="owner" label="Owner" sort={sort} setSort={setSort} />
-                  <Th k="where" label="Where" sort={sort} setSort={setSort} />
-                  <Th k="status" label="Status" sort={sort} setSort={setSort} />
-                  <Th k="extent" label="Extent" right sort={sort} setSort={setSort} />
-                  <Th k="worth" label="Worth" right sort={sort} setSort={setSort} />
-                  <th className="menucol" aria-label="Actions" />
-                </tr>
-              </thead>
-              <tbody>
-                {cards.map((r) => (
-                  <tr key={r.id} className={selected.has(r.id) ? 'selected' : undefined}>
-                    <td className="selcol">
-                      <input type="checkbox" checked={selected.has(r.id)}
-                             aria-label={`Select ${r.title}`}
-                             onChange={() => onSelect(r.id)} />
-                    </td>
-                    <td><Link to={`/app/records/${r.id}`} className="accent" style={{ textDecoration: 'none' }}>{r.title}</Link></td>
-                    <td className="muted">{r.ownerName || '—'}</td>
-                    <td className="muted">{r.placeLine}</td>
-                    {/* No `!== 'owned'` guard here — a table column with a
-                        blank cell on every owned row is a column that looks
-                        broken. The capsule is dropped only when there is no
-                        word at all to put in it, which was the real bug: an
-                        archived row painted a coloured capsule with nothing
-                        written inside. */}
-                    <td>{statusWord(r.status)
-                      ? <Pill kind={r.status}>{statusWord(r.status)}</Pill>
-                      : null}</td>
-                    <td className="right num">{fmtExtent(r)}</td>
-                    <td className="right num">{inrOr(r.marketValue)}</td>
-                    <td className="menucol">
-                      <Menu label={`Actions for ${r.title}`} header={r.title}
-                            items={recMenu(r, cardActions)} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        {data && !virgin && cards.length > 0 && view === 'table' && (
+          <PropertyTable
+            rows={cards}
+            label="Properties"
+            resetKey={narrowKey}
+            sort={sort}
+            setSort={setSort}
+            menu={(r) => recMenu(r, cardActions)}
+            selection={{
+              selected,
+              onSelect,
+              onSelectAll: () => setSelected(
+                selShown.length === cards.length ? new Set() : new Set(cards.map((c) => c.id))),
+            }}
+            style={settling}
+          />
         )}
       </main>
 
@@ -1366,34 +1214,30 @@ export function Properties() {
           and every label here counts the selection. The row is the full width
           and ignores the pointer; only the pill takes clicks, so the grid
           underneath stays reachable. */}
-      {selShown.length > 0 && (
-        <div className="selbar">
-          {/* Still `.bulkbar`: it is the same bar doing the same job, and the
-              thing that was wrong with it was never its name. What changed is
-              that it does not exist until there is a selection for it to act
-              on, and that it floats over the list rather than sitting under
-              it pretending to be part of the page. */}
-          <div className="bulkbar" role="group" aria-label="Act on the selected records">
-            <span className="count" role="status">
-              {plural(selShown.length, 'property', 'properties')} selected
-            </span>
-            <span className="vrule" aria-hidden />
-            <span className="acts">
+      <SelectionBar count={selShown.length} noun={['property', 'properties']}
+                    label="Act on the selected properties" onClear={() => setSelected(new Set())}>
               <button type="button" className="btn sm" onClick={() => setTagIds(selShown)}>
-                Tag…
+                Add a tag
               </button>
-              {/* Combining is done here because a holding is made OF records,
-                  and this is where the records are. With one record selected the
+              {/* WHO holds these. The dialog previews every property that
+                  moves — a parcel is held through its khata, so the other
+                  parcels on that khata move with it — before anything does. */}
+              <button type="button" className="btn sm" onClick={() => setHolderIds(selShown)}>
+                Set holder
+              </button>
+              {/* Combining is done here because a holding is made of
+                  properties, and this is where they are. With one selected the
                   control still appears, disabled, saying what it needs: hiding
                   it until a second tick would make the feature invisible to
                   anybody who had not already found it. */}
               <button type="button" className="btn sm" disabled={selShown.length < 2}
                       onClick={() => setCombineIds(selShown)}>
-                {selShown.length < 2 ? 'Select 2 or more to combine' : 'Combine…'}
+                {selShown.length < 2 ? 'Select 2 or more to combine' : 'Combine into a holding'}
               </button>
-              <button type="button" className="btn sm"
-                      onClick={() => setConfirm({ kind: 'order', ids: selShown })}>
-                Order EC ×{selShown.length}
+              {/* Into the one order flow with these properties chosen, on the
+                  services step — never a second way of ordering from here. */}
+              <button type="button" className="btn sm" onClick={() => nav(orderHref(selShown))}>
+                Order a service
               </button>
               <button type="button" className="btn sm"
                       onClick={() => exportCsv(cards.filter((c) => selected.has(c.id)))}>
@@ -1406,27 +1250,22 @@ export function Properties() {
               </button>
               <button type="button" className="btn sm danger"
                       onClick={() => setConfirm({ kind: 'delete', ids: selShown })}>
-                Delete…
+                Delete
               </button>
-            </span>
-            <button type="button" className="clearall" onClick={() => setSelected(new Set())}>
-              Clear
-            </button>
-          </div>
-        </div>
-      )}
+      </SelectionBar>
 
       {drawer && <RecordDrawer key={drawer.job ?? 'record'} card={drawer.card} fromJob={drawer.job}
         onClose={() => setDrawer(null)}
         onCreated={view === 'map' ? (id) => {
           setDrawer(null);
-          nav(`/app/records/${id}/map`);
+          nav(`/properties/${id}/location`);
         } : undefined} />}
       {confirm && confirmCopy && (
         <ConfirmDialog
           title={confirmCopy.title} body={confirmCopy.body}
+          extra={confirm.kind === 'delete' ? <HoldingsGoToo ids={confirm.ids} /> : undefined}
           actionLabel={confirmCopy.action} danger={confirmCopy.danger}
-          busy={del.isPending || arch.isPending || order.isPending} error={err}
+          busy={del.isPending || arch.isPending} error={err}
           onConfirm={runConfirm}
           onClose={() => { setErr(''); setConfirm(null); }}
         />
@@ -1448,9 +1287,16 @@ export function Properties() {
             // Onto the holding it just made. Staying on the list would leave the
             // owner with a dialog closing and nothing on screen to say a
             // holding now exists.
-            nav(`/app/holdings/${id}`);
+            nav(`/holdings/${id}`);
           }}
           onClose={() => setCombineIds(null)}
+        />
+      )}
+      {holderIds && (
+        <SetHolderDialog
+          records={holderIds.map((id) => byId.get(id)).filter((r): r is RecordCard => !!r)}
+          onDone={() => { setHolderIds(null); setSelected(new Set()); }}
+          onClose={() => setHolderIds(null)}
         />
       )}
     </div>

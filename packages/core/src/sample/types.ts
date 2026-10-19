@@ -161,6 +161,8 @@ export interface Group {
   totalExtent: number;
   totalShare: number;
   createdAt: string;
+  /** Typed group facts as a JSON object string; '' or absent is {}. */
+  facts?: string;
 }
 
 export interface Member {

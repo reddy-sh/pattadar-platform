@@ -1,0 +1,421 @@
+# Claude Code wording rules for scripts/sync-claude-from-kiro.py.
+#
+# The sync copies .kiro/{steering,skills,skill-evals} to .claude/{rules,skills,skill-evals},
+# drops the steering frontmatter, renames security-review to pattadar-security-review and
+# points .kiro/steering/<name>.md paths at .claude/rules/<name>.md. Everything else that must
+# read differently in Claude Code is a rule below: the exact text in the .kiro file and the
+# exact text Claude Code gets instead (written as is, without the rename). Each kiro text must
+# occur exactly once in its file, so when a .kiro edit changes it the sync stops: edit the
+# rule to the new .kiro wording and keep the Claude Code meaning. Lines inside a block are
+# literal (keep them byte-exact); an empty claude block deletes the kiro text. Add a rule
+# only for a real Claude Code difference, with Reddy's agreement (agent-skill-maintenance
+# step 4); the .claude/skills/README.md header lists the categories.
+#
+#   @@@ file <path under .kiro>
+#   @@@ kiro
+#   <text>
+#   @@@ claude
+#   <text>
+#   @@@ end
+
+@@@ file steering/change-governance.md
+@@@ kiro
+5. **Clean up after use:** Stop every process this session started (through
+   its managed terminal when supported, otherwise by its own PID) and close
+   only browser tabs it opened; never kill by name or port or stop
+@@@ claude
+5. **Clean up after use:** Stop every process this session started (background
+   Bash tasks and Monitors by task id with TaskStop, others by their own PID)
+   and close only browser tabs it opened; never kill by name or port or stop
+@@@ end
+
+@@@ file steering/change-governance.md
+@@@ kiro
+For Pattadar work these project skills take precedence over generic global
+(`~/.kiro/skills`) or third-party skills; route by this list:
+@@@ claude
+For Pattadar work these project skills take precedence over generic built-in or
+plugin skills; the skill listing can cut their descriptions when many plugins
+are enabled, so route by this list:
+@@@ end
+
+@@@ file steering/reddy-authority.md
+@@@ kiro
+Pattadar steering and skills, including AGENTS.md's CodeGraph-first search,
+outrank generic or third-party agents, powers and hooks. Never self-accept a
+known limit, such as a `shortcut:` comment; raise it through
+`reddy-governance`. Keep governed work (security or secret review, tests/e2e,
+docs/runbooks, schema/migration, dependencies, deletion/refactor, build fixes)
+in the main session or in a subagent told to load the owning skill first,
+never in a custom agent that cannot load skills and steering (Kiro custom
+agents load skills only through `skill://` and steering only through `file://`
+resources).
+@@@ claude
+Pattadar rules and skills, including AGENTS.md's CodeGraph-first search,
+outrank plugin personas, hooks and agents. Never self-accept a known limit, such as a
+`shortcut:` comment; raise it through `reddy-governance`. Keep governed work
+(security or secret review, tests/e2e, docs/runbooks, schema/migration,
+dependencies, deletion/refactor, build fixes) in the main session or in a
+general-purpose subagent told to load the owning skill first, never in a plugin
+agent that cannot load skills.
+@@@ end
+
+@@@ file skills/README.md
+@@@ kiro
+Canonical Kiro portfolio following the [Agent Skills specification](https://agentskills.io/specification). Each skill is one coherent workflow; invariants live in steering (`.kiro/steering/*.md`), deterministic gates in CI/hooks, and conditional detail in one-level `references/`.
+@@@ claude
+> **Generated Claude Code copy: do not edit.** `python3 scripts/sync-claude-from-kiro.py`
+> rebuilds `.claude/rules`, `.claude/skills` and `.claude/skill-evals` from the
+> canonical `.kiro/steering`, `.kiro/skills` and `.kiro/skill-evals` (tracked,
+> validated, run by the Kiro hook). Edit `.kiro` and rerun it; `--check` reports
+> drift without writing. The copy differs from `.kiro` only on purpose:
+>
+> - `security-review` is renamed `pattadar-security-review` (directory,
+>   frontmatter, references, eval names) so it does not shadow Claude Code's
+>   built-in `/security-review`;
+> - the always-on steering is `.claude/rules/*.md`, without the
+>   `inclusion: always` frontmatter, and paths name `.claude/rules` and
+>   `.claude/skills`;
+> - Kiro wording reads as Claude Code: `heuristic-ux-audit` opens images with
+>   the Read tool instead of `create_artifact`; cleanup, long runs and browser
+>   work name TaskStop, Monitors, `run_in_background`, the built-in `run` and
+>   Claude in Chrome; agents are plugin agents and personas; evaluation runs use
+>   `claude -p`, `--permission-mode plan`, the skill listing and Skill-tool calls;
+> - routing hints name Claude Code plugin and connector skills (`ecc:`,
+>   `engineering:`, `design:`, `ponytail:`, Claude Docs) where `.kiro` says
+>   "generic … skills";
+> - this README, `agent-skill-maintenance`, its `evaluation-method.md` and the
+>   eval `method` text speak from this copy's side.
+>
+> The first two are generic transforms in the script; the rest are wording rules
+> in `scripts/claude-adaptations.txt`. The validators (`scripts/validate-*.py`)
+> and the Kiro PostFileSave hook read only `.kiro`; `--check` is the only check
+> of this copy.
+
+Claude Code copy of the canonical Kiro portfolio, following the [Agent Skills specification](https://agentskills.io/specification). Each skill is one coherent workflow; invariants live in the always-on rules (`.claude/rules/*.md`; canonical `.kiro/steering`), deterministic gates in CI/hooks, and conditional detail in one-level `references/`.
+@@@ end
+
+@@@ file skills/README.md
+@@@ kiro
+The four always-on steering files (`pattadar-standards.md`, `pattadar-safety.md`,
+@@@ claude
+The four `.claude/rules/` files (`pattadar-standards.md`, `pattadar-safety.md`,
+@@@ end
+
+@@@ file skills/README.md
+@@@ kiro
+`python3 scripts/validate-agent-governance.py` runs both plus the catalog, steering, hook and reference checks (the Kiro PostFileSave hook runs it after agent edits). All read `.kiro` only.
+@@@ claude
+both read `.kiro` only.
+@@@ end
+
+@@@ file skills/README.md
+@@@ kiro
+- Actual trigger quality requires fresh Kiro sessions;
+@@@ claude
+- Actual trigger quality requires fresh Claude Code sessions (a new `claude -p` at the repo root, or a clean subagent;
+@@@ end
+
+@@@ file skills/README.md
+@@@ kiro
+run each positive/negative prompt repeatedly and record whether the skill loaded. Claude Code runs use the untracked `.claude` copy; keep Kiro and Claude Code results apart (`agent-skill-maintenance` `references/evaluation-method.md`).
+@@@ claude
+`.claude/` is untracked, so a git worktree does not contain it). Run each positive/negative prompt repeatedly and record the client version, model, enabled plugins, which skills the listing showed without a description, and whether the Skill tool loaded the skill. Keep Kiro and Claude Code results apart.
+@@@ end
+
+@@@ file skills/README.md
+@@@ kiro
+- New skills activate after a new Kiro session/index refresh. Static validation cannot prove discovery.
+- Keep `.kiro/skills` canonical. Cross-tool copies are thin adapters, except the untracked Claude Code copy in `.claude/`, which `python3 scripts/sync-claude-from-kiro.py` regenerates from `.kiro` (wording rules in `scripts/claude-adaptations.txt`; `agent-skill-maintenance` step 4).
+@@@ claude
+- Keep `.kiro/skills` canonical. Cross-tool copies are thin adapters, except this generated Claude Code copy (see the header).
+@@@ end
+
+@@@ file skills/agent-skill-maintenance/SKILL.md
+@@@ kiro
+Not for client settings, permissions, MCP servers or Claude Code harness hooks, or skills outside this repo.
+@@@ claude
+Not for Claude Code settings, permissions or harness hooks (update-config) or skills outside this repo.
+@@@ end
+
+@@@ file skills/agent-skill-maintenance/SKILL.md
+@@@ kiro
+Not this skill: client extensions such as Kiro powers or Claude Code plugins.
+@@@ claude
+Not this skill: Claude Code mods or plugins (plugin-authoring).
+@@@ end
+
+@@@ file skills/agent-skill-maintenance/SKILL.md
+@@@ kiro
+2. Audit adjacent skills (Pattadar, global `~/.kiro/skills`, and any built-in
+   or third-party skills the client loads) and cross-tool copies before
+   creating anything. Prefer composition or a thin adapter over duplicated full
+   instructions.
+3. The portfolio is frozen (`.kiro/skills/README.md` Portfolio status): add,
+@@@ claude
+2. Audit adjacent skills (Pattadar, plus the built-in and plugin skills in the
+   session's skill listing) and cross-tool copies before creating anything.
+   Prefer composition or a thin adapter over duplicated full instructions.
+3. The portfolio is frozen (`.claude/skills/README.md` Portfolio status): add,
+@@@ end
+
+@@@ file skills/agent-skill-maintenance/references/evaluation-method.md
+@@@ kiro
+Runs follow `.kiro/steering/pattadar-safety.md`; fixtures ask for prod deploys,
+teardowns and restores. Run trigger probes in an environment with no AWS,
+GitHub or provider credentials, and end each run at the skill-activation
+decision. Run prod-action output cases as analysis only, never with tool or
+command auto-approval in either client. In Claude Code, also run trigger
+probes with `--permission-mode plan` (never `bypassPermissions` or
+`--dangerously-skip-permissions`) and turn off the injected persona, session
+context and gate that contaminate both variants (`PONYTAIL_DEFAULT_MODE=off`,
+@@@ claude
+Runs follow `.claude/rules/pattadar-safety.md`; fixtures ask for prod deploys,
+teardowns and restores. Run trigger probes with `--permission-mode plan` in an
+environment with no AWS, GitHub or provider credentials, and end each run at
+the Skill-call decision. Run prod-action output cases as analysis only, never
+with `bypassPermissions`, `--dangerously-skip-permissions` or other
+auto-approval. Turn off the injected persona, session context and gate that
+contaminate both variants (`PONYTAIL_DEFAULT_MODE=off`,
+@@@ end
+
+@@@ file skills/agent-skill-maintenance/references/evaluation-method.md
+@@@ kiro
+test. In Kiro, record client and version, model, repository revision,
+discoverable skill set, loaded skill(s), and whether the expected route
+occurred. Claude Code runs use the untracked `.claude` copy (a new `claude -p`
+at the repo root; a git worktree has no project skills) and also record the
+enabled plugin set and hook profile, the session's `skill_listing` attachment
+(including which skills arrived without a description because the listing
+budget cut them) and the Skill-tool calls. Run each prompt at least three times
+and keep each client's results apart (a `client` field). Track positive
+trigger rate, adjacent false-trigger rate and collision expected-set accuracy.
+Fixtures cannot name built-in, global or third-party skills yet (for example
+Claude Code's `/security-review` or `skill-creator`); record such a route in
+the run notes and score it as a miss when a Pattadar skill was expected.
+@@@ claude
+test: Kiro, or Claude Code (a new `claude -p` at the repo root; `.claude` is
+untracked, so a git worktree has no project skills). Record client and version,
+model, repository revision, enabled plugin set and hook profile, the session's
+`skill_listing` attachment (including which skills arrived without a
+description because the listing budget cut them), the Skill-tool calls, and
+whether the expected route occurred. Run each prompt at least three times and
+keep each client's results apart (a `client` field). Track positive trigger
+rate, adjacent false-trigger rate and collision expected-set accuracy. Fixtures
+cannot name built-in or plugin skills yet (`/security-review`, `code-review`,
+`skill-creator`); record such a route in the run notes and score it as a miss
+when a Pattadar skill was expected.
+@@@ end
+
+@@@ file skills/cloud-cost-governance/SKILL.md
+@@@ kiro
+Not for running park/up/down or restores (platform-lifecycle) or AI coding-assistant token spend.
+@@@ claude
+Not for running park/up/down or restores (platform-lifecycle) or Claude Code token spend (ecc:cost-tracking).
+@@@ end
+
+@@@ file skills/design-system-governance/SKILL.md
+@@@ kiro
+Not for a heuristic UX audit, redline, design critique or current-versus-proposed board of a web screen (heuristic-ux-audit).
+@@@ claude
+Prefer it over design:design-system. Not for a heuristic UX audit, redline, design critique or current-versus-proposed board of a web screen (heuristic-ux-audit).
+@@@ end
+
+@@@ file skills/functional-acceptance/SKILL.md
+@@@ kiro
+`:8082/health`). Mutating on :5173/:5180 by hand, Playwright MCP, or any other
+browser automation needs explicit approval first, and that
+@@@ claude
+`:8082/health`). Mutating on :5173/:5180 by hand, the built-in `run`,
+Playwright MCP, or Claude in Chrome needs explicit approval first, and that
+@@@ end
+
+@@@ file skills/heuristic-ux-audit/SKILL.md
+@@@ kiro
+Analysis only;
+@@@ claude
+Prefer it over design:design-critique. Analysis only;
+@@@ end
+
+@@@ file skills/heuristic-ux-audit/SKILL.md
+@@@ kiro
+   - register it with `create_artifact` (kind `image`, `sourcePath` its
+     absolute path) and embed it inline as `![<title>](kiro-artifact://<id>)`;
+@@@ claude
+   - show it with the Read tool, by the size rule in Safety: `board.png` is
+     2040 px wide and `compare.png` can be over 2000 px tall, so Read the
+     `<audit>/scratch/` copy whenever `sips -g pixelWidth -g pixelHeight`
+     reports a side over 2000 px;
+@@@ end
+
+@@@ file skills/incident-triage/SKILL.md
+@@@ kiro
+Also covers 'we have an incident', failed extractions, rolled-back releases, auth/account isolation and restore/alert problems, ahead of generic incident-response or debugging skills.
+@@@ claude
+Also covers 'we have an incident', failed extractions, rolled-back releases, auth/account isolation and restore/alert problems, ahead of engineering:incident-response and engineering:debug.
+@@@ end
+
+@@@ file skills/mobile-feature-delivery/SKILL.md
+@@@ kiro
+Not this skill: apps/ios (apps/ios/design.md governs it; sync-ios ports web changes there); for Expo work use it instead of generic React Native skills.
+@@@ claude
+Not this skill: apps/ios (apps/ios/design.md governs it; sync-ios ports web changes there); for Expo work use it instead of ecc:react-native-patterns.
+@@@ end
+
+@@@ file skills/platform-lifecycle/SKILL.md
+@@@ kiro
+## Running from an agent session
+@@@ claude
+## Running from Claude Code
+@@@ end
+
+@@@ file skills/platform-lifecycle/SKILL.md
+@@@ kiro
+guard. If Reddy approves the agent running `platform-up.sh`, run it as a
+background process and follow its output, so a command timeout cannot stop it
+@@@ claude
+guard. If Reddy approves Claude running `platform-up.sh`, use
+`run_in_background` and follow its output; foreground Bash stops at 10 minutes,
+@@@ end
+
+@@@ file skills/reddy-governance/SKILL.md
+@@@ kiro
+Prefer it over generic ADR skills.
+@@@ claude
+Prefer over ecc:architecture-decision-records.
+@@@ end
+
+@@@ file skills/reddy-governance/SKILL.md
+@@@ kiro
+prefer this skill over generic ADR, product-review, tech-debt or architecture skills.
+@@@ claude
+prefer this skill over ecc:architecture-decision-records, ecc:product-lens, engineering:tech-debt and engineering:architecture.
+@@@ end
+
+@@@ file skills/reddy-governance/SKILL.md
+@@@ kiro
+   trust boundaries. A `shortcut:` code comment or an unreviewed third-party hook is
+@@@ claude
+   trust boundaries. A `shortcut:` code comment or an unreviewed plugin hook is
+@@@ end
+
+@@@ file skills/release-readiness/SKILL.md
+@@@ kiro
+Prefer this skill over generic deploy checklists. Not this skill: packaging compliance evidence (compliance-evidence).
+@@@ claude
+Prefer this skill over engineering:deploy-checklist. Not this skill: packaging compliance evidence (compliance-evidence).
+@@@ end
+
+@@@ file skills/runbook-consistency/SKILL.md
+@@@ kiro
+Prefer it over generic document-writing skills.
+@@@ claude
+Prefer over anthropic-skills:docs.
+@@@ end
+
+@@@ file skills/runbook-consistency/SKILL.md
+@@@ kiro
+connector or MCP-hosted document unless asked.
+
+Use it after architecture, release, migration, lifecycle or security/compliance changes too. Prefer it over generic documentation, codemap or onboarding skills and agents. Not this skill: executing a runbook (platform-lifecycle, safe-data-migration, release-readiness, incident-triage, provider-activation, reference-data-ingestion) or packaging compliance evidence (compliance-evidence).
+@@@ claude
+Claude Doc or other connector document unless asked.
+
+Use it after architecture, release, migration, lifecycle or security/compliance changes too. Prefer it over engineering:documentation, ecc:update-docs, ecc:update-codemaps, ecc:codebase-onboarding and the ecc doc-updater agent. Not this skill: executing a runbook (platform-lifecycle, safe-data-migration, release-readiness, incident-triage, provider-activation, reference-data-ingestion) or packaging compliance evidence (compliance-evidence).
+@@@ end
+
+@@@ file skills/runbook-consistency/references/authority-map.md
+@@@ kiro
+2. Root `README.md`, `SECURITY.md`, `design.md`, then the always-on steering
+   (`.kiro/steering/*.md`). Where a steering file and
+@@@ claude
+2. Root `README.md`, `SECURITY.md`, `design.md`, then the always-on rules
+   (`.claude/rules/*.md`; canonical `.kiro/steering`). Where a rule file and
+@@@ end
+
+@@@ file skills/security-review/SKILL.md
+@@@ kiro
+For a pattadar-platform diff touching these areas, prefer it over generic or third-party code and security review skills;
+@@@ claude
+For a pattadar-platform diff touching these areas, prefer it over the built-in /security-review, code-review and plugin reviewers (ponytail:ponytail-review, engineering:code-review);
+@@@ end
+
+@@@ file skills/test-governance/SKILL.md
+@@@ kiro
+them with Playwright MCP or any other browser automation, even
+@@@ claude
+them with the built-in `run`, Playwright MCP or Claude in Chrome, even
+@@@ end
+
+@@@ file skills/verify-change/SKILL.md
+@@@ kiro
+   `.kiro/skills/test-governance/references/evidence-and-status.md`, with the
+@@@ claude
+   `.claude/skills/test-governance/references/evidence-and-status.md`, with the
+@@@ end
+
+@@@ file skills/verify-change/references/verification-matrix.md
+@@@ kiro
+`.kiro/skills/test-governance/references/harness-map.md`.
+@@@ claude
+`.claude/skills/test-governance/references/harness-map.md`.
+@@@ end
+
+@@@ file skills/web-feature-delivery/SKILL.md
+@@@ kiro
+before mutating it by hand or through Playwright MCP or other
+browser automation (`functional-acceptance`, "Distinguish a code defect from a missing backend").
+@@@ claude
+before mutating it by hand or through the built-in `run`, Playwright MCP or
+Claude in Chrome
+(`functional-acceptance`, "Distinguish a code defect from a missing backend").
+@@@ end
+
+@@@ file skill-evals/collisions.json
+@@@ kiro
+a generic or third-party code or security review is advisory and does not satisfy change-governance dimension 3.
+@@@ claude
+a generic built-in or plugin review (Claude Code's built-in security review command, code-review, ponytail-review) is advisory and does not satisfy change-governance dimension 3.
+@@@ end
+
+@@@ file skill-evals/portfolio.json
+@@@ kiro
+Run trigger prompts and output cases (with-skill versus baseline/old-skill) in fresh Kiro sessions;
+@@@ claude
+Run trigger prompts and output cases (with-skill versus baseline/old-skill) in fresh Claude Code sessions: a new `claude -p` at the repo root, or a clean subagent. .claude is untracked, so a git worktree has no project skills;
+@@@ end
+
+@@@ file skill-evals/portfolio.json
+@@@ kiro
+record per run the client version, model, discoverable skill set and loaded skill(s).
+@@@ claude
+run baselines in a scratch copy of the repo without the skill directory. Record per run the client version, model, enabled plugins, the session's skill listing (including which skills arrived without a description) and the Skill-tool calls. Score
+@@@ end
+
+@@@ file skill-evals/portfolio.json
+@@@ kiro
+Claude Code runs use the untracked .claude copy (its fixtures carry the pattadar-security-review name) and follow agent-skill-maintenance references/evaluation-method.md. Built-in, global and third-party skills appear only in prompt and required_stop text because the schema cannot name them.
+@@@ claude
+Claude Code runs against this .claude copy; built-in and plugin skills appear only in prompt and required_stop text because the schema cannot name them.
+@@@ end
+
+@@@ file skill-evals/portfolio.json
+@@@ kiro
+Why does Kiro not load platform-lifecycle for a platform-down request?
+@@@ claude
+Why does Claude Code not load platform-lifecycle for a platform-down request?
+@@@ end
+
+@@@ file skill-evals/portfolio.json
+@@@ kiro
+the reply opens with both images, compare.png first, each registered with create_artifact and embedded inline, its absolute path on its own line, and opened with open on a local Mac;
+@@@ claude
+the reply opens with both images, compare.png first, each shown with the Read tool (through a copy of at most 1800 px a side whenever a side is over 2000 px), its absolute path on its own line, and opened with open on a local Mac;
+@@@ end
+
+@@@ file skill-evals/portfolio.json
+@@@ kiro
+the top-level agent then presents both itself (create_artifact with an inline embed, each path on its own line, open on a local Mac) before the What changes summary keyed to the marker numbers;
+@@@ claude
+the top-level agent then presents both itself (the Read tool, each path on its own line, open on a local Mac) before the What changes summary keyed to the marker numbers;
+@@@ end

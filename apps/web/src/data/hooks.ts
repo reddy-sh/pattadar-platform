@@ -442,5 +442,5 @@ export function useAuditTrail() {
   );
 }
 
-// useProfile left with pages/ProfilePage.tsx: /app/profile reads `me` through
+// useProfile left with pages/ProfilePage.tsx: /profile reads `me` through
 // useMe (w360/api.ts), which has no sample fallback to paint over a failed read.

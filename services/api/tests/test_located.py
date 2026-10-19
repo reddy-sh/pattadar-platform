@@ -4,7 +4,7 @@
 easily have the second and not the first — five of the eight parcels in the
 founder's own account do — and the pin parser answers 0,0 for a missing value,
 which is a real place: null island, in the Gulf of Guinea. The portfolio map on
-/app/properties plots what this returns, so an answer of 0,0 for a record whose
+/properties plots what this returns, so an answer of 0,0 for a record whose
 outline is known would put half a portfolio in the Atlantic.
 """
 

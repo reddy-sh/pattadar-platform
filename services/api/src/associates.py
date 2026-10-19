@@ -26,6 +26,11 @@ import json
 import re
 from typing import Iterable, Optional
 
+try:                                    # inside the `src` package, as main.py loads it
+    from . import catalogue
+except ImportError:                     # imported bare off src/, as the pure tests do
+    import catalogue                    # type: ignore[no-redef]
+
 
 # ── The DDL this feature adds ──────────────────────────────────────────
 #
@@ -472,9 +477,8 @@ def training_id_from_code(code: str, secret: str) -> str:
 class Discipline:
     """One line of work somebody enrols in.
 
-    `kinds` covers BOTH vocabularies on purpose. `SERVICE_CATALOGUE` writes
-    ec / survey / site_visit / title_opinion / mutation / patta_copy, and
-    `create_request` writes survey / opinion / visit / fencing, into the same
+    `kinds` covers BOTH vocabularies on purpose. The catalogue's keys and
+    `create_request`'s survey / opinion / visit / fencing land in the same
     `work_requests.kind` column. A discipline that knew only one of them would
     silently stop matching half the jobs.
     """
@@ -501,38 +505,59 @@ class Discipline:
 # setting it to 1 turns the same code into a sequential ladder — which is what
 # modern rideshare dispatch actually does — so the broadcast-versus-sequential
 # argument never has to enter the schema.
+#: Which disciplines may take each kind, best fit first: a catalogue service's
+#: own `disciplines`, shared with its legacy aliases.
+_BEST_FIT: dict = {
+    **{k: tuple(v["disciplines"]) for k, v in catalogue.SERVICE_CATALOGUE.items()},
+    **{old: tuple(catalogue.SERVICE_CATALOGUE[k]["disciplines"])
+       for old, k in catalogue.ALIASES.items()},
+}
+
+#: Kinds that are not catalogue services: fencing, and the legacy `visit`
+#: that developers and crews still take from create_request.
+_LOCAL_KINDS: dict = {
+    "contractor": ("fencing",), "landscaper": ("fencing",),
+    "developer": ("fencing", "visit"), "labour": ("fencing", "visit"),
+}
+
+
+def _kinds_of(discipline: str) -> tuple:
+    """The kinds a discipline takes, the ones it fits best first."""
+    ranked = sorted((k for k, fit in _BEST_FIT.items() if discipline in fit),
+                    key=lambda k: _BEST_FIT[k].index(discipline))
+    return tuple(ranked) + tuple(k for k in _LOCAL_KINDS.get(discipline, ()) if k not in ranked)
+
+
 DISCIPLINES: dict = {
     d.key: d for d in (
-        Discipline("surveyor", "Licensed surveyor", ("survey",),
+        Discipline("surveyor", "Licensed surveyor", _kinds_of("surveyor"),
                    "village", "Survey licence", 3),
-        Discipline("advocate", "Advocate", ("title_opinion", "opinion"),
+        Discipline("advocate", "Advocate", _kinds_of("advocate"),
                    "state", "Bar Council enrolment", 5),
-        Discipline("writer", "Document writer", (
-            "ec", "patta_copy", "mutation", "deed_copy", "revenue_extract",
-            "tax_receipt", "fmb_copy", "approval_copy", "occupancy_copy"),
+        Discipline("writer", "Document writer", _kinds_of("writer"),
                    "mandal", "Writer's licence", 4),
-        Discipline("agent", "Revenue agent", (
-            "mutation", "patta_copy", "ec", "deed_copy", "revenue_extract",
-            "tax_receipt", "fmb_copy", "approval_copy", "occupancy_copy"),
+        Discipline("agent", "Revenue agent", _kinds_of("agent"),
                    "mandal", "", 4),
-        Discipline("photo_studio", "Photo & drone studio", ("site_visit", "visit"),
+        Discipline("photo_studio", "Photo & drone studio", _kinds_of("photo_studio"),
                    "mandal", "GST", 3),
-        Discipline("caretaker", "Caretaker", ("site_visit", "visit", "patta_copy"),
+        Discipline("caretaker", "Caretaker", _kinds_of("caretaker"),
                    "village", "", 3),
-        Discipline("contractor", "Fencing & earthwork", ("fencing",),
+        Discipline("contractor", "Fencing & earthwork", _kinds_of("contractor"),
                    "village", "", 3),
-        Discipline("landscaper", "Landscaping & plantation", ("fencing",),
+        Discipline("landscaper", "Landscaping & plantation", _kinds_of("landscaper"),
                    "village", "", 3),
-        Discipline("developer", "Property developer", ("fencing", "visit"),
+        Discipline("developer", "Property developer", _kinds_of("developer"),
                    "district", "RERA / company verification", 2),
-        Discipline("labour", "Labour & crew", ("fencing", "visit"),
+        Discipline("labour", "Labour & crew", _kinds_of("labour"),
                    "village", "", 2),
+        Discipline("hydrogeologist", "Hydrogeologist", _kinds_of("hydrogeologist"),
+                   "district", "Geology degree or groundwater department registration", 3),
     )
 }
 
 # The founder's own words map onto these: the lawyer is `advocate`, the helper
 # is `caretaker`, HR-as-crew-supply is `labour`. The first five labels are
-# exactly the five `_TICKET_ROLE` already hardcodes (Surveyor, Caretaker,
+# exactly the five role words `_TICKET_ROLE` already writes (Surveyor, Caretaker,
 # Advocate, Agent, Contractor), so `_remember_person` keeps producing the same
 # words it does today rather than growing a second vocabulary.
 
@@ -568,7 +593,8 @@ def disciplines_for(kind: str) -> tuple:
     """
     k = (kind or "").strip()
     out = [d for d in DISCIPLINES.values() if k in d.kinds]
-    out.sort(key=lambda d: d.kinds.index(k))
+    fit = _BEST_FIT.get(k, ())
+    out.sort(key=lambda d: fit.index(d.key) if d.key in fit else len(fit))
     return tuple(out)
 
 

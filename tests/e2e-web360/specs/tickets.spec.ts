@@ -165,7 +165,7 @@ async function assertNoChargeClaimed(page: Pg): Promise<void> {
 test.describe('W360 · a ticket tracks itself', () => {
   test('the Services list opens a ticket', async ({ page }) => {
     const errors = await watchConsole(page);
-    await page.goto('/app/services');
+    await page.goto('/services');
 
     // Filtered on the reference, not on the title: other specs in this suite
     // raise their own "Boundary re-survey" requests and leave them on the
@@ -175,7 +175,7 @@ test.describe('W360 · a ticket tracks itself', () => {
     await expect(row).toContainText('Waiting on you');
 
     await row.getByRole('link', { name: 'Open ticket' }).click();
-    await expect(page).toHaveURL(new RegExp(`/app/tickets/${T2094}$`));
+    await expect(page).toHaveURL(new RegExp(`/services/${T2094}$`));
     await expect(page.getByRole('heading', { name: 'Boundary re-survey' })).toBeVisible();
     expect(errors).toEqual([]);
   });
@@ -184,14 +184,14 @@ test.describe('W360 · a ticket tracks itself', () => {
     // This test is not about tickets. It pins the behaviour crud-360.spec.ts
     // depends on twice over, so that a change made in the name of the ticket
     // page cannot quietly remove the panel it expands.
-    await page.goto(`/app/records/${PARCEL}/services`);
+    await page.goto(`/properties/${PARCEL}/services`);
     await page.getByRole('button', { name: 'Track' }).first().click();
     await expect(page.getByRole('button', { name: 'Hide' })).toBeVisible();
   });
 
   test('the ticket says who has it and what has happened', async ({ page }) => {
     const errors = await watchConsole(page);
-    await page.goto(`/app/tickets/${T2094}`);
+    await page.goto(`/services/${T2094}`);
 
     // Named on the page — the assignee card, the trail and the dispatch all
     // say it, so first() rather than a count.
@@ -210,7 +210,7 @@ test.describe('W360 · a ticket tracks itself', () => {
 
   test('nine days of silence says so and offers one thing to do', async ({ page }) => {
     const errors = await watchConsole(page);
-    await page.goto(`/app/tickets/${T2102}`);
+    await page.goto(`/services/${T2102}`);
 
     await expect(page.getByText(/Nothing has happened for \d+ days/)).toBeVisible();
     await expect(page.getByRole('button', { name: 'Send it again' })).toBeEnabled();
@@ -234,7 +234,7 @@ test.describe.serial('W360 · sending a ticket out', () => {
 
   test('the system sends it and can take it back', async ({ page, request }) => {
     const errors = await watchConsole(page);
-    await page.goto(`/app/tickets/${ticket.id}`);
+    await page.goto(`/services/${ticket.id}`);
 
     await page.getByRole('button', { name: 'Share this order' }).click();
     await page.getByLabel('Their name').fill('E2E Surveyor');
@@ -266,7 +266,7 @@ test.describe.serial('W360 · sending a ticket out', () => {
   });
 
   test('a dispatch contains a revocable worker access link', async ({ page }) => {
-    await page.goto(`/app/tickets/${ticket.id}`);
+    await page.goto(`/services/${ticket.id}`);
     await page.getByRole('button', { name: 'See what was sent' }).click();
     const body = await page.locator('pre').first().innerText();
     expect(body).toMatch(/Pattadar/);
@@ -278,7 +278,7 @@ test.describe.serial('W360 · sending a ticket out', () => {
     // that can write to an outsider, and the failure mode of that feature is
     // a "Send by WhatsApp" button appearing on the screen that must not have
     // one — so the assertion also fails here, where the change would be made.
-    await page.goto(`/app/records/${PARCEL}/request?kind=survey`);
+    await page.goto(`/properties/${PARCEL}/request?kind=survey`);
     await expect(page.getByRole('button', { name: /WhatsApp/ })).toHaveCount(0);
     await expect(page.getByRole('button', { name: /Send by email/ })).toHaveCount(0);
   });
@@ -304,7 +304,7 @@ test.describe.serial('W360 · work comes back and is reviewed', () => {
 
   test('recording something moves the ticket to waiting on you', async ({ page, request }) => {
     const errors = await watchConsole(page);
-    await page.goto(`/app/tickets/${ticket.id}`);
+    await page.goto(`/services/${ticket.id}`);
 
     await fromKebab(page, ticket.ref, 'Record what came back');
     await page.getByLabel('What is it').selectOption('feature');
@@ -324,7 +324,7 @@ test.describe.serial('W360 · work comes back and is reviewed', () => {
   });
 
   test('accept is refused while anything is undecided', async ({ page, request }) => {
-    await page.goto(`/app/tickets/${ticket.id}`);
+    await page.goto(`/services/${ticket.id}`);
     // A thing nobody has looked at is not a thing anybody meant to file.
     await expect(page.getByRole('button', { name: 'Accept and file' }).first()).toBeDisabled();
 
@@ -337,7 +337,7 @@ test.describe.serial('W360 · work comes back and is reviewed', () => {
 
   test('accepting files it onto the property', async ({ page, request }) => {
     const errors = await watchConsole(page);
-    await page.goto(`/app/tickets/${ticket.id}`);
+    await page.goto(`/services/${ticket.id}`);
 
     await deliverable(page, 'E2E bore well').getByRole('button', { name: 'Keep it' }).click();
     await expect(page.getByText('Keeping it').first()).toBeVisible();
@@ -349,7 +349,7 @@ test.describe.serial('W360 · work comes back and is reviewed', () => {
     await expect(page.getByText(/Filed \d{2}\/\d{2}\/\d{4}/)).toBeVisible();
 
     // The screen says it was filed. The record is what decides whether it was.
-    await page.goto(`/app/records/${record}/features`);
+    await page.goto(`/properties/${record}/site-features`);
     await expect(page.getByText('E2E bore well').first()).toBeVisible();
 
     const out = await gql(request, `{ web { ticket(id:"${ticket.id}") {
@@ -385,7 +385,7 @@ test.describe.serial('W360 · work comes back and is reviewed', () => {
     await gql(request, `mutation { web { addDeliverable(ticketId:"${second.id}",
       kind:"feature", label:"E2E wrong shed", payload:${json({ condition_state: 'bad' })}) } }`);
 
-    await page.goto(`/app/tickets/${second.id}`);
+    await page.goto(`/services/${second.id}`);
     await deliverable(page, 'E2E wrong shed').getByRole('button', { name: 'Not this one' }).click();
     await page.getByLabel('What is wrong with it').fill('E2E wrong field');
     await page.getByRole('button', { name: 'Send back' }).click();
@@ -434,7 +434,7 @@ test.describe.serial('W360 · money is honest while the stub is on', () => {
 
   test('a ticket with nothing set aside says so', async ({ page }) => {
     const errors = await watchConsole(page);
-    await page.goto(`/app/tickets/${T2101}`);
+    await page.goto(`/services/${T2101}`);
 
     // The headline and the empty ledger both say it; the headline is first.
     await expect(page.getByText('Nothing held yet').first()).toBeVisible();
@@ -447,7 +447,7 @@ test.describe.serial('W360 · money is honest while the stub is on', () => {
 
   test('setting money aside records it and does not charge', async ({ page, request }) => {
     const errors = await watchConsole(page);
-    await page.goto(`/app/tickets/${T2101}`);
+    await page.goto(`/services/${T2101}`);
     await page.getByRole('button', { name: /^Set ₹1,180 aside$/ }).click();
 
     await expect(page.getByText('₹1,180 held for this order')).toBeVisible();
@@ -475,7 +475,7 @@ test.describe.serial('W360 · money is honest while the stub is on', () => {
   });
 
   test('no screen claims a payment happened', async ({ page }) => {
-    for (const url of ['/app/wallet', `/app/tickets/${T2103}`, `/app/tickets/${T2104}`]) {
+    for (const url of ['/wallet', `/services/${T2103}`, `/services/${T2104}`]) {
       await page.goto(url);
       await assertNoChargeClaimed(page);
     }
@@ -483,7 +483,7 @@ test.describe.serial('W360 · money is honest while the stub is on', () => {
 
   test('the wallet adds up', async ({ page, request }) => {
     const errors = await watchConsole(page);
-    await page.goto('/app/wallet');
+    await page.goto('/wallet');
 
     await expect(page.getByText('Payments are not switched on yet.')).toBeVisible();
 
@@ -492,9 +492,9 @@ test.describe.serial('W360 · money is honest while the stub is on', () => {
       .toContainText('₹8,600');
     await expect(strip.locator('div').filter({ hasText: /Gone out/i }).first())
       .toContainText('₹1,150');
-    // Adding money is not switched on, and the button says so rather than
-    // pretending to work.
-    await expect(page.getByRole('button', { name: 'Add money' })).toBeDisabled();
+    // Adding money is not switched on, so it is not offered: no dead button
+    // pretending to work (Wallet.tsx).
+    await expect(page.getByRole('button', { name: 'Add money' })).toHaveCount(0);
 
     const out = await gql(request, `{ web { wallet { setAside paidOut live } } }`);
     expect(out?.wallet).toMatchObject({ setAside: 8600, paidOut: 1150, live: false });
@@ -503,7 +503,7 @@ test.describe.serial('W360 · money is honest while the stub is on', () => {
 
   test('a cancelled job shows what was settled and what came back', async ({ page }) => {
     const errors = await watchConsole(page);
-    await page.goto(`/app/tickets/${T2104}`);
+    await page.goto(`/services/${T2104}`);
 
     await expect(page.getByText('Cancelled').first()).toBeVisible();
     // He was paid for the trips he made; the rest went back.
@@ -534,7 +534,7 @@ test.describe.serial('W360 · the whole journey, on one job', () => {
   test('money is set aside, and the job goes out on all three channels',
     async ({ page, request }) => {
     const errors = await watchConsole(page);
-    await page.goto(`/app/tickets/${ticket.id}`);
+    await page.goto(`/services/${ticket.id}`);
 
     await page.getByRole('button', { name: /^Set ₹2,900 aside$/ }).click();
     await expect(page.getByText('₹2,900 held for this order')).toBeVisible();
@@ -579,7 +579,7 @@ test.describe.serial('W360 · the whole journey, on one job', () => {
 
   test('somebody is put on it, and goes to site', async ({ page, request }) => {
     const errors = await watchConsole(page);
-    await page.goto(`/app/tickets/${ticket.id}`);
+    await page.goto(`/services/${ticket.id}`);
 
     const picker = page.locator('#tk-assign');
     await expect(picker).toBeVisible();
@@ -603,7 +603,7 @@ test.describe.serial('W360 · the whole journey, on one job', () => {
   test('what comes back waits on the owner, and nothing touches the land yet',
     async ({ page, request }) => {
     const errors = await watchConsole(page);
-    await page.goto(`/app/tickets/${ticket.id}`);
+    await page.goto(`/services/${ticket.id}`);
 
     // The first thing back, through the screen the owner actually uses.
     await fromKebab(page, ticket.ref, 'Record what came back');
@@ -646,7 +646,7 @@ test.describe.serial('W360 · the whole journey, on one job', () => {
   test('two are kept, one is refused, and the money follows the decision',
     async ({ page, request }) => {
     const errors = await watchConsole(page);
-    await page.goto(`/app/tickets/${ticket.id}`);
+    await page.goto(`/services/${ticket.id}`);
 
     await deliverable(page, 'E2E corrected outline')
       .getByRole('button', { name: 'Keep it' }).click();
@@ -725,7 +725,7 @@ test.describe.serial('W360 · the whole journey, on one job', () => {
 
     // And it is on the screen the owner would look at, under the name they
     // were shown before they said yes.
-    await page.goto(`/app/records/${record}/features`);
+    await page.goto(`/properties/${record}/site-features`);
     await expect(page.getByText('E2E journey bore well').first()).toBeVisible();
     await expect(page.getByText('E2E journey wrong shed')).toHaveCount(0);
   });
@@ -761,7 +761,7 @@ test.describe.serial('W360 · a job that goes wrong gives the money back', () =>
     await gql(request, `mutation { web { reviewDeliverable(deliverableId:"${item}",
       review:"rejected", note:"E2E unsigned and undated") } }`);
 
-    await page.goto(`/app/tickets/${t.id}`);
+    await page.goto(`/services/${t.id}`);
     // Cancelling is behind the kebab, not on the page: closing a job somebody
     // is working on is not a thing to have under the cursor by accident.
     await fromKebab(page, t.ref, 'Cancel this order');

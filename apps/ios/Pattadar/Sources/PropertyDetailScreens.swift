@@ -90,7 +90,7 @@ struct ParcelDetailScreen: View {
     /// Which of the shell's views is rendered. Chips FILTER sections — the
     /// handoff is explicit that they must not scroll-to-anchor.
     @State private var seg = "Overview"
-    private static let segs = ["Overview", "The record", "Papers", "Features", "People", "Services", "Money", "Timeline"]
+    private static let segs = ["Overview", "The record", "Documents", "Features", "People", "Services", "Money", "Timeline"]
     /// The gap being fixed, when a Needs-you row was tapped.
     @State private var fixing: ReadinessCheck?
     /// "Have Pattadar do it" lands on the request screen.
@@ -131,7 +131,7 @@ struct ParcelDetailScreen: View {
 
     private var moneyTab: some View {
         Section("Money") {
-            Fact(label: "Market value",
+            Fact(label: "Market estimate",
                  value: parcel.marketValue > 0 ? rupees(parcel.marketValue) : "—")
             Fact(label: "Purchase price",
                  value: parcel.purchasePrice > 0 ? rupees(parcel.purchasePrice) : "—")
@@ -141,7 +141,7 @@ struct ParcelDetailScreen: View {
                 }
             }
             NavigationLink { SpendScreen() } label: {
-                Label("Spend on your land", systemImage: "indianrupeesign.circle")
+                Label("Expenses", systemImage: "indianrupeesign.circle")
             }
         }
     }
@@ -168,21 +168,21 @@ struct ParcelDetailScreen: View {
                        subtitle: parcelWhere,
                        facts: parcel.marketValue > 0
                             ? [("Extent", areaText(parcel.extent, .acre)),
-                               ("Market", compactRupees(parcel.marketValue)),
+                               ("Estimate", compactRupees(parcel.marketValue)),
                                ("Per acre", parcel.extent > 0
                                     ? compactRupees(parcel.marketValue / parcel.extent) : "—")]
                             : [("Extent", areaText(parcel.extent, .acre)),
                                ("Class", classificationLabel),
-                               ("Held by", holderName.isEmpty ? "—" : holderName)],
+                               ("Owner", holderName.isEmpty ? "—" : holderName)],
                        readiness: readiness,
-                       statusChip: humanize(parcel.status))
+                       statusChip: statusWord(parcel.status))
 
             SegChips(tabs: Self.segs, selection: $seg,
-                     counts: ["Papers": documents.count, "Features": features.count])
+                     counts: ["Documents": documents.count, "Features": features.count])
 
             switch seg {
             case "The record": recordTab
-            case "Papers": documentsTab
+            case "Documents": documentsTab
             case "People": peopleTab
             case "Features": onTheLandTab
             case "Services": servicesTab
@@ -259,7 +259,7 @@ struct ParcelDetailScreen: View {
         }
         .confirmationDialog("Delete this parcel?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive) { Task { await remove() } }
-            Button("Keep it", role: .cancel) { }
+            Button("Cancel", role: .cancel) { }
         } message: {
             Text("Sy \(parcel.surveyNo) and everything filed under it.")
         }
@@ -308,7 +308,7 @@ struct ParcelDetailScreen: View {
         CountsList(documents: documents.count,
                    boundaryDrawn: !parseBoundary(parcel.boundary).isEmpty,
                    spent: spentHere,
-                   onDocuments: { seg = "Papers" },
+                   onDocuments: { seg = "Documents" },
                    onBoundary: { seg = "The record" })
     }
 
@@ -316,13 +316,13 @@ struct ParcelDetailScreen: View {
 
     @ViewBuilder private var recordTab: some View {
         Section("Identity") {
-            ActionFact(label: "Survey no.", value: parcel.surveyNo)
+            ActionFact(label: "Survey number", value: parcel.surveyNo)
             ActionFact(label: "Subdivision", value: parcel.subdivision)
             ActionFact(label: "Khata / passbook", value: passbook?.pattadarNo ?? "")
             ActionFact(label: "Classification", value: classificationLabel)
             if !parcel.stake.isEmpty,
                parcel.stake.caseInsensitiveCompare(parcel.status) != .orderedSame {
-                ActionFact(label: "My stake", value: humanize(parcel.stake))
+                ActionFact(label: "Your stake", value: statusWord(parcel.stake))
             }
         }
 
@@ -353,14 +353,14 @@ struct ParcelDetailScreen: View {
         }
 
         Section("Registration") {
-            ActionFact(label: "Document no.", value: parcel.regDocNo,
+            ActionFact(label: "Document number", value: parcel.regDocNo,
                        actionWord: "Add", onAction: { editing = true })
             ActionFact(label: "Registered on", value: humanDate(parcel.regDate),
                        actionWord: "Add", onAction: { editing = true })
             ActionFact(label: "Sub-registrar", value: parcel.sro,
                        actionWord: "Add", onAction: { editing = true })
             ActionFact(label: "Acquired via", value: humanize(parcel.acquisitionSource))
-            ActionFact(label: "Consideration", value: parcel.purchasePrice > 0
+            ActionFact(label: "Price paid", value: parcel.purchasePrice > 0
                         ? money(parcel.purchasePrice) : "",
                        actionWord: "Add", onAction: { editing = true })
         }
@@ -369,14 +369,14 @@ struct ParcelDetailScreen: View {
             ActionFact(label: "Encumbrance", value: humanize(parcel.encumbranceStatus),
                        actionWord: "Get EC", onAction: { fixing = readiness.checks.first { $0.id == "ec" } })
             ActionFact(label: "EC dated", value: humanDate(parcel.ecDate))
-            ActionFact(label: "Mutation", value: humanize(parcel.mutationStatus),
-                       actionWord: "File it",
+            ActionFact(label: "Mutation (name transfer)", value: humanize(parcel.mutationStatus),
+                       actionWord: "Add a document",
                        hint: readiness.checks.first { $0.id == "mutation" }?.passed == false
                             ? "still in the seller's name" : "",
                        onAction: { fixing = readiness.checks.first { $0.id == "mutation" } })
             ActionFact(label: "Land tax paid to", value: parcel.taxPaidUpto,
-                       actionWord: "File it", onAction: { fixing = readiness.checks.first { $0.id == "tax" } })
-            ActionFact(label: "Litigation", value: parcel.litigation ? "Under litigation" : "None declared")
+                       actionWord: "Add receipt", onAction: { fixing = readiness.checks.first { $0.id == "tax" } })
+            ActionFact(label: "Court case", value: parcel.litigation ? "In court" : "Not in court")
             if parcel.litigation, !parcel.litigationNote.isEmpty {
                 Text(parcel.litigationNote).font(.callout).foregroundStyle(Palette.danger)
             }
@@ -385,11 +385,11 @@ struct ParcelDetailScreen: View {
         if parcel.marketValue > 0 || parcel.guidelineValue > 0 || parcel.loanAmount > 0
             || parcel.stampDuty > 0 || spentHere > 0 {
             Section {
-                Fact(label: "Guideline value", value: money(parcel.guidelineValue), mono: true)
-                Fact(label: "Market value", value: money(parcel.marketValue), mono: true)
+                Fact(label: "Government value", value: money(parcel.guidelineValue), mono: true)
+                Fact(label: "Market estimate", value: money(parcel.marketValue), mono: true)
                 Fact(label: "Stamp duty", value: money(parcel.stampDuty), mono: true)
                 Fact(label: "Loan outstanding", value: money(parcel.loanAmount), mono: true)
-                Fact(label: "Spent on this land", value: spentHere > 0 ? money(spentHere) : "", mono: true)
+                Fact(label: "Expenses on this land", value: spentHere > 0 ? money(spentHere) : "", mono: true)
             } header: {
                 Text("Money")
             } footer: {
@@ -433,7 +433,7 @@ struct ParcelDetailScreen: View {
         }
         if missing("ror") && missing("adangal") && missing("passbook") {
             out.append(.init(id: "ror", name: "1-B / Adangal extract",
-                             why: "Proof the record moved to you"))
+                             why: "Proof the revenue record moved to you"))
         }
         if missing("encumbrance") && !readinessCheckPassed("ec") {
             out.append(.init(id: "ec", name: "Encumbrance certificate",
@@ -457,14 +457,14 @@ struct ParcelDetailScreen: View {
     // MARK: - People
 
     @ViewBuilder private var peopleTab: some View {
-        Section("Held by") {
+        Section("Owners") {
             HStack(spacing: Space.md) {
                 Avatar(name: holderName, size: 40, isSelf: false)
                 VStack(alignment: .leading, spacing: Space.hair) {
                     Text(holderName.isEmpty ? "Not recorded" : holderName)
                         .font(.subheadline.weight(.semibold))
                     Text("On the record" + (parcel.acquisitionSource.isEmpty
-                        ? "" : " · via \(humanize(parcel.acquisitionSource).lowercased())"))
+                        ? "" : " · \(acquisitionWord(parcel.acquisitionSource))"))
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -479,7 +479,7 @@ struct ParcelDetailScreen: View {
             } label: {
                 Label {
                     VStack(alignment: .leading, spacing: Space.hair) {
-                        Text("Beneficiaries").font(.subheadline.weight(.medium))
+                        Text("Heirs").font(.subheadline.weight(.medium))
                         Text("Who inherits this — land is lost more often to a paper nobody could find than to a dispute.")
                             .font(.caption2).foregroundStyle(.secondary)
                     }
@@ -804,12 +804,12 @@ struct PropertyDetailScreen: View {
 
     private var moneyTab: some View {
         Section("Money") {
-            Fact(label: "Market value",
+            Fact(label: "Market estimate",
                  value: property.marketValue > 0 ? rupees(property.marketValue) : "—")
             Fact(label: "Purchase price",
                  value: property.purchasePrice > 0 ? rupees(property.purchasePrice) : "—")
             NavigationLink { SpendScreen() } label: {
-                Label("Spend on this property", systemImage: "indianrupeesign.circle")
+                Label("Expenses", systemImage: "indianrupeesign.circle")
             }
         }
     }
@@ -852,7 +852,7 @@ struct PropertyDetailScreen: View {
     private var landTabName: String { "Features" }
 
     private var segTabs: [String] {
-        ["Overview", "The record", "Papers", "Features", "People", "Services", "Money", "Timeline"]
+        ["Overview", "The record", "Documents", "Features", "People", "Services", "Money", "Timeline"]
     }
 
     /// Per-kind hero gradient from the handoff: plot slate, built green.
@@ -872,7 +872,7 @@ struct PropertyDetailScreen: View {
         } else {
             out.append(("Type", humanize(property.type)))
         }
-        out.append(("Held by", property.currentOwner.isEmpty ? "—" : property.currentOwner))
+        out.append(("Owner", property.currentOwner.isEmpty ? "—" : property.currentOwner))
         return out
     }
 
@@ -892,15 +892,15 @@ struct PropertyDetailScreen: View {
                             .filter { !$0.isEmpty }.joined(separator: " · "),
                        facts: heroFacts,
                        readiness: readiness,
-                       statusChip: humanize(property.holdingStatus),
+                       statusChip: statusWord(property.holdingStatus),
                        gradient: heroGradient)
 
             SegChips(tabs: segTabs, selection: $seg,
-                     counts: ["Papers": documents.count, "Features": features.count])
+                     counts: ["Documents": documents.count, "Features": features.count])
 
             switch seg {
             case "The record": recordTab
-            case "Papers": documentsTab
+            case "Documents": documentsTab
             case "People": peopleTab
             case "Features": landTab
             case "Services": servicesTab
@@ -983,7 +983,7 @@ struct PropertyDetailScreen: View {
         }
         .confirmationDialog("Delete this property?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive) { Task { await remove() } }
-            Button("Keep it", role: .cancel) { }
+            Button("Cancel", role: .cancel) { }
         } message: {
             Text("This property and the deeds attached to it will be removed. This cannot be undone.")
         }
@@ -1034,7 +1034,7 @@ struct PropertyDetailScreen: View {
         CountsList(documents: documents.count,
                    boundaryDrawn: !parseBoundary(property.boundary).isEmpty,
                    spent: spentHere,
-                   onDocuments: { seg = "Papers" },
+                   onDocuments: { seg = "Documents" },
                    onBoundary: { seg = "The record" })
     }
 
@@ -1050,7 +1050,7 @@ struct PropertyDetailScreen: View {
             ActionFact(label: "RERA no.", value: property.reraNo)
             if !property.stake.isEmpty,
                property.stake.caseInsensitiveCompare(property.holdingStatus) != .orderedSame {
-                ActionFact(label: "My stake", value: humanize(property.stake))
+                ActionFact(label: "Your stake", value: statusWord(property.stake))
             }
             if !property.address.isEmpty,
                property.address.caseInsensitiveCompare(whereLine) != .orderedSame {
@@ -1082,14 +1082,14 @@ struct PropertyDetailScreen: View {
         }
 
         Section("Registration") {
-            ActionFact(label: "Document no.", value: property.regDocNo,
+            ActionFact(label: "Document number", value: property.regDocNo,
                        onAction: { editing = true })
             ActionFact(label: "Registered on", value: humanDate(property.regDate),
                        onAction: { editing = true })
             ActionFact(label: "Sub-registrar", value: property.sro,
                        onAction: { editing = true })
             ActionFact(label: "Acquired via", value: humanize(property.acquisitionMode))
-            ActionFact(label: "Consideration", value: property.purchasePrice > 0
+            ActionFact(label: "Price paid", value: property.purchasePrice > 0
                         ? money(property.purchasePrice) : "",
                        onAction: { editing = true })
         }
@@ -1099,14 +1099,14 @@ struct PropertyDetailScreen: View {
                        actionWord: "Get EC",
                        onAction: { fixing = readiness.checks.first { $0.id == "ec" } })
             ActionFact(label: "EC dated", value: humanDate(property.ecDate))
-            ActionFact(label: "Mutation", value: humanize(property.mutationStatus),
-                       actionWord: "File it",
+            ActionFact(label: "Mutation (name transfer)", value: humanize(property.mutationStatus),
+                       actionWord: "Add a document",
                        onAction: { fixing = readiness.checks.first { $0.id == "mutation" } })
             ActionFact(label: "Tax paid up to", value: property.taxPaidUpto,
-                       actionWord: "File it",
+                       actionWord: "Add receipt",
                        onAction: { fixing = readiness.checks.first { $0.id == "tax" } })
-            ActionFact(label: "Litigation",
-                       value: property.litigation ? "Under litigation" : "None declared")
+            ActionFact(label: "Court case",
+                       value: property.litigation ? "In court" : "Not in court")
             if property.litigation, !property.litigationNote.isEmpty {
                 Text(property.litigationNote).font(.callout).foregroundStyle(Palette.danger)
             }
@@ -1123,10 +1123,10 @@ struct PropertyDetailScreen: View {
         if property.currentValue > 0 || property.marketValue > 0
             || property.guidelineValue > 0 || spentHere > 0 {
             Section {
-                Fact(label: "Guideline value", value: money(property.guidelineValue), mono: true)
-                Fact(label: "Market value", value: money(property.marketValue), mono: true)
+                Fact(label: "Government value", value: money(property.guidelineValue), mono: true)
+                Fact(label: "Market estimate", value: money(property.marketValue), mono: true)
                 Fact(label: "Current value", value: money(property.currentValue), mono: true)
-                Fact(label: "Spent on this property", value: spentHere > 0 ? money(spentHere) : "", mono: true)
+                Fact(label: "Expenses on this property", value: spentHere > 0 ? money(spentHere) : "", mono: true)
             } header: {
                 Text("Money")
             } footer: {
@@ -1195,14 +1195,14 @@ struct PropertyDetailScreen: View {
     // MARK: - People
 
     @ViewBuilder private var peopleTab: some View {
-        Section("Held by") {
+        Section("Owners") {
             HStack(spacing: Space.md) {
                 Avatar(name: property.currentOwner, size: 40, isSelf: false)
                 VStack(alignment: .leading, spacing: Space.hair) {
                     Text(property.currentOwner.isEmpty ? "Not recorded" : property.currentOwner)
                         .font(.subheadline.weight(.semibold))
                     Text("On the record" + (property.acquisitionMode.isEmpty
-                        ? "" : " · via \(humanize(property.acquisitionMode).lowercased())"))
+                        ? "" : " · \(acquisitionWord(property.acquisitionMode))"))
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -1231,7 +1231,7 @@ struct PropertyDetailScreen: View {
             } label: {
                 Label {
                     VStack(alignment: .leading, spacing: Space.hair) {
-                        Text("Beneficiaries").font(.subheadline.weight(.medium))
+                        Text("Heirs").font(.subheadline.weight(.medium))
                         Text("Who inherits this — land is lost more often to a paper nobody could find than to a dispute.")
                             .font(.caption2).foregroundStyle(.secondary)
                     }
@@ -1391,5 +1391,29 @@ struct StarButton: View {
                 .foregroundStyle(app.isFavourite(type, id) ? Palette.accent : .accentColor)
         }
         .accessibilityLabel(app.isFavourite(type, id) ? "Remove from favourites" : "Add to favourites")
+    }
+}
+
+/// Status and stake reach the screen through one word table (E4), the same
+/// values as web's STATUS_WORD — never a bare "Watch".
+private let statusWords: [String: String] = [
+    "owned": "Owned", "for_sale": "For sale", "disputed": "Disputed",
+    "managed": "Managed", "watch": "Watching", "archived": "Archived",
+]
+
+private func statusWord(_ raw: String) -> String {
+    statusWords[raw.lowercased()] ?? humanize(raw)
+}
+
+/// How the land came to its holder, said as words rather than a schema value.
+private func acquisitionWord(_ raw: String) -> String {
+    switch raw.lowercased().replacingOccurrences(of: " ", with: "_") {
+    case "purchase", "sale", "sale_deed", "bought": "by purchase"
+    case "inheritance", "inherited", "succession": "by inheritance"
+    case "gift", "gift_deed": "by gift"
+    case "partition": "by partition"
+    case "assignment", "govt_assignment", "government_assignment": "by government assignment"
+    case "settlement", "settlement_deed": "by settlement"
+    default: "via \(humanize(raw).lowercased())"
     }
 }

@@ -16,7 +16,6 @@ import base64
 import contextvars
 import json
 import logging
-import os
 import ssl
 
 import httpx
@@ -137,17 +136,15 @@ async def post_with_retry(url: str, *, headers: dict, json_body: dict, timeout: 
 # CI if a seventh appears outside this adapter.
 ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_VERSION = "2023-06-01"
-PROVIDER_KEY_ENV = "ANTHROPIC_API_KEY"
+async def provider_api_key() -> str:
+    """The Claude credential, or "" when the service is not configured for AI.
 
-
-def provider_api_key() -> str:
-    """The provider credential, or "" when the service is not configured for AI.
-
-    Read here rather than in the reading operations so the environment variable
-    name exists once: callers decide what an empty key means for their response,
-    but they do not get to invent a second place it comes from.
+    One place decides where it comes from (ai_reading/settings.py): the key
+    saved on the super-admin Intelligence page, else ANTHROPIC_API_KEY.
+    Callers decide what an empty key means for their response.
     """
-    return os.getenv(PROVIDER_KEY_ENV, "").strip()
+    from .. import settings
+    return await settings.anthropic_key()
 
 
 async def send_messages(payload: dict, *, api_key: str, timeout: float) -> httpx.Response:
@@ -181,11 +178,11 @@ def sniff_image_mime(data: bytes) -> str:
         return "image/heic"
     return ""
 
-async def vision_extract(data: bytes, mime: str, name: str, system: str, user_text: str, max_mb: int = 8, max_tokens: int = 1024, effort: str = "medium", endpoint: str = "anthropic-extract") -> dict:
+async def vision_extract(data: bytes, mime: str, name: str, system: str, user_text: str, max_mb: int = 8, max_tokens: int = 1024, effort: str = "medium", endpoint: str = "anthropic-extract", model: str = IMPORT_MODEL) -> dict:
     """Shared vision-extraction call: base64 → Claude → parsed JSON. Returns
     {"fields", "raw"} or {"_error": (status, message)}. `max_mb`/`max_tokens` let a
     caller with larger scans (e.g. multi-page property docs) raise the defaults."""
-    api_key = provider_api_key()
+    api_key = await provider_api_key()
     if not api_key:
         return {"_error": (503, "AI extraction is not configured")}
     if len(data) > max_mb * 1024 * 1024:
@@ -207,7 +204,7 @@ async def vision_extract(data: bytes, mime: str, name: str, system: str, user_te
     else:
         return {"_error": (400, "Upload a PDF, JPG or PNG")}
     payload = {
-        "model": IMPORT_MODEL, "max_tokens": max_tokens, "system": cacheable_system(system),
+        "model": model, "max_tokens": max_tokens, "system": cacheable_system(system),
         "output_config": {"effort": effort},
         "messages": [{"role": "user", "content": [block, {"type": "text", "text": user_text}]}],
     }
@@ -223,7 +220,7 @@ async def vision_extract(data: bytes, mime: str, name: str, system: str, user_te
         _log.warning("AI extract non-200 (file=%s, status=%s): %s", log_name, r.status_code, (r.text or '')[:300])
         return {"_error": (502, "AI call failed")}
     body = r.json()
-    usage = log_usage(body, endpoint=endpoint, name=log_name, attempt="first")
+    usage = log_usage(body, endpoint=endpoint, name=log_name, attempt="first", model=model)
     text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
     fields = extract_json(text)
     # Running out of room is a budget problem, not a bad document — so try once
@@ -239,7 +236,7 @@ async def vision_extract(data: bytes, mime: str, name: str, system: str, user_te
                 body = r2.json()
                 # The retry is a second paid call; the reported cost is the sum.
                 usage = merge_usage(usage, log_usage(
-                    body, endpoint=endpoint, name=log_name, attempt="low-effort-retry"))
+                    body, endpoint=endpoint, name=log_name, attempt="low-effort-retry", model=model))
                 text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
                 fields = extract_json(text)
         except Exception as e:
@@ -260,3 +257,15 @@ async def vision_extract(data: bytes, mime: str, name: str, system: str, user_te
                                 "photographs rather than text — try a clearer copy, or enter the "
                                 "details by hand.")}
     return {"fields": fields, "raw": text, "usage": usage}
+
+
+async def list_models(api_key: str) -> list[dict]:
+    """Claude models on this key: the Intelligence page's model list and its
+    connection check. Free; no document leaves the service."""
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        response = await client.get(
+            ANTHROPIC_MESSAGES_URL.replace("/messages", "/models"), params={"limit": 1000},
+            headers={"x-api-key": api_key, "anthropic-version": ANTHROPIC_VERSION})
+    response.raise_for_status()
+    return [{"id": m["id"], "name": m.get("display_name") or m["id"]}
+            for m in response.json().get("data", []) if str(m.get("id", "")).startswith("claude-")]

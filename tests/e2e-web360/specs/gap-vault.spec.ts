@@ -8,7 +8,7 @@
  * hands a stranger, what the Reader says about a link that lapsed a month ago,
  * and how a shared title deed is deleted — has never run:
  *
- *   · /app/papers/shelf/:key, the destination of all eight shelf cards and the
+ *   · /papers/shelf/:key, the destination of all eight shelf cards and the
  *     only cross-record view of papers, had never been opened by a test. Its
  *     own header comment says those cards used to resolve to the page they
  *     were already on, so a regression to that is invisible from the wall.
@@ -136,7 +136,7 @@ async function fileAPaper(page: Pg, request: Req, recordId: string, reader: Reco
 ): Promise<{ id: string; title: string }> {
   await withStorageFixture(page);
   await stubDocumentReader(page, reader);
-  await page.goto(`/app/records/${recordId}`);
+  await page.goto(`/properties/${recordId}`);
   // Filing a paper is a drawer now (RecordPapers.PaperDrawer over Drawer.tsx) and
   // the picker lives inside it, so the panel has to be opened first and the pick
   // is not sent until the primary is pressed. The section head's button is the
@@ -185,19 +185,19 @@ test.describe('the vault wall', () => {
   test.afterEach(async ({ request }) => { await sweep(request); });
 
   test('a shelf card opens that shelf, and the list it opens agrees with the count on the card', async ({ page }) => {
-    await page.goto('/app/papers');
+    await page.goto('/papers');
     const card = page.locator('.shelf', { hasText: 'Title' }).first();
     const printed = Number((await card.locator('.num').innerText()).trim());
     // A card reading 0 would make every assertion below vacuously true.
     expect(printed, 'the Title shelf card printed no count').toBeGreaterThan(1);
 
     await card.click();
-    await expect(page).toHaveURL(/\/app\/papers\/shelf\/title$/);
+    await expect(page).toHaveURL(/\/papers\/shelf\/title$/);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Title');
     // The breadcrumb is the only way back, and it has to point at the wall —
-    // this route is not a child of /app/papers, it replaces it.
+    // this route is not a child of /papers, it replaces it.
     await expect(page.getByRole('navigation', { name: 'Breadcrumb' })
-      .getByRole('link', { name: 'Papers' })).toHaveAttribute('href', '/app/papers');
+      .getByRole('link', { name: 'Papers' })).toHaveAttribute('href', '/papers');
 
     // vault's count and vaultPapers' list read the same `shelf` column, so a
     // card saying 14 over a list of 4 is a lie the two queries can tell
@@ -209,7 +209,7 @@ test.describe('the vault wall', () => {
     // and not the record's own Papers tab wearing a different heading.
     await expect(rows.filter({ hasText: 'Sale Deed 4417/2019' })).toHaveCount(1);
     await expect(rows.filter({ hasText: 'Will of T. Subbarao, 2021' })).toHaveCount(1);
-    await expect(rows.first()).toHaveAttribute('href', /^\/app\/papers\/[\w-]+$/);
+    await expect(rows.first()).toHaveAttribute('href', /^\/papers\/[\w-]+$/);
 
     const search = page.getByLabel('Search the Title shelf');
     await search.fill('Sale Deed 4417');
@@ -225,7 +225,7 @@ test.describe('the vault wall', () => {
   });
 
   test('Add documents asks which property and lands on that record, where a paper can actually be filed', async ({ page }) => {
-    await page.goto('/app/papers');
+    await page.goto('/papers');
     await page.getByRole('button', { name: 'Add documents' }).click();
 
     const dialog = page.getByRole('dialog', { name: 'Which property are these documents for?' });
@@ -237,7 +237,7 @@ test.describe('the vault wall', () => {
     // The journey has to END somewhere a paper can be filed. This button used
     // to have no onClick at all, and a dialog that closes onto the vault it
     // opened from is the same dead control with extra steps.
-    await expect(page).toHaveURL(new RegExp(`/app/records/${PARCEL}$`));
+    await expect(page).toHaveURL(new RegExp(`/properties/${PARCEL}$`));
     // "a paper can actually be filed" is now one press deeper: the picker lives
     // inside the drawer, so asserting an attached `input[type=file]` on arrival
     // would only ever find the assistant's own attachment picker on <body>. The
@@ -251,7 +251,7 @@ test.describe('the vault wall', () => {
 
   test('Share a property picks the property first, then makes the link', async ({ page }) => {
     const AUDIENCE = shared('E2E Vault Share');
-    await page.goto('/app/papers');
+    await page.goto('/papers');
     await page.getByRole('button', { name: 'Share a property' }).click();
 
     const submit = page.getByRole('button', { name: 'Make the link' });
@@ -305,18 +305,18 @@ test.describe('the Reader', () => {
     // this reason and says `expired 16/08/2026`; Reader.tsx never got the fix,
     // so the two screens contradict each other about one row today.
     test.fail();
-    await page.goto(`/app/papers/${DEED}`);
+    await page.goto(`/papers/${DEED}`);
 
     // Anchor on the card without depending on the buggy sentence.
     await expect(page.getByText('K. Prasad, advocate has opened this 6 times')).toBeVisible();
     await expect(page.getByText('Last 13/08/2026 16:02 IST')).toBeVisible();
 
     // The Vault already knows this link is dead, on the same data.
-    await page.goto('/app/papers');
+    await page.goto('/papers');
     await expect(page.locator('.rows.boxed > div').filter({ hasText: 'K. Prasad, advocate' })
       .first()).toContainText('expired 16/08/2026');
 
-    await page.goto(`/app/papers/${DEED}`);
+    await page.goto(`/papers/${DEED}`);
     // The lie this test exists to kill: an owner who reads this believes an
     // advocate still has their title deed for one more day.
     await expect(page.getByText('link expires tomorrow')).toHaveCount(0);
@@ -330,7 +330,7 @@ test.describe('the Reader', () => {
       doc_type: 'Encumbrance Certificate', document_no: '', reg_year: '',
     });
 
-    await page.goto(`/app/papers/${paper.id}`);
+    await page.goto(`/papers/${paper.id}`);
     await page.getByRole('button', { name: 'Share securely' }).click();
 
     // The Reader is the only caller in the app that passes documentIds, and
@@ -384,7 +384,7 @@ test.describe('the Reader', () => {
     expect((vaultBefore?.links ?? []).some((l: { audience: string }) => l.audience === AUDIENCE),
       'the paper was not shared, so the phrase gate would never arm').toBe(true);
 
-    await page.goto(`/app/papers/${paper.id}`);
+    await page.goto(`/papers/${paper.id}`);
     await expect(page.getByRole('heading', { name: 'Delete this document' })).toBeVisible();
 
     // A title deed that is out on a link is the one paper in the vault whose
@@ -409,7 +409,7 @@ test.describe('the Reader', () => {
     // Back to the record, not to "This document isn't in your account" — which is
     // what staying here would show, and reads as though the deletion broke
     // something rather than as the deletion that was asked for.
-    await expect(page).toHaveURL(new RegExp(`/app/records/${record}$`));
+    await expect(page).toHaveURL(new RegExp(`/properties/${record}$`));
 
     const after = await gql(request, '{ web { vault { total links { id audience } } } }');
     const vaultAfter = after?.data?.web?.vault;
@@ -434,7 +434,7 @@ test.describe('what a recipient actually receives', () => {
     expect(titles.length, 'the seeded parcel has no papers to share').toBeGreaterThan(1);
 
     // ── the record's own Share panel: no documentIds, so all_documents=True ──
-    await page.goto(`/app/records/${PARCEL}`);
+    await page.goto(`/properties/${PARCEL}`);
     await page.getByRole('button', { name: 'Share securely' }).click();
     await page.getByLabel('Who is it for').fill(shared('E2E Manifest'));
     await page.getByRole('button', { name: 'Share', exact: true }).click();
@@ -457,7 +457,7 @@ test.describe('what a recipient actually receives', () => {
     await expect(page.getByRole('link', { name: 'Download', exact: true })).toHaveCount(0);
 
     // ── the Reader's panel on one of those same papers: documentIds=[id] ──
-    await page.goto(`/app/papers/${DEED}`);
+    await page.goto(`/papers/${DEED}`);
     await page.getByRole('button', { name: 'Share securely' }).click();
     await page.getByLabel('Who is it for').fill(shared('E2E Manifest One'));
     await page.getByRole('button', { name: 'Share', exact: true }).click();

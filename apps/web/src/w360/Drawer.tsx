@@ -89,21 +89,51 @@ function useSealedPage(
   scrim: React.RefObject<HTMLElement | null>,
   fallback?: React.RefObject<HTMLElement | null>,
 ) {
+  /** The control that opened the drawer, read ONCE, on the first render —
+   *  before any effect has moved focus. Reading it inside the effect was not
+   *  safe against React StrictMode's mount → unmount → mount: the first
+   *  pass's useFocusTrap cleanup puts focus back into the panel after this
+   *  hook's cleanup restored it, so the second mount remembered the drawer's
+   *  own first field as "the opener" and closing the drawer landed on the
+   *  fallback, or on <body>. */
+  const [opener] = useState<HTMLElement | null>(
+    () => (typeof document === 'undefined' ? null : document.activeElement as HTMLElement | null));
   useEffect(() => {
     const el = panel.current;
-    const opener = document.activeElement as HTMLElement | null;
     const behind: HTMLElement[] = [];
+    /** Each ancestor's parent, with the ancestor the drawer sits in — the one
+     *  child of that parent that must stay live. */
+    const levels: Array<{ parent: HTMLElement; keep: HTMLElement }> = [];
+    const seal = (sib: Element, keep: HTMLElement) => {
+      if (!(sib instanceof HTMLElement) || sib === keep || sib === scrim.current) return;
+      if (sib.classList.contains('toasts') || sib.hasAttribute('inert')) return;
+      sib.setAttribute('inert', '');
+      behind.push(sib);
+    };
     for (let node: HTMLElement | null = el; node && node !== document.body;
          node = node.parentElement) {
       const parent = node.parentElement;
       if (!parent) break;
-      for (const sib of Array.from(parent.children)) {
-        if (!(sib instanceof HTMLElement) || sib === node || sib === scrim.current) continue;
-        if (sib.classList.contains('toasts') || sib.hasAttribute('inert')) continue;
-        sib.setAttribute('inert', '');
-        behind.push(sib);
-      }
+      levels.push({ parent, keep: node });
+      for (const sib of Array.from(parent.children)) seal(sib, node);
     }
+    /** What mounts behind the drawer after it opened — a section head whose
+     *  data arrived a moment later — is sealed too. Sealing once at open left
+     *  it focusable, so Tab could walk out of the drawer onto it. */
+    /** Overlays that open ON TOP of the drawer — the discard question, a
+     *  confirm, a toast — mount as siblings too and must stay live. */
+    const overlay = (n: Element) => n.matches('.scrim, .toasts, [role="dialog"], [aria-modal="true"]')
+      || !!n.querySelector('[aria-modal="true"]');
+    const late = new MutationObserver((changes) => {
+      for (const c of changes) {
+        const level = levels.find((l) => l.parent === c.target);
+        if (!level) continue;
+        c.addedNodes.forEach((n) => {
+          if (n instanceof HTMLElement && !overlay(n)) seal(n, level.keep);
+        });
+      }
+    });
+    levels.forEach(({ parent }) => late.observe(parent, { childList: true }));
 
     /** The document is what scrolls on this shell (`.w360` is a grid that grows
      *  past the viewport), so this is where the lock goes. `scrollbar-gutter`
@@ -122,6 +152,7 @@ function useSealedPage(
     el?.focus();
 
     return () => {
+      late.disconnect();
       body.style.overflow = prevOverflow;
       body.style.paddingRight = prevPad;
       // Both halves in this order: focus() on an inert element does nothing at

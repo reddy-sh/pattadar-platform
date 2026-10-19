@@ -65,6 +65,14 @@ def test_outbound_headers_replace_identity():
     assert out["x-request-id"] == "rid-1"
 
 
+def test_outbound_headers_forward_idempotency_key():
+    # The api runs a mutation carrying x-idempotency-key at most once per
+    # (uid, key). The web's assistant Save and iOS both depend on the key
+    # reaching it, so the denylist must never grow to include it.
+    out = outbound_headers({"x-idempotency-key": "save-abc-0"}, "u01")
+    assert out["x-idempotency-key"] == "save-abc-0"
+
+
 def test_outbound_headers_anonymous_has_no_user_id():
     out = outbound_headers({"x-user-id": "attacker"}, None)
     assert "x-user-id" not in out

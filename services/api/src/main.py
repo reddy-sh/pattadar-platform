@@ -22,11 +22,12 @@ from . import geography
 # schema — stays reviewable; see docs/specs/2026-08-15-web-360-design.md.
 from . import village_map, web360
 from . import growth
+from .ids import uuid7
 # Pattadar Network register-interest capture (credential-less public root).
 from . import network
 from psycopg.conninfo import make_conninfo
 from datetime import date, datetime, timedelta, timezone
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from contextlib import asynccontextmanager
 
 # Both sibling services configure logging before taking their logger
@@ -143,8 +144,9 @@ def without_token(row, field: str = "invite_token"):
 
 def new_id() -> str:
     """Full UUID row id — collision-free at any scale. (Was truncated to 12 chars
-    ≈ 44 bits, which birthday-collides on the TEXT primary key in the low millions.)"""
-    return str(uuid.uuid4())
+    ≈ 44 bits, which birthday-collides on the TEXT primary key in the low millions.)
+    A UUIDv7, so ids sort by creation time."""
+    return uuid7()
 
 
 # Crockford base32 (drops the ambiguous I/L/O/U) for compact human-facing codes.
@@ -184,43 +186,293 @@ def _location_ref(state: str, village: str, mid: str, row_id: str) -> str:
 
 
 # ── Group types (typed land-holding entities) ─────────────────────────
-# One source of truth for the roles/labels each group type exposes. New types
-# are additive here + in the UI's groups.ts. `primary_role` is auto-assigned to
-# the creator's own member; `has_tree` gates the genealogy tree (Family only).
+# The one source of truth for each group type's roles, labels and facts. The
+# web reads a checked-in copy, apps/web/src/pages/families/groupTypes.json,
+# that tests/test_group_facts.py holds equal to this (regenerate with
+# `GROUP_TYPES_WRITE=1 LC_ALL=C python -m pytest tests/test_group_facts.py -k catalogue`).
+# `primary_role` is auto-assigned to the creator's own member; `default_role`
+# is what a new member starts as; `has_tree` gates the genealogy tree (Family).
+#
+# `fields` are the group's facts and `member_fields` a member's, both stored as
+# one JSON object in a `facts` column. A field shows (and is kept) only when
+# every `when` condition holds — `{key, in: [...]}` or `{key, not: [...]}`,
+# read from facts listed earlier (member fields also see the group's facts),
+# with an absent `country` read as "IN" — and, for member fields, when the
+# member's role is in `roles`. `required` means required while shown; only the
+# web enforces it, because iOS and Expo create groups by name alone. `past`
+# dates may not be in the future. `pan4` maps sub_kind to the expected 4th PAN
+# letter ("*" any other, "" none): a web warning only. `entity` marks an
+# entity's PAN, where a personal PAN (4th letter P) is refused.
+_IN = {"key": "country", "in": ["IN"]}
+_ABROAD = {"key": "country", "not": ["IN"]}
+_COUNTRY = {"key": "country", "label": "Country", "kind": "country", "default": "IN"}
+_PAN_HELP = "Ten characters: five letters, four digits, then a letter."
+
+
+def _pan_field(entity: str, pan4: dict) -> dict:
+    return {"key": "pan", "label": "PAN", "kind": "text", "when": [_IN], "upper": True,
+            "pattern": r"^[A-Z]{5}\d{4}[A-Z]$", "entity": entity, "pan4": pan4, "help": _PAN_HELP}
+
+
+_TAX_ID = {"key": "tax_id", "label": "Tax ID", "kind": "text", "when": [_ABROAD],
+           "help": "The entity's tax number in its country, e.g. EIN, UTR, TRN."}
+_TRUSTS = ["Private trust", "Public charitable trust", "Religious or endowment", "Waqf"]
+_SOCIETIES = ["Registered society", "Cooperative society"]
+_PARTNERSHIP_ROLES = ["Managing Partner", "Partner", "Sleeping partner",
+                      "Minor admitted to benefits", "Authorized Signatory", "Member"]
+
 GROUP_TYPES: dict = {
     "family":      {"label": "Family",       "has_tree": True,
-                    "primary_role": "Head",
+                    "primary_role": "Head", "default_role": "Spouse",
                     "roles": ["Head", "Spouse", "Son", "Daughter", "Father", "Mother",
                               "Brother", "Sister", "Grandfather", "Grandmother",
-                              "Grandson", "Granddaughter", "Other"]},
+                              "Grandson", "Granddaughter", "Other"],
+                    "fields": [
+                        _COUNTRY,
+                        {"key": "personal_law", "label": "Personal law", "kind": "select",
+                         "when": [_IN], "options": ["Hindu", "Muslim", "Christian", "Parsi", "Other"],
+                         "help": "Decides who inherits. Hindu includes Sikh, Jain and Buddhist."},
+                    ],
+                    "member_fields": [], "share_roles": {}},
     "partnership": {"label": "Partnership",   "has_tree": False,
-                    "primary_role": "Managing Partner",
-                    "roles": ["Managing Partner", "Partner"]},
+                    "primary_role": "Managing Partner", "default_role": "Partner",
+                    "roles": _PARTNERSHIP_ROLES,
+                    "fields": [
+                        _COUNTRY,
+                        {"key": "registered", "label": "Registered firm?", "kind": "select",
+                         "options": ["Yes", "No"], "required": True,
+                         "help": "In India an unregistered firm cannot sue to enforce its rights."},
+                        {"key": "reg_no", "label": "Registration number", "kind": "text",
+                         "when": [{"key": "registered", "in": ["Yes"]}], "required": True,
+                         "help": "The number on the registration certificate."},
+                        {"key": "deed_date", "label": "Partnership deed date", "kind": "date",
+                         "required": True, "past": True},
+                        {"key": "deed_ref", "label": "Deed reference", "kind": "text",
+                         "help": "Where the deed is registered, its number and year."},
+                        _pan_field("firm", {"*": "F"}),
+                        _TAX_ID,
+                        {"key": "address", "label": "Principal place of business", "kind": "text"},
+                    ],
+                    "member_fields": [
+                        {"key": "admitted_on", "label": "Admitted on", "kind": "date", "past": True},
+                        {"key": "retired_on", "label": "Retired on", "kind": "date",
+                         "help": "A retired partner cannot sign a deed."},
+                    ],
+                    "share_roles": {r: "Profit share %" for r in _PARTNERSHIP_ROLES
+                                    if r != "Authorized Signatory"}},
     "company":     {"label": "Company / LLP", "has_tree": False,
-                    "primary_role": "Director",
-                    "roles": ["Director", "Shareholder", "Authorized Signatory"]},
+                    "primary_role": "Director", "default_role": "Director",
+                    "roles": ["Director", "Managing director", "Whole-time director",
+                              "Authorized Signatory", "Company secretary", "Chief financial officer",
+                              "Shareholder", "Nominee", "Designated partner", "Partner", "Member"],
+                    "fields": [
+                        _COUNTRY,
+                        {"key": "sub_kind", "label": "Kind of company", "kind": "select", "required": True,
+                         "options": ["Private limited", "Public limited", "One person company",
+                                     "Section 8", "Producer company", "LLP", "Other"]},
+                        {"key": "cin", "label": "CIN", "kind": "text", "required": True, "upper": True,
+                         "when": [_IN, {"key": "sub_kind", "not": ["LLP", "Other"]}],
+                         "pattern": r"^[LU]\d{5}[A-Z]{2}\d{4}[A-Z]{3}\d{6}$",
+                         "help": "Corporate Identity Number, 21 characters, like U01100TG2015PTC123456."},
+                        {"key": "llpin", "label": "LLPIN", "kind": "text", "required": True, "upper": True,
+                         "when": [_IN, {"key": "sub_kind", "in": ["LLP"]}],
+                         "pattern": r"^[A-Z]{3}-\d{4}$", "help": "Like AAB-1234."},
+                        {"key": "reg_no", "label": "Registration number", "kind": "text",
+                         "required": True, "when": [_ABROAD],
+                         "help": "The number the company registry gave it."},
+                        {"key": "incorporated_on", "label": "Date of incorporation", "kind": "date",
+                         "required": True, "past": True},
+                        {"key": "address", "label": "Registered office", "kind": "text", "required": True,
+                         "help": "Must match the sale deed."},
+                        _pan_field("company", {"*": "C", "LLP": "F", "Other": ""}),
+                        _TAX_ID,
+                        {"key": "status", "label": "Status", "kind": "select",
+                         "options": ["Active", "Struck off", "Under liquidation"],
+                         "help": "A struck-off company cannot convey cleanly."},
+                    ],
+                    "member_fields": [
+                        {"key": "din", "label": "DIN", "kind": "text", "when": [_IN],
+                         "roles": ["Director", "Managing director", "Whole-time director"],
+                         "pattern": r"^\d{8}$", "help": "Director Identification Number, 8 digits."},
+                        {"key": "dpin", "label": "DPIN", "kind": "text", "when": [_IN],
+                         "roles": ["Designated partner"],
+                         "pattern": r"^\d{8}$", "help": "Designated Partner Identification Number, 8 digits."},
+                        {"key": "appointed_on", "label": "Appointed on", "kind": "date", "past": True},
+                        {"key": "ceased_on", "label": "Ceased on", "kind": "date",
+                         "help": "A director or officer who has left cannot sign for the company."},
+                        {"key": "resolution_on", "label": "Board resolution date", "kind": "date",
+                         "past": True, "roles": ["Authorized Signatory"],
+                         "when": [{"key": "sub_kind", "not": ["LLP"]}]},
+                        {"key": "resolution_on", "label": "Partners' resolution date", "kind": "date",
+                         "past": True, "roles": ["Authorized Signatory"],
+                         "when": [{"key": "sub_kind", "in": ["LLP"]}]},
+                    ],
+                    "share_roles": {"Shareholder": "Shareholding %", "Designated partner": "Profit share %",
+                                    "Partner": "Profit share %"}},
     "huf":         {"label": "HUF",           "has_tree": False,
-                    "primary_role": "Karta",
-                    "roles": ["Karta", "Coparcener", "Member"]},
-    "trust":       {"label": "Trust / Society","has_tree": False,
-                    "primary_role": "Trustee",
-                    "roles": ["Trustee", "Beneficiary", "Member"]},
-    # A lightweight "wallet": a way to group holdings without any succession
-    # machinery behind it. The web app has offered this type in its create
-    # dialog since Families & Groups shipped, and it was missing here — so
-    # `create_group` fell through to its `type not in GROUP_TYPES` branch and
-    # silently wrote "family" instead. Picking Portfolio produced a Family,
-    # with a Head and a genealogy the owner never asked for and no error to
-    # say why. The column is plain TEXT with no constraint, so this is purely
-    # additive: existing rows are untouched.
-    "portfolio":   {"label": "Portfolio / Wallet", "has_tree": False,
-                    "primary_role": "Owner",
-                    "roles": ["Owner", "Viewer"]},
+                    "primary_role": "Karta", "default_role": "Coparcener",
+                    "roles": ["Karta", "Coparcener", "Member"],
+                    "fields": [
+                        _COUNTRY,
+                        _pan_field("HUF", {"*": "H"}),
+                        _TAX_ID,
+                        {"key": "partition", "label": "Partition", "kind": "select",
+                         "options": ["None", "Partial", "Full"]},
+                        {"key": "partition_on", "label": "Partition date", "kind": "date", "past": True,
+                         "when": [{"key": "partition", "in": ["Partial", "Full"]}]},
+                    ],
+                    "member_fields": [], "share_roles": {}},
+    "trust":       {"label": "Trust / society","has_tree": False,
+                    "primary_role": "Trustee", "default_role": "Trustee",
+                    "roles": ["Trustee", "Managing trustee", "Settlor", "Beneficiary", "Mutawalli",
+                              "President", "Vice-president", "Secretary", "Joint secretary", "Treasurer",
+                              "Committee member", "Member", "Authorized Signatory"],
+                    "fields": [
+                        _COUNTRY,
+                        {"key": "sub_kind", "label": "Kind of trust or society", "kind": "select",
+                         "required": True, "options": [*_TRUSTS, *_SOCIETIES, "Other"]},
+                        {"key": "deed_date", "label": "Trust deed date", "kind": "date", "required": True,
+                         "past": True, "when": [{"key": "sub_kind", "in": _TRUSTS}]},
+                        {"key": "deed_ref", "label": "Deed reference", "kind": "text", "required": True,
+                         "when": [{"key": "sub_kind", "in": _TRUSTS}],
+                         "help": "Where the deed is registered, its number and year. "
+                                 "A trust of land needs a registered deed."},
+                        {"key": "reg_no", "label": "Registration number", "kind": "text",
+                         "when": [{"key": "sub_kind", "not": ["Private trust"]}],
+                         "help": "The number on the registration certificate, with its year."},
+                        {"key": "reg_authority", "label": "Registered with", "kind": "text",
+                         "when": [{"key": "sub_kind", "not": ["Private trust"]}]},
+                        {"key": "reg_date", "label": "Registration date", "kind": "date", "required": True,
+                         "past": True, "when": [{"key": "sub_kind", "in": _SOCIETIES}]},
+                        {"key": "sanction", "label": "Sale needs regulator sanction?", "kind": "select",
+                         "options": ["Yes", "No"],
+                         "when": [{"key": "sub_kind", "in": ["Public charitable trust",
+                                                             "Religious or endowment", "Waqf"]}]},
+                        {"key": "sanction_authority", "label": "Sanctioning authority", "kind": "text",
+                         "when": [{"key": "sanction", "in": ["Yes"]}]},
+                        _pan_field("trust", {"*": "T", "Registered society": "A",
+                                             "Cooperative society": "A", "Other": ""}),
+                        _TAX_ID,
+                        {"key": "address", "label": "Address", "kind": "text"},
+                    ],
+                    "member_fields": [
+                        {"key": "appointed_on", "label": "From", "kind": "date", "past": True},
+                        {"key": "ceased_on", "label": "Until", "kind": "date"},
+                    ],
+                    "share_roles": {"Beneficiary": "Beneficial share %"}},
+    # There is no "portfolio" / wallet type (retired 06/10/2026). A group is
+    # a HOLDER; "properties kept together" is what a holding does, and land put
+    # in a wallet would have left its family group. Local rows of that type are
+    # removed once by `_retire_portfolio_groups`.
 }
+
+#: The sentence an unknown group type is refused with. It used to become a
+#: Family silently — complete with a Head and a family tree.
+GROUP_TYPE_REFUSAL = ("Choose what kind of group this is: Family, HUF, Partnership,"
+                      " Company or LLP, or Trust or society.")
 
 
 def _group_primary_role(gtype: str) -> str:
     return GROUP_TYPES.get(gtype, GROUP_TYPES["family"])["primary_role"]
+
+
+def _group_self_role(gtype: str, facts: Optional[str]) -> str:
+    """The creator's own role, read from the group's facts: an LLP's creator is
+    a designated partner and a society's its secretary, not "Director" or
+    "Trustee" — and the self row cannot be edited afterwards."""
+    sub = _parse_facts(facts).get("sub_kind", "")
+    if gtype == "company" and sub == "LLP":
+        return "Designated partner"
+    if gtype == "trust" and sub in _SOCIETIES:
+        return "Secretary"
+    return _group_primary_role(gtype)
+
+
+def _parse_facts(raw: Optional[str]) -> dict:
+    try:
+        out = json.loads(raw or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return out if isinstance(out, dict) else {}
+
+
+def _clean_role(gtype: str, role: Optional[str]) -> Optional[str]:
+    """A member's role: free text (iOS and Expo send "Member" for every type),
+    trimmed, capped, and spelled the catalogue's way when it matches one."""
+    if role is None:  # an edit that leaves the role as stored
+        return None
+    r = " ".join(role.split())
+    if gtype != "family" and not r:
+        raise ValueError("Give this member a role.")
+    if len(r) > 60:
+        raise ValueError("Keep the role under 60 characters.")
+    known = {k.casefold(): k for k in GROUP_TYPES.get(gtype, GROUP_TYPES["family"])["roles"]}
+    return known.get(r.casefold(), r)
+
+
+def _fact_shown(f: dict, facts: dict, role: Optional[str] = None) -> bool:
+    for c in f.get("when", ()):
+        v = facts.get(c["key"]) or ("IN" if c["key"] == "country" else "")
+        if ("in" in c and v not in c["in"]) or ("not" in c and v in c["not"]):
+            return False
+    return "roles" not in f or role in f["roles"]
+
+
+def _clean_facts(raw: Optional[str], fields: list, context: Optional[dict] = None,
+                 role: Optional[str] = None) -> Optional[str]:
+    """Check a facts JSON object against a type's catalogue. None means "keep
+    what is stored". Unknown keys and fields not shown (by `when`, or a member
+    field's `roles`) are dropped; a bad or too-long value is refused, never cut."""
+    if raw is None:
+        return None
+    if len(raw) > 8000:
+        raise ValueError("These details are too long.")
+    try:
+        given = json.loads(raw or "{}")
+    except ValueError:
+        given = None
+    if not isinstance(given, dict):
+        raise ValueError("These details could not be read.")
+    out: dict = {}
+    for f in fields:
+        k, label = f["key"], f["label"]
+        if k in out or not _fact_shown(f, {**(context or {}), **out}, role):
+            continue
+        v = given.get(k)
+        if v is None:
+            continue
+        bad = f"{label} does not look right." + (f" {f['help']}" if f.get("help") else "")
+        if not isinstance(v, str):
+            raise ValueError(bad)
+        v = " ".join(v.split())
+        if not v:
+            continue
+        if len(v) > 200:
+            raise ValueError(f"{label} is too long.")
+        if f.get("upper") or f["kind"] == "country":
+            v = v.upper()
+        if f["kind"] == "select":
+            v = {o.casefold(): o for o in f["options"]}.get(v.casefold())
+            if v is None:
+                raise ValueError(bad)
+        elif f["kind"] == "country" and not re.fullmatch(r"[A-Z]{2}", v):
+            raise ValueError(bad)
+        elif f["kind"] == "date":
+            try:
+                d = date.fromisoformat(v) if re.fullmatch(r"\d{4}-\d{2}-\d{2}", v) else None
+            except ValueError:
+                d = None
+            if d is None:
+                raise ValueError(bad)
+            # A day's grace: "today" somewhere east of UTC is tomorrow here.
+            if f.get("past") and d > date.today() + timedelta(days=1):
+                raise ValueError(f"{label} cannot be in the future.")
+        if f.get("pattern") and not re.fullmatch(f["pattern"], v):
+            raise ValueError(bad)
+        if f.get("entity") and v[3] == "P":
+            raise ValueError(f"This is a personal PAN; enter the {f['entity']}'s PAN.")
+        out[k] = v
+    return json.dumps(out, sort_keys=True)
 
 
 # ── Strawberry Types ──────────────────────────────────────────────────
@@ -540,12 +792,159 @@ DOCUMENT_RELATIONS = ("prior_title", "gpa", "amendment", "correction", "ec_for")
 
 
 @strawberry.type
+class HoldingRefType:
+    """A holding a group's property is part of ("Part of {name} →")."""
+    id: str
+    name: str
+
+
+@strawberry.type
+class GroupParcelType:
+    """One parcel on a group's khata — what a khata row opens to show."""
+    id: str
+    title: str
+    extent: float
+    extent_unit: str
+    archived: bool
+    holding_id: str = ""
+    holding_name: str = ""
+
+
+@strawberry.type
+class GroupKhataType:
+    """One khata (passbook) a family or group holds: the group page's
+    Properties tab is a list of these, people-first, not a second Properties
+    screen (decision memo 06/10/2026, section 4.2)."""
+    passbook_id: str
+    #: The passbook / khata number as recorded.
+    khata_no: str
+    #: The pattadar named on the khata, exactly as recorded.
+    pattadar_name: str
+    village: str
+    mandal: str
+    district: str
+    parcel_count: int
+    #: Sum of the parcels' extents, in `extent_unit` (acres).
+    extent: float
+    extent_unit: str
+    #: True when the named pattadar is not a member of this group — an exact
+    #: match ignoring case, never a guess. False when no name is recorded.
+    pattadar_not_member: bool
+    #: Distinct holdings its parcels are part of, in parcel order.
+    holdings: List[HoldingRefType]
+    parcels: List[GroupParcelType]
+
+
+@strawberry.type
+class GroupBuiltType:
+    """A built property (flat, shop, plot) the group holds directly."""
+    id: str
+    title: str
+    classification: str
+    pattadar_name: str
+    village: str
+    extent: float
+    extent_unit: str
+    archived: bool
+    pattadar_not_member: bool
+    holding_id: str = ""
+    holding_name: str = ""
+
+
+def _same_name(a: str, names: set) -> bool:
+    return (a or "").strip().casefold() in names
+
+
+async def _group_member_names(conn, uid: str, gid: str) -> set:
+    """Every name a group's members go by, for the exact pattadar check: the
+    members (the owner's own row included) and the owner's account name."""
+    rows = await (await conn.execute(
+        "SELECT name FROM family_members WHERE owner_user_id=%s AND group_id=%s",
+        (uid, gid))).fetchall()
+    names = {(r.get("name") or "").strip().casefold() for r in rows}
+    me = await (await conn.execute("SELECT name FROM users WHERE id=%s", (uid,))).fetchone() or {}
+    names.add((me.get("name") or "").strip().casefold())
+    names.discard("")
+    return names
+
+
+async def _group_khatas(conn, uid: str, gid: str) -> List["GroupKhataType"]:
+    names = await _group_member_names(conn, uid, gid)
+    held = await web360._holdings_by_record(conn, uid)
+    pbs = await (await conn.execute(
+        "SELECT id, pattadar_no, owner_name, village, mandal, district FROM passbooks"
+        " WHERE owner_user_id=%s AND group_id=%s ORDER BY created_at, id", (uid, gid))).fetchall()
+    # One entry per khata, not per passbooks row: two rows with the same khata
+    # number in the same village are one khata (web360.khata_key), and the
+    # group page listing "Khata 5150" twice would say otherwise.
+    merged: dict = {}
+    for pb in pbs:
+        key = web360.khata_key(pb.get("pattadar_no") or "", pb.get("village") or "", pb["id"])
+        merged.setdefault(key, []).append(pb)
+    out: List[GroupKhataType] = []
+    for rows_of_khata in merged.values():
+        pb = rows_of_khata[0]
+        parcels = await (await conn.execute(
+            "SELECT id, survey_no, subdivision, extent, archived FROM parcels"
+            " WHERE passbook_id = ANY(%s) ORDER BY created_at, id",
+            ([r["id"] for r in rows_of_khata],))).fetchall()
+        rows: List[GroupParcelType] = []
+        refs: dict = {}
+        for p in parcels:
+            sub = (p.get("subdivision") or "").strip()
+            h = held.get(p["id"]) or {}
+            if h:
+                refs.setdefault(h["id"], h["name"])
+            rows.append(GroupParcelType(
+                id=p["id"], title=f"Sy {p.get('survey_no') or ''}" + (f"/{sub}" if sub else ""),
+                extent=float(p.get("extent") or 0), extent_unit="ac",
+                archived=bool(p.get("archived")),
+                holding_id=h.get("id") or "", holding_name=h.get("name") or ""))
+        named = (pb.get("owner_name") or "").strip()
+        out.append(GroupKhataType(
+            passbook_id=pb["id"], khata_no=pb.get("pattadar_no") or "",
+            pattadar_name=named, village=pb.get("village") or "",
+            mandal=pb.get("mandal") or "", district=pb.get("district") or "",
+            parcel_count=len(rows), extent=sum(r.extent for r in rows), extent_unit="ac",
+            pattadar_not_member=bool(named) and not _same_name(named, names),
+            holdings=[HoldingRefType(id=k, name=v) for k, v in refs.items()],
+            parcels=rows))
+    return out
+
+
+async def _group_built(conn, uid: str, gid: str) -> List["GroupBuiltType"]:
+    names = await _group_member_names(conn, uid, gid)
+    held = await web360._holdings_by_record(conn, uid)
+    rows = await (await conn.execute(
+        "SELECT * FROM properties WHERE owner_user_id=%s AND group_id=%s"
+        " ORDER BY created_at, id", (uid, gid))).fetchall()
+    out: List[GroupBuiltType] = []
+    for r in rows:
+        built = float(r.get("builtup_area") or 0)
+        named = (r.get("owner_name") or "").strip()
+        h = held.get(r["id"]) or {}
+        out.append(GroupBuiltType(
+            id=r["id"], title=r.get("label") or "Property",
+            classification=r.get("type") or "open_plot", pattadar_name=named,
+            village=r.get("locality") or "",
+            extent=built or float(r.get("land_area") or 0),
+            extent_unit="sq.ft" if built else "sq.yd",
+            archived=bool(r.get("archived")),
+            pattadar_not_member=bool(named) and not _same_name(named, names),
+            holding_id=h.get("id") or "", holding_name=h.get("name") or ""))
+    return out
+
+
+@strawberry.type
 class GroupType:
     id: str
     owner_user_id: str
     type: str
     name: str
     description: str
+    #: The group's typed facts as a JSON object string, checked against
+    #: GROUP_TYPES[type]["fields"] (PAN, CIN, deed date, country...).
+    facts: str = "{}"
     my_role: str = ""
     member_count: int = 0
     #: Passbooks (khatas) assigned to this group. NOT the number of things the
@@ -573,6 +972,22 @@ class GroupType:
     inactivity_next_at: str = ""
     inactivity_last_outcome: str = ""
     inactive_contact_gaps: int = 0
+
+    # Resolved only when selected (the group page asks; the list does not).
+    @strawberry.field
+    async def khatas(self, info: strawberry.Info) -> List[GroupKhataType]:
+        """The khatas this group holds, each with its pattadar, village,
+        parcels, extent and holdings, and the not-a-member flag."""
+        uid = _uid_from_info(info)
+        async with pool.connection() as conn:
+            return await _group_khatas(conn, uid, self.id)
+
+    @strawberry.field
+    async def built_properties(self, info: strawberry.Info) -> List[GroupBuiltType]:
+        """Flats, shops and plots this group holds directly (no khata)."""
+        uid = _uid_from_info(info)
+        async with pool.connection() as conn:
+            return await _group_built(conn, uid, self.id)
 
 
 @strawberry.type
@@ -640,6 +1055,8 @@ class PersonType:
     owner_user_id: str
     group_id: str = ""
     role: str = ""
+    #: The member's typed facts (DIN, appointed on...) as a JSON object string.
+    facts: str = "{}"
     name: str
     relation: str
     gender: str
@@ -1201,7 +1618,7 @@ def _uid_from_info(info) -> str:
     except (KeyError, AttributeError, TypeError):
         uid = ""
     if not uid:
-        raise NotAuthorized("Authentication required")
+        raise NotAuthorized("Your session has ended. Sign in again.")
     return uid
 
 
@@ -1348,7 +1765,7 @@ async def _assert_owns_passbook(conn, uid: str, passbook_id: str) -> None:
         "SELECT 1 FROM passbooks WHERE id=%s AND owner_user_id=%s", (passbook_id, uid)
     )
     if not await cur.fetchone():
-        raise NotAuthorized("Not authorized for this passbook")
+        raise NotAuthorized("You do not have access to this khata.")
 
 
 async def _assert_owns_parcel(conn, uid: str, parcel_id: str) -> None:
@@ -1357,7 +1774,7 @@ async def _assert_owns_parcel(conn, uid: str, parcel_id: str) -> None:
         "(SELECT id FROM passbooks WHERE owner_user_id=%s)", (parcel_id, uid)
     )
     if not await cur.fetchone():
-        raise NotAuthorized("Not authorized for this parcel")
+        raise NotAuthorized("You do not have access to this parcel.")
 
 
 async def _assert_owns_property(conn, uid: str, property_id: str) -> None:
@@ -1365,7 +1782,7 @@ async def _assert_owns_property(conn, uid: str, property_id: str) -> None:
         "SELECT 1 FROM properties WHERE id=%s AND owner_user_id=%s", (property_id, uid)
     )
     if not await cur.fetchone():
-        raise NotAuthorized("Not authorized for this property")
+        raise NotAuthorized("You do not have access to this property.")
 
 
 async def _assert_owns_scope(conn, uid: str, scope_id: str) -> None:
@@ -1375,7 +1792,7 @@ async def _assert_owns_scope(conn, uid: str, scope_id: str) -> None:
         "(SELECT id FROM passbooks WHERE owner_user_id=%s)", (scope_id, uid, scope_id, uid)
     )
     if not await cur.fetchone():
-        raise NotAuthorized("Not authorized for this scope")
+        raise NotAuthorized("You do not have access to this property.")
 
 
 # ── Audit helper ──────────────────────────────────────────────────────
@@ -1393,7 +1810,7 @@ def _note_target(entity_type: str, entity_id: str, note_id: str) -> str:
 async def log_audit(conn, actor: str, action: str, target: str, details: str = "",
                     *, affected_owner: str = "", actor_kind: str = "",
                     metadata: Optional[dict] = None, outcome: str = "success",
-                    request_id: str = ""):
+                    request_id: str = "", actor_principal: str = ""):
     """Record one audited action.
 
     Dual-writes for the phase-1 audit migration:
@@ -1428,7 +1845,9 @@ async def log_audit(conn, actor: str, action: str, target: str, details: str = "
         await audit.record(
             conn,
             action=action,
-            actor_principal=actor,
+            # An operator acting for the owner is named here; `actor` keeps
+            # the legacy row on the owner's own trail.
+            actor_principal=actor_principal or actor,
             affected_owner=affected_owner or actor,
             resource_id=target,
             outcome=outcome,
@@ -1593,6 +2012,31 @@ async def ensure_self(conn, uid: str, group_id: str, self_role: str = "") -> str
     return won["id"]
 
 
+async def _group_holdings(conn, uid: str, gid: str) -> Tuple[int, int, float]:
+    """(parcels, properties, acres) the group holds."""
+    # What the group HOLDS, as opposed to how many khatas point at it. A group
+    # can hold built property with no passbook behind it, and it can own a
+    # passbook with nothing in it yet; neither case is answerable from `lc`.
+    #
+    # Counted exactly as `properties(groups:[id])` counts them (web360._cards
+    # then _active), because the group page and its Properties tab read that
+    # list: archived records are left out, and a built property's extent is in
+    # acres on the same ground PropertyTable `inAcres` uses — built-up area in
+    # sq.ft when it has one, else its land in sq.yd. Otherwise the card on
+    # Families & groups says one number and the page it opens says another.
+    parc = (await (await conn.execute(
+        "SELECT count(*) AS c, COALESCE(SUM(p.extent),0) AS t FROM parcels p "
+        "JOIN passbooks pb ON pb.id = p.passbook_id "
+        "WHERE pb.group_id=%s AND pb.owner_user_id=%s AND NOT COALESCE(p.archived,false)",
+        (gid, uid))).fetchone())
+    prop = (await (await conn.execute(
+        "SELECT count(*) AS c, COALESCE(SUM(CASE WHEN COALESCE(builtup_area,0) > 0 "
+        "THEN builtup_area / 43560.0 ELSE COALESCE(land_area,0) / 4840.0 END),0) AS t "
+        "FROM properties WHERE group_id=%s AND owner_user_id=%s AND NOT COALESCE(archived,false)",
+        (gid, uid))).fetchone())
+    return int(parc["c"]), int(prop["c"]), float(parc["t"] or 0) + float(prop["t"] or 0)
+
+
 async def _group_summary(conn, uid: str, g: dict) -> GroupType:
     """Build a GroupType with rollups (member count, land count, extent, share)."""
     gid = g["id"]
@@ -1600,18 +2044,7 @@ async def _group_summary(conn, uid: str, g: dict) -> GroupType:
         "SELECT count(*) AS c FROM family_members WHERE group_id=%s AND is_self=false", (gid,))).fetchone())["c"]
     lc = (await (await conn.execute(
         "SELECT count(*) AS c FROM passbooks WHERE group_id=%s AND owner_user_id=%s", (gid, uid))).fetchone())["c"]
-    ext = (await (await conn.execute(
-        "SELECT COALESCE(SUM(extent),0) AS t FROM parcels WHERE passbook_id IN "
-        "(SELECT id FROM passbooks WHERE group_id=%s AND owner_user_id=%s)", (gid, uid))).fetchone())["t"]
-    # What the group HOLDS, as opposed to how many khatas point at it. A group
-    # can hold built property with no passbook behind it, and it can own a
-    # passbook with nothing in it yet; neither case is answerable from `lc`.
-    pc = (await (await conn.execute(
-        "SELECT count(*) AS c FROM parcels WHERE passbook_id IN "
-        "(SELECT id FROM passbooks WHERE group_id=%s AND owner_user_id=%s)", (gid, uid))).fetchone())["c"]
-    prc = (await (await conn.execute(
-        "SELECT count(*) AS c FROM properties WHERE group_id=%s AND owner_user_id=%s",
-        (gid, uid))).fetchone())["c"]
+    pc, prc, ext = await _group_holdings(conn, uid, gid)
     sh = (await (await conn.execute(
         "SELECT COALESCE(SUM(share_pct),0) AS s FROM family_members "
         "WHERE group_id=%s AND is_beneficiary=true AND status <> 'revoked'", (gid,))).fetchone())["s"]
@@ -1638,7 +2071,8 @@ async def _group_summary(conn, uid: str, g: dict) -> GroupType:
             "OR inactivity_email_consent=false)",
             (uid, gid))).fetchone())["c"])
     return GroupType(id=gid, owner_user_id=g["owner_user_id"], type=g["type"], name=g["name"],
-                     description=g.get("description", ""), my_role=myrole or _group_primary_role(g["type"]),
+                     description=g.get("description", ""), facts=g.get("facts") or "{}",
+                     my_role=myrole or _group_primary_role(g["type"]),
                      member_count=int(mc), land_count=int(lc), total_extent=float(ext or 0),
                      total_share=float(sh or 0), created_at=g.get("created_at", ""),
                      parcel_count=int(pc), property_count=int(prc),
@@ -1912,7 +2346,7 @@ class Query:
 
     @strawberry.field
     async def notes(self, info: strawberry.Info, entity_type: str, entity_id: str) -> List[NoteType]:
-        """Append-only note history for a passbook / parcel / document (newest first)."""
+        """Note history for a passbook / parcel / document / record (newest first)."""
         uid = _uid_from_info(info)
         async with pool.connection() as conn:
             cur = await conn.execute(
@@ -2514,11 +2948,11 @@ async def _write_person(conn, uid, pid, v, is_update):
     if v["is_beneficiary"]:
         contact = (v["email"] or v["phone"]).strip()
         if not contact:
-            raise ValueError("Add a mobile number or email so this beneficiary can be verified")
+            raise ValueError("Add a mobile number or email so this heir can be verified.")
         if minor and not (v["guardian_name"] or "").strip():
             raise ValueError("A minor needs a guardian to verify on their behalf")
         if (v["marital_status"] or "").lower() == "married" and not (v["spouse_name"] or "").strip():
-            raise ValueError("Please add the spouse for a married beneficiary")
+            raise ValueError("Add the spouse for a married heir.")
     # The member points at a record; the full number lives only in the vault.
     aad_record, aad = await aadhaar_security.resolve_record(
         conn, uid, v.get("aadhaar", ""), v.get("aadhaar_candidate_id", ""))
@@ -2537,6 +2971,19 @@ async def _write_person(conn, uid, pid, v, is_update):
         if float(existing["s"] or 0) + float(v["share_pct"] or 0) > 100.0001:
             raise ValueError(f"Shares for {scope_label} would exceed 100% "
                              f"({float(existing['s'] or 0):.1f}% already allocated). Lower the share.")
+    # A partner's or shareholder's share is not an heir's, but the group's
+    # shares still cannot pass 100%.
+    if gid and float(v["share_pct"] or 0) > 0:
+        g = await (await conn.execute(
+            "SELECT type FROM groups WHERE id=%s AND owner_user_id=%s", (gid, uid))).fetchone()
+        if g and g["type"] != "family":
+            existing = await (await conn.execute(
+                "SELECT COALESCE(SUM(share_pct),0) AS s FROM family_members WHERE group_id=%s "
+                "AND owner_user_id=%s AND share_pct > 0 AND status <> 'revoked' AND id <> %s",
+                (gid, uid, pid))).fetchone()
+            if float(existing["s"] or 0) + float(v["share_pct"] or 0) > 100.0001:
+                raise ValueError(f"Shares for this group would exceed 100% "
+                                 f"({float(existing['s'] or 0):.1f}% already allocated). Lower the share.")
     cols = dict(name=v["name"], relation=v["relation"], gender=v["gender"], dob=v["dob"],
                 phone=v["phone"], email=v["email"], bio=v["bio"], photo=v["photo"],
                 father_id=v["father_id"], mother_id=v["mother_id"], spouse_id=v["spouse_id"],
@@ -2546,6 +2993,8 @@ async def _write_person(conn, uid, pid, v, is_update):
                 marital_status=v["marital_status"], spouse_name=v["spouse_name"],
                 spouse_contact=v["spouse_contact"], spouse_status=v["spouse_status"])
     cols["role"] = v.get("role", "")
+    if not is_update or "facts" in v:
+        cols["facts"] = v.get("facts") or "{}"
     if not is_update:
         cols["group_id"] = gid
     # On an edit that doesn't re-supply the Aadhaar, preserve the stored masked
@@ -2561,7 +3010,7 @@ async def _write_person(conn, uid, pid, v, is_update):
         cols.pop("aadhaar_record_id", None)
     if is_update:
         if prior and prior["is_self"]:
-            raise ValueError("Your own node can't be edited here")
+            raise ValueError("Your own entry cannot be edited here.")
         email_changed = bool(prior and (prior.get("email") or "").strip().casefold()
                              != (v["email"] or "").strip().casefold())
         phone_changed = bool(prior and re.sub(r"\D", "", prior.get("phone") or "")
@@ -2597,7 +3046,7 @@ async def _write_person(conn, uid, pid, v, is_update):
         cur = await conn.execute(f"INSERT INTO family_members ({keys}) VALUES ({ph}) RETURNING *", tuple(cols2.values()))
     row = await cur.fetchone()
     if not row:
-        raise NotAuthorized("Not authorized for this person")
+        raise NotAuthorized("You do not have access to this person.")
     # A replaced Aadhaar lets go of its old record once nothing else points at it.
     if aad_record and prior and (prior.get("aadhaar_record_id") or "") != aad_record:
         await aadhaar_security.release_if_unreferenced(conn, uid, prior.get("aadhaar_record_id") or "")
@@ -2727,7 +3176,7 @@ async def _do_update_member_status(info, id: str, status: str) -> "BeneficiaryTy
                 "(SELECT id FROM passbooks WHERE owner_user_id=%s))) RETURNING *",
                 (status, legacy_id, uid, uid))).fetchone()
             if not row and not legacy:
-                raise NotAuthorized("Not authorized for this beneficiary")
+                raise NotAuthorized("You do not have access to this heir.")
             if status != "pending":
                 for target in {id, legacy_id}:
                     await conn.execute(
@@ -3017,8 +3466,10 @@ async def _run_inactivity_check(conn, now: datetime, only_owner: str = "") -> di
                         "WHERE owner_user_id=%s AND group_id=%s", (now.isoformat(), owner, gid))
                     summary["skipped"] += 1
                     continue
-                labels = ("Activity reminder", "Second activity reminder", "Final activity reminder")
-                body = ("Please confirm that you are active on Pattadar."
+                labels = ("Inactivity safeguard: confirm you are active",
+                          "Inactivity safeguard: second reminder",
+                          "Inactivity safeguard: final reminder")
+                body = ("Confirm that you are active on Pattadar."
                         if reminder_index == 0 else
                         "We still have not received your activity confirmation on Pattadar."
                         if reminder_index == 1 else
@@ -3056,9 +3507,9 @@ async def _run_inactivity_check(conn, now: datetime, only_owner: str = "") -> di
                 "ON fm.id=fn.member_id AND fm.owner_user_id=fn.owner_user_id "
                 "AND fm.group_id=fn.group_id AND fm.is_self=false "
                 "WHERE fn.owner_user_id=%s AND fn.group_id=%s ORDER BY fn.priority", (owner, gid))).fetchall()
-            subject = f"Family alert — {g['gname']}"
+            subject = f"Inactivity safeguard alert — {g['gname']}"
             body = (f"The head of {g['gname']} has not responded to Pattadar's activity reminders. "
-                    "Please check on them. This alert does not transfer account or property control.")
+                    "Check on them. This alert does not transfer account or property control.")
             if not configured:
                 recipients = await (await conn.execute(
                     "SELECT id,email FROM family_members WHERE owner_user_id=%s AND group_id=%s "
@@ -3182,15 +3633,14 @@ class Mutation:
         pid = new_id()
         async with pool.connection() as conn:
             village = await _canonical_village(conn, uid, village, mandal, district)
-            if not group_id.strip():
-                dg = await (await conn.execute(
-                    "SELECT id FROM groups WHERE owner_user_id=%s ORDER BY created_at LIMIT 1", (uid,))).fetchone()
-                group_id = dg["id"] if dg else ""
-            else:
+            # No group means held in the owner's own name (''), never a
+            # silent fallback to their oldest group.
+            group_id = group_id.strip()
+            if group_id:
                 og = await (await conn.execute(
                     "SELECT 1 FROM groups WHERE id=%s AND owner_user_id=%s", (group_id, uid))).fetchone()
                 if not og:
-                    raise NotAuthorized("Not authorized for this group")
+                    raise NotAuthorized("You do not have access to this group.")
             cur = await conn.execute(
                 "INSERT INTO passbooks (id, owner_user_id, pattadar_no, owner_name, father_husband_name, state, district, mandal, village, group_id, created_at) "
                 "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
@@ -3216,6 +3666,11 @@ class Mutation:
                     "SELECT pattadar_no, village FROM passbooks WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
                 if not doomed:
                     return False
+                # The holdings its parcels are in, read while the membership
+                # rows exist — only those can be emptied by this delete.
+                pids = [r["id"] for r in await (await conn.execute(
+                    "SELECT id FROM parcels WHERE passbook_id=%s", (id,))).fetchall()]
+                in_holdings = await web360.holdings_of_records(conn, uid, pids)
                 # No DB-level FK cascade — remove the passbook's parcels + their
                 # ownership history so a delete doesn't leave orphaned rows.
                 await conn.execute(
@@ -3226,6 +3681,7 @@ class Mutation:
                 if deleted:
                     await log_audit(conn, uid, "delete_passbook", id, _named(
                         "Khata", doomed.get("pattadar_no"), doomed.get("village")))
+                    await web360.drop_emptied_holdings(conn, uid, in_holdings)
                 return deleted
 
     @strawberry.mutation
@@ -3265,7 +3721,12 @@ class Mutation:
                     "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
                     (new_id(), pid, owner, acquisition_source, extent, "acquisition", now.date().isoformat(), True, now.isoformat()),
                 )
-                await log_audit(conn, uid, "create_parcel", pid, f"Survey {survey_no}")
+                # D2 trace: a passbook source counts only when it is the
+                # passbook just checked as the caller's; anything else is typed.
+                await log_audit(conn, uid, "create_parcel", pid, f"Survey {survey_no}",
+                                metadata={"source_kind": "passbook", "source_ref": source}
+                                if source == f"passbook:{passbook_id}"
+                                else {"source_kind": "manual", "origin": (source or "")[:40]})
                 return to_type(ParcelType, row)
 
     @strawberry.mutation
@@ -3324,7 +3785,8 @@ class Mutation:
                         "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
                         (new_id(), pid, seller_name, "", 0.0, "seller", False, now.isoformat()),
                     )
-                await log_audit(conn, uid, "create_property", pid, f"{type}: {label}")
+                await log_audit(conn, uid, "create_property", pid, f"{type}: {label}",
+                                metadata={"source_kind": "manual"})
                 return to_type(PropertyType, row)
 
     @strawberry.mutation
@@ -3357,14 +3819,17 @@ class Mutation:
             "attributes": attributes, "notes": notes, "project_id": project_id,
         }
         sets = {k: v for k, v in fields.items() if v is not None}
-        async with pool.connection() as conn:
+        async with pool.connection() as conn, conn.transaction():
             own = await (await conn.execute(
                 "SELECT 1 FROM properties WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
             if not own:
-                raise NotAuthorized("Not authorized for this property")
+                raise NotAuthorized("You do not have access to this property.")
             if sets:
+                before = await web360.rm.current(conn, id, "property")
                 cols = ", ".join(f"{k}=%s" for k in sets)
                 await conn.execute(f"UPDATE properties SET {cols} WHERE id=%s", (*sets.values(), id))
+                # The owner's edit is their claim, or the master record reverts it later.
+                await web360.rm.owner_wrote(conn, uid, id, "property", before)
             row = await (await conn.execute("SELECT * FROM properties WHERE id=%s", (id,))).fetchone()
             await log_audit(conn, uid, "update_property", id, "Updated property")
             return to_type(PropertyType, row)
@@ -3379,7 +3844,7 @@ class Mutation:
             own = await (await conn.execute(
                 "SELECT 1 FROM properties WHERE id=%s AND owner_user_id=%s", (property_id, uid))).fetchone()
             if not own:
-                raise NotAuthorized("Not authorized for this property")
+                raise NotAuthorized("You do not have access to this property.")
             oid = new_id()
             cur = await conn.execute(
                 "INSERT INTO property_owners (id, property_id, owner_name, group_id, share_pct, role, is_current, created_at) "
@@ -3401,7 +3866,8 @@ class Mutation:
                 own = await (await conn.execute(
                     "SELECT label, address FROM properties WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
                 if not own:
-                    raise NotAuthorized("Not authorized for this property")
+                    raise NotAuthorized("You do not have access to this property.")
+                in_holdings = await web360.holdings_of_records(conn, uid, [id])
                 await conn.execute("DELETE FROM property_owners WHERE property_id=%s", (id,))
                 await conn.execute("DELETE FROM documents WHERE property_id=%s", (id,))
                 # Registered deeds hang off the property too, and each carries its
@@ -3416,6 +3882,7 @@ class Mutation:
                     "DELETE FROM registered_documents WHERE property_id=%s AND owner_user_id=%s", (id, uid))
                 await conn.execute("DELETE FROM properties WHERE id=%s", (id,))
                 await log_audit(conn, uid, "delete_property", id, _named("", own["label"], own["address"]))
+                await web360.drop_emptied_holdings(conn, uid, in_holdings)
                 return True
 
     @strawberry.mutation
@@ -3506,7 +3973,7 @@ class Mutation:
                 if record_id:
                     # Your own card goes in your own folder: person = the account.
                     await web360.file_aadhaar_card(conn, uid, record_id, uid, (row or {}).get("name") or "You")
-                await log_audit(conn, uid, "apply_my_kyc", uid, "identity applied from Aadhaar")
+                await log_audit(conn, uid, "apply_my_kyc", uid, "Identity applied from Aadhaar")
                 return to_type(UserType, row)
 
     @strawberry.mutation
@@ -3619,7 +4086,7 @@ class Mutation:
                 "SELECT p.id FROM parcels p JOIN passbooks pb ON pb.id = p.passbook_id "
                 "WHERE p.id=%s AND pb.owner_user_id=%s", (parcel_id, uid))).fetchone()
             if not owned:
-                raise NotAuthorized("Not authorized for this parcel")
+                raise NotAuthorized("You do not have access to this parcel.")
             cur = await conn.execute(
                 "INSERT INTO parcel_fields (parcel_id, field_key, state, value, source, source_ref, "
                 "verified_at, expires_at, na_reason, updated_at) "
@@ -3646,8 +4113,8 @@ class Mutation:
                 (geo_point, parcel_id, uid))
             row = await cur.fetchone()
             if not row:
-                raise NotAuthorized("Not authorized for this parcel")
-            await log_audit(conn, uid, "update_parcel_geo", parcel_id, "location set" if geo_point else "location cleared")
+                raise NotAuthorized("You do not have access to this parcel.")
+            await log_audit(conn, uid, "update_parcel_geo", parcel_id, "Location set" if geo_point else "Location cleared")
             return to_type(ParcelType, row)
 
     @strawberry.mutation
@@ -3667,7 +4134,7 @@ class Mutation:
                 (geo_point, property_id, uid))
             row = await cur.fetchone()
             if not row:
-                raise NotAuthorized("Not authorized for this property")
+                raise NotAuthorized("You do not have access to this property.")
             # The audit row names the property, not just its id — a log that
             # says "location set · <uuid>" answers nothing later.
             await log_audit(
@@ -3691,10 +4158,10 @@ class Mutation:
                 (boundary, parcel_id, uid))
             row = await cur.fetchone()
             if not row:
-                raise NotAuthorized("Not authorized for this parcel")
+                raise NotAuthorized("You do not have access to this parcel.")
             corners = len([p for p in boundary.split(";") if p.strip()])
             await log_audit(conn, uid, "update_parcel_boundary", parcel_id,
-                            f"boundary set · {corners} corners" if boundary else "boundary cleared")
+                            f"Boundary saved · {corners} corners" if boundary else "Boundary cleared")
             return to_type(ParcelType, row)
 
     @strawberry.mutation
@@ -3707,11 +4174,11 @@ class Mutation:
                 (boundary, property_id, uid))
             row = await cur.fetchone()
             if not row:
-                raise NotAuthorized("Not authorized for this property")
+                raise NotAuthorized("You do not have access to this property.")
             corners = len([p for p in boundary.split(";") if p.strip()])
             await log_audit(
                 conn, uid, "update_property_boundary", property_id,
-                (f"Boundary set · {corners} corners" if boundary else "Boundary cleared")
+                (f"Boundary saved · {corners} corners" if boundary else "Boundary cleared")
                 + f" · {_named('', row['label'], row['address'])}".rstrip(' ·'),
             )
             return to_type(PropertyType, row)
@@ -3741,14 +4208,20 @@ class Mutation:
             "group_id": group_id,
         }
         sets = {k: v for k, v in fields.items() if v is not None}
-        async with pool.connection() as conn:
+        async with pool.connection() as conn, conn.transaction():
             own = await (await conn.execute(
                 "SELECT pattadar_no FROM passbooks WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
             if not own:
-                raise NotAuthorized("Not authorized for this khata")
+                raise NotAuthorized("You do not have access to this khata.")
             if sets:
+                parcels = [r["id"] for r in await (await conn.execute(
+                    "SELECT id FROM parcels WHERE passbook_id=%s", (id,))).fetchall()]
+                before = {p: await web360.rm.current(conn, p, "parcel") for p in parcels}
                 cols = ", ".join(f"{k}=%s" for k in sets)
                 await conn.execute(f"UPDATE passbooks SET {cols} WHERE id=%s", (*sets.values(), id))
+                # Each parcel on the khata now says what the owner typed (master record).
+                for p in parcels:
+                    await web360.rm.owner_wrote(conn, uid, p, "parcel", before[p])
             row = await (await conn.execute("SELECT * FROM passbooks WHERE id=%s", (id,))).fetchone()
             await log_audit(conn, uid, "update_passbook", id, _named("", row["pattadar_no"], row["village"]))
             return to_type(PassbookType, row)
@@ -3791,7 +4264,11 @@ class Mutation:
             "rera_no": rera_no, "litigation": litigation, "litigation_note": litigation_note,
         }
         fields = {k: v for k, v in candidate.items() if v is not None}
-        async with pool.connection() as conn:
+        async with pool.connection() as conn, conn.transaction():
+            owned = await (await conn.execute(
+                "SELECT 1 FROM parcels WHERE id=%s AND passbook_id IN "
+                "(SELECT id FROM passbooks WHERE owner_user_id=%s)", (id, uid))).fetchone()
+            before = await web360.rm.current(conn, id, "parcel") if owned and fields else None
             if not fields:
                 cur = await conn.execute(
                     "SELECT * FROM parcels WHERE id=%s AND passbook_id IN "
@@ -3804,9 +4281,11 @@ class Mutation:
                     "(SELECT id FROM passbooks WHERE owner_user_id=%s) RETURNING *", params)
             row = await cur.fetchone()
             if not row:
-                raise NotAuthorized("Not authorized for this parcel")
+                raise NotAuthorized("You do not have access to this parcel.")
+            if before is not None:
+                await web360.rm.owner_wrote(conn, uid, id, "parcel", before)
             if fields:
-                await log_audit(conn, uid, "update_parcel", id, "dossier updated")
+                await log_audit(conn, uid, "update_parcel", id, "Details updated")
             return to_type(ParcelType, row)
 
     @strawberry.mutation
@@ -3823,6 +4302,7 @@ class Mutation:
                     "WHERE p.id=%s AND pb.owner_user_id=%s", (id, uid))).fetchone()
                 if not doomed:
                     return False
+                in_holdings = await web360.holdings_of_records(conn, uid, [id])
                 await conn.execute("DELETE FROM parcel_owners WHERE parcel_id=%s", (id,))
                 cur = await conn.execute(
                     "DELETE FROM parcels WHERE id=%s AND passbook_id IN "
@@ -3832,6 +4312,7 @@ class Mutation:
                 if deleted:
                     await log_audit(conn, uid, "delete_parcel", id, _named(
                         "Survey", doomed.get("survey_no"), doomed.get("village")))
+                    await web360.drop_emptied_holdings(conn, uid, in_holdings)
                 return deleted
 
     @strawberry.mutation
@@ -3891,6 +4372,9 @@ class Mutation:
             if not owned:
                 return False
             await conn.execute("DELETE FROM documents WHERE id=%s", (id,))
+            # A transfer must not keep naming a deed that is gone (web360's compliance reads it).
+            await conn.execute(
+                "UPDATE record_transfers SET deed_document_id='' WHERE deed_document_id=%s", (id,))
             target = owned["parcel_id"] or owned["passbook_id"] or id
             await log_audit(conn, uid, "delete_document", target, f"Deleted {owned['doc_no'] or 'a document'}")
             return True
@@ -3935,7 +4419,7 @@ class Mutation:
                     f"SELECT 1 FROM documents WHERE id=%s AND {_DOC_OWNED}",
                     (doc, *_doc_owner_args(uid)))
                 if not await cur.fetchone():
-                    raise NotAuthorized("Not authorized for this document")
+                    raise NotAuthorized("You do not have access to this document.")
             # The reverse edge already existing would make a two-document loop:
             # each claiming to come before the other. Refuse rather than store
             # a trail that cannot be read in either direction.
@@ -4022,7 +4506,7 @@ class Mutation:
                 "SELECT 1 FROM registered_documents WHERE id=%s AND owner_user_id=%s",
                 (reading_id, uid))
             if not await cur.fetchone():
-                raise NotAuthorized("Not authorized for this reading")
+                raise NotAuthorized("You do not have access to this document reading.")
             cur = await conn.execute(
                 f"UPDATE documents SET reading_id=%s"
                 f"{', doc_type=%s' if doc_type else ''} "
@@ -4104,12 +4588,12 @@ class Mutation:
         # The verification invite goes to email if given, else the mobile.
         contact = email or phone or (person_contact or "").strip()
         if not contact:
-            raise ValueError("Add a mobile number or email so the beneficiary can be verified")
+            raise ValueError("Add a mobile number or email so this heir can be verified.")
         minor = _is_minor(dob)
         if minor and not (guardian_name or "").strip():
             raise ValueError("A minor needs a guardian (head of household) to verify on their behalf")
         if (marital_status or "").lower() == "married" and not (spouse_name or "").strip():
-            raise ValueError("Please add the spouse for a married beneficiary")
+            raise ValueError("Add the spouse for a married heir.")
         aadhaar_masked = _mask_aadhaar(aadhaar) if (aadhaar or "").strip() else ""
         bid = new_id()
         token = str(uuid.uuid4())
@@ -4187,7 +4671,8 @@ class Mutation:
 
     @strawberry.mutation
     async def add_note(self, info: strawberry.Info, entity_type: str, entity_id: str, body: str) -> NoteType:
-        """Append a note to a passbook / parcel / document. Append-only history."""
+        """Add a note to a passbook / parcel / document / record; `update_note`
+        rewrites one and `delete_note` removes one, each audited."""
         uid = _uid_from_info(info)
         nid = new_id()
         async with pool.connection() as conn:
@@ -4200,6 +4685,26 @@ class Mutation:
             await log_audit(conn, uid, "add_note", _note_target(entity_type, entity_id, nid),
                             "Added a note")
             return to_type(NoteType, row)
+
+    @strawberry.mutation
+    async def update_note(self, info: strawberry.Info, id: str, body: str) -> Optional[NoteType]:
+        """Rewrite one of the caller's notes (web Notes tab, edited in place).
+        `body` is Markdown; an empty body is refused rather than leaving a
+        blank card. The edit writes an audit line on the trail the filing did.
+        Returns None when the note is not the caller's or is gone."""
+        uid = _uid_from_info(info)
+        if not body.strip():
+            raise ValueError("A note cannot be empty.")
+        async with pool.connection() as conn:
+            cur = await conn.execute(
+                "UPDATE notes SET body=%s WHERE id=%s AND owner_user_id=%s RETURNING *",
+                (body, id, uid))
+            row = await cur.fetchone()
+            if row:
+                await log_audit(conn, uid, "edit_note",
+                                _note_target(row["entity_type"], row["entity_id"], id),
+                                "Edited a note")
+            return to_type(NoteType, row) if row else None
 
     @strawberry.mutation
     async def add_land_expense(
@@ -4241,7 +4746,27 @@ class Mutation:
     ) -> WorkRequestType:
         uid = _uid_from_info(info)
         rid = new_id()
+        # Stored in sentence case (naming standard N1): a client that sends
+        # "Encumbrance Certificate" must not put a title-cased name on every
+        # screen that reads this row.
+        title = web360._service_title(title)
+        quoted, revision = 0.0, ""
         async with pool.connection() as conn:
+            # A catalogue service ordered FOR a record is named, priced and
+            # dated by the catalogue for that land, never by the client, exactly
+            # as orderService is. A request with no record is the iOS tracker
+            # ("you find the person"): the owner's own title, cost and date are
+            # kept, because no catalogue price was offered or agreed for it.
+            live = (await web360._catalogue_offer(conn, uid, kind, entity_id)
+                    if entity_type == "record" and entity_id else {})
+            if live:
+                if not live.get("enabled", True):
+                    raise ValueError(
+                        f"{live['label']} is not offered for this property. Choose another service.")
+                title, cost = live["label"], web360._f(live["price"])
+                quoted, revision = cost, live["revision"]
+                due_date = (date.today() + timedelta(days=web360._i(live.get("days")) or 7)
+                            ).strftime("%d/%m/%Y")
             if entity_type == "record" and entity_id:
                 existing = await web360._active_service_request(
                     conn, uid, entity_id, kind)
@@ -4252,11 +4777,12 @@ class Mutation:
                     return to_type(WorkRequestType, existing)
             cur = await conn.execute(
                 "INSERT INTO work_requests (id, owner_user_id, kind, title, entity_type, "
-                "entity_id, assignee, cost, stage, needs_you, note, due_date, closed, created_at, service_key) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,0,FALSE,%s,%s,FALSE,%s,%s) RETURNING *",
+                "entity_id, assignee, cost, stage, needs_you, note, due_date, closed, created_at,"
+                " service_key, quoted, catalogue_revision) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,0,FALSE,%s,%s,FALSE,%s,%s,%s,%s) RETURNING *",
                 (rid, uid, kind, title, entity_type, entity_id, assignee, cost,
                  note, due_date, datetime.utcnow().isoformat(),
-                 web360.canonical_service_kind(kind)),
+                 web360.canonical_service_kind(kind), quoted, revision),
             )
             row = await cur.fetchone()
             # The ticket's own trail, which the audit log is not: the Ticket
@@ -4268,8 +4794,7 @@ class Mutation:
             await web360._event(
                 conn, uid, rid, kind="status", action="place", to_status="placed",
                 headline=web360.ticketing.event_headline(
-                    "status", "place", {"actor_label": "You"}),
-                detail=f"Ordered from {entity_id}" if entity_id else "Ordered")
+                    "status", "place", {"actor_label": "You"}))
             await log_audit(conn, uid, "add_work_request", rid, title)
             return to_type(WorkRequestType, row)
 
@@ -4285,6 +4810,14 @@ class Mutation:
                   "needs_you": needs_you, "note": note, "due_date": due_date, "closed": closed}
         sets = {k: v for k, v in fields.items() if v is not None}
         async with pool.connection() as conn:
+            # A catalogue-priced order keeps the price and date it was placed
+            # at; only the desk's settlement moves them, never this mutation.
+            priced = await (await conn.execute(
+                "SELECT catalogue_revision FROM work_requests WHERE id=%s AND owner_user_id=%s",
+                (id, uid))).fetchone()
+            if priced and priced.get("catalogue_revision"):
+                sets.pop("cost", None)
+                sets.pop("due_date", None)
             if not sets:
                 cur = await conn.execute(
                     "SELECT * FROM work_requests WHERE id=%s AND owner_user_id=%s", (id, uid))
@@ -4372,8 +4905,8 @@ class Mutation:
 
     @strawberry.mutation
     async def delete_note(self, info: strawberry.Info, id: str) -> bool:
-        """Remove one note. The web never offers this (W360 notes are shown as
-        permanent), but the iOS client names the mutation, so it stays — and a
+        """Remove one note. The web never offers this (W360 notes are edited,
+        not removed), but the iOS client names the mutation, so it stays — and a
         removal now writes its own audit line on the same trail the filing
         did, so a note can no longer leave the record's Activity silently."""
         uid = _uid_from_info(info)
@@ -4429,7 +4962,7 @@ class Mutation:
                     "SELECT email,phone,group_id FROM family_members WHERE id=%s AND owner_user_id=%s FOR UPDATE",
                     (id, uid))).fetchone()
                 if not prior:
-                    raise NotAuthorized("Not authorized for this family member")
+                    raise NotAuthorized("You do not have access to this family member.")
                 email_changed = (prior.get("email") or "").strip().casefold() != (email or "").strip().casefold()
                 phone_changed = re.sub(r"\D", "", prior.get("phone") or "") != re.sub(r"\D", "", phone or "")
                 cur = await conn.execute(
@@ -4498,7 +5031,7 @@ class Mutation:
                 mcur = await conn.execute("SELECT * FROM family_members WHERE id=%s AND owner_user_id=%s", (id, uid))
                 member = await mcur.fetchone()
                 if not member:
-                    raise NotAuthorized("Not authorized for this family member")
+                    raise NotAuthorized("You do not have access to this family member.")
                 invitee = ((member.get("email") or "").strip() or (member.get("phone") or "").strip())
                 if not invitee:
                     raise ValueError("Add a phone or email for this family member before inviting")
@@ -4517,37 +5050,57 @@ class Mutation:
 
     # ---- Groups (typed land-holding entities) ------------------------------
     @strawberry.mutation
-    async def create_group(self, info: strawberry.Info, type: str, name: str, description: str = "") -> GroupType:
+    async def create_group(self, info: strawberry.Info, type: str, name: str, description: str = "",
+                           facts: Optional[str] = None) -> GroupType:
         uid = _uid_from_info(info)
-        gtype = type if type in GROUP_TYPES else "family"
+        gtype = (type or "").strip()
+        if gtype not in GROUP_TYPES:
+            raise ValueError(GROUP_TYPE_REFUSAL)
+        cf = _clean_facts(facts or "{}", GROUP_TYPES[gtype]["fields"])
         async with pool.connection() as conn:
             gid = new_id(); now = datetime.utcnow().isoformat()
             await conn.execute(
-                "INSERT INTO groups (id, owner_user_id, type, name, description, created_at, updated_at) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s)",
-                (gid, uid, gtype, name.strip() or GROUP_TYPES[gtype]["label"], description.strip(), now, now))
-            await ensure_self(conn, uid, gid, _group_primary_role(gtype))
+                "INSERT INTO groups (id, owner_user_id, type, name, description, facts, created_at, updated_at) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                (gid, uid, gtype, name.strip() or GROUP_TYPES[gtype]["label"], description.strip(), cf, now, now))
+            await ensure_self(conn, uid, gid, _group_self_role(gtype, cf))
             await log_audit(conn, uid, "create_group", gid, f"{gtype}: {name}")
             row = await (await conn.execute("SELECT * FROM groups WHERE id=%s", (gid,))).fetchone()
             return await _group_summary(conn, uid, row)
 
     @strawberry.mutation
-    async def update_group(self, info: strawberry.Info, id: str, name: str, description: str = "") -> GroupType:
+    async def update_group(self, info: strawberry.Info, id: str, name: str, description: str = "",
+                           facts: Optional[str] = None) -> GroupType:
+        """Rename a group and, when `facts` is given, replace its facts. An
+        omitted `facts` keeps what is stored, so a rename from iOS, Expo or the
+        older screen cannot wipe them."""
         uid = _uid_from_info(info)
         async with pool.connection() as conn:
-            cur = await conn.execute(
-                "UPDATE groups SET name=%s, description=%s, updated_at=%s WHERE id=%s AND owner_user_id=%s RETURNING *",
-                (name.strip(), description.strip(), datetime.utcnow().isoformat(), id, uid))
-            row = await cur.fetchone()
-            if not row:
-                raise NotAuthorized("Not authorized for this group")
-            # create_group and delete_group both audit; this one did not, so a
-            # rename was the one change to a group that left no trace. The
-            # group's Activity tab is built on exactly this table, so renaming
-            # a group and then looking at its history said "nothing has
-            # happened yet" — which is a worse answer than no tab at all.
-            await log_audit(conn, uid, "update_group", id, _named("", row["name"]))
-            return await _group_summary(conn, uid, row)
+            async with conn.transaction():
+                g = await (await conn.execute(
+                    "SELECT type, facts FROM groups WHERE id=%s AND owner_user_id=%s FOR UPDATE",
+                    (id, uid))).fetchone()
+                if not g:
+                    raise NotAuthorized("You do not have access to this group.")
+                cf = _clean_facts(facts, GROUP_TYPES.get(g["type"], GROUP_TYPES["family"])["fields"])
+                cur = await conn.execute(
+                    "UPDATE groups SET name=%s, description=%s, facts=COALESCE(%s, facts), updated_at=%s "
+                    "WHERE id=%s AND owner_user_id=%s RETURNING *",
+                    (name.strip(), description.strip(), cf, datetime.utcnow().isoformat(), id, uid))
+                row = await cur.fetchone()
+                old, new = _parse_facts(g["facts"]), _parse_facts(row["facts"])
+                # Catalogue keys only: a restored row could carry any key name.
+                keys = {f["key"] for f in GROUP_TYPES.get(g["type"], GROUP_TYPES["family"])["fields"]}
+                changed = sorted(k for k in (old.keys() | new.keys()) & keys if old.get(k) != new.get(k))
+                # create_group and delete_group both audit; this one did not, so a
+                # rename was the one change to a group that left no trace. The
+                # group's Activity tab is built on exactly this table, so renaming
+                # a group and then looking at its history said "nothing has
+                # happened yet" — which is a worse answer than no tab at all.
+                # Which facts changed is named, never their values.
+                await log_audit(conn, uid, "update_group", id, _named("", row["name"]),
+                                metadata={"fields": ",".join(changed)})
+                return await _group_summary(conn, uid, row)
 
     @strawberry.mutation
     async def delete_group(self, info: strawberry.Info, id: str) -> bool:
@@ -4580,7 +5133,7 @@ class Mutation:
             if group_id:
                 g = await (await conn.execute("SELECT 1 FROM groups WHERE id=%s AND owner_user_id=%s", (group_id, uid))).fetchone()
                 if not g:
-                    raise NotAuthorized("Not authorized for this group")
+                    raise NotAuthorized("You do not have access to this group.")
             cur = await conn.execute(
                 "UPDATE passbooks SET group_id=%s WHERE id=%s AND owner_user_id=%s", (group_id, passbook_id, uid))
             if cur.rowcount > 0:
@@ -4596,7 +5149,7 @@ class Mutation:
             if group_id:
                 g = await (await conn.execute("SELECT 1 FROM groups WHERE id=%s AND owner_user_id=%s", (group_id, uid))).fetchone()
                 if not g:
-                    raise NotAuthorized("Not authorized for this group")
+                    raise NotAuthorized("You do not have access to this group.")
             cur = await conn.execute(
                 "UPDATE properties SET group_id=%s WHERE id=%s AND owner_user_id=%s", (group_id, property_id, uid))
             if cur.rowcount > 0:
@@ -4633,8 +5186,12 @@ class Mutation:
         """Record the account holder's stake in a holding: owned | managed | watch."""
         uid = _uid_from_info(info)
         if stake not in ("owned", "managed", "watch"):
-            raise ValueError("stake must be owned, managed or watch")
-        async with pool.connection() as conn:
+            raise ValueError("Choose your stake.")
+        async with pool.connection() as conn, conn.transaction():
+            # A record inside a web 360 holding keeps the holding's one stake:
+            # the change is refused with a sentence naming the holding, under
+            # the row lock the combine check waits on (web360._guard_holding_stake).
+            await web360._guard_holding_stake(conn, uid, id, stake)
             if kind == "property":
                 cur = await conn.execute(
                     "UPDATE properties SET stake=%s WHERE id=%s AND owner_user_id=%s", (stake, id, uid))
@@ -4655,15 +5212,20 @@ class Mutation:
         share_pct: float = 0.0, kind: str = "", parcel_id: str = "", present_address: str = "", aadhaar: str = "",
         aadhaar_candidate_id: str = "", guardian_name: str = "", guardian_contact: str = "", marital_status: str = "",
         spouse_name: str = "", spouse_contact: str = "", spouse_status: str = "",
+        facts: Optional[str] = None,
     ) -> PersonType:
         uid = _uid_from_info(info)
         async with pool.connection() as conn:
             async with conn.transaction():
                 g = await (await conn.execute(
-                    "SELECT type FROM groups WHERE id=%s AND owner_user_id=%s FOR UPDATE", (group_id, uid))).fetchone()
+                    "SELECT type, facts FROM groups WHERE id=%s AND owner_user_id=%s FOR UPDATE",
+                    (group_id, uid))).fetchone()
                 if not g:
-                    raise NotAuthorized("Not authorized for this group")
-                v = dict(name=name, relation=relation, role=role, group_id=group_id, gender=gender, dob=dob,
+                    raise NotAuthorized("You do not have access to this group.")
+                gt = GROUP_TYPES.get(g["type"], GROUP_TYPES["family"])
+                role = _clean_role(g["type"], role)
+                facts = _clean_facts(facts or "{}", gt["member_fields"], _parse_facts(g["facts"]), role)
+                v = dict(name=name, relation=relation, role=role, facts=facts, group_id=group_id, gender=gender, dob=dob,
                          phone=phone, email=email, bio=bio, photo=photo, father_id=father_id, mother_id=mother_id,
                          spouse_id=spouse_id, is_beneficiary=is_beneficiary, share_pct=share_pct, kind=kind,
                          parcel_id=parcel_id, present_address=present_address, aadhaar=aadhaar,
@@ -4690,6 +5252,7 @@ class Mutation:
         guardian_name: Optional[str] = None, guardian_contact: Optional[str] = None,
         marital_status: Optional[str] = None, spouse_name: Optional[str] = None,
         spouse_contact: Optional[str] = None, spouse_status: Optional[str] = None,
+        facts: Optional[str] = None,
     ) -> PersonType:
         """Correct a person's details. Every argument is optional and only the
         ones supplied are written, the way update_passbook and update_parcel
@@ -4697,10 +5260,21 @@ class Mutation:
         uid = _uid_from_info(info)
         async with pool.connection() as conn:
             async with conn.transaction():
-                gid = (await (await conn.execute(
-                    "SELECT group_id FROM family_members WHERE id=%s AND owner_user_id=%s FOR UPDATE",
-                    (id, uid))).fetchone() or {}).get("group_id", "")
-                v = dict(name=name, relation=relation, role=role, group_id=gid, gender=gender, dob=dob,
+                m = await (await conn.execute(
+                    "SELECT f.group_id, f.role, f.facts, COALESCE(g.type,'family') AS type, "
+                    "COALESCE(g.facts,'{}') AS group_facts FROM family_members f "
+                    "LEFT JOIN groups g ON g.id=f.group_id AND g.owner_user_id=f.owner_user_id "
+                    "WHERE f.id=%s AND f.owner_user_id=%s FOR UPDATE OF f", (id, uid))).fetchone() or {}
+                gid, gtype = m.get("group_id", ""), m.get("type", "family")
+                role = _clean_role(gtype, role)
+                # A new role re-checks the stored facts: a director's DIN goes
+                # when they become a shareholder.
+                if facts is None and role is not None and m:
+                    facts = m["facts"]
+                facts = _clean_facts(facts, GROUP_TYPES.get(gtype, GROUP_TYPES["family"])["member_fields"],
+                                     _parse_facts(m.get("group_facts")),
+                                     role if role is not None else m.get("role", ""))
+                v = dict(name=name, relation=relation, role=role, facts=facts, group_id=gid, gender=gender, dob=dob,
                          phone=phone, email=email, bio=bio, photo=photo, father_id=father_id, mother_id=mother_id,
                          spouse_id=spouse_id, is_beneficiary=is_beneficiary, share_pct=share_pct, kind=kind,
                          parcel_id=parcel_id, present_address=present_address, aadhaar=aadhaar,
@@ -4722,7 +5296,7 @@ class Mutation:
                 if not s:
                     return False
                 if s["is_self"]:
-                    raise ValueError("You can't remove your own node")
+                    raise ValueError("You cannot remove yourself.")
                 await conn.execute(
                     "DELETE FROM family_notifiers WHERE member_id=%s AND owner_user_id=%s AND group_id=%s",
                     (id, uid, s["group_id"]))
@@ -4756,7 +5330,7 @@ class Mutation:
         async with pool.connection() as conn:
             m = await (await conn.execute("SELECT * FROM family_members WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
             if not m:
-                raise NotAuthorized("Not authorized for this person")
+                raise NotAuthorized("You do not have access to this person.")
             email = (m.get("email") or "").strip()
             phone = (m.get("phone") or "").strip()
             invitee = email or phone
@@ -4773,9 +5347,9 @@ class Mutation:
                 (new_id(), id, role, invitee, _capability_hash(token),
                  _invitation_expiry(), datetime.utcnow().isoformat()))
             name = (m.get("name") or "there").strip() or "there"
-            subject = "Please confirm your family/heir details — Pattadar"
-            body = (f"Hi {name}, you've been listed as a beneficiary/heir on Pattadar land records. "
-                    f"Please confirm your details here: {link}")
+            subject = "Confirm how you are listed on Pattadar"
+            body = (f"Hi {name}, you have been listed as an heir on Pattadar. "
+                    f"Check how you are listed and confirm: {link}")
             send = await notify.notify_contact(conn, invitee, subject, body, owner=uid)
             cur = await conn.execute(
                 "UPDATE family_members SET invite_status='invited', status='pending', invite_token=%s, invite_channel=%s "
@@ -4802,7 +5376,7 @@ class Mutation:
                     "SELECT type FROM groups WHERE id=%s AND owner_user_id=%s FOR UPDATE",
                     (group_id, uid))).fetchone()
                 if not own:
-                    raise NotAuthorized("Not authorized for this group")
+                    raise NotAuthorized("You do not have access to this group.")
                 if own["type"] != "family":
                     raise ValueError("Inactivity notifiers are available only for family groups")
                 members = []
@@ -4990,19 +5564,25 @@ class Mutation:
 
     @strawberry.mutation
     async def set_member_share(self, info: strawberry.Info, id: str, share_pct: float) -> PersonType:
-        """Set a member's share % (heir), enforcing the group/parcel ≤100% guard."""
+        """Set a member's share %, enforcing the ≤100% guards. In a family the
+        member becomes an heir; in any other group only the share is written."""
         uid = _uid_from_info(info)
         async with pool.connection() as conn:
             m = await (await conn.execute(
                 "SELECT * FROM family_members WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
             if not m:
-                raise NotAuthorized("Not authorized for this member")
+                raise NotAuthorized("You do not have access to this member.")
             v = {k: m.get(k, "") for k in (
-                "name", "relation", "role", "group_id", "gender", "dob", "phone", "email", "bio", "photo",
+                "name", "relation", "role", "facts", "group_id", "gender", "dob", "phone", "email", "bio", "photo",
                 "father_id", "mother_id", "spouse_id", "kind", "parcel_id", "present_address",
                 "guardian_name", "guardian_contact", "marital_status", "spouse_name",
                 "spouse_contact", "spouse_status")}
-            v.update(is_beneficiary=True, share_pct=share_pct, aadhaar="")
+            g = await (await conn.execute(
+                "SELECT type FROM groups WHERE id=%s AND owner_user_id=%s", (m["group_id"], uid))).fetchone()
+            # Only a family share makes an heir (and sends a verification
+            # invite); a partner's profit share or a shareholding does not.
+            heir = not g or g["type"] == "family"
+            v.update(is_beneficiary=True if heir else m["is_beneficiary"], share_pct=share_pct, aadhaar="")
             return await _write_person(conn, uid, id, v, is_update=True)
 
     @strawberry.mutation
@@ -5072,7 +5652,7 @@ class Mutation:
                     "SELECT 1 FROM parcels p JOIN passbooks pb ON pb.id=p.passbook_id "
                     "WHERE p.id=%s AND pb.owner_user_id=%s", (scope_id, uid))).fetchone()
             if not ok:
-                raise NotAuthorized("Not authorized for this scope")
+                raise NotAuthorized("You do not have access to this property.")
             cur = await conn.execute(
                 "INSERT INTO invitations (id, scope_type, scope_id, role, invitee_contact, token, expiry, status, "
                 "created_at, owner_user_id) VALUES (%s, %s, %s, %s, %s, %s, %s, 'pending', %s, %s) RETURNING *",
@@ -5109,7 +5689,7 @@ class Mutation:
                     "SELECT * FROM invitations WHERE id=%s AND " + _INVITATION_OWNED + " FOR UPDATE",
                     (id,) + (uid,) * 6)).fetchone()
                 if not row:
-                    raise NotAuthorized("Not authorized for this invitation")
+                    raise NotAuthorized("You do not have access to this invitation.")
                 if status == "pending" and row["status"] != "pending":
                     raise ValueError("Send a new invitation to restore access")
                 if status != "pending" and row["token"]:
@@ -5211,7 +5791,7 @@ class Mutation:
                 dcur = await conn.execute("SELECT * FROM registered_documents WHERE id=%s AND owner_user_id=%s", (document_id, uid))
                 doc = await dcur.fetchone()
                 if not doc:
-                    raise NotAuthorized("Not authorized for this document")
+                    raise NotAuthorized("You do not have access to this document.")
                 await _assert_owns_passbook(conn, uid, passbook_id)
                 pid = new_id()
                 extent_sqyd = _area_sq_yd(doc["extent"])
@@ -5236,7 +5816,9 @@ class Mutation:
                     (new_id(), pid, owner, "sale", extent, "acquisition", now.date().isoformat(), True, now.isoformat()),
                 )
                 await conn.execute("UPDATE registered_documents SET parcel_id=%s, passbook_id=%s WHERE id=%s", (pid, passbook_id, document_id))
-                await log_audit(conn, uid, "parcel_from_document", pid, document_id)
+                await log_audit(conn, uid, "parcel_from_document", pid, document_id,
+                                metadata={"source_kind": "registered_document",
+                                          "document_id": document_id})
                 return to_type(ParcelType, row)
 
     @strawberry.mutation
@@ -5249,7 +5831,7 @@ class Mutation:
                 (passbook_id, document_id, uid))
             row = await cur.fetchone()
             if not row:
-                raise NotAuthorized("Not authorized for this document")
+                raise NotAuthorized("You do not have access to this document.")
             await log_audit(conn, uid, "link_document_passbook", document_id, passbook_id)
             return to_type(RegisteredDocumentType, row)
 
@@ -5273,7 +5855,7 @@ class Mutation:
                 (parcel_id, row["passbook_id"] if row else "", document_id, uid))
             doc = await cur.fetchone()
             if not doc:
-                raise NotAuthorized("Not authorized for this document")
+                raise NotAuthorized("You do not have access to this document.")
             await log_audit(conn, uid, "link_document_parcel", document_id,
                             _named("", doc["doc_type"], row["survey_no"] if row else ""))
             return to_type(RegisteredDocumentType, doc)
@@ -5292,13 +5874,13 @@ class Mutation:
             own = await (await conn.execute(
                 "SELECT label FROM properties WHERE id=%s AND owner_user_id=%s", (property_id, uid))).fetchone()
             if not own:
-                raise NotAuthorized("Not authorized for this property")
+                raise NotAuthorized("You do not have access to this property.")
             cur = await conn.execute(
                 "UPDATE registered_documents SET property_id=%s WHERE id=%s AND owner_user_id=%s RETURNING *",
                 (property_id, document_id, uid))
             row = await cur.fetchone()
             if not row:
-                raise NotAuthorized("Not authorized for this document")
+                raise NotAuthorized("You do not have access to this document.")
             await log_audit(conn, uid, "link_document_property", document_id,
                             _named("", row["doc_type"], own["label"]))
             return to_type(RegisteredDocumentType, row)
@@ -5324,7 +5906,7 @@ class Mutation:
                     "SELECT * FROM registered_documents WHERE id=%s AND owner_user_id=%s",
                     (document_id, uid))).fetchone()
                 if not doc:
-                    raise NotAuthorized("Not authorized for this document")
+                    raise NotAuthorized("You do not have access to this document.")
                 area = _area_sq_yd(doc["extent"])
                 cl = (doc["classification"] or "").lower()
                 kind = "flat" if "flat" in cl or "apartment" in cl else (
@@ -5345,7 +5927,9 @@ class Mutation:
                 row = await cur.fetchone()
                 # Point the deed at what it created, so the two stay linked.
                 await conn.execute("UPDATE registered_documents SET property_id=%s WHERE id=%s", (pid, document_id))
-                await log_audit(conn, uid, "create_property", pid, _named("", kind, label))
+                await log_audit(conn, uid, "create_property", pid, _named("", kind, label),
+                                metadata={"source_kind": "registered_document",
+                                          "document_id": document_id})
                 return to_type(PropertyType, row)
 
     @strawberry.mutation
@@ -5374,7 +5958,7 @@ class Mutation:
                 "SELECT 1 FROM parcels WHERE id=%s AND passbook_id IN "
                 "(SELECT id FROM passbooks WHERE owner_user_id=%s)", (parcel_id, uid))).fetchone()
             if not owns:
-                raise NotAuthorized("Not authorized for this parcel")
+                raise NotAuthorized("You do not have access to this parcel.")
             pid = new_id()
             now = datetime.utcnow().isoformat()
             cur = await conn.execute(
@@ -5409,7 +5993,7 @@ class Mutation:
                 (*vals, id, uid))
             row = await cur.fetchone()
             if not row:
-                raise NotAuthorized("Not authorized for this photo")
+                raise NotAuthorized("You do not have access to this photo.")
             await log_audit(conn, uid, "update_parcel_photo", id, _named("", row["category"], row["caption"]))
             return to_type(ParcelPhotoType, row)
 
@@ -5425,7 +6009,7 @@ class Mutation:
                 row = await (await conn.execute(
                     "SELECT parcel_id FROM parcel_photos WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
                 if not row:
-                    raise NotAuthorized("Not authorized for this photo")
+                    raise NotAuthorized("You do not have access to this photo.")
                 await conn.execute(
                     "UPDATE parcel_photos SET is_cover=FALSE WHERE parcel_id=%s", (row["parcel_id"],))
                 await conn.execute("UPDATE parcel_photos SET is_cover=TRUE WHERE id=%s", (id,))
@@ -5468,7 +6052,7 @@ class Mutation:
                 "SELECT 1 FROM properties WHERE id=%s AND owner_user_id=%s",
                 (property_id, uid))).fetchone()
             if not owns:
-                raise NotAuthorized("Not authorized for this property")
+                raise NotAuthorized("You do not have access to this property.")
             pid = new_id()
             now = datetime.utcnow().isoformat()
             cur = await conn.execute(
@@ -5502,7 +6086,7 @@ class Mutation:
                 (*vals, id, uid))
             row = await cur.fetchone()
             if not row:
-                raise NotAuthorized("Not authorized for this photo")
+                raise NotAuthorized("You do not have access to this photo.")
             await log_audit(conn, uid, "update_property_photo", id, _named("", row["category"], row["caption"]))
             return to_type(PropertyPhotoType, row)
 
@@ -5518,7 +6102,7 @@ class Mutation:
                 row = await (await conn.execute(
                     "SELECT property_id FROM property_photos WHERE id=%s AND owner_user_id=%s", (id, uid))).fetchone()
                 if not row:
-                    raise NotAuthorized("Not authorized for this photo")
+                    raise NotAuthorized("You do not have access to this photo.")
                 await conn.execute(
                     "UPDATE property_photos SET is_cover=FALSE WHERE property_id=%s", (row["property_id"],))
                 await conn.execute("UPDATE property_photos SET is_cover=TRUE WHERE id=%s", (id,))
@@ -5605,7 +6189,7 @@ class Mutation:
                     (clean_name, clean_email, uid),
                 )
                 row = await cur.fetchone()
-                await log_audit(conn, uid, "update_profile", uid, "name or email changed")
+                await log_audit(conn, uid, "update_profile", uid, "Name or email changed")
                 return to_type(UserType, row)
 
     # The decorator is load-bearing. `update_me` was once inserted directly
@@ -5680,7 +6264,7 @@ class Mutation:
                 if record_id and prior_record != record_id:
                     await aadhaar_security.release_if_unreferenced(conn, uid, prior_record)
                     await web360.release_person_documents(conn, uid)
-                await log_audit(conn, uid, "update_profile", uid, "profile updated")
+                await log_audit(conn, uid, "update_profile", uid, "Profile updated")
                 return to_type(UserType, row)
 
 
@@ -5870,6 +6454,150 @@ async def _backfill_vault_layer_one(conn) -> None:
         "UPDATE documents SET name = CASE WHEN doc_type = '' OR doc_type = 'other' "
         "                                 THEN 'Document' ELSE initcap(replace(doc_type, '_', ' ')) END "
         " WHERE name = ''")
+
+
+# platform_settings key that marks the one-time default-Family backfill in
+# init_db as done. Never delete this row: without it the next boot would treat
+# a groups-less database as un-migrated.
+GROUPS_BACKFILL_MARKER = "migration.default_family_groups"
+
+
+async def _backfill_default_family_groups(conn) -> None:
+    """Run once per database, ever; every later boot is a no-op."""
+    # One-time migration: give every pre-groups owner a default Family
+    # group and attach their members + passbooks to it. It MUST run once
+    # only — group_id='' now legitimately means "held in your own name"
+    # (delete_group and assign_land_to_group write it), so re-running on
+    # every boot silently re-attached personal passbooks to the oldest
+    # family and recreated a family the owner had deleted. A marker row in
+    # platform_settings records that it has run. A database that already
+    # has groups but no marker finished this backfill long ago (before the
+    # marker existed): it is only marked, never re-attached.
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS platform_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL DEFAULT '',
+            updated_by TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT ''
+        )
+    """)
+    _now = datetime.utcnow().isoformat()
+    _marker = await (await conn.execute(
+        "SELECT 1 FROM platform_settings WHERE key=%s",
+        (GROUPS_BACKFILL_MARKER,))).fetchone()
+    _has_groups = await (await conn.execute("SELECT 1 FROM groups LIMIT 1")).fetchone()
+    if _marker:
+        return
+    # Backfill and marker commit together: a boot that dies midway leaves
+    # neither, so the next boot redoes the whole step.
+    async with conn.transaction():
+        if not _has_groups:
+            await conn.execute("""
+                INSERT INTO groups (id, owner_user_id, type, name, description, created_at, updated_at)
+                SELECT gen_random_uuid()::text, o.owner_user_id, 'family',
+                       COALESCE(NULLIF(u.name, ''), 'My') || ' Family', '', %s, %s
+                FROM (
+                    SELECT DISTINCT owner_user_id FROM family_members
+                    UNION SELECT DISTINCT owner_user_id FROM passbooks
+                ) o
+                LEFT JOIN users u ON u.id = o.owner_user_id
+                WHERE o.owner_user_id NOT IN ('', 'system')
+                  AND NOT EXISTS (SELECT 1 FROM groups g
+                                  WHERE g.owner_user_id = o.owner_user_id AND g.type = 'family')
+            """, (_now, _now))
+            await conn.execute("""
+                UPDATE family_members fm
+                SET group_id = (SELECT id FROM groups g
+                                WHERE g.owner_user_id = fm.owner_user_id AND g.type = 'family'
+                                ORDER BY created_at LIMIT 1)
+                WHERE (fm.group_id IS NULL OR fm.group_id = '')
+                  AND fm.owner_user_id NOT IN ('', 'system')
+            """)
+            await conn.execute("""
+                UPDATE passbooks pb
+                SET group_id = (SELECT id FROM groups g
+                                WHERE g.owner_user_id = pb.owner_user_id AND g.type = 'family'
+                                ORDER BY created_at LIMIT 1)
+                WHERE (pb.group_id IS NULL OR pb.group_id = '')
+                  AND pb.owner_user_id NOT IN ('', 'system')
+            """)
+        await conn.execute(
+            "INSERT INTO platform_settings (key, value, updated_by, updated_at)"
+            " VALUES (%s, %s, 'init_db', %s) ON CONFLICT (key) DO NOTHING",
+            (GROUPS_BACKFILL_MARKER, "ran" if not _has_groups else "skipped:groups-existed", _now))
+
+
+#: platform_settings markers for the 06/10/2026 holder/holding clean-ups.
+PORTFOLIO_RETIRE_MARKER = "migration.retire_portfolio_groups"
+EMPTY_HOLDINGS_MARKER = "migration.drop_empty_holdings"
+
+
+async def _marked(conn, key: str) -> bool:
+    return bool(await (await conn.execute(
+        "SELECT 1 FROM platform_settings WHERE key=%s", (key,))).fetchone())
+
+
+async def _mark(conn, key: str, value: str) -> None:
+    await conn.execute(
+        "INSERT INTO platform_settings (key, value, updated_by, updated_at)"
+        " VALUES (%s, %s, 'init_db', %s) ON CONFLICT (key) DO NOTHING",
+        (key, value, datetime.utcnow().isoformat()))
+
+
+async def _retire_portfolio_groups(conn) -> str:
+    """Once per database: delete groups of the retired "portfolio" type.
+
+    Only when every one of them is empty — no khata, no built property, no
+    member besides the owner's own row. If any holds something, NOTHING is
+    deleted, the marker is not written, and the boot logs which ones, so a
+    person decides; the next boot checks again. Returns what it did."""
+    if await _marked(conn, PORTFOLIO_RETIRE_MARKER):
+        return "already"
+    rows = await (await conn.execute(
+        "SELECT g.id, g.owner_user_id,"
+        " (SELECT count(*) FROM passbooks pb WHERE pb.group_id=g.id) AS khatas,"
+        " (SELECT count(*) FROM properties pr WHERE pr.group_id=g.id) AS built,"
+        " (SELECT count(*) FROM family_members fm WHERE fm.group_id=g.id"
+        "   AND fm.is_self=false) AS members"
+        " FROM groups g WHERE g.type='portfolio'")).fetchall()
+    busy = [r for r in rows if r["khatas"] or r["built"] or r["members"]]
+    if busy:
+        _log.error("migration.retire_portfolio_groups aborted: %d portfolio group(s) still"
+                   " hold land or members: %s", len(busy),
+                   ", ".join(f"{r['id']} (khatas={r['khatas']} built={r['built']}"
+                             f" members={r['members']})" for r in busy))
+        return "aborted"
+    async with conn.transaction():
+        ids = [r["id"] for r in rows]
+        if ids:
+            for t in ("family_notifiers", "inactivity_capabilities",
+                      "inactivity_deliveries", "inactivity_escalations", "family_members"):
+                exists = (await (await conn.execute(
+                    "SELECT to_regclass(%s) AS t", (t,))).fetchone() or {}).get("t")
+                if exists:
+                    await conn.execute(f"DELETE FROM {t} WHERE group_id = ANY(%s)", (ids,))
+            await conn.execute("DELETE FROM groups WHERE id = ANY(%s)", (ids,))
+        await _mark(conn, PORTFOLIO_RETIRE_MARKER, f"deleted:{len(ids)}")
+    _log.info("migration.retire_portfolio_groups deleted %d empty group(s)", len(rows))
+    return f"deleted:{len(rows)}"
+
+
+async def _drop_empty_holdings_once(conn) -> str:
+    """Once per database: delete holdings with no member property left
+    (made before a record delete started taking its emptied holding along)."""
+    if await _marked(conn, EMPTY_HOLDINGS_MARKER):
+        return "already"
+    async with conn.transaction():
+        owners = await (await conn.execute(
+            "SELECT DISTINCT c.owner_user_id FROM combined_properties c WHERE NOT EXISTS"
+            " (SELECT 1 FROM combined_property_members m"
+            "  WHERE m.owner_user_id=c.owner_user_id AND m.combined_property_id=c.id)")).fetchall()
+        n = 0
+        for o in owners:
+            n += len(await web360.drop_emptied_holdings(conn, o["owner_user_id"]))
+        await _mark(conn, EMPTY_HOLDINGS_MARKER, f"deleted:{n}")
+    _log.info("migration.drop_empty_holdings deleted %d holding(s)", n)
+    return f"deleted:{n}"
 
 
 async def init_db() -> None:
@@ -6144,6 +6872,14 @@ async def init_db() -> None:
                 created_at TEXT NOT NULL DEFAULT ''
             )
         """)
+        # property_owners' share, linked account, group and role, so a property
+        # moved to the farmland register (web360._convert_record_kind) keeps
+        # its co-owners' shares. Additive; nothing reads them here yet.
+        for _col, _ddl in (("user_id", "TEXT NOT NULL DEFAULT ''"),
+                           ("group_id", "TEXT NOT NULL DEFAULT ''"),
+                           ("share_pct", "DOUBLE PRECISION NOT NULL DEFAULT 0"),
+                           ("role", "TEXT NOT NULL DEFAULT 'owner'")):
+            await conn.execute(f"ALTER TABLE parcel_owners ADD COLUMN IF NOT EXISTS {_col} {_ddl}")
 
         # Scale: the per-passbook rollups (total_extent, parcelsByPassbook) and
         # per-parcel ownership lookups (current_owner/owners) filter by these FKs.
@@ -6590,6 +7326,9 @@ async def init_db() -> None:
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_groups_owner ON groups(owner_user_id)")
         await conn.execute("ALTER TABLE family_members ADD COLUMN IF NOT EXISTS group_id TEXT NOT NULL DEFAULT ''")
         await conn.execute("ALTER TABLE family_members ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT ''")
+        # Typed facts (GROUP_TYPES fields / member_fields) as a JSON object string.
+        await conn.execute("ALTER TABLE groups ADD COLUMN IF NOT EXISTS facts TEXT NOT NULL DEFAULT '{}'")
+        await conn.execute("ALTER TABLE family_members ADD COLUMN IF NOT EXISTS facts TEXT NOT NULL DEFAULT '{}'")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_family_group ON family_members(owner_user_id, group_id)")
         await conn.execute("ALTER TABLE passbooks ADD COLUMN IF NOT EXISTS group_id TEXT NOT NULL DEFAULT ''")
         # Stake: the account holder's relationship to a holding (wallet model).
@@ -6601,39 +7340,7 @@ async def init_db() -> None:
         await conn.execute("DROP INDEX IF EXISTS idx_family_self")
         await conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_family_self_grp ON family_members(owner_user_id, group_id) WHERE is_self")
 
-        # One-time, idempotent migration: give every existing owner a default
-        # Family group and attach their members + passbooks to it. Re-running is
-        # a no-op (guards on 'no family group yet' / 'group_id still empty').
-        _now = datetime.utcnow().isoformat()
-        await conn.execute("""
-            INSERT INTO groups (id, owner_user_id, type, name, description, created_at, updated_at)
-            SELECT gen_random_uuid()::text, o.owner_user_id, 'family',
-                   COALESCE(NULLIF(u.name, ''), 'My') || ' Family', '', %s, %s
-            FROM (
-                SELECT DISTINCT owner_user_id FROM family_members
-                UNION SELECT DISTINCT owner_user_id FROM passbooks
-            ) o
-            LEFT JOIN users u ON u.id = o.owner_user_id
-            WHERE o.owner_user_id NOT IN ('', 'system')
-              AND NOT EXISTS (SELECT 1 FROM groups g
-                              WHERE g.owner_user_id = o.owner_user_id AND g.type = 'family')
-        """, (_now, _now))
-        await conn.execute("""
-            UPDATE family_members fm
-            SET group_id = (SELECT id FROM groups g
-                            WHERE g.owner_user_id = fm.owner_user_id AND g.type = 'family'
-                            ORDER BY created_at LIMIT 1)
-            WHERE (fm.group_id IS NULL OR fm.group_id = '')
-              AND fm.owner_user_id NOT IN ('', 'system')
-        """)
-        await conn.execute("""
-            UPDATE passbooks pb
-            SET group_id = (SELECT id FROM groups g
-                            WHERE g.owner_user_id = pb.owner_user_id AND g.type = 'family'
-                            ORDER BY created_at LIMIT 1)
-            WHERE (pb.group_id IS NULL OR pb.group_id = '')
-              AND pb.owner_user_id NOT IN ('', 'system')
-        """)
+        await _backfill_default_family_groups(conn)
 
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS invitations (
@@ -7072,6 +7779,10 @@ async def init_db() -> None:
         # the DDL, and last so a failure here cannot strand the core schema.
         web360.bind(pool, _uid_from_info)
         await web360.ensure_schema(conn)
+        # One-time clean-ups for the holder/holding split (06/10/2026); each is
+        # marker-guarded like the default-Family backfill above.
+        await _retire_portfolio_groups(conn)
+        await _drop_empty_holdings_once(conn)
         await account.ensure_schema(conn)
         # Pattadar Network interest rows (network.py), additive IF NOT EXISTS.
         await network.ensure_schema(conn)
@@ -7174,8 +7885,8 @@ def _idem_success(status: int, body: bytes) -> bool:
     return isinstance(parsed, dict) and not parsed.get("errors")
 
 
-_IDEM_GONE_MSG = ("this filing already reached the server once and its answer "
-                  "is no longer available; check the vault before retrying")
+_IDEM_GONE_MSG = ("This was already sent once and its answer is no longer "
+                  "available. Check Documents before trying again.")
 
 
 def _idem_duplicate_verdict(row: dict, now: datetime) -> tuple:
@@ -7423,7 +8134,7 @@ class MaskUnexpectedErrors(MaskErrors):
     """Only errors this API meant to say reach the client.
 
     A resolver that raises NotAuthorized or ValueError is speaking to the
-    person — "Not authorized for this parcel", "Lower the share" — and that text
+    person — "You do not have access to this parcel.", "Lower the share" — and that text
     is the contract every client already renders. Anything else is an internal
     fault, and graphql-core's default is to serialize its str() into
     errors[].message: psycopg connection strings, KMS failure text, JWKS URLs,
@@ -7638,7 +8349,7 @@ async def village_map_file(file_name: str):
             "SELECT geojson FROM village_maps WHERE file_name=%s", (file_name,))
         row = await cur.fetchone()
     if not row:
-        return JSONResponse(status_code=404, content={"error": "no such village map"})
+        return JSONResponse(status_code=404, content={"error": "no such cadastral map"})
     return Response(content=row["geojson"], media_type="application/json",
                     headers={"Cache-Control": "public, max-age=300"})
 
@@ -7659,10 +8370,10 @@ async def village_map_delete(key: str, request: Request):
         row = await (await conn.execute(
             "SELECT village, uploaded_by FROM village_maps WHERE key=%s", (key,))).fetchone()
         if not row:
-            return JSONResponse(status_code=404, content={"error": "no such village map"})
+            return JSONResponse(status_code=404, content={"error": "no such cadastral map"})
         if (row["uploaded_by"] or "") != uid and not await web360._is_admin(conn, uid):
             return JSONResponse(status_code=403, content={
-                "error": "someone else uploaded this village map"})
+                "error": "Another account uploaded this cadastral map."})
         async with conn.transaction():
             await conn.execute("DELETE FROM village_maps WHERE key=%s", (key,))
             await log_audit(conn, uid, "delete_village_map", key, row["village"])
@@ -7706,7 +8417,7 @@ async def village_map_upload(request: Request, files: List[UploadFile] = File(..
 
     if not sources:
         return JSONResponse(status_code=400, content={
-            "error": "Nothing here could be read as a village map.",
+            "error": "Nothing here could be read as a cadastral map.",
             "skipped": skipped})
 
     groups: dict = {}
@@ -7741,7 +8452,7 @@ async def village_map_upload(request: Request, files: List[UploadFile] = File(..
             replaced = bool(existing)
             if existing and (existing["uploaded_by"] or "") != uid and not admin:
                 skipped.append({"name": src.name,
-                                "why": "someone else uploaded this village map"})
+                                "why": "someone else uploaded this cadastral map"})
                 continue
             over = village_map.overview_of(collection)
             async with conn.transaction():

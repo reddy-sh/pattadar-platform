@@ -794,6 +794,12 @@ Desk             { mode, modeWord, jobs: [DeskJob], silent: [DeskJob],
                    associatesPending, credentialsExpiring, coverageGaps, tasksOpen }
 ```
 
+> **Changed 09/10/2026.** No owner read carries an open-work count any more:
+> `jobsOpen` is gone from `AssignedPerson` and from the owner's
+> `AssignedResourceTrust`, because it counts every customer's work and would
+> tell one owner another's volume (service order spec §7, §13). Desk types
+> (`Associate`, `Candidate`, `CoverageCell`) keep theirs.
+
 Extensions to existing types:
 ```python
 TicketView  += assignedTo: AssignedPerson, offers: [TicketOffer], offersOut: Int,

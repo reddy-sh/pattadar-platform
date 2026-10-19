@@ -25,13 +25,15 @@ not impersonate Reddy or self-approve reserved decisions.
 | Architecture/impact | `architecture-trace` |
 | Documentation | `runbook-consistency` |
 | Security/privacy/secrets | `security-review`, `secret-scan` |
-| Testing/evidence | `test-governance`, `verify-change` |
-| Cleanup | change-governance/task-cleanup steering |
-| Product clients/design | web/mobile/web-next/iOS delivery + design governance |
-| Backend/data | backend contract, migration, reference ingestion |
-| Infra/operations | infrastructure change, platform lifecycle, incident triage |
-| Providers/assistant | provider activation, assistant quality |
-| Cost/compliance/release | cost governance, compliance evidence, release readiness |
+| Testing/evidence | `test-governance`, `verify-change`, `functional-acceptance` |
+| Cleanup | `.kiro/steering/change-governance.md` dimension 5; project cleanup debt: `infrastructure-change`, `cloud-cost-governance`, `runbook-consistency` |
+| Product clients/design | `web-feature-delivery` (also `apps/university`), `mobile-feature-delivery`, `sync-ios`, `design-system-governance`, `heuristic-ux-audit` |
+| Backend/data | `backend-contract-change`, `safe-data-migration`, `reference-data-ingestion` |
+| Infra/operations | `infrastructure-change`, `platform-lifecycle`, `incident-triage` |
+| Providers/assistant/AI | `provider-activation`, `assistant-quality`, `typesafe-ai` |
+| Dependencies | `dependency-change` |
+| Cost/compliance/release | `cloud-cost-governance`, `compliance-evidence`, `release-readiness` |
+| Ordering a scoped task list | `prioritize-tasks` |
 | Skill system | `agent-skill-maintenance` |
 
 ## Review cadence

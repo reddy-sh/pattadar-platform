@@ -64,7 +64,7 @@ struct StatTripleCard: View {
             let cents = Int(((farm.amount - Double(whole)) * 100).rounded())
             columns.append(Column(id: "farm", label: "Farmland",
                                   value: "\(whole)",
-                                  unit: cents > 0 ? "Ac \(cents) Ce" : "Acres",
+                                  unit: (whole == 1 ? "acre" : "acres") + (cents > 0 ? " \(cents) cents" : ""),
                                   filter: .agricultural))
         }
         if let plot = totals.first(where: { $0.kind == .plot }), plot.amount > 0 {
@@ -114,7 +114,7 @@ struct WorthTodayCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
             HStack(alignment: .firstTextBaseline) {
-                Text("WORTH TODAY")
+                Text("MARKET ESTIMATE")
                     .font(.label).foregroundStyle(.secondary).kerning(1.1)
                 Spacer()
                 if let gain = gainPercent {
@@ -148,7 +148,7 @@ struct WorthTodayCard: View {
                     Text("Grey is what you paid")
                     Spacer()
                     if costsThisYear > 0 {
-                        Text("Costs this year \(compactRupees(costsThisYear))")
+                        Text("Expenses this year \(compactRupees(costsThisYear))")
                     }
                 }
                 .font(.note).foregroundStyle(.secondary)
@@ -166,7 +166,7 @@ struct WorthTodayCard: View {
                 }
             }
 
-            Text("Owned properties only — the values recorded on your own papers, not appraisals.")
+            Text("Owned properties only — the values recorded on your own documents, not appraisals.")
                 .font(.note).foregroundStyle(.secondary)
                 .padding(.top, Space.hair)
 
@@ -332,8 +332,8 @@ struct OutboxStrip: View {
 
     private var sentence: String {
         var parts: [String] = []
-        if filings > 0 { parts.append("\(filings) filing\(filings == 1 ? "" : "s")") }
-        if photos > 0 { parts.append("\(photos) photograph\(photos == 1 ? "" : "s")") }
+        if filings > 0 { parts.append("\(filings) document\(filings == 1 ? "" : "s")") }
+        if photos > 0 { parts.append("\(photos) photo\(photos == 1 ? "" : "s")") }
         let joined = parts.joined(separator: " and ")
         let verb = (filings + photos) == 1 ? "is" : "are"
         return "\(joined) \(verb) waiting to go up."
@@ -463,7 +463,7 @@ struct ReviewCard: View {
                 if let e = confirmDiscard { onDiscard(e) }
                 confirmDiscard = nil
             }
-            Button("Keep it", role: .cancel) { confirmDiscard = nil }
+            Button("Cancel", role: .cancel) { confirmDiscard = nil }
         } message: {
             Text(confirmDiscard.map { headline($0) } ?? "")
         }

@@ -20,6 +20,7 @@
  * genuinely live on the server — the facet names, every value — go grey.
  */
 import { useLocation } from 'react-router';
+import { Card, Cell } from './ui';
 import type { CSSProperties, ReactNode } from 'react';
 
 /** One placeholder block. Width is given per call (that is the whole point of
@@ -135,16 +136,17 @@ export function SkRecordCards({ count = 6 }: { count?: number }) {
 export function SkRecordTable({ rows = 8 }: { rows?: number }) {
   return (
     <Busy label="Loading your properties" className="card scroll-x" style={{ padding: 0 }}>
-      <table className="rectable" style={{ minWidth: '46rem' }}>
+      <table className="rectable" style={{ minWidth: '106rem' }}>
         <thead>
           <tr>
             <th className="selcol" />
-            <th>Record</th>
-            <th>Owner</th>
-            <th>Where</th>
-            <th>Status</th>
+            {/* PropertyTable's headings, so the frame does not jump on load. */}
+            {['Survey No / LP', 'Type', 'Owner', 'Where', 'Held by', 'Holding', 'Managed by', 'Status']
+              .map((h) => <th key={h}>{h}</th>)}
             <th className="right">Extent</th>
-            <th className="right">Worth</th>
+            <th className="right">Market estimate</th>
+            <th>Title deed</th>
+            <th>Last activity</th>
             <th className="menucol" />
           </tr>
         </thead>
@@ -154,12 +156,12 @@ export function SkRecordTable({ rows = 8 }: { rows?: number }) {
               <td className="selcol">
                 <Sk w="0.9375rem" h="0.9375rem" r="var(--radius-xs)" style={{ margin: '0 auto' }} />
               </td>
-              <td><Sk w="72%" style={wave(i)} /></td>
-              <td><Sk w="58%" style={wave(i)} /></td>
-              <td><Sk w="80%" style={wave(i)} /></td>
+              {[72, 60, 58, 80, 60, 40, 55].map((w, j) => <td key={j}><Sk w={`${w}%`} style={wave(i)} /></td>)}
               <td><Sk w="3.75rem" h="1.25rem" r="var(--radius-pill)" style={wave(i)} /></td>
               <td className="right"><Sk w="3.5rem" style={{ marginLeft: 'auto', ...wave(i) }} /></td>
               <td className="right"><Sk w="3rem" style={{ marginLeft: 'auto', ...wave(i) }} /></td>
+              <td><Sk w="70%" style={wave(i)} /></td>
+              <td><Sk w="65%" style={wave(i)} /></td>
               <td className="menucol" />
             </tr>
           ))}
@@ -169,10 +171,120 @@ export function SkRecordTable({ rows = 8 }: { rows?: number }) {
   );
 }
 
+/** Any data table while its first read is pending (design.md § Loading).
+ *  The headings are the table's own constants, so the band reads as itself at
+ *  once and nothing moves when the rows arrive: same columns, same widths, the
+ *  tick column and the total row reserved. */
+export function SkTable({ label, cols, rows = 6, select = true, foot = true, minWidth = '44rem' }: {
+  label: string;
+  cols: ReadonlyArray<{ head: string; right?: boolean; w?: string }>;
+  rows?: number; select?: boolean; foot?: boolean; minWidth?: string;
+}) {
+  return (
+    <Busy label={label} className="card scroll-x" style={{ padding: 0 }}>
+      <table className="rectable" style={{ minWidth }}>
+        <thead>
+          <tr>
+            {select && <th className="selcol" />}
+            {cols.map((c) => <th key={c.head} className={c.right ? 'right' : undefined}>{c.head}</th>)}
+          </tr>
+        </thead>
+        <tbody aria-hidden>
+          {Array.from({ length: rows }, (_, i) => (
+            <tr key={i}>
+              {select && (
+                <td className="selcol">
+                  <Sk w="0.9375rem" h="0.9375rem" r="var(--radius-xs)" style={{ margin: '0 auto' }} />
+                </td>
+              )}
+              {cols.map((c, j) => (
+                <td key={c.head} className={c.right ? 'right' : undefined}>
+                  <Sk w={c.w ?? (j === 0 ? '72%' : '55%')}
+                      style={c.right ? { marginLeft: 'auto', ...wave(i) } : wave(i)} />
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+        {foot && (
+          <tfoot aria-hidden>
+            <tr>
+              {select && <td className="selcol" />}
+              <td colSpan={cols.length}><Sk w="9rem" /></td>
+            </tr>
+          </tfoot>
+        )}
+      </table>
+    </Busy>
+  );
+}
+
+/** Any card grid while its first read is pending: the `groupcard` shape the
+ *  Services, Holdings and Invitations grids draw — tick and title, a line, a
+ *  status, then the facts — so the cards land where their stand-ins were. */
+export function SkGrid({ label, count = 6, facts = 3 }: { label: string; count?: number; facts?: number }) {
+  return (
+    <Busy label={label} className="cards">
+      {Array.from({ length: count }, (_, i) => (
+        <div key={i} className="rec groupcard sk" aria-hidden>
+          <div className="meat">
+            <div className="groupcard-top">
+              <Sk w="1rem" h="1rem" r="var(--radius-xs)" style={wave(i)} />
+              <span className="groupcard-title">
+                <Sk w="62%" h="1rem" style={wave(i)} />
+                <Sk w="40%" style={{ marginTop: '0.375rem', ...wave(i) }} />
+              </span>
+            </div>
+            <Sk w="4.5rem" h="1.25rem" r="var(--radius-pill)" style={wave(i)} />
+            <div className="groupcard-facts">
+              {Array.from({ length: facts }, (_, j) => (
+                <div key={j}><Sk w="50%" style={wave(i)} /><Sk w="70%" style={{ marginTop: '0.25rem', ...wave(i) }} /></div>
+              ))}
+            </div>
+          </div>
+        </div>
+      ))}
+    </Busy>
+  );
+}
+
 /** The map view's stage. It carries the real `.pf` / `.pf-stage` classes, so it
  *  fills the column exactly the way the live map does — and the caption line
  *  under it is reserved too, or the map would grow by one line when the count
  *  arrives. */
+/** A map while it loads (design.md § Loading): the ground as a faint tile
+ *  grid, the zoom pair top-left and the scale bottom-left where Leaflet will
+ *  draw them, filling the stage it sits in — so the map replaces it in place
+ *  instead of a flat slab, then a "Loading…" box, then the map. Pass `label`
+ *  when nothing around it already announces the wait. */
+export function SkMap({ label }: { label?: string }) {
+  const scaffold = (
+    <>
+      <span className="skeleton skmap-ground" />
+      <span className="skmap-zoom"><Sk w="1.875rem" h="1.875rem" r="var(--radius-xs)" /><Sk w="1.875rem" h="1.875rem" r="var(--radius-xs)" /></span>
+      <span className="skmap-scale"><Sk w="5rem" h="0.375rem" /></span>
+    </>
+  );
+  return label
+    ? <div className="skmap" role="status" aria-busy="true" aria-label={label}><span className="skmap-fill" aria-hidden>{scaffold}</span></div>
+    : <div className="skmap" aria-hidden>{scaffold}</div>;
+}
+
+/** A document while it loads: a sheet in page proportion with a heading and
+ *  lines of text, so a scan or preview lands on the page it was promised. */
+export function SkPaper({ label, h = '26rem' }: { label: string; h?: string }) {
+  return (
+    <Busy label={label} className="card" style={{ height: h, display: 'grid', alignContent: 'start', gap: '0.625rem' }}>
+      <span aria-hidden style={{ display: 'contents' }}>
+        <Sk w="45%" h="1rem" />
+        {['92%', '88%', '95%', '70%', '90%', '84%', '60%', '93%', '78%'].map((w, i) => (
+          <Sk key={i} w={w} style={wave(i)} />
+        ))}
+      </span>
+    </Busy>
+  );
+}
+
 export function SkPortfolioMap({ label = 'Loading the map of your properties' }: {
   /** What is loading, in the noun the screen's `Failed what=` uses. The
    *  combined map waited as "the map of your properties" and failed as "The
@@ -181,7 +293,7 @@ export function SkPortfolioMap({ label = 'Loading the map of your properties' }:
 } = {}) {
   return (
     <Busy label={label} className="pf">
-      <div className="plot pf-stage" aria-hidden />
+      <div className="plot pf-stage" aria-hidden><SkMap /></div>
       <SkText className="note" w="18rem" />
     </Busy>
   );
@@ -251,7 +363,7 @@ export function SkRows({ rows = 4, label = 'Loading' }: { rows?: number; label?:
  *  visible jump on this screen — the headline moves, then the strip lands,
  *  then the content shifts down. Here it simply never moves. */
 function SkTabs() {
-  const TABS = ['Documents', 'Site features', 'People', 'Services', 'Money', 'Activity'];
+  const TABS = ['Overview', 'Documents', 'Site features', 'People', 'Services', 'Money', 'Activity'];
   return (
     <nav className="tabs" aria-hidden>
       {TABS.map((t) => <span key={t} className="sk-tab muted">{t}</span>)}
@@ -266,85 +378,114 @@ function SkTabs() {
  *  stood here was a single 70vh grey slab, which tells the reader nothing
  *  except that something may be wrong with their connection.
  *
- *  The nesting matters as much as the shapes: the stat strip and the tab strip
- *  live INSIDE the split's left column on the real screen, not above it. Drawn
- *  full-width they would snap back to two-thirds the instant the record landed,
- *  and the map rail would jump a hundred pixels up the page with them. */
+ *  The nesting matters as much as the shapes: the tab strip is the head's last
+ *  row and the stat strip lives INSIDE the split's left column, as on the real
+ *  screen. Drawn elsewhere they would snap into place the instant the record
+ *  landed, and the map rail would jump up the page with them. */
 /** Which hanger the skeleton should be shaped like.
  *
  *  The parent route cannot see which child rendered, so this reads the segment
  *  after the record id rather than taking a prop nobody can thread. The index
  *  route has no segment and is Papers. */
 function hangerOf(pathname: string): string {
-  // /app/records/:id            -> '' (Papers, the index)
-  // /app/records/:id/money      -> 'money'
-  const seg = pathname.split('/')[4] ?? '';
-  return seg || 'papers';
+  // /properties/:id            -> 'overview' (the index)
+  // /properties/:id/documents  -> 'papers'
+  // /properties/:id/money      -> 'money'
+  const seg = pathname.split('/')[3] ?? '';
+  return seg === 'documents' ? 'papers' : seg || 'overview';
+}
+
+/** The Overview tab's first read: the summary strip and two cards, the
+ *  shape RecordOverview draws (a strip of tab cells, then "Title"
+ *  and the first field card). Drawn inside the frame, under the tab strip. */
+export function SkOverview() {
+  return <Busy label="Loading the overview"><OverviewShape /></Busy>;
+}
+
+function OverviewShape() {
+  // The real Cell and Card, so the grey shape is the shape that lands.
+  return (
+    <div className="stack lg" aria-hidden>
+      <div className="strip overview-strip">
+        {Array.from({ length: 9 }, (_, i) => (
+          <Cell key={i} k="" v={<Sk w="2.5rem" h="1.125rem" style={wave(i)} />} />
+        ))}
+      </div>
+      {/* Title beside Complete this property, then the three groups. */}
+      <div className="ov-sizer">
+        <div className="ov-top">
+          {['8rem', '9rem'].map((w, i) => (
+            <Card key={w} title={<Sk w={w} h="1rem" />}>
+              <Sk w={i ? '100%' : '40%'} h={i ? '0.5rem' : '1.25rem'} style={wave(i)} />
+              <Sk w="88%" style={{ marginTop: '0.75rem' }} />
+              <Sk w="70%" style={{ marginTop: '0.5rem' }} />
+            </Card>
+          ))}
+        </div>
+      </div>
+      <div className="ov-groups">
+        {['5rem', '5.5rem', '4rem'].map((w, i) => (
+          <Card key={w} title={<Sk w={w} h="1rem" />}>
+            <Sk w="60%" style={wave(i)} />
+            <Sk w="80%" style={{ marginTop: '0.5rem' }} />
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export function SkRecordPage() {
   const hanger = hangerOf(useLocation().pathname);
   const papers = hanger === 'papers';
-  // Only Papers and Expenses carry the four-cell figure strip; the rest open
-  // straight into their own body.
-  const strip = papers || hanger === 'expenses';
-  const rail = papers || hanger === 'map';
+  // Only Expenses carries a figure strip (its own totals). The record's
+  // header lost its figure strip — the extent is a pill in the frame now — so
+  // drawing one on Documents made the page jump when the record landed.
+  const strip = hanger === 'expenses';
+  const rail = papers || hanger === 'location';
 
   return (
     <main>
       <Busy label="Loading this property">
-        <div className="crumbs" aria-hidden style={{ height: '1.5em' }}>
-          <Sk w="4.5rem" h="0.8125rem" style={{ display: 'inline-block' }} />
-        </div>
-
-        <header className="pagehead" aria-hidden>
-          <div className="grow">
-            <SkText as="p" className="eyebrow" w="9rem" lh={1.55} />
-            <SkText as="h1" w="12rem" lh={1.05} bar="0.56em" />
-            <SkText as="p" className="lede" w="20rem" style={{ marginTop: '0.375rem' }} />
+        {/* The shared head's slots (design.md § Page head, detail page), as
+            RecordHead fills them: crumbs, the title row with two outlined
+            buttons and a ⋮, the meta row (kind · place · holder), then the
+            tabs as the head's last row on every hanger. The kind label sits
+            under the h1, where RecordHead draws it (content-header audit F11). */}
+        <header className="pagehead" data-kind="detail" aria-hidden>
+          <div className="crumbs" style={{ height: '1.5em' }}>
+            <Sk w="4.5rem" h="0.8125rem" style={{ display: 'inline-block' }} />
           </div>
-          {/* Two buttons and a kebab, at the pill height the real ones use. */}
-          <div className="actions">
-            <Sk w="9.5rem" h="2.375rem" r="var(--radius-pill)" />
-            <Sk w="9.5rem" h="2.375rem" r="var(--radius-pill)" />
-            <Sk w="2rem" h="2.375rem" r="var(--radius-pill)" />
+          <div className="pagehead-row">
+            <div className="pagehead-title"><SkText as="h1" w="12rem" lh={1.05} bar="0.56em" /></div>
+            <div className="actions">
+              <Sk w="9.5rem" h="2.375rem" r="var(--radius-pill)" />
+              <Sk w="9.5rem" h="2.375rem" r="var(--radius-pill)" />
+              <Sk w="2rem" h="2.375rem" r="var(--radius-pill)" />
+            </div>
           </div>
+          <div className="pagehead-meta">
+            <SkText className="eyebrow rechead-kind" w="7rem" />
+            <SkText w="18rem" />
+          </div>
+          <div className="pagehead-tabs"><SkTabs /></div>
         </header>
-
-        {/* Tabs sit inside the split's left column on Papers and ABOVE the body
-            on every other hanger — which is exactly where each of those screens
-            renders RecordTabs. Drawn in the wrong place they snapped from
-            two-thirds width to full width the instant the record landed, taking
-            the map rail a hundred pixels up the page with them: the jump this
-            module exists to prevent, on five of the six tabs. */}
-        {!papers && <SkTabs />}
 
         <div className={rail ? 'split' : undefined}>
           <div>
-            {/* Four cells, because every record has four: extent, market value,
-                the per-unit rate, and the year it was bought. The k/v/s spans
-                are the real ones, so the cell's height comes from the same CSS
-                that will hold the real figures. */}
+            {/* Expenses' four totals: spent, improvements, upkeep, owed back.
+                The k/v/s spans are the real ones, so the cell's height comes
+                from the same CSS that will hold the real figures. */}
             {strip && (
             <div className="strip" aria-hidden style={{ marginBottom: 'var(--space-lg)' }}>
               {Array.from({ length: 4 }, (_, i) => (
                 <div key={i}>
                   <SkText className="k" w="3.75rem" />
                   <SkText className="v" w="4.5rem" lh={1.1} style={wave(i)} />
-                  {/* Only the extent carries a sub-line — "12 Acres 9.3 Guntas
-                      · 1,223 Cents" — so only the first cell reserves one. */}
-                  {i === 0 && (
-                    <span className="s" style={{ display: 'block' }}>
-                      <SkText w="11rem" lh={1.4} />
-                      <SkText w="7rem" lh={1.4} />
-                    </span>
-                  )}
                 </div>
               ))}
             </div>
             )}
-
-            {papers && <SkTabs />}
 
             {/* The search box and the "Add a paper" button above the list — the
                 Papers hanger's own controls, and nobody else's. */}
@@ -355,8 +496,9 @@ export function SkRecordPage() {
               </div>
             )}
 
-            {/* Features is a card grid; everything else is a list of rows. */}
-            {hanger === 'features' ? (
+            {/* Overview is a strip and cards; Features is a card grid;
+                everything else is a list of rows. */}
+            {hanger === 'overview' ? <OverviewShape /> : hanger === 'site-features' ? (
               <div className="cards" aria-hidden>
                 {Array.from({ length: 6 }, (_, i) => (
                   <div className="card" key={i} style={wave(i)}>

@@ -21,7 +21,7 @@ export function AuthCallbackPage() {
     if (ran.current) return;
     ran.current = true;
     if (isAuthMocked) {
-      navigate('/app', { replace: true });
+      navigate('/home', { replace: true });
       return;
     }
     completeSignIn()

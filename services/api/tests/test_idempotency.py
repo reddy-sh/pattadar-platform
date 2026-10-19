@@ -384,7 +384,7 @@ def test_db_stale_pending_is_sealed_not_rerun():
         mw = IdempotencyMiddleware(_stub(200, b'{"data":{}}', calls))
         status, _, out = await _call(mw, _body(MUTATION), _headers(uid=uid))
         assert (status, calls) == (410, [])
-        assert b"check the vault" in out
+        assert b"Check Documents" in out
         row = await _fetch_row(pool, uid)
         assert row["status"] == "completed" and row["response"] is None
         # Every later duplicate parks the same way, still without executing.

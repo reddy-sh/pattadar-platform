@@ -12,26 +12,28 @@ import { useMemo, useRef, useState } from 'react';
 import UploadFileOutlined from '@mui/icons-material/UploadFileOutlined';
 
 import { Dialog } from '../Dialog';
+import { GraphQLRequestError } from '../../api/client';
 import type { GeoPdfReading } from '@pattadar/core';
 import {
   useAddJointFmb, useCreateHolding, useDeleteHolding, useRenameHolding,
-  useSetBoundary, useSetHoldingMembers, useSaveHoldingExpense,
+  useSetBoundary, useSetHoldingMembers, useSetHoldingStake, useSaveHoldingExpense, OWN_NAME,
+  useDeleteImpact,
 } from '../api';
 import type { HoldingCard, RecordCard } from '../api';
 import { MAX_UPLOAD_BYTES, mb } from '../filePhotos';
 import { readGeoPdfFile } from '../geoPdfFile';
 import { uploadToDrive } from '../../pages/documents/storage';
-import { Chip, inr, num, plural } from '../ui';
+import { Chip, inr, inrFull, num, plural } from '../ui';
+import { canCombine, combineStakeFor, stakeOf } from './holdingStake';
+import type { CombineStake } from './holdingStake';
 
-/** Records that may be combined, and why the rest may not.
- *
- *  `stake` is the whole test, and it is the server's test too: combining land is
- *  a statement about your own holding, so land you only manage or watch for
- *  somebody else is not yours to group and its costs are not yours to total. It
- *  is explained in the dialog rather than silently filtered, because a record
- *  the owner ticked and cannot find again is worse than a refusal.
- */
-export const canCombine = (rec: RecordCard) => (rec.stake || 'owned') === 'owned';
+export { canCombine, combineStakeFor, stakeOf } from './holdingStake';
+export type { CombineStake } from './holdingStake';
+
+const STAKE_PHRASE: Record<CombineStake, string> = {
+  owned: 'you own',
+  managed: 'you manage',
+};
 
 const extentWord = (rec: { extent: number; extentUnit: string }) =>
   (rec.extentUnit === 'ac' ? `${num(rec.extent, 2)} ac` : `${num(rec.extent)} ${rec.extentUnit}`);
@@ -54,11 +56,22 @@ export function CombineDialog({ records, onDone, onClose }: {
   const [note, setNote] = useState('');
   const [err, setErr] = useState('');
 
-  const eligible = useMemo(() => records.filter(canCombine), [records]);
-  const excluded = useMemo(() => records.filter((r) => !canCombine(r)), [records]);
+  const stake = useMemo(() => combineStakeFor(records), [records]);
+  const eligible = useMemo(
+    () => (stake ? records.filter((r) => canCombine(r, stake)) : []), [records, stake]);
+  const watched = useMemo(() => records.filter((r) => !canCombine(r)), [records]);
+  const otherStake = useMemo(
+    () => records.filter((r) => canCombine(r) && !eligible.includes(r)), [records, eligible]);
   const acres = eligible
     .filter((r) => r.extentUnit === 'ac')
     .reduce((sum, r) => sum + r.extent, 0);
+  /** How many holders the properties being combined have. WHO holds each one
+   *  and WHICH holding it is part of are separate facts (decision memo
+   *  06/10/2026): a farm can take in a parcel the grandfather's estate holds,
+   *  so more than one holder is said, not refused. '' is "In your own name",
+   *  which is a holder like any group. */
+  const holders = useMemo(() => new Set(eligible.map((r) => r.groupId)).size, [eligible]);
+  const mixedHolders = holders > 1;
 
   const enough = eligible.length >= 2;
 
@@ -73,13 +86,17 @@ export function CombineDialog({ records, onDone, onClose }: {
         // The server refuses for reasons this screen cannot always see — one of
         // these records is already in another holding, or stopped being this
         // account's between the tick and the press.
-        setErr('These records could not be combined. One of them may already be '
+        setErr('These properties could not be combined. One of them may already be '
           + 'part of another holding. Reload the list and try again.');
         return;
       }
       onDone(id);
-    } catch {
-      setErr('That did not go through. Nothing has been combined.');
+    } catch (e) {
+      // The api refuses with a sentence the owner can act on (one stake per
+      // holding, already in another holding, …); anything else is the network.
+      setErr(e instanceof GraphQLRequestError && e.message
+        ? e.message
+        : 'That did not go through. Nothing has been combined.');
     }
   };
 
@@ -98,7 +115,7 @@ export function CombineDialog({ records, onDone, onClose }: {
           <button type="button" className="btn primary"
                   disabled={!name.trim() || !enough || create.isPending}
                   onClick={() => void submit()}>
-            {create.isPending ? 'Combining…' : `Combine ${eligible.length} records`}
+            {create.isPending ? 'Combining…' : `Combine ${plural(eligible.length, 'property', 'properties')}`}
           </button>
         </>
       )}
@@ -108,7 +125,7 @@ export function CombineDialog({ records, onDone, onClose }: {
         <input id="cp-name" type="text" value={name} maxLength={120}
                onChange={(e) => setName(e.target.value)}
                onKeyDown={(e) => { if (e.key === 'Enter') void submit(); }}
-               placeholder="Kondapur Estate" />
+               placeholder="Kondapur family plots" />
       </div>
       <div className="field">
         <label htmlFor="cp-note">Anything to remember (optional)</label>
@@ -123,7 +140,10 @@ export function CombineDialog({ records, onDone, onClose }: {
             <span className="grow">
               <strong>{r.title}</strong>
               <small className="note" style={{ display: 'block' }}>
-                {[r.placeLine, r.khataNo && `Khata ${r.khataNo}`].filter(Boolean).join(' · ')}
+                {[r.placeLine, r.khataNo && `Khata ${r.khataNo}`,
+                  // Named on every row only when they differ, so the note
+                  // below can be checked against the list it describes.
+                  mixedHolders && (r.holderLabel || OWN_NAME)].filter(Boolean).join(' · ')}
               </small>
             </span>
             <span className="num">{extentWord(r)}</span>
@@ -132,19 +152,39 @@ export function CombineDialog({ records, onDone, onClose }: {
       </div>
       {acres > 0 && (
         <p className="note num">
-          {num(acres, 2)} ac across {plural(eligible.length, 'record')}.
+          {num(acres, 2)} ac across {plural(eligible.length, 'property', 'properties')}.
         </p>
       )}
 
-      {excluded.length > 0 && (
-        <p className="note" style={{ color: 'var(--w-warn)' }}>
-          Left out — not held in your own name:{' '}
-          {excluded.map((r) => r.title).join(', ')}.
+      {stake && eligible.length > 0 && (
+        <p className="note">
+          A holding keeps one stake: these are all land {STAKE_PHRASE[stake]}.
+        </p>
+      )}
+      {mixedHolders && (
+        <p className="note" data-testid="combine-mixed-holders">
+          These properties have {holders} holders. That is fine for one farm; who holds each
+          one does not change.
+        </p>
+      )}
+      {watched.length > 0 && (
+        <p className="note" data-testid="combine-left-out-watched" style={{ color: 'var(--w-warn)' }}>
+          Left out: land you are watching. Watched land is never part of a holding:{' '}
+          {watched.map((r) => r.title).join(', ')}.
+        </p>
+      )}
+      {stake && otherStake.length > 0 && (
+        <p className="note" data-testid="combine-left-out-stake" style={{ color: 'var(--w-warn)' }}>
+          Left out: a different stake from the rest
+          ({stake === 'owned' ? 'land you manage' : 'land you own'}).
+          A holding never mixes owned and managed land:{' '}
+          {otherStake.map((r) => r.title).join(', ')}.
         </p>
       )}
       {!enough && (
         <p className="note" role="alert" style={{ color: 'var(--w-danger)' }}>
-          A holding needs at least two records you hold in your own name.
+          A holding needs at least two properties with the same stake: all land you
+          own, or all land you manage.
         </p>
       )}
       {err && (
@@ -172,6 +212,7 @@ export function HoldingEditDialog({ holding, candidates, onClose }: {
 }) {
   const rename = useRenameHolding(false);
   const setMembers = useSetHoldingMembers(false);
+  const setStake = useSetHoldingStake(false);
   const [name, setName] = useState(holding.name);
   const [note, setNote] = useState(holding.note);
   const [picked, setPicked] = useState<ReadonlySet<string>>(
@@ -179,11 +220,28 @@ export function HoldingEditDialog({ holding, candidates, onClose }: {
   );
   const [err, setErr] = useState('');
 
-  const mine = useMemo(
-    () => candidates.filter((r) => canCombine(r) || picked.has(r.id)),
-    [candidates, picked],
+  // The holding's one stake is its current members' (rule 3, amended
+  // 2026-10-04), so only records of that same stake are offered to add. A
+  // holding made before the amendment may be mixed; then no stake is current
+  // and the owner picks the one every member takes.
+  const memberRecords = useMemo(
+    () => candidates.filter((r) => holding.members.some((m) => m.recordId === r.id)),
+    [candidates, holding.members],
   );
-  const busy = rename.isPending || setMembers.isPending;
+  const currentStake = useMemo((): CombineStake | null => {
+    const kinds = new Set(memberRecords.map(stakeOf));
+    const only = kinds.size === 1 ? [...kinds][0] : null;
+    return only === 'owned' || only === 'managed' ? only : null;
+  }, [memberRecords]);
+  const mixed = memberRecords.length > 0 && !currentStake;
+  const [stakeChoice, setStakeChoice] = useState<CombineStake | null>(currentStake);
+  const holdingStake = stakeChoice ?? currentStake ?? combineStakeFor(memberRecords);
+  const restaked = stakeChoice !== null && stakeChoice !== currentStake;
+  const mine = useMemo(
+    () => candidates.filter((r) => canCombine(r, holdingStake ?? undefined) || picked.has(r.id)),
+    [candidates, picked, holdingStake],
+  );
+  const busy = rename.isPending || setMembers.isPending || setStake.isPending;
   const enough = picked.size >= 2;
   const renamed = name.trim() !== holding.name || note.trim() !== holding.note;
   const remembered = [...picked].sort().join(',')
@@ -199,6 +257,14 @@ export function HoldingEditDialog({ holding, candidates, onClose }: {
     if (!name.trim() || !enough || busy) return;
     setErr('');
     try {
+      if (restaked && stakeChoice) {
+        // First, so records of the new stake can then be added to it.
+        const ok = (await setStake.mutateAsync({ id: holding.id, stake: stakeChoice })).web.setCombinedStake;
+        if (!ok) {
+          setErr('The stake could not be changed. Nothing has changed.');
+          return;
+        }
+      }
       if (renamed) {
         const ok = (await rename.mutateAsync({
           id: holding.id, name: name.trim(), note: note.trim(),
@@ -218,16 +284,18 @@ export function HoldingEditDialog({ holding, candidates, onClose }: {
         })).web.setCombinedMembers;
         if (!ok) {
           setErr(renamed
-            ? 'The name was saved, but the records were not changed — one of them '
+            ? 'The name was saved, but the properties were not changed. One of them '
               + 'may already be in another holding.'
-            : 'Those records could not be saved. One of them may already be in '
+            : 'Those properties could not be saved. One of them may already be in '
               + 'another holding. Nothing was changed.');
           return;
         }
       }
       onClose();
-    } catch {
-      setErr('That did not go through. Nothing was changed.');
+    } catch (e) {
+      setErr(e instanceof GraphQLRequestError && e.message
+        ? e.message
+        : 'That did not go through. Nothing was changed.');
     }
   };
 
@@ -244,7 +312,7 @@ export function HoldingEditDialog({ holding, candidates, onClose }: {
           <button type="button" className="btn" onClick={onClose}>Cancel</button>
           <button type="button" className="btn primary"
                   disabled={!name.trim() || !enough || busy
-                    || (!renamed && !remembered)}
+                    || (!renamed && !remembered && !restaked)}
                   onClick={() => void submit()}>
             {busy ? 'Saving…' : 'Save'}
           </button>
@@ -262,8 +330,24 @@ export function HoldingEditDialog({ holding, candidates, onClose }: {
                onChange={(e) => setNote(e.target.value)} />
       </div>
 
+      <fieldset className="share-paper-picker" aria-describedby="cp-edit-stake-note">
+        <legend>Every property in it is</legend>
+        {(['owned', 'managed'] as const).map((value) => (
+          <label key={value}>
+            <input type="radio" name="cp-edit-stake" checked={holdingStake === value && (!mixed || stakeChoice !== null)}
+                   onChange={() => setStakeChoice(value)} />
+            <span><strong>{value === 'owned' ? 'Owned' : 'Managed'}</strong></span>
+          </label>
+        ))}
+        <p className="note" id="cp-edit-stake-note">
+          {mixed
+            ? 'These properties have different stakes, from before a holding had to be one stake. Choose the one they all take.'
+            : 'A holding keeps one stake. Changing it here changes every property in it, and keeps the holding and its expenses.'}
+        </p>
+      </fieldset>
+
       <fieldset className="share-paper-picker">
-        <legend>Which records are in it</legend>
+        <legend>Which properties are in it</legend>
         {mine.map((r) => (
           <label key={r.id}>
             <input type="checkbox" checked={picked.has(r.id)}
@@ -277,12 +361,12 @@ export function HoldingEditDialog({ holding, candidates, onClose }: {
           </label>
         ))}
         {mine.length === 0 && (
-          <p className="note">There are no records held in your own name to combine.</p>
+          <p className="note">There are no properties with this holding’s stake to combine.</p>
         )}
       </fieldset>
       {!enough && (
         <p className="note" role="alert" style={{ color: 'var(--w-danger)' }}>
-          Keep at least two records, or remove the holding instead.
+          Keep at least two properties, or delete the holding instead.
         </p>
       )}
       {err && (
@@ -300,6 +384,41 @@ export function HoldingEditDialog({ holding, candidates, onClose }: {
  * costs recorded against the WHOLE holding, which have nowhere else to live.
  * Every record survives. The dialog counts both, out loud, before the button.
  */
+/** The holdings a property delete takes with it, said before the press.
+ *
+ *  A holding goes with its last property (web360 drop_emptied_holdings), and
+ *  its shared expenses go with the holding. Deleting the holding itself says
+ *  "₹X in shared expenses is deleted with it"; deleting its last property
+ *  takes the same money, so it says the same thing. The server answers which
+ *  holdings (`deleteImpact`) — the screen does not guess from the cards. */
+export function HoldingsGoToo({ ids }: { ids: string[] }) {
+  const impact = useDeleteImpact(ids);
+  if (impact.isError) {
+    return (
+      <p className="note" role="alert" style={{ margin: 0, color: 'var(--w-warn)' }}>
+        Whether this empties a holding could not be checked. A holding left with no
+        property is deleted with its shared expenses.
+      </p>
+    );
+  }
+  const gone = impact.data ?? [];
+  if (gone.length === 0) return null;
+  const last = ids.length === 1 ? 'This is the last property' : 'These are the last properties';
+  return (
+    <>
+      {gone.map((h) => (
+        <p key={h.id} className="note" role="alert" data-testid="delete-empties-holding"
+           style={{ margin: 0, color: 'var(--w-warn)' }}>
+          {last} in <strong>{h.name}</strong>.{' '}
+          {h.expenseTotal > 0
+            ? <>The holding and its {inrFull(h.expenseTotal)} in shared expenses are deleted too.</>
+            : <>The holding is deleted too.</>}
+        </p>
+      ))}
+    </>
+  );
+}
+
 export function HoldingDeleteDialog({ holding, onDone, onClose }: {
   holding: HoldingCard;
   onDone: () => void;
@@ -313,18 +432,18 @@ export function HoldingDeleteDialog({ holding, onDone, onClose }: {
     try {
       const ok = (await del.mutateAsync({ id: holding.id })).web.deleteCombinedProperty;
       if (!ok) {
-        setErr('That holding could not be removed — it may already be gone. Reload the page.');
+        setErr('That holding could not be deleted. It may already be gone. Reload the page.');
         return;
       }
       onDone();
     } catch {
-      setErr('That did not go through. Nothing was removed.');
+      setErr('That did not go through. Nothing was deleted.');
     }
   };
 
   return (
     <Dialog
-      title={`Remove the holding ${holding.name}?`}
+      title={`Delete the holding ${holding.name}?`}
       onClose={onClose}
       busy={del.isPending}
       footer={(
@@ -332,23 +451,22 @@ export function HoldingDeleteDialog({ holding, onDone, onClose }: {
           <button type="button" className="btn" onClick={onClose}>Cancel</button>
           <button type="button" className="btn danger" disabled={del.isPending}
                   onClick={() => void go()}>
-            {del.isPending ? 'Removing…' : 'Remove'}
+            {del.isPending ? 'Deleting…' : 'Delete holding'}
           </button>
         </>
       )}
     >
       <p className="note" style={{ margin: 0 }}>
-        {plural(holding.memberCount, 'record')} {holding.memberCount === 1 ? 'goes' : 'go'} back
+        {plural(holding.memberCount, 'property', 'properties')} {holding.memberCount === 1 ? 'goes' : 'go'} back
         to standing on {holding.memberCount === 1 ? 'its' : 'their'} own.
       </p>
       <p className="note" style={{ margin: 0 }}>
-        Papers, boundaries, photographs, people, and each record’s own costs all stay
-        with their records.
+        Documents, boundaries, photos, people and each property’s own expenses all
+        stay with their properties.
       </p>
       {holding.combinedSpend > 0 && (
         <p className="note" role="alert" style={{ margin: 0, color: 'var(--w-warn)' }}>
-          {inr(holding.combinedSpend)} recorded as shared costs is deleted
-          with it.
+          {inr(holding.combinedSpend)} in shared expenses is deleted with it.
         </p>
       )}
       {err && (
@@ -392,18 +510,18 @@ export function HoldingExpenseDialog({ holding, onClose }: {
         vendor: '', note: '', recoverable: false,
       })).web.saveCombinedExpense;
       if (!id) {
-        setErr('That cost was not recorded. Reload the page and try again.');
+        setErr('That expense was not saved. Reload the page and try again.');
         return;
       }
       onClose();
     } catch {
-      setErr('That did not go through. Nothing was recorded.');
+      setErr('That did not go through. Nothing was saved.');
     }
   };
 
   return (
     <Dialog
-      title="Record a shared cost"
+      title="Add a shared expense"
       onClose={onClose}
       busy={save.isPending}
       dismissable={false}
@@ -413,14 +531,14 @@ export function HoldingExpenseDialog({ holding, onClose }: {
           <button type="button" className="btn" onClick={onClose}>Cancel</button>
           <button type="button" className="btn primary" disabled={!valid || save.isPending}
                   onClick={() => void submit()}>
-            {save.isPending ? 'Recording…' : 'Record cost'}
+            {save.isPending ? 'Adding…' : 'Add the expense'}
           </button>
         </>
       )}
     >
       <p className="note" style={{ marginTop: 0 }}>
-        Filed against all {holding.extentLine} of <strong>{holding.name}</strong>.
-        This cost is not divided between its records.
+        For all {holding.extentLine} of <strong>{holding.name}</strong>.
+        This expense is not divided between its properties.
       </p>
       <div className="field">
         <label htmlFor="cpe-title">What was it</label>
@@ -443,7 +561,7 @@ export function HoldingExpenseDialog({ holding, onClose }: {
       <fieldset className="field">
         <legend>What kind of money</legend>
         <div className="row tight">
-          {([['capital', 'One-off work'], ['running', 'Running cost'],
+          {([['capital', 'Improvement'], ['running', 'Upkeep'],
              ['income', 'Money in']] as const).map(([key, word]) => (
             <Chip key={key} active={kind === key} onClick={() => setKind(key)}>{word}</Chip>
           ))}
@@ -535,12 +653,12 @@ export function JointFmbDialog({ holding, onClose }: {
         recordIds,
       })).web.addJointFmb;
       if (!id) {
-        setErr('The sheet was uploaded but not filed. One of those records may have '
-          + 'left this holding — reload the page and try again.');
+        setErr('The sheet was uploaded but not saved. One of those properties may have '
+          + 'left this holding. Reload the page and try again.');
         return;
       }
     } catch {
-      setErr('The sheet was uploaded but not filed. Try again.');
+      setErr('The sheet was uploaded but not saved. Try again.');
       return;
     }
     // A georeferenced PDF (QGIS, ArcGIS) carries its survey lines as vector
@@ -567,15 +685,15 @@ export function JointFmbDialog({ holding, onClose }: {
           <button type="button" className="btn" onClick={onClose} disabled={busy}>Cancel</button>
           <button type="button" className="btn primary" disabled={!file || !enough || busy}
                   onClick={() => void submit()}>
-            {uploading ? 'Uploading…' : add.isPending ? 'Filing…' : 'Add to records'}
+            {uploading ? 'Uploading…' : add.isPending ? 'Saving…' : 'Add to properties'}
           </button>
         </>
       )}
     >
       <p className="note" style={{ marginTop: 0 }}>
-        One sheet that covers more than one survey number. A copy is filed on
-        every record you tick, marked as a joint FMB. If it is a georeferenced
-        PDF, you then match its outlines to the records.
+        One sheet that covers more than one survey number. A copy is saved on
+        every property you tick, marked as a joint FMB. If the PDF carries map
+        positions, you then match its outlines to the properties.
       </p>
       <div className="field">
         <label htmlFor="jf-file">The sheet (PDF or photo)</label>
@@ -591,7 +709,7 @@ export function JointFmbDialog({ holding, onClose }: {
       </div>
 
       <fieldset className="share-paper-picker">
-        <legend>Which records it covers</legend>
+        <legend>Which properties it covers</legend>
         {holding.members.map((m) => (
           <label key={m.recordId}>
             <input type="checkbox" checked={picked.has(m.recordId)}
@@ -605,8 +723,8 @@ export function JointFmbDialog({ holding, onClose }: {
       </fieldset>
       {!enough && (
         <p className="note" role="alert" style={{ color: 'var(--w-danger)' }}>
-          Tick at least two records. A sheet for one record is added on that
-          record&apos;s own Location tab.
+          Tick at least two properties. A sheet for one property is added on that
+          property&apos;s own Location tab.
         </p>
       )}
       {err && (
@@ -729,7 +847,7 @@ export function JointOutlinesDialog({ holding, reading, onClose }: {
 
   return (
     <Dialog
-      title="Match the sheet's outlines to records"
+      title="Match the sheet's outlines to properties"
       onClose={onClose}
       busy={saving}
       dismissable={false}
@@ -747,8 +865,8 @@ export function JointOutlinesDialog({ holding, reading, onClose }: {
       )}
     >
       <p className="note" style={{ marginTop: 0 }}>
-        This sheet is georeferenced. {plural(reading.outlines.length, 'outline')} could be
-        read from its survey lines. Say which record each one is; leave the rest as
+        This sheet carries map positions. {plural(reading.outlines.length, 'outline')} could be
+        read from its survey lines. Say which property each one is; leave the rest as
         &ldquo;Not one of these&rdquo;.
       </p>
       <OutlinePreview reading={reading} active={active} />
@@ -768,7 +886,7 @@ export function JointOutlinesDialog({ holding, reading, onClose }: {
                   {m?.ground === 'surveyed' && <> · replaces its saved boundary</>}
                 </small>
               </span>
-              <select aria-label={`Record for outline ${i + 1}`} value={assign[i]} disabled={saving}
+              <select aria-label={`Property for outline ${i + 1}`} value={assign[i]} disabled={saving}
                       onFocus={() => setActive(i)} onBlur={() => setActive(null)}
                       onChange={(e) => pick(i, e.target.value)}>
                 <option value="">Not one of these</option>

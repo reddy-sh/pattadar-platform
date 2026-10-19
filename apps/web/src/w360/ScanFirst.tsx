@@ -45,6 +45,7 @@ import { MAX_UPLOAD_BYTES, mb } from './filePhotos';
 import { markJobRead, rememberFile, unwatchJob, watchJob } from './inbox';
 import { fetchFileBlob } from '../pages/documents/storage';
 import type { Paper } from './api';
+import { useIsPlatformAdmin } from './adminOnly';
 
 /** What the reader made of the file, and the file itself.
  *
@@ -63,9 +64,14 @@ export interface DeedRead {
   reading: Reading;
   /** Existing vault row: file it by linking after the new property saves. */
   paperId?: string;
+  /** The read job behind `reading`, so the server can file the deed's facts
+   *  as claims of that reading (fileDeedReading) rather than the client. */
+  jobId?: string;
 }
 
-const ACCEPT = 'image/*,application/pdf';
+const ACCEPT = 'image/*,application/pdf,.kml,.geojson,application/vnd.google-earth.kml+xml,application/geo+json';
+/** A map file: its shape is read here, in the browser, not by the deed reader. */
+const isMapFile = (f: File) => /\.(kml|geojson)$/i.test(f.name) || /kml|geo\+json/.test(f.type);
 
 /** Only worth offering where there is a camera behind the file picker. On a
  *  desktop the `capture` attribute is ignored and the button would be a second
@@ -75,7 +81,7 @@ const hasCamera = () =>
   && typeof window.matchMedia === 'function'
   && window.matchMedia('(pointer: coarse)').matches;
 
-export function ScanFirst({ manualOpen, onManualOpenChange, onRead, onPickFromMap, initial, sourcePaper }: {
+export function ScanFirst({ manualOpen, onManualOpenChange, onRead, onPickFromMap, initial, sourcePaper, onMapFile }: {
   /** Whether the caller is currently showing the hand-entry form. */
   manualOpen: boolean;
   onManualOpenChange: (open: boolean) => void;
@@ -91,6 +97,9 @@ export function ScanFirst({ manualOpen, onManualOpenChange, onRead, onPickFromMa
   /** A document already uploaded to the private vault. Read its stored bytes
    *  for field extraction, then preserve the existing row when filing it. */
   sourcePaper?: Paper | null;
+  /** A KML or GeoJSON chosen or dropped here: the caller reads its shape and
+   *  starts the property from it. */
+  onMapFile?: (file: File) => void;
 }) {
   const [reading, setReading] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -99,6 +108,9 @@ export function ScanFirst({ manualOpen, onManualOpenChange, onRead, onPickFromMa
   // Anchor for the cost breakdown popover — the info icon beside "What this
   // document says". Null when the panel is closed.
   const [costAnchor, setCostAnchor] = useState<HTMLElement | null>(null);
+  // AI cost details are for Pattadar's operators only (founder, 06/10/2026):
+  // an owner sees no tokens, dollars or model name.
+  const showCost = useIsPlatformAdmin();
   const [got, setGot] = useState<
     { name: string; found: string[]; summary: string; caveats: string[]; usage?: ReadingUsage } | null
   >(null);
@@ -179,6 +191,7 @@ export function ScanFirst({ manualOpen, onManualOpenChange, onRead, onPickFromMa
 
   async function run(file: File | undefined, paperId = '') {
     if (!file || reading) return;
+    if (onMapFile && isMapFile(file)) { setError(''); setGot(null); onMapFile(file); return; }
     setError('');
     setGot(null);
     setCostAnchor(null);
@@ -197,19 +210,22 @@ export function ScanFirst({ manualOpen, onManualOpenChange, onRead, onPickFromMa
         signal: ctl.signal,
         onReceipt: (id) => { job.current = id; watchJob(id); rememberFile(id, file); },
       });
+      const jobId = job.current;
       // Seen here, so the notice the server also wrote is already read.
       if (job.current) {
         unwatchJob(job.current);
         void markJobRead(job.current, qc);
         job.current = '';
       }
-      show({ file, name: file.name, reading: r, ...(paperId ? { paperId } : {}) });
+      show({ file, name: file.name, reading: r, ...(paperId ? { paperId } : {}), ...(jobId ? { jobId } : {}) });
     } catch (e) {
       // The drawer closed: nothing to say here, the inbox has it.
       if (ctl.signal.aborted) return;
       if (job.current) { unwatchJob(job.current, qc); job.current = ''; }
       const msg = e instanceof Error ? e.message : 'Unknown error';
-      setError(`That file could not be read: ${msg}. Fill the form in by hand.`);
+      // The reader's own sentence usually ends in a full stop already; a
+      // second one read "that file..".
+      setError(`That file could not be read: ${msg.replace(/[.\s]+$/, '')}. Fill the form in by hand.`);
       // The automatic path just failed, so the manual one stops being optional.
       onManualOpenChange(true);
     } finally {
@@ -256,7 +272,7 @@ export function ScanFirst({ manualOpen, onManualOpenChange, onRead, onPickFromMa
           <>
             <p className="scanhead bad">
               <ErrorOutlineOutlined sx={{ fontSize: 17 }} aria-hidden />
-              The deed couldn&rsquo;t be read
+              The deed could not be read
             </p>
             <p className="note" style={{ margin: 0 }}>{error}</p>
             <button type="button" className="btn sm"
@@ -268,7 +284,7 @@ export function ScanFirst({ manualOpen, onManualOpenChange, onRead, onPickFromMa
           <>
             <p className="scanhead">
               <DocumentScannerOutlined sx={{ fontSize: 17 }} aria-hidden />
-              Start from the paper
+              Start from the document
             </p>
             <div className="row tight">
               <button type="button" className="btn primary sm" disabled={reading}
@@ -282,7 +298,9 @@ export function ScanFirst({ manualOpen, onManualOpenChange, onRead, onPickFromMa
                   <PhotoCameraOutlined sx={{ fontSize: 15 }} aria-hidden /> Take a photo
                 </button>
               )}
-              <span className="note">PDF or photo, up to {mb(MAX_UPLOAD_BYTES)}</span>
+              <span className="note">
+                PDF or photo, up to {mb(MAX_UPLOAD_BYTES)}{onMapFile ? ', or a KML map file of the boundary' : ''}
+              </span>
             </div>
             {reading ? (
               <p className="scanwait" role="status">
@@ -305,11 +323,12 @@ export function ScanFirst({ manualOpen, onManualOpenChange, onRead, onPickFromMa
           <p className="scanhead" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <TextSnippetOutlined sx={{ fontSize: 17 }} aria-hidden />
             <span>What this document says</span>
-            {/* The reader is a paid service; this is the one place an owner can
-                see what THIS read cost, in tokens and dollars, without leaving
-                the flow. Absent when the server did not report a cost (an older
-                reading, or the Aadhaar path, which never surfaces it). */}
-            {got.usage && (
+            {/* The reader is a paid service; this is the one place a platform
+                admin can see what THIS read cost, in tokens and dollars, without
+                leaving the flow. Owners never see it. Absent when the server did
+                not report a cost (an older reading, or the Aadhaar path, which
+                never surfaces it). */}
+            {showCost && got.usage && (
               <IconButton
                 size="small"
                 aria-label="What this reading cost"
@@ -335,7 +354,7 @@ export function ScanFirst({ manualOpen, onManualOpenChange, onRead, onPickFromMa
               ? `Filled from ${got.name}: ${got.found.join(', ')}. Read by AI; check before saving.`
               : 'Nothing new found in that file.'}
           </p>
-          {got.usage && (
+          {showCost && got.usage && (
             <Popover
               open={!!costAnchor}
               anchorEl={costAnchor}
@@ -395,6 +414,7 @@ function CostBreakdown({ usage }: { usage: ReadingUsage }) {
   ];
   if (usage.cacheReadTokens > 0) rows.push(['Reused from cache', `${n(usage.cacheReadTokens)} tokens`]);
   if (usage.cacheWriteTokens > 0) rows.push(['Cached for next time', `${n(usage.cacheWriteTokens)} tokens`]);
+  if ((usage.ocrPages ?? 0) > 0) rows.push(['Document AI OCR', `${n(usage.ocrPages ?? 0)} pages`]);
 
   return (
     <div style={{ padding: '12px 14px', maxWidth: 300, fontSize: '0.8125rem', lineHeight: 1.5 }}>
@@ -422,7 +442,8 @@ function CostBreakdown({ usage }: { usage: ReadingUsage }) {
       </table>
       <p className="note" style={{ margin: '8px 0 0' }}>
         {usd
-          ? `Estimate at ${usage.model} list price.`
+          ? (usage.ocrPages ? `Estimate at ${usage.model} and Document AI list prices, before any free tier.`
+            : `Estimate at ${usage.model} list price.`)
           : `No list price on file for ${usage.model}.`}
       </p>
     </div>

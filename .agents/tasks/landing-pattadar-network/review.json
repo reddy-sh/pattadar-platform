@@ -1,0 +1,52 @@
+{
+  "verdict": "APPROVED",
+  "findings": [],
+  "nonBlockingFindings": [
+    {
+      "source": "correctness",
+      "reviewDoc": "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/.worktrees/landing-pattadar-network/.agents/tasks/landing-pattadar-network/correctness-review.md",
+      "severity": "nit",
+      "blocking": false,
+      "label": "Server-only ID-number rejection shows the wrong sentence",
+      "file": "apps/web/src/pages/landing/NetworkInterestForm.tsx",
+      "detail": "Map any server invalid on name/district/mandal/note whose client checks pass to COPY.errors.idNumber."
+    },
+    {
+      "source": "correctness",
+      "reviewDoc": "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/.worktrees/landing-pattadar-network/.agents/tasks/landing-pattadar-network/correctness-review.md",
+      "severity": "nit",
+      "blocking": false,
+      "label": "Unchecked CONSENT_TEXT constant",
+      "file": "services/api/src/network.py",
+      "detail": "Add a pytest asserting sha256(CONSENT_TEXT) == CONSENT_TEXT_SHA256, or remove the constant."
+    },
+    {
+      "source": "security",
+      "reviewDoc": "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/.worktrees/landing-pattadar-network/.agents/tasks/landing-pattadar-network/security-review.md",
+      "severity": "low",
+      "blocking": false,
+      "label": "Strawberry coercion-error log echoes submitted values",
+      "detail": "Override Schema.process_errors (or filter strawberry.execution logger) to log value-free lines; add caplog test. Close before production per AC 18."
+    },
+    {
+      "source": "security",
+      "reviewDoc": "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/.worktrees/landing-pattadar-network/.agents/tasks/landing-pattadar-network/security-review.md",
+      "severity": "info",
+      "blocking": false,
+      "label": "Global hourly ceiling is the only abuse control",
+      "detail": "Accepted by Reddy for v1; treat network.interest_ceiling WARNING as an alarm candidate."
+    },
+    {
+      "source": "security",
+      "reviewDoc": "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/.worktrees/landing-pattadar-network/.agents/tasks/landing-pattadar-network/security-review.md",
+      "severity": "info",
+      "blocking": false,
+      "label": "D4 consent wording is still a draft",
+      "detail": "Reddy must explicitly approve the consent wording before any production release."
+    }
+  ],
+  "reviewDoc": [
+    "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/.worktrees/landing-pattadar-network/.agents/tasks/landing-pattadar-network/correctness-review.md",
+    "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/.worktrees/landing-pattadar-network/.agents/tasks/landing-pattadar-network/security-review.md"
+  ]
+}

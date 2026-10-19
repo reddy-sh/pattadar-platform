@@ -17,8 +17,14 @@ import type { InboxItem } from '../inbox';
 import { usePortfolio } from '../api';
 import { disablePush, enablePush, pushState } from '../push';
 import type { PushState } from '../push';
+import { Sk, SkRows } from '../skeletons';
 import { useToast } from '../Toast';
-import { Empty, Failed, Icon, Loading, PageHead, StatusChip, plural } from '../ui';
+import { Empty, Failed, Icon, PageHead, StatusChip, num, plural } from '../ui';
+
+/** The server sends only its newest 30 (services/api/src/inbox.py LIST_LIMIT),
+ *  so a list this long says it is the latest ones, not all. `unread` is a
+ *  true count either way. */
+const LIST_CAP = 30;
 
 const PUSH_WORDS: Record<PushState, string> = {
   unsupported: 'This browser cannot show notifications.',
@@ -75,7 +81,7 @@ function Row({ item }: { item: InboxItem }) {
       navigate(reviewPath(item.jobId));   // the drawer marks it read
     } else {
       markRead.mutate({ ids: [item.id] });
-      navigate('/app/properties?new=1');
+      navigate('/properties?new=1');
     }
   };
   return (
@@ -121,16 +127,21 @@ export function Notifications() {
   }, [params, setParams, data, navigate]);
 
   const items = data?.items ?? [];
+  const summary = data && items.length > 0 ? [
+    items.length >= LIST_CAP ? `Latest ${num(LIST_CAP)} notifications` : plural(items.length, 'notification'),
+    data.unread > 0 ? `${num(data.unread)} unread` : '',
+  ].filter(Boolean).join(' · ') : undefined;
   return (
     <main>
       <PageHead
         title="Notifications"
-        actions={data && data.unread > 0 ? (
-          <button type="button" className="btn" disabled={markRead.isPending}
-                  onClick={() => markRead.mutate({ all: true })}>
-            Mark all as read
-          </button>
-        ) : undefined}
+        summary={isLoading ? <Sk w="18rem" h="1rem" r="var(--radius-xs)" /> : summary}
+        actions={data && data.unread > 0 ? {
+          secondaries: [{
+            label: 'Mark all as read', disabled: markRead.isPending,
+            onClick: () => markRead.mutate({ all: true }),
+          }],
+        } : undefined}
       />
 
       <PushCard />
@@ -138,11 +149,11 @@ export function Notifications() {
       {waiting > 0 && (
         <p className="note sec" style={{ margin: 0 }}>
           {plural(waiting, 'reminder')} on{' '}
-          <Link className="link accent" to="/app">Home</Link>.
+          <Link className="link accent" to="/home">Home</Link>.
         </p>
       )}
 
-      {isLoading ? <Loading h="14rem" what="your notifications" />
+      {isLoading ? <SkRows rows={4} label="Loading your notifications" />
         : !data ? <Failed what="Notifications" error={error} boxed h="14rem" />
           : items.length === 0 ? (
             <Empty boxed h="14rem" icon="ok" title="No notifications">

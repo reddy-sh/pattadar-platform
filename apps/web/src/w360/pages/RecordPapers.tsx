@@ -10,7 +10,6 @@
 import { useId, useMemo, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { Link } from 'react-router';
-import SearchOutlined from '@mui/icons-material/SearchOutlined';
 import AddOutlined from '@mui/icons-material/AddOutlined';
 import CloseOutlined from '@mui/icons-material/CloseOutlined';
 import DeleteOutlineOutlined from '@mui/icons-material/DeleteOutlineOutlined';
@@ -21,7 +20,7 @@ import PlaceOutlined from '@mui/icons-material/PlaceOutlined';
 import ShoppingCartCheckoutOutlined from '@mui/icons-material/ShoppingCartCheckoutOutlined';
 
 import {
-  useAddPaper, useDeletePaper, useDocument, useOrderServiceBatch, useOrders,
+  useAddPaper, useDeletePaper, useDocument, useFileDeedReading, useOrderServiceBatch, useOrders,
   usePapers, useServicesOffered, useUpdatePaper,
 } from '../api';
 import type { Order, ServiceBatchReceipt } from '../api';
@@ -30,8 +29,8 @@ import { describeReading, displayDetail, unreadRow } from '../paperFiling';
 import { STORAGE_OFFLINE_MSG, uploadToDrive } from '../../pages/documents/storage';
 import { UNREACHABLE_NOTE } from '../../data/useLiveOrSample';
 import {
-  Card, Chip, FacetFilter, Failed, Icon, KV, State, Tag,
-  SHELF_WORD, ddmmyyyy, inr, nounFor, plural,
+  BandSearch, Card, Chip, FacetFilter, Failed, Icon, KV, State, Tag, TablePager,
+  SHELF_WORD, ddmmyyyy, inr, nounFor, plural, usePaged,
 } from '../ui';
 import { Drawer, DrawerAction, drawerEyebrow } from '../Drawer';
 import { SkRowItems } from '../skeletons';
@@ -54,7 +53,7 @@ const EXPECTED_SHELVES: Record<'parcel' | 'built', { shelf: string; say: string 
     { shelf: 'title', say: 'No sale deed or title document on file' },
     { shelf: 'revenue', say: 'No patta or 1-B on file' },
     { shelf: 'search', say: 'No encumbrance certificate or tax receipt' },
-    { shelf: 'map', say: 'No survey map or FMB sheet on file' },
+    { shelf: 'map', say: 'No FMB sheet or map on file' },
   ],
   built: [
     { shelf: 'title', say: 'No sale deed or title document on file' },
@@ -63,7 +62,7 @@ const EXPECTED_SHELVES: Record<'parcel' | 'built', { shelf: string; say: string 
   ],
 };
 
-/** Which shelf a paper goes on. "Let Pattadar decide" is first and is the
+/** Which shelf a paper goes on. "Pattadar Intelligence" is first and is the
  *  default, because the reader is right most of the time and the owner should
  *  not have to classify a document they have just photographed. The override is
  *  here for when it is wrong — which, before this drawer, meant filing the paper
@@ -90,15 +89,22 @@ const READ_IT = '';
  * filed under its own name in Unsorted, which is exactly where it can be found
  * and sorted by hand.
  */
-export function PaperDrawer({ recordId, recordTitle, onClose, returnFocus, folderId = '' }: {
+export function PaperDrawer({ recordId, recordTitle, onClose, returnFocus, folderId = '', asDeed = false, onEnterDeed }: {
   recordId: string;
   recordTitle: string;
   onClose: () => void;
   returnFocus: React.RefObject<HTMLButtonElement | null>;
   /** Documents' open folder, so an upload lands where the owner is looking. */
   folderId?: string;
+  /** Opened from Overview's "Upload the deed": the owner says this is the
+   *  deed they hold the land by, so its reading is filed onto the record's
+   *  master record (fileDeedReading) as well as filed as a paper. */
+  asDeed?: boolean;
+  /** With asDeed: the way to type it in when the reading cannot be filed. */
+  onEnterDeed?: () => void;
 }) {
   const addPaper = useAddPaper(false);
+  const fileDeedReading = useFileDeedReading();
   const whyId = useId();
   const [picked, setPicked] = useState<File[]>([]);
   const [shelf, setShelf] = useState(READ_IT);
@@ -115,7 +121,32 @@ export function PaperDrawer({ recordId, recordTitle, onClose, returnFocus, folde
    *  now at all: the filed rows appearing in the list is the answer, and
    *  design.md keeps success silent. */
   const [notice, setNotice] = useState('');
+  /** Papers filed here that the reader read as a deed. A deed added on
+   *  Documents may be an older one in the chain, so it never replaces "How
+   *  you hold it" by itself: the owner is asked, and only a yes files its
+   *  reading onto the master record (fileDeedReading). */
+  const [deeds, setDeeds] = useState<{ paperId: string; jobId: string; name: string }[]>([]);
+  const [using, setUsing] = useState('');
+  /** Upload the deed filed the paper but not its reading onto the record. */
+  const [deedFailed, setDeedFailed] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const holding = !!notice || deeds.length > 0 || deedFailed;
+
+  async function fillFromDeed(d: { paperId: string; jobId: string; name: string }) {
+    setUsing(d.paperId);
+    setErr('');
+    try {
+      await fileDeedReading.mutateAsync({ recordId, paperId: d.paperId, jobId: d.jobId });
+      const left = deeds.filter((x) => x.paperId !== d.paperId);
+      setDeeds(left);
+      if (!left.length && !notice) onClose();
+    } catch (e) {
+      setErr(`${d.name} is filed in Documents, but it could not fill Title`
+        + `${e instanceof Error && e.message ? ` (${e.message})` : ''}.`);
+    } finally {
+      setUsing('');
+    }
+  }
 
   const tooBig = picked.filter((f) => f.size > limitFor(f));
   const invalidPhotos = shelf === 'photos'
@@ -123,7 +154,7 @@ export function PaperDrawer({ recordId, recordTitle, onClose, returnFocus, folde
   const ready = picked.length > 0 && tooBig.length === 0 && invalidPhotos.length === 0 && !filing;
   // Why the primary is greyed, beside it, rather than a dead button to work
   // out. Nothing while it is filing: the label already says "Filing…".
-  const why = filing || notice ? ''
+  const why = filing || holding ? ''
     : picked.length === 0 ? 'Choose a scan or photograph to file.'
       : invalidPhotos.length > 0 ? 'Choose image or video files when filing these under Photos & video.'
         : tooBig.length > 0 ? `Take out ${tooBig.length > 1 ? 'the files' : 'the file'} over its size limit first.`
@@ -150,6 +181,8 @@ export function PaperDrawer({ recordId, recordTitle, onClose, returnFocus, folde
     setNotice('');
     let done = 0;
     const unread: string[] = [];
+    const read: { paperId: string; jobId: string; name: string }[] = [];
+    let deedError = '';
     try {
       for (const f of picked) {
         /** `uploadToDrive` THROWS on every failure — it is typed
@@ -181,15 +214,18 @@ export function PaperDrawer({ recordId, recordTitle, onClose, returnFocus, folde
           ? { name: node.name, subtitle: '', shelf: 'photos', pageCount: 0 }
           : unreadRow(node.name, f.type);
         let couldNotRead = false;
+        let jobId = '';
         if (shelf !== 'photos' && !isVideo) {
           try {
-            row = describeReading(await readDocument(f, f.name), f);
+            row = describeReading(await readDocument(f, f.name, { onReceipt: (j) => { jobId = j; } }), f);
           } catch {
             couldNotRead = true;
           }
         }
+        // The reader's own word, before any override: a deed is a Title read.
+        const readAsDeed = !couldNotRead && !!jobId && row.shelf === 'title';
         // The owner's answer beats the reader's. It is only ever an override —
-        // left on "Let Pattadar decide", the shelf the document was read into
+        // left on Pattadar Intelligence, the shelf the document was read into
         // is the one it lands on.
         if (shelf && !isVideo) row = { ...row, shelf };
 
@@ -203,17 +239,31 @@ export function PaperDrawer({ recordId, recordTitle, onClose, returnFocus, folde
             ...(folderId ? { folderId } : {}),
           });
           if (!res.web.addPaper) {
-            setErr(`${f.name} was uploaded but could not be filed.`
-              + ` ${done} of ${picked.length} were filed.`);
+            setErr(`${f.name} was uploaded but could not be saved.`
+              + ` ${done} of ${picked.length} were saved.`);
             break;
           }
           done += 1;
+          // Best-effort: the paper is filed either way, and the server refuses
+          // a reading that is not a deed. Only the first file is the deed.
+          if (asDeed && done === 1) {
+            try {
+              // A reading that failed is the same "could not fill" as a refused one (C2).
+              if (!jobId || couldNotRead) throw new Error('it could not be read');
+              await fileDeedReading.mutateAsync({ recordId, paperId: res.web.addPaper, jobId });
+            } catch (e) {
+              deedError = `${f.name} is filed in Documents, but it could not fill Title`
+                + `${e instanceof Error && e.message ? ` (${e.message})` : ''}. You can enter it yourself.`;
+            }
+          } else if (!asDeed && recordId && readAsDeed) {
+            read.push({ paperId: res.web.addPaper, jobId, name: row.name });
+          }
           // Only worth saying when the reader was the one deciding the shelf.
           // Under an override the paper went exactly where it was told to.
           if (couldNotRead && !shelf) unread.push(f.name);
         } catch {
-          setErr(`${f.name} was uploaded but could not be filed.`
-            + ` ${done} of ${picked.length} were filed.`);
+          setErr(`${f.name} was uploaded but could not be saved.`
+            + ` ${done} of ${picked.length} were saved.`);
           break;
         }
       }
@@ -232,11 +282,12 @@ export function PaperDrawer({ recordId, recordTitle, onClose, returnFocus, folde
           // can be filed twice.
           if (unread.length) {
             setNotice(unread.length === 1
-              ? `${unread[0]} could not be read. Filed in Unsorted.`
-              : `${unread.length} could not be read. Filed in Unsorted: ${unread.join(', ')}.`);
-          } else {
-            onClose();
+              ? `${unread[0]} could not be read. It is in Not sorted yet.`
+              : `${unread.length} could not be read. They are in Not sorted yet: ${unread.join(', ')}.`);
           }
+          if (deedError) { setErr(deedError); setDeedFailed(true); }
+          if (read.length) setDeeds(read);
+          else if (!unread.length && !deedError) onClose();
         }
       }
     }
@@ -244,10 +295,10 @@ export function PaperDrawer({ recordId, recordTitle, onClose, returnFocus, folde
 
   return (
     <Drawer
-      eyebrow={recordId ? drawerEyebrow(recordTitle, 'Documents') : 'Your documents'}
+      eyebrow={recordId ? drawerEyebrow(recordTitle, 'Documents') : 'Documents'}
       title={picked.length > 1 ? `${recordId ? 'File' : 'Add'} ${picked.length} documents` : recordId ? 'File a document' : 'Add a document'}
       onClose={onClose}
-      onSubmit={() => (notice ? onClose() : void file())}
+      onSubmit={() => (holding ? onClose() : void file())}
       busy={filing}
       dirty={picked.length > 0}
       discardCopy={{
@@ -261,12 +312,14 @@ export function PaperDrawer({ recordId, recordTitle, onClose, returnFocus, folde
       // secondary keeps its one word: it used to become "Go to Documents",
       // which closed a drawer that was already on Documents.
       primaryWhy={why ? { id: whyId, text: why } : undefined}
-      primary={notice ? (
+      primary={holding ? (
         <DrawerAction label="Done" working="Done" />
       ) : (
         <DrawerAction
-          label={picked.length > 1 ? `File ${picked.length} documents` : 'File the document'}
-          working="Filing…"
+          label={recordId
+            ? (picked.length > 1 ? `File ${picked.length} documents` : 'File the document')
+            : (picked.length > 1 ? `Add ${picked.length} documents` : 'Add the document')}
+          working={recordId ? 'Filing…' : 'Adding…'}
           pending={filing}
           disabled={!ready}
           describedBy={why ? whyId : undefined}
@@ -280,7 +333,7 @@ export function PaperDrawer({ recordId, recordTitle, onClose, returnFocus, folde
         // Unchanged wording on purpose: it is how every suite that files a paper
         // reaches the picker, and the picker moving into the drawer is not a
         // reason for its name to move with it.
-        aria-label={recordId ? 'Add a document to this property' : 'Add a document to your vault'}
+        aria-label={recordId ? 'Add a document to this property' : 'Add a document to Documents'}
         onChange={(e) => {
           // Copy before clearing: resetting value empties the live FileList this
           // would otherwise still point at, and the reset is what lets the same
@@ -306,7 +359,7 @@ export function PaperDrawer({ recordId, recordTitle, onClose, returnFocus, folde
       >
         <p className="scanhead">
           <DocumentScannerOutlined sx={{ fontSize: 18 }} aria-hidden />
-          Drop a scan, photograph or video here
+          Drop a scan, photo or video here
         </p>
         <p className="dropline">
           Up to {mb(MAX_UPLOAD_BYTES)} for scans and photos; {mb(MAX_VIDEO_BYTES)} for videos.
@@ -368,19 +421,26 @@ export function PaperDrawer({ recordId, recordTitle, onClose, returnFocus, folde
       )}
 
       <div className="field">
-        <label>Which shelf</label>
+        <label>Shelf · optional</label>
         {/* Washed when chosen: a choice is not an action, and the drawer's
-            one amber fill is the button that files. */}
+            one amber fill is the button that files. A chosen shelf pressed
+            again goes back to Pattadar Intelligence (founder, 09/10/2026: the
+            shelf is optional, the reader classifies unless the owner says). */}
         <div className="row tight">
           <Chip wash active={shelf === READ_IT} onClick={() => setShelf(READ_IT)}>
-            Let Pattadar decide
+            Pattadar Intelligence
           </Chip>
           {SHELVES.map((s) => (
-            <Chip key={s} wash active={shelf === s} onClick={() => setShelf(s)}>
+            <Chip key={s} wash active={shelf === s} onClick={() => setShelf(shelf === s ? READ_IT : s)}>
               {SHELF_WORD[s] ?? s}
             </Chip>
           ))}
         </div>
+        <p className="note" style={{ margin: 0 }}>
+          {shelf === READ_IT
+            ? 'Pattadar Intelligence reads each file and puts it on the right shelf. Choose a shelf only to override it.'
+            : `Every file goes on ${SHELF_WORD[shelf] ?? shelf}. Press it again to let Pattadar Intelligence decide.`}
+        </p>
       </div>
 
       {/* `status`, not `alert`: the papers ARE filed, and a red warning about a
@@ -392,8 +452,26 @@ export function PaperDrawer({ recordId, recordTitle, onClose, returnFocus, folde
         </p>
       )}
 
+      {deeds.map((d) => (
+        <div key={d.paperId} className="stack sm" role="group" aria-label={`${d.name} reads as a deed`}>
+          <p className="note" style={{ margin: 0 }}>
+            {d.name} reads as a deed. If it is the deed you hold this land by, its details can fill
+            Title on the Overview. An older deed in the chain should stay as a document only.
+          </p>
+          <button type="button" className="btn sm" style={{ alignSelf: 'flex-start' }}
+                  disabled={!!using} onClick={() => void fillFromDeed(d)}>
+            {using === d.paperId ? 'Filling…' : 'Use this deed as the title deed'}
+          </button>
+        </div>
+      ))}
+
       {err && (
         <p className="note" role="alert" style={{ margin: 0, color: 'var(--w-danger)' }}>{err}</p>
+      )}
+      {deedFailed && onEnterDeed && (
+        <button type="button" className="btn sm" style={{ alignSelf: 'flex-start' }} onClick={onEnterDeed}>
+          Enter it
+        </button>
       )}
     </Drawer>
   );
@@ -432,7 +510,7 @@ export function RecordPapers() {
   // to click a hidden input and file whatever came back with nothing shown in
   // between, so `pickPaper`, `filing` and `filePapers` all belong to the panel
   // that now holds the pick.
-  const addTrigger = useRef<HTMLButtonElement>(null);
+  const addTrigger = useRef<HTMLButtonElement & HTMLAnchorElement>(null);
   const paperList = useRef<HTMLDivElement>(null);
   const renameTriggers = useRef(new Map<string, HTMLButtonElement>());
   const removeTriggers = useRef(new Map<string, HTMLButtonElement>());
@@ -475,16 +553,18 @@ export function RecordPapers() {
   const shown = (papers ?? []).filter((p) =>
     (activeShelves.length === 0 || activeShelves.includes(p.shelf))
     && (!q.trim() || `${p.title} ${p.detail}`.toLowerCase().includes(q.trim().toLowerCase())));
+  const paged = usePaged(shown, {
+    resetKey: `${activeShelves.join(',')}|${q.trim()}`, storeKey: 'pattadar.table.record-papers',
+  });
 
-  // "5 documents · showing 1" — the count, and what the filter is doing to
-  // it. The shelf breakdown is the filter's own business (each option carries
-  // its count), so it is not printed a second time here. Nothing about expiry:
+  // "5 documents" — the record's own total. What the filter lets through is
+  // the band's tally ("1 of 5 shown", design.md § Page head slot 3), and the
+  // shelf breakdown is the filter's own business. Nothing about expiry:
   // no paper in this system carries an expiry date, so "nothing expiring"
   // would be an assertion rather than a reading.
-  const papersSub = [
-    plural(papers?.length ?? rec.paperCount, 'document'),
-    (activeShelves.length > 0 || q.trim()) && `showing ${shown.length}`,
-  ].filter(Boolean).join(' · ');
+  // Facts from the read itself: none while it is pending, on a failed read,
+  // or on a record with nothing filed yet (the empty state says that).
+  const papersSub = papers && papers.length > 0 ? plural(papers.length, 'document') : undefined;
 
   // Removing a paper unfiles evidence, so it asks in the shared dialog, naming
   // the document, rather than in a two-button pair squeezed into the row.
@@ -509,7 +589,7 @@ export function RecordPapers() {
           setRemoveErr(`${title} could not be removed. Reload the page.`);
         }
       },
-      onError: () => setRemoveErr(`${title} was not removed. It is still filed here.`),
+      onError: () => setRemoveErr(`${title} was not removed. It is still on this property.`),
     });
   };
 
@@ -615,24 +695,13 @@ export function RecordPapers() {
       <SectionHead
         title="Documents"
         sub={papersSub}
-        actions={(
-          <>
-            <span className="search" style={{ width: '16rem' }}>
-              <SearchOutlined sx={{ fontSize: 16 }} aria-hidden />
-              <input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Search documents"
-                aria-label="Search this property's documents"
-              />
-            </span>
-            <button ref={addTrigger} type="button" className="btn primary"
-                    aria-haspopup="dialog" aria-expanded={adding}
-                    onClick={() => setAdding(true)}>
-              <AddOutlined sx={{ fontSize: 15 }} aria-hidden /> Add a document
-            </button>
-          </>
-        )}
+        actions={{
+          primary: {
+            label: 'Add a document', icon: <AddOutlined sx={{ fontSize: 15 }} aria-hidden />,
+            ref: addTrigger, haspopup: 'dialog', expanded: adding,
+            onClick: () => setAdding(true),
+          },
+        }}
       />
 
       <div className={`split${hasRailContent ? '' : ' no-rail'}`}>
@@ -654,17 +723,22 @@ export function RecordPapers() {
             />
           )}
 
-          {/* The shelves this record's own papers fall in, as filters — and only
-              when there are any. This row used to carry the upload size limit
-              and the "filing…" progress line as well, both of which now belong
-              to the drawer that does the filing: the limit is printed against
-              each picked file, beside the file it is about. */}
+          {/* The tab's band (design.md § Page head slot 5): the shelves this
+              record's own papers fall in as filters, the tally, and the search
+              — none of it over a record with nothing filed, where the empty
+              state below says so. On a phone the search is an icon, so the
+              band stays one row. */}
           {shelves.length > 0 && (
             <FacetFilter
               groups={shelfGroup}
               selected={{ shelf: activeShelves }}
               onToggle={toggleShelf}
               onClear={() => setShelfSel([])}
+              tally={`${shown.length} of ${papers?.length ?? 0} shown`}
+              search={(
+                <BandSearch value={q} onChange={setQ} placeholder="Search documents"
+                            label="Search this property's documents" />
+              )}
               ariaLabel="Filter documents"
             />
           )}
@@ -694,13 +768,8 @@ export function RecordPapers() {
 
           {requestedPaperOrders.length > 0 && (
             <section className="paper-requests" aria-labelledby="paper-requests-title">
-              <div className="paper-requests-head">
-                <div>
-                  <p className="eyebrow">Being requested</p>
-                  <h2 id="paper-requests-title">Requested documents</h2>
-                </div>
-                <span className="mono note">{plural(requestedPaperOrders.length, 'request')}</span>
-              </div>
+              <SectionHead id="paper-requests-title" title="Documents on order"
+                           sub={plural(requestedPaperOrders.length, 'service order')} />
               <div className="paper-request-grid">
                 {requestedPaperOrders.map((order: Order) => {
                   const offer = paperOfferByKind.get(order.kind);
@@ -720,12 +789,12 @@ export function RecordPapers() {
                         </span>
                       </span>
                       <span className="num">{inr(order.cost)}</span>
-                      {/* "Cancel request", not "Cancel": this opens the order's
+                      {/* "Cancel order", not "Cancel": this opens the order's
                           own cancel step, and on this tab a bare Cancel already
                           means closing a drawer or stopping a rename. */}
                       <span className="row tight paper-request-actions">
-                        <Link className="btn sm" to={`/app/services/${order.id}`}>Open request</Link>
-                        <Link className="btn sm" to={`/app/services/${order.id}?action=cancel`}>Cancel request</Link>
+                        <Link className="btn sm" to={`/services/${order.id}`}>Open order</Link>
+                        <Link className="btn sm" to={`/services/${order.id}?action=cancel`}>Cancel order</Link>
                       </span>
                     </article>
                   );
@@ -745,16 +814,16 @@ export function RecordPapers() {
               tabIndex={-1}
               role={isLoading ? 'status' : undefined}
               aria-busy={isLoading || undefined}
-              aria-label={isLoading ? `Loading the papers on this ${noun}` : undefined}
+              aria-label={isLoading ? `Loading the documents on this ${noun}` : undefined}
             >
               {isLoading && <SkRowItems rows={3} />}
-              {shown.map((p) => (
+              {paged.shown.map((p) => (
                 <div key={p.id}>
                   <span className="avatarlg" style={{ width: '2.25rem', height: '2.25rem' }}>
                     <Icon name={p.shelf === 'unsorted' ? 'paper' : p.shelf} size={18} />
                   </span>
                   <span className="grow">
-                    <Link to={`/app/papers/${p.id}`}
+                    <Link to={`/papers/${p.id}`}
                           onClick={(e) => openPreview(e, p.id)}
                           style={{ color: 'inherit', textDecoration: 'none', fontWeight: 700, fontSize: '0.9375rem' }}>
                       {p.title}
@@ -872,6 +941,7 @@ export function RecordPapers() {
               )}
             </div>
           </div>
+          <TablePager {...paged} onSize={paged.setSize} label="Document pages" />
         </div>
 
         <aside className="stack">
@@ -986,7 +1056,7 @@ export function RecordPapers() {
                   <span className="note">
                     {plural(batchReceipt.orderCount, 'service order')} · {inr(batchReceipt.total)} quoted
                   </span>
-                  <Link className="link accent" to={`/app/records/${rec.id}/services`}>
+                  <Link className="link accent" to={`/properties/${rec.id}/services`}>
                     Track these service orders ›
                   </Link>
                 </div>
@@ -1015,7 +1085,7 @@ export function RecordPapers() {
                 ...(deed.seller ? [{ k: 'Seller', v: deed.seller }] : []),
                 ...(deed.buyer ? [{ k: 'Buyer', v: deed.buyer }] : []),
                 ...(deed.consideration > 0
-                  ? [{ k: 'Consideration', v: inr(deed.consideration) }] : []),
+                  ? [{ k: 'Amount in the deed', v: inr(deed.consideration) }] : []),
               ]} />
             </Card>
           )}

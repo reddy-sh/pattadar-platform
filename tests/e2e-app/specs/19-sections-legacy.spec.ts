@@ -33,7 +33,7 @@
  *    its queries carries `test.use({ allowConsole: true })`, with that reason
  *    named on the spot.
  *  · THE LEGACY SHELL'S MENU POINTS AT THE NEW APP. AppShell.tsx:75-90 lists
- *    twelve items whose paths all begin `/app/`, and that shell is only ever
+ *    twelve items whose paths all begin `/`, and that shell is only ever
  *    mounted under `/legacy/`. Both consequences — nothing is ever marked
  *    current, and one tap throws you out of the previous app — are recorded as
  *    `test.fail()` rather than softened.
@@ -274,7 +274,7 @@ const ME = {
   id: 'shankarreddy.t', name: 'Shankar Reddy', email: 'shankarreddy.t@pattadar.local',
   address: 'Katragunta, Markapur mandal, Prakasam', language: 'en',
   districtsOfInterest: 'w-dist-prakasam', notificationPrefs: 'email',
-  kycRefMasked: 'XXXX XXXX 4471', mfaEnabled: false,
+  kycRefMasked: 'XXXX XXXX 4471', mfaEnabled: false, lastActiveAt: '2026-08-01T09:30:00',
 };
 
 const DISTRICTS = [
@@ -368,7 +368,7 @@ test.describe('the shell the previous app still wears', () => {
   });
 
   test('the previous app never marks the screen I am standing on', async ({ page }) => {
-    // DEFECT — layout/AppShell.tsx:75-90 points every menu item at /app/<x>
+    // DEFECT — layout/AppShell.tsx:75-90 points every menu item at /<x>
     // while the shell is only ever mounted under /legacy/<x>, so the `selected`
     // test at AppShell.tsx:146-147 is false on every legacy route and NavLink
     // marks nothing. Standing on Families & Groups, the menu shows no current
@@ -381,10 +381,9 @@ test.describe('the shell the previous app still wears', () => {
 
   test('one tap on the previous app menu should stay inside the previous app', async ({ page }) => {
     // DEFECT — same cause (AppShell.tsx:75-90). Tapping "Passbooks" inside
-    // /legacy navigates to /app/passbooks, which routes.tsx redirects to
-    // /app/properties?kind=parcel: the owner is thrown out of the app they were
-    // working in, into a screen they did not ask for. They are owed
-    // /legacy/passbooks.
+    // /legacy navigates to /passbooks, which is no address at all now (no
+    // legacy links): the owner is thrown out of the app they were working in,
+    // onto a 404. They are owed /legacy/passbooks.
     test.fail();
     await page.goto('/legacy/groups');
     await expect(page.getByRole('heading', { level: 1, name: 'Families & Groups' })).toBeVisible();
@@ -392,16 +391,6 @@ test.describe('the shell the previous app still wears', () => {
     await expect(page).toHaveURL(/\/legacy\/passbooks$/);
   });
 
-  test('leaving the previous app by its menu lands somewhere real, at least', async ({ page }) => {
-    // The consolation prize for the defect above: the redirect resolves, so
-    // nobody lands on an error page. Asserted so a future fix that breaks the
-    // landing is visible even while the defect stands.
-    await page.goto('/legacy/groups');
-    await expect(page.getByRole('heading', { level: 1, name: 'Families & Groups' })).toBeVisible();
-    await page.getByRole('link', { name: 'Passbooks', exact: true }).click();
-    await expect(page).toHaveURL(/\/app\/properties\?kind=parcel$/);
-    await expect(page.getByText('There is no page at that address')).toHaveCount(0);
-  });
 });
 
 // ── the old addresses the previous app still answers ───────────────────
@@ -414,11 +403,11 @@ test.describe('the old addresses the previous app still answers', () => {
     { from: '/legacy/properties', to: /\/legacy\/parcels\?tab=properties$/, heading: 'Land & Properties' },
     { from: '/legacy/deeds', to: /\/legacy\/documents$/, heading: 'Vault' },
     // The tool aliases now land in this app's Tools screen, tab intact.
-    { from: '/legacy/tools', to: /\/app\/tools$/, heading: 'Tools' },
-    { from: '/legacy/sro', to: /\/app\/tools\?tab=sro$/, heading: 'Tools' },
-    { from: '/legacy/stamp-duty', to: /\/app\/tools\?tab=stamp-duty$/, heading: 'Tools' },
-    { from: '/legacy/market-value', to: /\/app\/tools\?tab=market-value$/, heading: 'Tools' },
-    { from: '/legacy/calculator', to: /\/app\/tools\?tab=calculator$/, heading: 'Tools' },
+    { from: '/legacy/tools', to: /\/tools$/, heading: 'Tools' },
+    { from: '/legacy/sro', to: /\/tools\?tab=sro$/, heading: 'Tools' },
+    { from: '/legacy/stamp-duty', to: /\/tools\?tab=stamp-duty$/, heading: 'Tools' },
+    { from: '/legacy/market-value', to: /\/tools\?tab=market-value$/, heading: 'Tools' },
+    { from: '/legacy/calculator', to: /\/tools\?tab=calculator$/, heading: 'Tools' },
   ];
 
   for (const r of REDIRECTS) {
@@ -428,13 +417,6 @@ test.describe('the old addresses the previous app still answers', () => {
       await expect(page.getByRole('heading', { level: 1, name: r.heading })).toBeVisible({ timeout: 25_000 });
     });
   }
-
-  test('an old bookmark for one passbook is carried into the previous app with its id', async ({ page }) => {
-    // routes.tsx ToLegacyPassbook: a passbook id is not a record id, so the
-    // W360 360 would claim it is not in the portfolio — which is false.
-    await page.goto('/app/passbooks/pb-1');
-    await expect(page).toHaveURL(/\/legacy\/passbooks\/pb-1$/);
-  });
 
   test('a passbook the service could not be asked about is not called not mine', async ({ page }) => {
     // WAS A DEFECT — the owner of a passbook whose api is down was owed a
@@ -466,13 +448,15 @@ test.describe('the previous app with nothing behind it', () => {
   test.use({ allowConsole: true });
   test.beforeEach(() => { test.slow(); });
 
-  test('the old dashboard, with no service, asks for one upload instead of inventing figures', async ({ page }) => {
+  test('the old dashboard, with no service, says the land did not load instead of inventing figures', async ({ page }) => {
+    // Since the platform audit (components/LoadFailed.tsx) a read that failed
+    // is no longer drawn as a first-run account: the old "start with one
+    // upload" welcome told an owner with thirty parcels that they had none.
     await page.goto('/legacy');
     await expect(page.getByRole('heading', { level: 1, name: /^Good (morning|afternoon|evening),/ })).toBeVisible();
-    await expect(page.getByText('Welcome — start with one upload')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Upload your passbook' })).toBeVisible();
-    await expect(page.getByText('Everything stays in your own secure drive — nothing is shared unless you share it.'))
-      .toBeVisible();
+    await expect(page.getByText('Your land could not be loaded')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
+    await expect(page.getByText('Welcome — start with one upload')).toHaveCount(0);
   });
 
   test('the old passbooks screen, with no service, offers the first passbook rather than a blank list', async ({ page }) => {
@@ -516,7 +500,10 @@ test.describe('the previous app with nothing behind it', () => {
     await expect(page.getByRole('button', { name: 'Register a Deed' }).first()).toBeVisible();
   });
 
-  test('the old groups screen, with no service, says the service is unreachable and offers a first group', async ({ page }) => {
+  test('the old groups screen, with no service, says the service is unreachable and offers a first group', async ({ page, world }) => {
+    // The seed answers `groups` with an empty list, as the server does; this
+    // scenario is the service being down.
+    world.set('root.groups', World.gqlError('the service is unreachable'));
     await page.goto('/legacy/groups');
     await expect(page.getByRole('heading', { level: 1, name: 'Families & Groups' })).toBeVisible();
     await expect(page.getByText('Service unreachable')).toBeVisible();
@@ -530,7 +517,10 @@ test.describe('the previous app with nothing behind it', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Notifications' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'All (0)' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Failures (0)' })).toBeVisible();
-    await expect(page.getByText('Nothing sent yet')).toBeVisible();
+    // A failed read is said as a failure (components/LoadFailed.tsx), not as
+    // "Nothing sent yet".
+    await expect(page.getByText('The notification log could not be loaded')).toBeVisible();
+    await expect(page.getByText('Nothing sent yet')).toHaveCount(0);
   });
 
   test('the old audit log, with no service, says nothing is recorded rather than showing a blank table', async ({ page }) => {
@@ -550,7 +540,7 @@ test.describe('the previous app with nothing behind it', () => {
   });
 
   // The old profile left this app: /legacy/profile redirects into the drawn
-  // /app/profile, whose failed read is covered in "the profile, drawn in this
+  // /profile, whose failed read is covered in "the profile, drawn in this
   // app" below.
 
   test('the old wallet still says plainly that it is not live yet', async ({ page }) => {
@@ -758,11 +748,8 @@ test.describe('families & groups, on the previous interface', () => {
 
   test('View holdings on a group card should open that group holdings', async ({ page }) => {
     // DEFECT — pages/FamiliesGroupsPage.tsx:183 navigates to
-    // `/app/parcels?group=<id>`, and routes.tsx routes `/app/parcels` to
-    // <Navigate to="/app/properties?kind=parcel" replace>, which DISCARDS the
-    // query it was given. The owner asks for one family's land and is handed
-    // the unfiltered list of everything they own, with nothing on screen
-    // saying a family was named. The legacy holdings screen still honours
+    // `/parcels?group=<id>`, which is no address at all now (no legacy
+    // links), so the owner who asks for one family's land gets a 404. The legacy holdings screen still honours
     // ?group= (LandPropertiesPage.tsx:225-227) — the link just never reaches it.
     test.fail();
     await legacyApi(page, GROUPS_WORLD);
@@ -770,7 +757,7 @@ test.describe('families & groups, on the previous interface', () => {
     await page.getByRole('button', { name: 'View holdings ›' }).first().click();
     // Wait for the redirect to land before reading the address — for one tick
     // the URL still carries the group the Navigate is about to throw away.
-    await expect(page).toHaveURL(/\/app\/properties/, { timeout: 25_000 });
+    await expect(page).toHaveURL(/\/properties/, { timeout: 25_000 });
     await expect(page).toHaveURL(new RegExp(`group=${GROUP_ID}`));
   });
 
@@ -780,7 +767,7 @@ test.describe('families & groups, on the previous interface', () => {
     await legacyApi(page, GROUPS_WORLD);
     await page.goto('/legacy/groups');
     await page.getByRole('button', { name: 'View holdings ›' }).last().click();
-    await expect(page).toHaveURL(/\/app\/properties/, { timeout: 25_000 });
+    await expect(page).toHaveURL(/\/properties/, { timeout: 25_000 });
     await expect(page).toHaveURL(new RegExp(`group=${GROUP_ID}`));
   });
 
@@ -816,16 +803,18 @@ test.describe('invitations, drawn in this app', () => {
   test('the old address lands on the new screen', async ({ page, world }) => {
     world.set('root.invitations', INVITATIONS);
     await page.goto('/legacy/invitations');
-    await expect(page).toHaveURL(/\/app\/invitations$/);
+    await expect(page).toHaveURL(/\/invitations$/);
     await expect(page.getByRole('heading', { level: 1, name: 'Invitations' })).toBeVisible();
     await expect(page.getByRole('link', { name: /previous version/ })).toHaveCount(0);
   });
 
   test('every invitation I have sent is listed with what it opens, its role and where it stands', async ({ page, world }) => {
     world.set('root.invitations', INVITATIONS);
-    await page.goto('/app/invitations');
+    await page.goto('/invitations');
 
-    await expect(page.getByText('1 invitation waiting for a response')).toBeVisible();
+    // The head's summary: every invitation, then how many still wait, in the
+    // table's own word (design.md § Page head, Summary).
+    await expect(page.locator('.pagehead-summary')).toHaveText('3 invitations · 1 pending');
     await expect(row(page, /\+91 98480 11111/)).toContainText('Pending');
     await expect(row(page, /\+91 98480 11111/)).toContainText('31/12/2026');
     await expect(row(page, /\+91 98480 11111/)).toContainText('02/08/2026');
@@ -835,9 +824,31 @@ test.describe('invitations, drawn in this app', () => {
     expect(world.escapes()).toEqual([]);
   });
 
+  test('Grid and Table show the same invitations, and what is ticked in one stays ticked in the other', async ({ page, world }) => {
+    world.set('root.invitations', INVITATIONS);
+    await page.goto('/invitations');
+    const table = page.getByRole('table', { name: 'Invitations' });
+    await expect(table.locator('tbody tr').first()).toBeVisible();
+    const rows = await table.locator('tbody tr').count();
+    expect(rows).toBeGreaterThan(1);
+
+    await page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Grid' }).click();
+    await expect(page).toHaveURL(/[?&]view=grid/);
+    const cards = page.locator('.invitationcard');
+    await expect(cards).toHaveCount(rows);
+    await expect(cards.first()).toContainText(/\d{2}\/\d{2}\/\d{4}/);
+    await cards.first().getByRole('checkbox').check();
+    await expect(page.getByRole('group', { name: 'Act on the selected invitations' }))
+      .toContainText('1 invitation selected');
+
+    await page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Table' }).click();
+    await expect(table.locator('tbody tr').first().getByRole('checkbox')).toBeChecked();
+    await expect(table.locator('tfoot')).toContainText('1 invitation selected');
+  });
+
   test('each invitation offers only what its state allows', async ({ page, world }) => {
     world.set('root.invitations', INVITATIONS);
-    await page.goto('/app/invitations');
+    await page.goto('/invitations');
 
     // Accepting is the invitee's act (/i/:token); the owner can only revoke.
     await actions(page, '+91 98480 11111').click();
@@ -854,7 +865,7 @@ test.describe('invitations, drawn in this app', () => {
 
   test('revoking sends exactly that, for exactly that invitation', async ({ page, world }) => {
     world.setAll({ 'root.invitations': INVITATIONS, 'root.updateInvitationStatus': { id: 'w-inv-brother' } });
-    await page.goto('/app/invitations');
+    await page.goto('/invitations');
     await actions(page, '+91 98480 11111').click();
     await page.getByRole('menuitem', { name: 'Revoke' }).click();
 
@@ -868,7 +879,7 @@ test.describe('invitations, drawn in this app', () => {
       'root.invitations': INVITATIONS,
       'root.createInvitation': { id: 'w-inv-new', token: '/i/tok-new', deliveryStatus: 'failed' },
     });
-    await page.goto('/app/invitations');
+    await page.goto('/invitations');
 
     await page.getByRole('button', { name: 'Invite someone' }).click();
     const dialog = page.getByRole('dialog', { name: 'Invite someone' });
@@ -896,9 +907,9 @@ test.describe('invitations, drawn in this app', () => {
   test('an invitation the server refuses is reported, and the typed work stays', async ({ page, world }) => {
     world.setAll({
       'root.invitations': INVITATIONS,
-      'root.createInvitation': World.gqlError('Not authorized for this scope'),
+      'root.createInvitation': World.gqlError('You do not have access to this property.'),
     });
-    await page.goto('/app/invitations');
+    await page.goto('/invitations');
     await page.getByRole('button', { name: 'Invite someone' }).click();
     const dialog = page.getByRole('dialog', { name: 'Invite someone' });
     await dialog.getByLabel('Mobile number or email').fill('98480 22222');
@@ -910,7 +921,7 @@ test.describe('invitations, drawn in this app', () => {
 
   test('deleting asks first, then deletes exactly that invitation', async ({ page, world }) => {
     world.setAll({ 'root.invitations': INVITATIONS, 'root.deleteInvitation': true });
-    await page.goto('/app/invitations');
+    await page.goto('/invitations');
     await actions(page, 'branch@bank.example').click();
     await page.getByRole('menuitem', { name: 'Delete' }).click();
 
@@ -924,9 +935,45 @@ test.describe('invitations, drawn in this app', () => {
     await expect(page.getByText('Invitation deleted')).toBeVisible();
   });
 
+  test('ticking invitations counts them in the footer and offers them for export', async ({ page, world }) => {
+    world.set('root.invitations', INVITATIONS);
+    await page.goto('/invitations');
+    const foot = page.locator('table.rectable tfoot');
+    await expect(foot).toContainText('Total · 3 invitations');
+    await page.getByRole('checkbox', { name: 'Select +91 98480 11111' }).check();
+    await page.getByRole('checkbox', { name: 'Select lakshmi@example.com' }).check();
+    await expect(foot).toContainText('2 invitations selected');
+    const bar = page.getByRole('group', { name: 'Act on the selected invitations' });
+    await expect(bar).toContainText('2 invitations selected');
+    await expect(bar.getByRole('button', { name: 'Export' })).toBeVisible();
+    await bar.getByRole('button', { name: 'Clear' }).click();
+    await expect(foot).toContainText('Total · 3 invitations');
+  });
+
+  test('a long list pages, and sorts by when each was sent', async ({ page, world }) => {
+    // Newest first as served, so an ascending sort visibly reorders it.
+    world.set('root.invitations', Array.from({ length: 7 }, (_, i) => ({
+      ...INVITATIONS[0], id: `w-inv-many-${i}`, inviteeContact: `p${i}@example.com`,
+      createdAt: `2026-08-0${7 - i}T09:00:00Z`,
+    })));
+    await page.goto('/invitations');
+    const body = page.locator('table.rectable tbody tr');
+    const pager = page.getByRole('navigation', { name: 'Invitation pages' });
+    await expect(body).toHaveCount(7);
+    await expect(pager).toContainText('1–7 of 7');
+
+    await pager.getByRole('button', { name: '5', exact: true }).click();
+    await expect(body).toHaveCount(5);
+    await page.getByRole('button', { name: 'Sent' }).click();
+    await expect(body.first()).toContainText('01/08/2026');
+    await pager.getByRole('button', { name: 'Next' }).click();
+    await expect(pager).toContainText('6–7 of 7');
+    await expect(body.last()).toContainText('07/08/2026');
+  });
+
   test('a list that did not load says so instead of claiming there are none', async ({ page, world }) => {
     world.set('root.invitations', World.gqlError('the invitations service is down'));
-    await page.goto('/app/invitations');
+    await page.goto('/invitations');
     await expect(page.getByText('Your invitations did not load')).toBeVisible();
     await expect(page.getByText('No invitations yet')).toHaveCount(0);
   });
@@ -962,7 +1009,7 @@ test.describe('an invitation, from the side of the person invited', () => {
     await page.getByLabel(/safeguard emails/).check();
     await page.getByRole('button', { name: 'Accept and continue' }).click();
 
-    await expect(page).toHaveURL(new RegExp(`/app/heir/${HEIR.memberId}$`));
+    await expect(page).toHaveURL(new RegExp(`/heir/${HEIR.memberId}$`));
     expect(world.lastVars('root.claimInvitation')).toEqual({ t: 'tok-heir', c: true });
     await expect(page.getByRole('heading', { level: 1, name: 'Listed by Telukutla R.' })).toBeVisible();
   });
@@ -976,7 +1023,7 @@ test.describe('an invitation, from the side of the person invited', () => {
 
   test('an heir can ask for a correction, and must say what', async ({ page, world }) => {
     world.setAll({ 'root.myHeirRecords': [HEIR], 'root.confirmMyHeirDetails': true });
-    await page.goto(`/app/heir/${HEIR.memberId}`);
+    await page.goto(`/heir/${HEIR.memberId}`);
     await page.getByRole('button', { name: 'Something is wrong' }).click();
     await page.getByRole('button', { name: 'Send correction' }).click();
     await expect(page.getByRole('alert')).toHaveText('Say what should be corrected.');
@@ -989,7 +1036,7 @@ test.describe('an invitation, from the side of the person invited', () => {
 
   test('the heir profile takes a DD/MM/YYYY birth date and refuses one that does not exist', async ({ page, world }) => {
     world.setAll({ 'root.myHeirRecords': [HEIR], 'root.updateMyHeirProfile': true });
-    await page.goto(`/app/heir/${HEIR.memberId}`);
+    await page.goto(`/heir/${HEIR.memberId}`);
     await page.getByLabel('Date of birth').fill('31/02/1990');
     await page.getByLabel('Present address').fill('Katragunta, Markapur');
     await page.getByRole('button', { name: 'Save profile' }).click();
@@ -1006,8 +1053,8 @@ test.describe('an invitation, from the side of the person invited', () => {
 
   test('a record that is not linked to me says how to link it', async ({ page, world }) => {
     world.set('root.myHeirRecords', []);
-    await page.goto('/app/heir/someone-else');
-    await expect(page.getByText('This record is not linked to your account')).toBeVisible();
+    await page.goto('/heir/someone-else');
+    await expect(page.getByText('This listing is not linked to your account')).toBeVisible();
   });
 
   test('Home lists what is left to set up, and drops the card when it is all done', async ({ page, world }) => {
@@ -1015,13 +1062,13 @@ test.describe('an invitation, from the side of the person invited', () => {
     // (data/hooks.ts auditTrail), which fixtures/seed.ts does not answer yet.
     world.set('root.auditTrail', []);
     world.set('root.setupTasks', [
-      { id: 't1', kind: 'heir_confirm', title: 'Check how you are listed', detail: 'Confirm it.', route: `/app/heir/${HEIR.memberId}`, done: true },
-      { id: 't2', kind: 'heir_profile', title: 'Complete your heir profile', detail: 'Date of birth.', route: `/app/heir/${HEIR.memberId}`, done: false },
+      { id: 't1', kind: 'heir_confirm', title: 'Check how you are listed', detail: 'Confirm it.', route: `/heir/${HEIR.memberId}`, done: true },
+      { id: 't2', kind: 'heir_profile', title: 'Complete your heir profile', detail: 'Date of birth.', route: `/heir/${HEIR.memberId}`, done: false },
     ]);
-    await page.goto('/app');
+    await page.goto('/home');
     const card = page.getByRole('region', { name: 'Finish setting up' });
     await expect(card).toContainText('1 of 2 done');
-    await expect(card.getByRole('link', { name: 'Open' })).toHaveAttribute('href', `/app/heir/${HEIR.memberId}`);
+    await expect(card.getByRole('link', { name: 'Open' })).toHaveAttribute('href', `/heir/${HEIR.memberId}`);
   });
 
   test('Invite & earn shows my link and says credits are not spendable yet', async ({ page, world }) => {
@@ -1029,7 +1076,7 @@ test.describe('an invitation, from the side of the person invited', () => {
       code: 'SHANKAR123', path: '/r/SHANKAR123', joined: 2, qualified: 1, creditsEarned: 1,
       monthlyCap: 10, referredBy: '', rewards: [{ kind: 'ai_credit', units: 1, state: 'earned', side: 'referrer', createdAt: '2026-09-20T10:00:00Z' }],
     });
-    await page.goto('/app/refer');
+    await page.goto('/refer');
     await expect(page.getByText(/\/r\/SHANKAR123$/)).toBeVisible();
     await expect(page.getByRole('link', { name: 'Share on WhatsApp' })).toHaveAttribute('href', /wa\.me.*SHANKAR123/);
     await expect(page.getByText('not spendable yet', { exact: false })).toBeVisible();
@@ -1044,7 +1091,7 @@ test.describe('an invitation, from the side of the person invited', () => {
     await page.goto('/r/shankar123');
     // Signed in already (the sealed world is), so it lands on Home and the
     // shell redeems the remembered code exactly once.
-    await expect(page).toHaveURL(/\/app$/);
+    await expect(page).toHaveURL(/\/home$/);
     await expect.poll(() => world.calls('root.redeemReferralCode').length).toBe(1);
     expect(world.lastVars('root.redeemReferralCode')).toEqual({ c: 'SHANKAR123' });
     await page.reload();
@@ -1235,7 +1282,17 @@ test.describe('the audit log, on the previous interface', () => {
 test.describe('admin & reference data, on the previous interface', () => {
   test.beforeEach(() => { test.slow(); });
 
-  const REF_WORLD = { states: STATES, districts: DISTRICTS, deedTypes: DEED_TYPES, feeSchedule: FEES };
+  // The Geography source & sync tab (AdminRefDataPage.tsx) is read in the
+  // same query as the four tables, so the world answers it too.
+  const REF_WORLD = {
+    states: STATES, districts: DISTRICTS, deedTypes: DEED_TYPES, feeSchedule: FEES,
+    referenceDataSources: [],
+    referenceDataSyncRuns: [],
+    referenceDataSummary: {
+      states: 2, districts: 2, mandals: 0, villages: 0,
+      lastCompletedAt: '', sourceName: 'Local Government Directory (LGD)',
+    },
+  };
 
   test('each reference table says on its own tab how many rows it holds', async ({ page }) => {
     const legacy = await legacyApi(page, REF_WORLD);
@@ -1248,13 +1305,18 @@ test.describe('admin & reference data, on the previous interface', () => {
     expect(legacy.unanswered, 'this screen reads all four reference tables at once').toEqual([]);
   });
 
-  test('the states tab says which state actually has data behind it', async ({ page }) => {
+  test('the states tab says where each state\'s codes come from', async ({ page }) => {
+    // The IGRS-feed banner gave way to the LGD source (AdminRefDataPage.tsx):
+    // a row not yet matched to an LGD import says so rather than passing for
+    // a canonical code.
     await legacyApi(page, REF_WORLD);
     await page.goto('/legacy/admin');
-    await expect(page.getByText(/Andhra Pradesh has full district \/ mandal \/ SRO data from the IGRS feed\./))
+    await expect(page.getByText(/Canonical national codes come from the Ministry of Panchayati Raj Local Government\s+Directory\./))
       .toBeVisible();
-    await expect(page.getByRole('cell', { name: 'Andhra Pradesh' })).toBeVisible();
-    await expect(page.getByRole('cell', { name: 'AP' })).toBeVisible();
+    const ap = page.getByRole('row').filter({ hasText: 'Andhra Pradesh' });
+    await expect(ap.getByRole('cell', { name: 'AP', exact: true })).toBeVisible();
+    await expect(ap.getByRole('cell', { name: 'Pending match' })).toBeVisible();
+    await expect(ap.getByRole('cell', { name: 'Bundled transition' })).toBeVisible();
   });
 
   test('the districts tab lists the districts by their government code', async ({ page }) => {
@@ -1323,7 +1385,7 @@ test.describe('the profile, drawn in this app', () => {
 
   test('my profile opens already holding what was last saved', async ({ page }) => {
     const legacy = await legacyApi(page, PROFILE_WORLD);
-    await page.goto('/app/profile');
+    await page.goto('/profile');
 
     await expect(page.getByRole('heading', { level: 1, name: 'Profile' })).toBeVisible();
     await expect(page.getByLabel('Your name')).toHaveValue('Shankar Reddy');
@@ -1342,10 +1404,37 @@ test.describe('the profile, drawn in this app', () => {
     expect(legacy.sent).toEqual([]);
   });
 
+  test('my profile states the account, and its Display defaults apply at once without a save', async ({ page }) => {
+    const legacy = await legacyApi(page, PROFILE_WORLD);
+    await page.goto('/profile');
+
+    const you = page.locator('section.card', { has: page.getByRole('heading', { name: 'You', exact: true }) });
+    await expect(you.getByRole('definition').filter({ hasText: '01/08/2026' })).toBeVisible();
+    await expect(you.getByText('Platform admin')).toBeVisible();
+    await expect(you.getByRole('link', { name: '5 properties' })).toHaveAttribute('href', '/properties');
+
+    // The same width the header's theme menu sets: the frame changes now,
+    // and the choice survives a reload.
+    const width = page.getByRole('group', { name: 'Page width' });
+    await width.getByRole('button', { name: 'Full-width page' }).click();
+    await expect(page.locator('.w360')).toHaveAttribute('data-width', 'full');
+    await expect(width.getByRole('button', { name: 'Full-width page' })).toHaveAttribute('aria-pressed', 'true');
+    await page.reload();
+    await expect(page.locator('.w360')).toHaveAttribute('data-width', 'full');
+    await page.getByRole('group', { name: 'Page width' }).getByRole('button', { name: 'Centred page' }).click();
+    await expect(page.locator('.w360')).toHaveAttribute('data-width', 'centred');
+
+    await page.getByRole('group', { name: 'Colour scheme' }).getByRole('button', { name: 'Light' }).click();
+    await expect(page.locator('html')).toHaveAttribute('data-scheme', 'light');
+    // Display is not the form: Save still has nothing to send.
+    await expect(saveButton(page)).toBeDisabled();
+    expect(legacy.sent).toEqual([]);
+  });
+
   test('the old address carries me into the redrawn profile, not a signpost', async ({ page }) => {
     await legacyApi(page, PROFILE_WORLD);
     await page.goto('/legacy/profile');
-    await expect(page).toHaveURL(/\/app\/profile$/);
+    await expect(page).toHaveURL(/\/profile$/);
     await expect(page.getByRole('heading', { level: 1, name: 'Profile' })).toBeVisible();
     await expect(page.getByRole('link', { name: /previous version/ })).toHaveCount(0);
   });
@@ -1354,7 +1443,7 @@ test.describe('the profile, drawn in this app', () => {
     // `me` seeds `name` with the principal id on first contact.
     const id = `subject_${'f3'.repeat(32)}`;
     await legacyApi(page, { ...PROFILE_WORLD, me: { ...ME, id, name: id } });
-    await page.goto('/app/profile');
+    await page.goto('/profile');
     await expect(page.getByLabel('Your name')).toHaveValue('');
     await expect(page.getByText('No name yet')).toBeVisible();
     await expect(page.getByText(id)).toHaveCount(0);
@@ -1362,7 +1451,7 @@ test.describe('the profile, drawn in this app', () => {
 
   test('an Aadhaar typed here is digits only, and Save waits for all twelve', async ({ page }) => {
     await legacyApi(page, PROFILE_WORLD);
-    await page.goto('/app/profile');
+    await page.goto('/profile');
     await aadhaarField(page).fill('1234-5678 9012 3456');
     await expect(aadhaarField(page)).toHaveValue('123456789012');
     await aadhaarField(page).fill('12345');
@@ -1375,7 +1464,7 @@ test.describe('the profile, drawn in this app', () => {
       ...PROFILE_WORLD,
       updateProfile: { kycRefMasked: 'XXXX-XXXX-9012' },
     });
-    await page.goto('/app/profile');
+    await page.goto('/profile');
 
     await page.getByLabel('My address').fill('Tarlupadu, Prakasam');
     await page.getByRole('checkbox', { name: 'SMS' }).check();
@@ -1399,7 +1488,7 @@ test.describe('the profile, drawn in this app', () => {
 
   test('changing my name sends my name, and nothing about my preferences', async ({ page }) => {
     const legacy = await legacyApi(page, { ...PROFILE_WORLD, updateMe: { id: ME.id } });
-    await page.goto('/app/profile');
+    await page.goto('/profile');
     await page.getByLabel('Your name').fill('T. Shankar Reddy');
     await saveButton(page).click();
 
@@ -1420,7 +1509,7 @@ test.describe('the profile, drawn in this app', () => {
         return { kycRefMasked: me.kycRefMasked };
       },
     });
-    await page.goto('/app/profile');
+    await page.goto('/profile');
     await aadhaarField(page).fill('123456789012');
     await saveButton(page).click();
 
@@ -1435,7 +1524,7 @@ test.describe('the profile, drawn in this app', () => {
       updateProfile: refused('the profile store is down'),
       updateMe: { id: ME.id },
     });
-    await page.goto('/app/profile');
+    await page.goto('/profile');
     await page.getByLabel('Your name').fill('T. Shankar Reddy');
     await page.getByLabel('My address').fill('Tarlupadu, Prakasam');
     await saveButton(page).click();
@@ -1450,7 +1539,7 @@ test.describe('the profile, drawn in this app', () => {
 
   test('a save the server answers with nothing is not called saved', async ({ page }) => {
     await legacyApi(page, { ...PROFILE_WORLD, updateProfile: null });
-    await page.goto('/app/profile');
+    await page.goto('/profile');
     await page.getByLabel('My address').fill('Tarlupadu, Prakasam');
     await saveButton(page).click();
     await expect(page.getByText('Your profile could not be saved. Nothing has changed.')).toBeVisible();
@@ -1463,7 +1552,7 @@ test.describe('the profile, drawn in this app', () => {
       updateProfile: { kycRefMasked: ME.kycRefMasked },
       updateMe: refused('name refused'),
     });
-    await page.goto('/app/profile');
+    await page.goto('/profile');
     await page.getByLabel('Your name').fill('T. Shankar Reddy');
     await page.getByLabel('My address').fill('Tarlupadu, Prakasam');
     await saveButton(page).click();
@@ -1472,7 +1561,7 @@ test.describe('the profile, drawn in this app', () => {
 
   test('a profile that did not load offers no form to save blanks over it', async ({ page }) => {
     await legacyApi(page, { ...PROFILE_WORLD, me: refused('the account store is down') });
-    await page.goto('/app/profile');
+    await page.goto('/profile');
     await expect(page.getByText('Your profile did not load')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
     await expect(saveButton(page)).toHaveCount(0);
@@ -1506,7 +1595,7 @@ test.describe('the profile, drawn in this app', () => {
     const legacy = await legacyApi(page, {
       ...PROFILE_WORLD, me: { ...ME, id, name: id }, updateMe: { id },
     });
-    await page.goto('/app/profile');
+    await page.goto('/profile');
 
     await expect(page.getByLabel('Your name')).toHaveValue('Sankara Telukutla');
     await expect(page.getByText('From the account you signed in with. Save to keep it.')).toBeVisible();
@@ -1521,7 +1610,7 @@ test.describe('the profile, drawn in this app', () => {
   test('a name I saved is never replaced by the one Google has', async ({ page }) => {
     await googleSession(page, { name: 'Sankara Telukutla' });
     await legacyApi(page, PROFILE_WORLD);
-    await page.goto('/app/profile');
+    await page.goto('/profile');
     await expect(page.getByLabel('Your name')).toHaveValue('Shankar Reddy');
     await expect(page.getByText('From the account you signed in with.', { exact: false })).toHaveCount(0);
     await expect(saveButton(page)).toBeDisabled();
@@ -1531,7 +1620,7 @@ test.describe('the profile, drawn in this app', () => {
     await page.route(FACE, (route) => route.fulfill({ contentType: 'image/png', body: PNG_1PX }));
     await googleSession(page, { name: 'Sankara Telukutla', picture: FACE });
     await legacyApi(page, PROFILE_WORLD);
-    await page.goto('/app/profile');
+    await page.goto('/profile');
 
     const faces = page.locator(`img[src="${FACE}"]`);
     // One in the Profile card, one inside the topbar's account button.
@@ -1548,7 +1637,7 @@ test.describe('the profile, drawn in this app', () => {
     await page.route(FACE, (route) => route.fulfill({ contentType: 'image/png', body: 'not an image' }));
     await googleSession(page, { name: 'Sankara Telukutla', picture: FACE });
     await legacyApi(page, PROFILE_WORLD);
-    await page.goto('/app/profile');
+    await page.goto('/profile');
     await expect(page.getByLabel('Your name')).toHaveValue('Shankar Reddy');
     await expect(page.locator(`img[src="${FACE}"]`)).toHaveCount(0);
     // The seeded portfolio greets "Shankar Reddy".
@@ -1558,16 +1647,17 @@ test.describe('the profile, drawn in this app', () => {
   test('a picture claim that is not an https address is never drawn', async ({ page }) => {
     await googleSession(page, { picture: 'javascript:alert(1)' });
     await legacyApi(page, PROFILE_WORLD);
-    await page.goto('/app/profile');
+    await page.goto('/profile');
     await expect(page.getByLabel('Your name')).toHaveValue('Shankar Reddy');
     await expect(page.locator('main img, header img')).toHaveCount(0);
   });
 
   test('the profile points at the one place privacy and deletion actually live', async ({ page }) => {
     await legacyApi(page, PROFILE_WORLD);
-    await page.goto('/app/profile');
-    await expect(page.getByRole('link', { name: 'Privacy, export and account deletion' }))
-      .toHaveAttribute('href', '/app/account');
+    await page.goto('/profile');
+    // A head command named for its destination (V4), outlined.
+    await expect(page.locator('.pagehead').getByRole('link', { name: 'Privacy & your data' }))
+      .toHaveAttribute('href', '/account');
   });
 });
 
@@ -1590,64 +1680,67 @@ test.describe('the tools, drawn in this app', () => {
 
   test('all five tools sit under one screen, and the SRO directory opens first', async ({ page }) => {
     await legacyApi(page, { sroOffices: SRO_OFFICES });
-    await page.goto('/app/tools');
+    await page.goto('/tools');
 
     await expect(page.getByRole('heading', { level: 1, name: 'Tools' })).toBeVisible();
     // Tools is a top-level page under Help & resources: no eyebrow over it.
     await expect(page.locator('main .pagehead .eyebrow')).toHaveCount(0);
-    await expect(page.getByText('SRO finder · Stamp duty · Guideline values · Area · Fencing', { exact: true }))
-      .toBeVisible();
-    for (const name of ['Find SRO', 'Stamp duty', 'Market value', 'Area calculator', 'Fence calculator']) {
+    // The tab strip names every tool; a lede repeating it was deleted.
+    await expect(page.locator('main .pagehead .lede')).toHaveCount(0);
+    for (const name of ['SRO finder', 'Stamp duty', 'Government value', 'Area calculator', 'Fence calculator']) {
       await expect(page.getByRole('tab', { name, exact: true })).toBeVisible();
     }
-    await expect(page.getByRole('tab', { name: 'Find SRO' })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('tab', { name: 'SRO finder' })).toHaveAttribute('aria-selected', 'true');
     // Not the signpost it replaced: nothing here sends you to /legacy.
     await expect(page.getByRole('link', { name: 'Open Tools' })).toHaveCount(0);
   });
 
   test('?tab= opens the tool the address names', async ({ page }) => {
-    await page.goto('/app/tools?tab=calculator');
+    await page.goto('/tools?tab=calculator');
     await expect(page.getByRole('tab', { name: 'Area calculator', exact: true })).toHaveAttribute('aria-selected', 'true');
     await expect(page.getByRole('heading', { level: 2, name: 'Area calculator' })).toBeVisible();
   });
 
   test('choosing a tool writes it into the address, so the tool can be linked', async ({ page }) => {
     await legacyApi(page, { feeSchedule: FEES });
-    await page.goto('/app/tools?tab=calculator');
+    await page.goto('/tools?tab=calculator');
     await page.getByRole('tab', { name: 'Stamp duty', exact: true }).click();
-    await expect(page).toHaveURL(/\/app\/tools\?tab=stamp-duty$/);
+    await expect(page).toHaveURL(/\/tools\?tab=stamp-duty$/);
   });
 
   test('a ?tab= nobody wrote a tool for falls back to the SRO directory', async ({ page }) => {
     await legacyApi(page, { sroOffices: SRO_OFFICES });
-    await page.goto('/app/tools?tab=nonsense');
-    await expect(page.getByRole('tab', { name: 'Find SRO' })).toHaveAttribute('aria-selected', 'true');
+    await page.goto('/tools?tab=nonsense');
+    await expect(page.getByRole('tab', { name: 'SRO finder' })).toHaveAttribute('aria-selected', 'true');
   });
 
   test('the old tools address carries its tab into this app', async ({ page }) => {
     await page.goto('/legacy/tools?tab=calculator');
-    await expect(page).toHaveURL(/\/app\/tools\?tab=calculator$/);
+    await expect(page).toHaveURL(/\/tools\?tab=calculator$/);
     await expect(page.getByRole('heading', { level: 2, name: 'Area calculator' })).toBeVisible();
   });
 
   test('the tab strips answer the arrow keys, not only the pointer', async ({ page }) => {
     await legacyApi(page, { sroOffices: SRO_OFFICES });
-    await page.goto('/app/tools?tab=calculator');
+    await page.goto('/tools?tab=calculator');
     await page.getByRole('tab', { name: 'Area calculator', exact: true }).focus();
     await page.keyboard.press('Home');
-    await expect(page.getByRole('tab', { name: 'Find SRO' })).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByRole('tab', { name: 'Find SRO' })).toBeFocused();
+    await expect(page.getByRole('tab', { name: 'SRO finder' })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('tab', { name: 'SRO finder' })).toBeFocused();
   });
 
   // -- Find SRO --------------------------------------------------------
 
   test('the SRO directory lists the office for every mandal it knows', async ({ page }) => {
     const legacy = await legacyApi(page, { sroOffices: SRO_OFFICES });
-    await page.goto('/app/tools?tab=sro');
+    await page.goto('/tools?tab=sro');
 
     await expect(page.getByRole('heading', { level: 2, name: 'SRO offices' })).toBeVisible();
-    await expect(page.getByText('The Sub-Registrar Office that serves your village.'))
-      .toBeVisible();
+    // What an SRO is is standing guidance, so it waits behind the ⓘ; the
+    // directory's totals are the page head's (design.md § Page head).
+    await expect(page.getByRole('button', { name: 'About SRO offices' }))
+      .toHaveAccessibleDescription('The Sub-Registrar Office that serves your village.');
+    await expect(page.getByRole('main').getByText('3 SRO offices · 2 districts')).toBeVisible();
     await expect(page.getByRole('cell', { name: 'Markapur', exact: true }).first()).toBeVisible();
     await expect(page.getByRole('cell', { name: '1607' })).toBeVisible();
     await expect(page.getByRole('cell', { name: 'Ongole' }).first()).toBeVisible();
@@ -1656,16 +1749,18 @@ test.describe('the tools, drawn in this app', () => {
 
   test('searching the SRO directory narrows it to the district I asked for', async ({ page }) => {
     await legacyApi(page, { sroOffices: SRO_OFFICES });
-    await page.goto('/app/tools?tab=sro');
+    await page.goto('/tools?tab=sro');
     await page.getByRole('searchbox', { name: 'Search SRO offices' }).fill('Guntur');
 
     await expect(page.getByRole('cell', { name: 'Mangalagiri', exact: true }).first()).toBeVisible();
     await expect(page.getByRole('cell', { name: 'Markapur', exact: true })).toHaveCount(0);
+    // The line under the heading says what the search narrowed it to.
+    await expect(page.getByRole('main').getByText('1 office found', { exact: true })).toBeVisible();
   });
 
   test('the SRO search starts at the table\'s left edge and has one frame, not two', async ({ page }) => {
     await legacyApi(page, { sroOffices: SRO_OFFICES });
-    await page.goto('/app/tools?tab=sro');
+    await page.goto('/tools?tab=sro');
     const box = page.getByRole('searchbox', { name: 'Search SRO offices' });
     await expect(box).toBeVisible();
     const search = await page.locator('main .search').first().boundingBox();
@@ -1676,9 +1771,42 @@ test.describe('the tools, drawn in this app', () => {
     expect(await box.evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('0px');
   });
 
+  test('a long SRO directory pages twenty at a time, and a search starts it again', async ({ page }) => {
+    const many = Array.from({ length: 25 }, (_, i) => ({
+      id: `w-sro-${i}`, code: String(1700 + i), name: `Office ${i + 1}`, drZone: 'Ongole', district: 'Prakasam', mandal: `Mandal ${i + 1}`,
+    }));
+    await legacyApi(page, { sroOffices: many });
+    await page.goto('/tools?tab=sro');
+
+    const table = page.getByRole('table', { name: 'SRO offices' });
+    const pager = page.getByRole('navigation', { name: 'SRO office pages' });
+    await expect(table.locator('tbody tr')).toHaveCount(20);
+    await expect(pager.getByText('1–20 of 25')).toBeVisible();
+    await pager.getByRole('button', { name: 'Next' }).click();
+    await expect(table.locator('tbody tr')).toHaveCount(5);
+    await expect(table.getByRole('cell', { name: 'Office 25', exact: true })).toBeVisible();
+
+    await page.getByRole('searchbox', { name: 'Search SRO offices' }).fill('Office 1');
+    await expect(pager.getByText('1–11 of 11')).toBeVisible();
+  });
+
+  test('ticking two SRO offices counts them in the footer and offers them for export', async ({ page }) => {
+    await legacyApi(page, { sroOffices: SRO_OFFICES });
+    await page.goto('/tools?tab=sro');
+    const table = page.getByRole('table', { name: 'SRO offices' });
+    await expect(table.locator('tfoot')).toHaveText('Total · 3 offices');
+    const boxes = table.locator('tbody td.selcol input');
+    await boxes.nth(0).check();
+    await boxes.nth(1).check();
+    await expect(table.locator('tfoot')).toHaveText('2 offices selected');
+    const bar = page.getByRole('group', { name: 'Act on the selected offices' });
+    await expect(bar.getByRole('status')).toHaveText('2 offices selected');
+    await expect(bar.getByRole('button', { name: 'Export' })).toBeVisible();
+  });
+
   test('an SRO search that matches nothing says so, and suggests what to type', async ({ page }) => {
     await legacyApi(page, { sroOffices: SRO_OFFICES });
-    await page.goto('/app/tools?tab=sro');
+    await page.goto('/tools?tab=sro');
     await page.getByPlaceholder('Search office, district, mandal…').fill('Mumbai');
 
     await expect(page.getByText('No offices match')).toBeVisible();
@@ -1690,8 +1818,11 @@ test.describe('the tools, drawn in this app', () => {
     // No legacyApi here, so the old query is refused with a 400 and logged.
     test.use({ allowConsole: true });
 
-    test('an SRO directory that never loaded says so, and does not blame my search', async ({ page }) => {
-      await page.goto('/app/tools?tab=sro');
+    test('an SRO directory that never loaded says so, and does not blame my search', async ({ page, world }) => {
+      // The seed answers this root read with an empty list, as the server
+      // does; this scenario is the service being down.
+      world.set('root.sroOffices', World.gqlError('the directory is down'));
+      await page.goto('/tools?tab=sro');
       await expect(page.getByText('The office directory did not load')).toBeVisible();
       await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
       await expect(page.getByText('No offices match')).toHaveCount(0);
@@ -1702,19 +1833,19 @@ test.describe('the tools, drawn in this app', () => {
 
   test('the stamp duty tool waits for a deed type and two figures before it says anything', async ({ page }) => {
     await legacyApi(page, { feeSchedule: FEES });
-    await page.goto('/app/tools?tab=stamp-duty');
+    await page.goto('/tools?tab=stamp-duty');
 
     await expect(page.getByRole('heading', { level: 2, name: 'Stamp duty & fee calculator' })).toBeVisible();
-    await expect(page.getByText('Enter values and click Calculate')).toBeVisible();
-    await expect(page.getByText('Duty is on the higher of the sale price and the guideline value.'))
+    await expect(page.getByText('Enter values, then choose Calculate')).toBeVisible();
+    await expect(page.getByText('Duty is on the higher of the amount in the deed and the government value.'))
       .toBeVisible();
   });
 
   test('pressing Calculate with nothing chosen says exactly what is missing', async ({ page }) => {
     await legacyApi(page, { feeSchedule: FEES });
-    await page.goto('/app/tools?tab=stamp-duty');
+    await page.goto('/tools?tab=stamp-duty');
     await page.getByRole('button', { name: 'Calculate' }).click();
-    await expect(page.getByRole('alert')).toHaveText('Pick a deed type and enter the consideration and market value.');
+    await expect(page.getByRole('alert')).toHaveText('Choose a deed type and enter the amount in the deed and the government value.');
   });
 
   test('the duty is charged on the market value when it is the higher of the two', async ({ page }) => {
@@ -1729,11 +1860,11 @@ test.describe('the tools, drawn in this app', () => {
         userCharges: 6_000, total: 456_000,
       }),
     });
-    await page.goto('/app/tools?tab=stamp-duty');
+    await page.goto('/tools?tab=stamp-duty');
 
     await page.getByLabel('Deed type').selectOption({ label: 'Sale of immovable property — Sale' });
-    await page.getByLabel('Consideration amount (₹)').fill('5000000');
-    await page.getByLabel('Market / guideline value (₹)').fill('6000000');
+    await page.getByLabel('Amount in the deed (₹)').fill('5000000');
+    await page.getByLabel('Government value (₹)').fill('6000000');
     await page.getByRole('button', { name: 'Calculate' }).click();
 
     await expect(breakup(page)).toBeVisible();
@@ -1752,11 +1883,11 @@ test.describe('the tools, drawn in this app', () => {
     // row's rates. 5% of the 60,00,000 basis is 3,00,000, and the four charges
     // together are 4,56,000 — the same answer, computed here.
     await legacyApi(page, { feeSchedule: FEES });
-    await page.goto('/app/tools?tab=stamp-duty');
+    await page.goto('/tools?tab=stamp-duty');
 
     await page.getByLabel('Deed type').selectOption({ label: 'Sale of immovable property — Sale' });
-    await page.getByLabel('Consideration amount (₹)').fill('5000000');
-    await page.getByLabel('Market / guideline value (₹)').fill('6000000');
+    await page.getByLabel('Amount in the deed (₹)').fill('5000000');
+    await page.getByLabel('Government value (₹)').fill('6000000');
     await page.getByRole('button', { name: 'Calculate' }).click();
 
     await expect(breakup(page).getByText('Sale of immovable property — Sale')).toBeVisible();
@@ -1766,11 +1897,11 @@ test.describe('the tools, drawn in this app', () => {
 
   test('a gift of the same land costs a fifth of what a sale costs', async ({ page }) => {
     await legacyApi(page, { feeSchedule: FEES });
-    await page.goto('/app/tools?tab=stamp-duty');
+    await page.goto('/tools?tab=stamp-duty');
 
     await page.getByLabel('Deed type').selectOption({ label: 'Gift to family member — Gift' });
-    await page.getByLabel('Consideration amount (₹)').fill('0');
-    await page.getByLabel('Market / guideline value (₹)').fill('6000000');
+    await page.getByLabel('Amount in the deed (₹)').fill('0');
+    await page.getByLabel('Government value (₹)').fill('6000000');
     await page.getByRole('button', { name: 'Calculate' }).click();
 
     // 1% + 0.5% + 0.5% + 0.1% of 60,00,000 = 60,000 + 30,000 + 30,000 + 6,000.
@@ -1780,13 +1911,16 @@ test.describe('the tools, drawn in this app', () => {
   test.describe('with no fee schedule behind it', () => {
     test.use({ allowConsole: true });
 
-    test('a stamp duty tool with no fee schedule says it cannot run, rather than claim one', async ({ page }) => {
+    test('a stamp duty tool with no fee schedule says it cannot run, rather than claim one', async ({ page, world }) => {
+      // The seed answers this root read with an empty list, as the server
+      // does; this scenario is the service being down.
+      world.set('root.feeSchedule', World.gqlError('the schedule is down'));
       // WAS A DEFECT (test-fail-register 1605) — the legacy StampDutyTool
       // printed "Working from the bundled fee schedule" over an EMPTY list:
       // useLiveOrSample hands a failed read an empty shape, not the bundled
       // one. The picker offered nothing and Calculate could never answer. The
       // redrawn tool says the schedule did not load and offers a retry.
-      await page.goto('/app/tools?tab=stamp-duty');
+      await page.goto('/tools?tab=stamp-duty');
       await expect(page.getByText('The AP fee schedule did not load')).toBeVisible();
       await expect(page.getByText(/bundled fee schedule/)).toHaveCount(0);
       await expect(page.getByLabel('Deed type')).toHaveCount(0);
@@ -1797,18 +1931,21 @@ test.describe('the tools, drawn in this app', () => {
 
   test('the guideline rates are named as reference figures, not as a valuation', async ({ page }) => {
     const legacy = await legacyApi(page, { marketValues: MARKET_VALUES });
-    await page.goto('/app/tools?tab=market-value');
+    await page.goto('/tools?tab=market-value');
     await expect(page.getByRole('heading', { level: 1, name: 'Tools' })).toBeVisible({ timeout: 25_000 });
 
-    await expect(page.getByText(/These are reference guideline values published by the AP Registration/))
-      .toBeVisible();
-    await expect(page.getByText(/Actual market values may vary\./)).toBeVisible();
+    // Naming standard (design.md App vocabulary): "Government value", glossed
+    // as market or guideline value — never a bare "Market value".
+    // The gloss is standing guidance, so it sits behind the ⓘ of the table's heading.
+    await expect(page.getByRole('heading', { level: 2, name: 'Government values' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'About Government values' }))
+      .toHaveAccessibleDescription(/^Government values \(also called market or guideline values\) from AP Registration & Stamps\. Sale prices can differ\.$/);
     expect(legacy.unanswered, 'this tab reads only the guideline rates').toEqual([]);
   });
 
   test('the district, mandal and village pickers narrow each other in order', async ({ page }) => {
     await legacyApi(page, { marketValues: MARKET_VALUES });
-    await page.goto('/app/tools?tab=market-value');
+    await page.goto('/tools?tab=market-value');
 
     await page.getByLabel('District').selectOption({ label: 'Prakasam' });
 
@@ -1819,18 +1956,18 @@ test.describe('the tools, drawn in this app', () => {
     await expect(mandal.locator('option', { hasText: 'Mangalagiri' })).toHaveCount(0);
     await mandal.selectOption({ label: 'Markapur' });
 
-    const village = page.getByLabel('Village');
+    const village = page.getByLabel('Village', { exact: true });
     await expect(village.locator('option', { hasText: 'Katragunta' })).toHaveCount(1);
     await expect(village.locator('option', { hasText: 'Nidamarru' })).toHaveCount(0);
   });
 
   test('choosing a village puts its rates up, one per classification', async ({ page }) => {
     await legacyApi(page, { marketValues: MARKET_VALUES });
-    await page.goto('/app/tools?tab=market-value');
+    await page.goto('/tools?tab=market-value');
 
     await page.getByLabel('District').selectOption({ label: 'Prakasam' });
     await page.getByLabel('Mandal').selectOption({ label: 'Markapur' });
-    await page.getByLabel('Village').selectOption({ label: 'Katragunta' });
+    await page.getByLabel('Village', { exact: true }).selectOption({ label: 'Katragunta' });
 
     await expect(page.getByText('₹18,50,000').first()).toBeVisible();
     await expect(page.getByText('₹4,200').first()).toBeVisible();
@@ -1841,7 +1978,7 @@ test.describe('the tools, drawn in this app', () => {
 
   test('changing the district throws away the mandal and village that no longer apply', async ({ page }) => {
     await legacyApi(page, { marketValues: MARKET_VALUES });
-    await page.goto('/app/tools?tab=market-value');
+    await page.goto('/tools?tab=market-value');
 
     await page.getByLabel('District').selectOption({ label: 'Prakasam' });
     await page.getByLabel('Mandal').selectOption({ label: 'Markapur' });
@@ -1849,16 +1986,19 @@ test.describe('the tools, drawn in this app', () => {
 
     await page.getByLabel('District').selectOption({ label: 'Guntur' });
     await expect(page.getByLabel('Mandal').locator('option:checked')).toHaveText('All mandals');
-    await expect(page.getByLabel('Village').locator('option:checked')).toHaveText('All villages');
+    await expect(page.getByLabel('Village', { exact: true }).locator('option:checked')).toHaveText('All villages');
   });
 
   test.describe('with no guideline rates behind it', () => {
     test.use({ allowConsole: true });
 
-    test('guideline rates that never loaded say so, and do not blame a selection nobody made', async ({ page }) => {
-      await page.goto('/app/tools?tab=market-value');
-      await expect(page.getByText('The guideline rates did not load')).toBeVisible();
-      await expect(page.getByText('No guideline rates match this selection.')).toHaveCount(0);
+    test('guideline rates that never loaded say so, and do not blame a selection nobody made', async ({ page, world }) => {
+      // The seed answers this root read with an empty list, as the server
+      // does; this scenario is the service being down.
+      world.set('root.marketValues', World.gqlError('the rates are down'));
+      await page.goto('/tools?tab=market-value');
+      await expect(page.getByText('The government values did not load')).toBeVisible();
+      await expect(page.getByText('No government values match this selection.')).toHaveCount(0);
       await expect(page.getByText(/sample data/i)).toHaveCount(0);
     });
   });
@@ -1866,7 +2006,7 @@ test.describe('the tools, drawn in this app', () => {
   // -- Area calculator -------------------------------------------------
 
   test('the area calculator needs no service at all — it is arithmetic', async ({ page, world }) => {
-    await page.goto('/app/tools?tab=calculator');
+    await page.goto('/tools?tab=calculator');
     await expect(page.getByRole('heading', { level: 2, name: 'Area calculator' })).toBeVisible();
     await expect(page.getByText(/Unit conversion, plot measurement and boundary area\./))
       .toBeVisible();
@@ -1880,7 +2020,7 @@ test.describe('the tools, drawn in this app', () => {
   });
 
   test('one acre converts to every unit an Andhra farmer actually uses', async ({ page }) => {
-    await page.goto('/app/tools?tab=calculator');
+    await page.goto('/tools?tab=calculator');
     // One acre is singular on both lines: the title used to echo the picker's
     // plural label ("1 Acres =") over a value that said "1 Acre".
     await expect(page.getByText('1 Acre =', { exact: true })).toBeVisible();
@@ -1896,7 +2036,7 @@ test.describe('the tools, drawn in this app', () => {
   });
 
   test('two guntas is five cents, and the converter says so in the language of the passbook', async ({ page }) => {
-    await page.goto('/app/tools?tab=calculator');
+    await page.goto('/tools?tab=calculator');
     await page.getByLabel('Amount').fill('2');
     await page.getByLabel('Unit', { exact: true }).selectOption({ label: 'Guntas' });
 
@@ -1905,18 +2045,18 @@ test.describe('the tools, drawn in this app', () => {
   });
 
   test('a hundred by fifty foot plot is eleven and a half cents, and its perimeter is offered to the fencing tool', async ({ page }) => {
-    await page.goto('/app/tools?tab=calculator');
+    await page.goto('/tools?tab=calculator');
     await page.getByRole('tab', { name: 'Plot area' }).click();
     await page.getByLabel('Length').fill('100');
     await page.getByLabel('Width').fill('50');
 
     await expect(page.getByText('11.48 Cents')).toBeVisible();
     await expect(page.getByText('Perimeter ≈ 300 ft')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Use in Fencing →' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Use in Fence calculator →' })).toBeVisible();
   });
 
   test('a triangle measured in metres is turned into acres without my converting anything', async ({ page }) => {
-    await page.goto('/app/tools?tab=calculator');
+    await page.goto('/tools?tab=calculator');
     await page.getByRole('tab', { name: 'Plot area' }).click();
     await page.getByRole('button', { name: 'Triangle' }).click();
     await expect(page.getByRole('button', { name: 'Triangle' })).toHaveAttribute('aria-pressed', 'true');
@@ -1931,7 +2071,7 @@ test.describe('the tools, drawn in this app', () => {
   });
 
   test('an impossible triangle is worth nothing rather than a number somebody might believe', async ({ page }) => {
-    await page.goto('/app/tools?tab=calculator');
+    await page.goto('/tools?tab=calculator');
     await page.getByRole('tab', { name: 'Plot area' }).click();
     await page.getByRole('button', { name: 'Triangle' }).click();
     await page.getByLabel('Side A').fill('10');
@@ -1941,13 +2081,13 @@ test.describe('the tools, drawn in this app', () => {
   });
 
   test('the sides I measured carry into the fence calculator, in metres, instead of being typed twice', async ({ page }) => {
-    await page.goto('/app/tools?tab=calculator');
+    await page.goto('/tools?tab=calculator');
     await page.getByRole('tab', { name: 'Plot area' }).click();
     await page.getByLabel('Length').fill('100');
     await page.getByLabel('Width').fill('50');
-    await page.getByRole('button', { name: 'Use in Fencing →' }).click();
+    await page.getByRole('button', { name: 'Use in Fence calculator →' }).click();
 
-    await expect(page).toHaveURL(/\/app\/tools\?tab=fence$/);
+    await expect(page).toHaveURL(/\/tools\?tab=fence$/);
     await expect(page.getByRole('tab', { name: 'Fence calculator', exact: true }))
       .toHaveAttribute('aria-selected', 'true');
     // 100 × 50 ft is 30.48 × 15.24 m, round the four sides.
@@ -1960,16 +2100,16 @@ test.describe('the tools, drawn in this app', () => {
   });
 
   test('a triangle hands over its three sides, not four', async ({ page }) => {
-    await page.goto('/app/tools?tab=calculator');
+    await page.goto('/tools?tab=calculator');
     await page.getByRole('tab', { name: 'Plot area' }).click();
     await page.getByRole('button', { name: 'Triangle' }).click();
     await page.getByLabel('Measured in').selectOption({ label: 'Metres' });
     await page.getByLabel('Side A', { exact: true }).fill('100');
     await page.getByLabel('Side B', { exact: true }).fill('100');
     await page.getByLabel('Side C', { exact: true }).fill('100');
-    await page.getByRole('button', { name: 'Use in Fencing →' }).click();
+    await page.getByRole('button', { name: 'Use in Fence calculator →' }).click();
 
-    await expect(page).toHaveURL(/\/app\/tools\?tab=fence$/);
+    await expect(page).toHaveURL(/\/tools\?tab=fence$/);
     await expect(page.getByLabel('Side A–B (m)')).toHaveValue('100');
     await expect(page.getByLabel('Side B–C (m)')).toHaveValue('100');
     await expect(page.getByLabel('Side C–A (m)')).toHaveValue('100');
@@ -1978,7 +2118,7 @@ test.describe('the tools, drawn in this app', () => {
   });
 
   test('a quadrilateral hands over its four sides, and the diagonal is not one of them', async ({ page }) => {
-    await page.goto('/app/tools?tab=calculator');
+    await page.goto('/tools?tab=calculator');
     await page.getByRole('tab', { name: 'Plot area' }).click();
     await page.getByRole('button', { name: 'Quadrilateral' }).click();
     await page.getByLabel('Measured in').selectOption({ label: 'Metres' });
@@ -1987,7 +2127,7 @@ test.describe('the tools, drawn in this app', () => {
     await page.getByLabel('Side 3').fill('40');
     await page.getByLabel('Side 4').fill('30');
     await page.getByLabel('Diagonal (corner 1→3)').fill('50');
-    await page.getByRole('button', { name: 'Use in Fencing →' }).click();
+    await page.getByRole('button', { name: 'Use in Fence calculator →' }).click();
 
     await expect(page.getByLabel('Side A–B (m)')).toHaveValue('40');
     await expect(page.getByLabel('Side D–A (m)')).toHaveValue('30');
@@ -1997,10 +2137,10 @@ test.describe('the tools, drawn in this app', () => {
   });
 
   test('a side I have not measured arrives blank, not as a 0 m side', async ({ page }) => {
-    await page.goto('/app/tools?tab=calculator');
+    await page.goto('/tools?tab=calculator');
     await page.getByRole('tab', { name: 'Plot area' }).click();
     await page.getByLabel('Length').fill('100');
-    await page.getByRole('button', { name: 'Use in Fencing →' }).click();
+    await page.getByRole('button', { name: 'Use in Fence calculator →' }).click();
 
     await expect(page.getByLabel('Side A–B (m)')).toHaveValue('30.48');
     await expect(page.getByLabel('Side B–C (m)')).toHaveValue('');
@@ -2011,11 +2151,11 @@ test.describe('the tools, drawn in this app', () => {
   });
 
   test('a handed-over side I then spoil is refused, as a typed one is', async ({ page }) => {
-    await page.goto('/app/tools?tab=calculator');
+    await page.goto('/tools?tab=calculator');
     await page.getByRole('tab', { name: 'Plot area' }).click();
     await page.getByLabel('Length').fill('100');
     await page.getByLabel('Width').fill('50');
-    await page.getByRole('button', { name: 'Use in Fencing →' }).click();
+    await page.getByRole('button', { name: 'Use in Fence calculator →' }).click();
 
     await page.getByLabel('Side A–B (m)').fill('-5');
     await expect(page.getByText('Enter each side as a length in metres, more than 0.')).toBeVisible();
@@ -2024,13 +2164,13 @@ test.describe('the tools, drawn in this app', () => {
   });
 
   test('a boundary with fewer than three corners is not an area, and says so', async ({ page }) => {
-    await page.goto('/app/tools?tab=calculator');
+    await page.goto('/tools?tab=calculator');
     await page.getByRole('tab', { name: 'Map area' }).click();
     await expect(page.getByText('Add at least 3 points to compute an area.')).toBeVisible();
   });
 
   test('a boundary pasted as GeoJSON is measured in acres and in metres of fence', async ({ page }) => {
-    await page.goto('/app/tools?tab=calculator');
+    await page.goto('/tools?tab=calculator');
     await page.getByRole('tab', { name: 'Map area' }).click();
     await page.getByLabel('Boundary as GeoJSON').fill(
       '{"type":"Polygon","coordinates":[[[80.648,16.506],[80.650,16.506],[80.650,16.508],[80.648,16.508],[80.648,16.506]]]}',
@@ -2041,14 +2181,14 @@ test.describe('the tools, drawn in this app', () => {
   });
 
   test('a pasted boundary hands each of its sides to the fence calculator', async ({ page }) => {
-    await page.goto('/app/tools?tab=calculator');
+    await page.goto('/tools?tab=calculator');
     await page.getByRole('tab', { name: 'Map area' }).click();
     await page.getByLabel('Boundary as GeoJSON').fill(
       '{"type":"Polygon","coordinates":[[[80.648,16.506],[80.650,16.506],[80.650,16.508],[80.648,16.508],[80.648,16.506]]]}',
     );
-    await page.getByRole('button', { name: 'Use in Fencing →' }).click();
+    await page.getByRole('button', { name: 'Use in Fence calculator →' }).click();
 
-    await expect(page).toHaveURL(/\/app\/tools\?tab=fence$/);
+    await expect(page).toHaveURL(/\/tools\?tab=fence$/);
     for (const n of ['A–B', 'B–C', 'C–D', 'D–A']) {
       await expect(page.getByLabel(`Side ${n} (m)`)).not.toHaveValue('');
     }
@@ -2058,7 +2198,7 @@ test.describe('the tools, drawn in this app', () => {
   });
 
   test('nonsense pasted where GeoJSON was asked for is refused rather than guessed at', async ({ page }) => {
-    await page.goto('/app/tools?tab=calculator');
+    await page.goto('/tools?tab=calculator');
     await page.getByRole('tab', { name: 'Map area' }).click();
     await page.getByLabel('Boundary as GeoJSON').fill('not json at all');
     await expect(page.getByText('Add at least 3 points to compute an area.')).toBeVisible();
@@ -2080,7 +2220,7 @@ test.describe('the tools, drawn in this app', () => {
   };
 
   test('?tab=fence opens the fence calculator, and it needs no service at all', async ({ page, world }) => {
-    await page.goto('/app/tools?tab=fence');
+    await page.goto('/tools?tab=fence');
     await expect(page.getByRole('tab', { name: 'Fence calculator', exact: true }))
       .toHaveAttribute('aria-selected', 'true');
     await expect(page.getByRole('heading', { level: 2, name: 'Fence calculator' })).toBeVisible();
@@ -2089,7 +2229,7 @@ test.describe('the tools, drawn in this app', () => {
   });
 
   test('a hundred by eighty metre plot is 122 posts and 1,440 m of wire, priced at my rates', async ({ page }) => {
-    await page.goto('/app/tools?tab=fence');
+    await page.goto('/tools?tab=fence');
     await fillSides(page, ['100', '80', '100', '80']);
     await page.getByLabel('Gates', { exact: true }).fill('0');
 
@@ -2106,7 +2246,7 @@ test.describe('the tools, drawn in this app', () => {
   });
 
   test('a side that is not a length is refused, and with no sides there is nothing to print', async ({ page }) => {
-    await page.goto('/app/tools?tab=fence');
+    await page.goto('/tools?tab=fence');
     await fillSides(page, ['100', '80', '100', '80']);
     const ab = page.getByLabel('Side A–B (m)');
     await ab.fill('-5');
@@ -2126,7 +2266,7 @@ test.describe('the tools, drawn in this app', () => {
   });
 
   test('sides can be added and removed, and an open run has one more corner than sides', async ({ page }) => {
-    await page.goto('/app/tools?tab=fence');
+    await page.goto('/tools?tab=fence');
     await page.getByRole('button', { name: 'Add a side' }).click();
     await expect(page.getByLabel('Side E–A (m)')).toBeVisible();
     await page.getByRole('button', { name: 'Remove side E–A' }).click();
@@ -2145,7 +2285,7 @@ test.describe('the tools, drawn in this app', () => {
       (window as unknown as { __printed: number }).__printed = 0;
       window.print = () => { (window as unknown as { __printed: number }).__printed += 1; };
     });
-    await page.goto('/app/tools?tab=fence');
+    await page.goto('/tools?tab=fence');
     await fillSides(page, ['100', '80', '100', '80']);
     await page.getByRole('button', { name: 'Print for the supplier' }).click();
     expect(await page.evaluate(() => (window as unknown as { __printed: number }).__printed)).toBe(1);
@@ -2165,7 +2305,7 @@ test.describe('the tools, drawn in this app', () => {
   });
 
   test('a side left blank keeps the other sides under the letters they have on screen', async ({ page }) => {
-    await page.goto('/app/tools?tab=fence');
+    await page.goto('/tools?tab=fence');
     await fillSides(page, ['100', '', '100', '80']);
     await expect(page.getByRole('button', { name: 'Print for the supplier' })).toBeEnabled();
 
@@ -2178,7 +2318,7 @@ test.describe('the tools, drawn in this app', () => {
     test.use({ viewport: { width: 390, height: 844 } });
 
     test('the fence calculator fits the width of a phone @phone', async ({ page }) => {
-      await page.goto('/app/tools?tab=fence');
+      await page.goto('/tools?tab=fence');
       await fillSides(page, ['100', '80', '100', '80']);
       await expect(page.locator('.fs-tool .fs-bill')).toBeVisible();
       const [scroll, inner] = await page.evaluate(() =>
@@ -2206,7 +2346,9 @@ test.describe('the upload door the sealed world has no answer for', () => {
     await page.goto('/legacy/documents');
     await expect(page.getByRole('heading', { level: 1, name: 'Vault' })).toBeVisible();
 
-    await page.locator('input[type="file"]').setInputFiles({
+    // The vault carries a second, unlabelled file input now; the Upload
+    // button's own input is the one named "Upload".
+    await page.getByLabel('Upload', { exact: true }).setInputFiles({
       name: 'sale-deed.pdf',
       mimeType: 'application/pdf',
       buffer: Buffer.from('%PDF-1.4 not really a deed'),

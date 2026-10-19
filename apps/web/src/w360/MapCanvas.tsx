@@ -24,8 +24,10 @@ import 'leaflet/dist/leaflet.css';
 import { checkLocation, cornerLabel } from '@pattadar/core';
 
 import { useThemeChoice } from '../components/useThemeChoice';
+import { FLOW_INK } from './flowInk';
 import { cssVar } from './cssVar';
 import { loadVillage } from './villageIndex';
+import { removeMap } from './mapTeardown';
 
 /** Two states, because a basemap is what is UNDER the parcel and there are
  *  only two answers: the road map, or the ground. The FMB was a third option
@@ -48,7 +50,29 @@ export interface MapHandle {
   zoomOut: () => void;
   /** Back to the whole parcel — what the recentre button means here. */
   fit: () => void;
+  /** Ask the basemap on screen for its tiles again, after a failure. */
+  retryTiles: () => void;
 }
+
+/** One drainage line, downstream order, [lat, lon]. `ha` drains through it;
+ *  `agree` is how many of the 3 independent maps put a line there. */
+export interface FlowLine { coords: Array<[number, number]>; ha: number; agree: number }
+export interface FlowPinMark { rank: number; lat: number; lon: number; confidence: 'high' | 'medium' | 'low' }
+/** The Hydrogeology layer. Areas are polygon rings in [lat, lon]. */
+export interface WaterFlowLayer {
+  lines: FlowLine[];
+  mainArea?: Array<[number, number]> | null;
+  pinArea?: Array<[number, number]> | null;
+  pins: FlowPinMark[];
+  selected?: number | null;
+  /** Colour lines by how many maps agree. */
+  byAgreement: boolean;
+  /** The other maps' lines, drawn faintly underneath for comparison. */
+  others?: FlowLine[] | null;
+  /** Which map the lines come from, for the legend, in owner words ("NASA radar"). */
+  label: string;
+}
+
 
 export interface MapCanvasProps {
   /** The boundary in [lat, lon], open or closed. Fewer than three corners is
@@ -75,6 +99,10 @@ export interface MapCanvasProps {
    *  not the one that was asked for first — "Katragunta" and "Markapur" are
    *  20 km apart, and only one of them is what the map is showing. */
   onPlace?: (label: string | null, suspectMessage?: string) => void;
+  /** Whether the basemap on screen failed to load. Given, the page says so in
+   *  its own message band (with `retryTiles`) and the map draws no line of
+   *  its own; absent, the map draws the line itself. */
+  onTilesFailed?: (failed: boolean) => void;
   /** Armed: the next click on the map reports where it landed, so the owner
    *  can correct a pin instead of only being told it is wrong. */
   picking?: boolean;
@@ -130,6 +158,11 @@ export interface MapCanvasProps {
   findPlot?: string | null;
   /** Told how many plots there are, and whether the search found one. */
   onVillageState?: (state: { count: number; found: boolean }) => void;
+  /** Where rainwater runs across and around the parcel, and the suggested
+   *  bore points on it. Drawn under the boundary, above the imagery. */
+  waterFlow?: WaterFlowLayer | null;
+  /** Choosing a numbered bore point reports its rank. */
+  onFlowPin?: (rank: number) => void;
   /** Drawing a boundary: every click drops a corner, every corner can be
    *  dragged, and the ring so far is reported after each change so the panel
    *  can show the area growing and enable Save at three. */
@@ -233,9 +266,11 @@ const FIT = { paddingTopLeft: [36, 36] as [number, number],
 const FIT_STILL = { padding: [10, 10] as [number, number], maxZoom: 18 };
 
 /** Editing furniture wraps on phones. Reserve its measured footprint when
- *  framing a draft so its corner handles remain reachable above the save bar
- *  and below the tools. Measuring only on explicit fits preserves every pan
- *  and drag between those actions. */
+ *  framing so corner handles remain reachable above the save bar and below
+ *  the tools — the first frame too: fitted with the bare FIT padding, the
+ *  Location tab's tools panel sat on top of corner A, and the corner's own
+ *  tip could not be opened. Measuring only on fits preserves every pan and
+ *  drag between them. */
 function fitOptions(map: L.Map, still = false): L.FitBoundsOptions {
   if (still) return FIT_STILL;
   const container = map.getContainer();
@@ -291,6 +326,40 @@ function textIcon(
     el.style.setProperty('--oy', `${offset[1]}px`);
   }
   return L.divIcon({ className, html: el, iconSize: undefined, iconAnchor: anchor });
+}
+
+/** Filled triangles pointing downstream along a line: one at its middle, and
+ *  one every `every` metres on longer lines. `metres` is each head's length. */
+function arrowheads(coords: Array<[number, number]>, metres: number, every: number): Array<Array<[number, number]>> {
+  const kx = Math.cos((coords[0][0] * Math.PI) / 180);
+  const seg = (i: number) => Math.hypot((coords[i + 1][1] - coords[i][1]) * kx, coords[i + 1][0] - coords[i][0]) * 111_320;
+  let total = 0;
+  for (let i = 0; i + 1 < coords.length; i += 1) total += seg(i);
+  if (total < metres * 2) return [];
+  const marks = total < every * 1.5 ? [total / 2] : Array.from({ length: Math.floor(total / every) }, (_, k) => (k + 0.5) * every);
+  const out: Array<Array<[number, number]>> = [];
+  const deg = metres / 111_320;
+  let i = 0;
+  let walked = 0;
+  for (const at of marks) {
+    while (i + 1 < coords.length && walked + seg(i) < at) { walked += seg(i); i += 1; }
+    if (i + 1 >= coords.length) break;
+    const [a, b] = [coords[i], coords[i + 1]];
+    const f = (at - walked) / (seg(i) || 1);
+    const tip: [number, number] = [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+    const dx = (b[1] - a[1]) * kx;
+    const dy = b[0] - a[0];
+    const len = Math.hypot(dx, dy);
+    if (!len) continue;
+    const [ux, uy] = [dx / len, dy / len];
+    const back = (side: number): [number, number] => {
+      const x = -ux * deg + -uy * side * deg * 0.55;
+      const y = -uy * deg + ux * side * deg * 0.55;
+      return [tip[0] + y, tip[1] + x / kx];
+    };
+    out.push([back(1), tip, back(-1)]);
+  }
+  return out;
 }
 
 /** Is a [lat, lon] point inside this ring? Ray casting, on the ring as Leaflet
@@ -354,6 +423,7 @@ export default function MapCanvas({
   village, showVillage = false, onVillagePlot, activePlot = null,
   findPlot = null, onVillageState, draftPin = null, located: device = null,
   drawing = false, editDisabled = false, draft, onDraft, still = false, ref,
+  waterFlow = null, onFlowPin, onTilesFailed,
 }: MapCanvasProps) {
   // Canvas cannot be styled by a stylesheet, so the village layer is the one
   // place a colour has to cross into Leaflet as a value (cssVar). It is drawn
@@ -407,6 +477,16 @@ export default function MapCanvas({
    *  boundary underneath and loses the owner's pan. */
   const rulerRef = useRef<L.LayerGroup | null>(null);
   const villageRef = useRef<L.LayerGroup | null>(null);
+  /** Water flow: the lines and the main stream's area in one group, the pins
+   *  and the chosen pin's area in another, so choosing a pin never redraws
+   *  two thousand lines. */
+  const flowRef = useRef<L.LayerGroup | null>(null);
+  const flowPickRef = useRef<L.LayerGroup | null>(null);
+  const flowSvgRef = useRef<L.SVG | null>(null);
+  const flowCanvasRef = useRef<L.Canvas | null>(null);
+  const flowFramedRef = useRef('');
+  const flowPinRef = useRef(onFlowPin);
+  flowPinRef.current = onFlowPin;
   const villageCanvas = useRef<L.Canvas | null>(null);
   const plotClickRef = useRef(onVillagePlot);
   plotClickRef.current = onVillagePlot;
@@ -430,6 +510,8 @@ export default function MapCanvas({
   /** Bumped on every zoom, because which sides have room for a label is a
    *  screen-space question and the answer changes with the scale. */
   const [zoomTick, setZoomTick] = useState(0);
+  /** The Hydrogeology key, folded on a phone until asked for. */
+  const [keyOpen, setKeyOpen] = useState(false);
   const sideClickRef = useRef(onSideClick);
   sideClickRef.current = onSideClick;
   const cornerClickRef = useRef(onCornerClick);
@@ -439,6 +521,10 @@ export default function MapCanvas({
   const tipElRef = useRef<HTMLDivElement | null>(null);
 
   const [tilesFailed, setTilesFailed] = useState(false);
+  // Held in a ref, as onPlace is, so an inline arrow does not re-run this.
+  const tilesReport = useRef(onTilesFailed);
+  tilesReport.current = onTilesFailed;
+  useEffect(() => { tilesReport.current?.(tilesFailed && !still); }, [tilesFailed, still]);
   // Set when the record's own coordinates were overruled by its village.
   const [offPlace, setOffPlace] = useState('');
   /** True once the map has settled on a named place. The caller says which
@@ -485,7 +571,15 @@ export default function MapCanvas({
       else if (boundsRef.current) map.fitBounds(boundsRef.current, options);
       else if (hasPin && pin) map.setView([pin.lat, pin.lon], 17);
     },
-  }), [hasPin, pin, still]);
+    retryTiles: () => {
+      const layer = basemap === 'satellite' ? imageryRef.current : streetRef.current;
+      if (!layer) return;
+      const status = tileStatusRef.current.get(layer);
+      if (status) { status.loaded = 0; status.failed = 0; }
+      setTilesFailed(false);
+      layer.redraw();
+    },
+  }), [hasPin, pin, still, basemap]);
 
   // One map for the life of the panel. Switching basemap or redrawing the
   // boundary must never remount it — a remount throws away the pan and zoom
@@ -551,6 +645,16 @@ export default function MapCanvas({
     // Everything else stays SVG so the CSS tokens keep styling it.
     villageRef.current = L.layerGroup().addTo(map);
     villageLabelRef.current = L.layerGroup().addTo(map);
+    // Water flow paints in a pane of its own under the overlay pane (400), so
+    // the parcel's ring and corners always draw on top of the lines.
+    map.createPane('w-flow').style.zIndex = '350';
+    // The outline's colour on imagery, from the tokens (see flowInk.ts).
+    boxRef.current.style.setProperty('--w-ground-ring', FLOW_INK.ring);
+    // Canvas first, so the faint comparison lines it draws sit under the SVG.
+    flowCanvasRef.current = L.canvas({ pane: 'w-flow', padding: 0.3 }).addTo(map);
+    flowSvgRef.current = L.svg({ pane: 'w-flow' }).addTo(map);
+    flowRef.current = L.layerGroup().addTo(map);
+    flowPickRef.current = L.layerGroup().addTo(map);
     map.on('zoomend', () => setZoomTick((n) => n + 1));
 
     L.control.scale({ imperial: false, metric: true, position: 'bottomleft' }).addTo(map);
@@ -566,8 +670,13 @@ export default function MapCanvas({
     map.setView(AP_TG, AP_TG_ZOOM);
 
     return () => {
-      map.remove();
+      removeMap(map);
       mapRef.current = null;
+      flowRef.current = null;
+      flowPickRef.current = null;
+      flowSvgRef.current = null;
+      flowCanvasRef.current = null;
+      flowFramedRef.current = '';
       streetRef.current = null;
       imageryRef.current = null;
       shapeRef.current = null;
@@ -665,6 +774,9 @@ export default function MapCanvas({
           corners,
         ], { className: 'w-dim', interactive: false }).addTo(group);
       }
+      // A dark casing under the outline, so the gold reads on any ground and
+      // over the water-flow areas.
+      L.polygon(corners, { className: 'w-ring-casing', interactive: false, fill: false }).addTo(group);
       L.polygon(corners, { className: 'w-ring', interactive: false }).addTo(group);
     } else if (!hasRing && !placedMarks.length && hasPin && pin) {
       // Only an UNSURVEYED record with no stones recorded gets a lone pin. On
@@ -727,7 +839,7 @@ export default function MapCanvas({
     // corner and then touched anything.
     if (!fittedRef.current) {
       if (boundsRef.current) {
-        map.fitBounds(boundsRef.current, still ? FIT_STILL : FIT);
+        map.fitBounds(boundsRef.current, fitOptions(map, still));
         fittedRef.current = true;
       } else if (hasPin && pin) {
         map.setView([pin.lat, pin.lon], 17);
@@ -778,6 +890,125 @@ export default function MapCanvas({
     map.fitBounds(frame, { ...fitOptions(map, still), maxZoom: 18 });
   }, [hereLat, hereLon, hereAcc, herePlot, still]);
 
+  // Water flow: lines (thin under 10 ha, medium to 100 ha, thick over) with
+  // filled arrowheads pointing downstream, the land draining to the main
+  // stream, and — when asked — the other maps' lines faintly underneath.
+  // Drawn small-first so big streams sit on top.
+  const flowLines = waterFlow?.lines;
+  const flowMain = waterFlow?.mainArea;
+  const flowOthers = waterFlow?.others;
+  const flowByAgreement = waterFlow?.byAgreement ?? false;
+  useEffect(() => {
+    const map = mapRef.current;
+    const group = flowRef.current;
+    const renderer = flowSvgRef.current;
+    const canvas = flowCanvasRef.current;
+    if (!map || !group || !renderer || !canvas) return;
+    group.clearLayers();
+    if (!flowLines) return;
+    for (const line of flowOthers ?? []) {
+      if (line.coords.length < 2) continue;
+      L.polyline(line.coords, {
+        pane: 'w-flow', renderer: canvas, color: FLOW_INK.other, weight: 1.2, opacity: 0.55,
+        interactive: false,
+      }).addTo(group);
+    }
+    if (flowMain && flowMain.length >= 3) {
+      L.polygon(flowMain, {
+        pane: 'w-flow', renderer, color: FLOW_INK.main, weight: 2.5, fillColor: FLOW_INK.main,
+        fillOpacity: 0.18, interactive: false,
+      }).addTo(group);
+    }
+    for (const line of [...flowLines].sort((a, b) => a.ha - b.ha)) {
+      if (line.coords.length < 2) continue;
+      const weight = line.ha > 100 ? 4.5 : line.ha >= 10 ? 3 : 1.5;
+      const faint = flowByAgreement && line.agree <= 1;
+      const opacity = !flowByAgreement || line.agree >= 3 ? 1 : line.agree === 2 ? 0.7 : 0.5;
+      const path = L.polyline(line.coords, {
+        pane: 'w-flow', renderer, color: FLOW_INK.line, weight, opacity, className: 'w-flow-line',
+        dashArray: faint ? '4 5' : undefined, lineCap: 'round', lineJoin: 'round',
+        bubblingMouseEvents: false,
+      });
+      const acres = line.ha * 2.4711;
+      const tip = document.createElement('span');
+      tip.textContent = `About ${acres < 10 ? acres.toFixed(1) : Math.round(acres).toLocaleString('en-IN')} ac of land drains through here`;
+      path.bindTooltip(tip, { sticky: true });
+      path.addTo(group);
+    }
+    // Every arrowhead in one filled path: thousands of triangles, one node.
+    // Sized in screen pixels, so they are rebuilt (cheaply) after each zoom.
+    let heads: L.Polygon | null = null;
+    const drawHeads = () => {
+      if (heads) group.removeLayer(heads);
+      const mPerPx = 40_075_016 * Math.cos((map.getCenter().lat * Math.PI) / 180) / 2 ** (map.getZoom() + 8);
+      const rings: Array<Array<Array<[number, number]>>> = [];
+      for (const line of flowLines) {
+        if (line.coords.length < 2) continue;
+        const px = line.ha > 100 ? 13 : line.ha >= 10 ? 11 : 9;
+        for (const h of arrowheads(line.coords, px * mPerPx, 90 * mPerPx)) rings.push([h]);
+      }
+      heads = rings.length ? L.polygon(rings, {
+        pane: 'w-flow', renderer, stroke: false, fillColor: FLOW_INK.line, fillOpacity: 1,
+        className: 'w-flow-line', interactive: false,
+      }).addTo(group) : null;
+    };
+    drawHeads();
+    map.on('zoomend', drawHeads);
+    // Frame once per parcel: the parcel and its bore points first, with room
+    // round them, so a small parcel is drawn large enough that its pins do not
+    // sit on each other. The drainage areas are a zoom-out away. Floor 15 is
+    // the simulator's 250 m scale; 18 is as close as the imagery is sharp.
+    const key = fittedForRef.current;
+    if (flowFramedRef.current !== key && boundsRef.current) {
+      flowFramedRef.current = key;
+      const frame = L.latLngBounds(boundsRef.current.getSouthWest(), boundsRef.current.getNorthEast());
+      for (const p of waterFlow?.pins ?? []) if (placed(p)) frame.extend([p.lat, p.lon]);
+      // One setView: a setZoom issued mid fitBounds-animation is dropped.
+      const zoom = Math.min(18, Math.max(15, map.getBoundsZoom(frame, false, L.point(160, 160))));
+      map.setView(frame.getCenter(), zoom);
+    }
+    return () => { map.off('zoomend', drawHeads); };
+  }, [flowLines, flowMain, flowOthers, flowByAgreement, still]);
+
+  const flowPins = waterFlow?.pins;
+  const flowPinArea = waterFlow?.pinArea;
+  const flowSelected = waterFlow?.selected ?? null;
+  useEffect(() => {
+    const group = flowPickRef.current;
+    const renderer = flowSvgRef.current;
+    if (!group || !renderer) return;
+    group.clearLayers();
+    if (!flowPins) return;
+    if (flowPinArea && flowPinArea.length >= 3) {
+      L.polygon(flowPinArea, {
+        pane: 'w-flow', renderer, color: FLOW_INK.pinArea, weight: 2.5, fillColor: FLOW_INK.pinArea,
+        fillOpacity: 0.22, interactive: false,
+      }).addTo(group);
+    }
+    for (const p of flowPins) {
+      if (!placed(p)) continue;
+      const icon = textIcon(`w-flow-pin${p.rank === flowSelected ? ' active' : ''}`, String(p.rank), [0, 0]);
+      const disc = icon.options.html as HTMLElement;
+      disc.style.background = FLOW_INK[p.confidence];
+      disc.style.color = FLOW_INK.onPin;
+      const marker = L.marker([p.lat, p.lon], {
+        icon,
+        title: `Bore point ${p.rank}, ${p.confidence} confidence`,
+        alt: `Bore point ${p.rank}`,
+        keyboard: true,
+        // Above the corner discs (1000): a bore point is what the owner came to see.
+        zIndexOffset: 2000 + (p.rank === flowSelected ? 10 : -p.rank),
+        bubblingMouseEvents: false,
+      });
+      marker.on('click', (e) => {
+        L.DomEvent.stop(e);
+        if (!editAt(e)) flowPinRef.current?.(p.rank);
+      });
+      marker.addTo(group);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- editAt reads refs only
+  }, [flowPins, flowPinArea, flowSelected]);
+
   // Where to look, in the order this record can be trusted:
   //
   //   1. a surveyed FMB ring — the only thing that IS the parcel
@@ -824,11 +1055,23 @@ export default function MapCanvas({
               placeRef.current?.(null, '');
               return;
             }
-            map.fitBounds(bounds, still ? FIT_STILL : FIT);
+            map.fitBounds(bounds, fitOptions(map, still));
             fittedRef.current = true;
             villageFittedRef.current = village;
             boundsRef.current = bounds;
-            placeRef.current?.(`${village}, from the village map`, '');
+            if (mine) {
+              // A pin outside its own village. Judged against the village's
+              // surveyed middle, exactly as the geocoder branch judges it, so a
+              // pin 400 km away is called out by distance here too; the label
+              // is the plain village name, because the screen builds a
+              // sentence around it ("The pin falls outside Markapur.").
+              const middle = bounds.getCenter();
+              const verdict = checkLocation(mine, { latitude: middle.lat, longitude: middle.lng }, village);
+              setOffPlace(verdict.suspect ? verdict.message : '');
+              placeRef.current?.(village, verdict.suspect ? verdict.message : '');
+            } else {
+              placeRef.current?.(`${village}, from the cadastral map`, '');
+            }
             setLocated(true);
             return;
           }
@@ -1122,7 +1365,7 @@ export default function MapCanvas({
         villageFittedRef.current = village;
         const bounds = L.latLngBounds(plots.flatMap((x) => x.ring as L.LatLngTuple[]));
         if (bounds.isValid()) {
-          m.fitBounds(bounds, still ? FIT_STILL : FIT);
+          m.fitBounds(bounds, fitOptions(m, still));
           fittedRef.current = true;
           boundsRef.current = bounds;      // "recentre" now means the village
         }
@@ -1504,7 +1747,7 @@ export default function MapCanvas({
     if (!map) return;
     const t = setTimeout(() => {
       map.invalidateSize();
-      if (boundsRef.current) map.fitBounds(boundsRef.current, still ? FIT_STILL : FIT);
+      if (boundsRef.current) map.fitBounds(boundsRef.current, fitOptions(map, still));
       else if (hasPin && pin) map.setView([pin.lat, pin.lon], 17);
       fittedRef.current = true;
     }, 60);
@@ -1522,6 +1765,43 @@ export default function MapCanvas({
         aria-label={title ? `Map of ${title}` : 'Parcel map'}
         aria-description={!still ? 'Arrow keys pan. Plus and minus zoom.' : undefined}
       />
+      {/* On a phone the key folds behind one button (as the tools do), so it
+          is reachable at every width without covering the parcel. */}
+      {waterFlow && (
+        <button type="button" className="btn sm w-flow-keybtn" aria-expanded={keyOpen}
+                aria-controls="w-flow-key" onClick={() => setKeyOpen((open) => !open)}>
+          Map key
+        </button>
+      )}
+      {waterFlow && (
+        <div id="w-flow-key" className={`w-flow-legend${keyOpen ? '' : ' folded'}`} role="group" aria-label="Map key">
+          {waterFlow.lines.length > 0 && (
+            <span><i style={{ background: FLOW_INK.line, height: 3 }} />Drainage lines, {waterFlow.label}</span>
+          )}
+          {waterFlow.lines.length > 0 && waterFlow.byAgreement && (
+            <>
+              <span><i style={{ background: FLOW_INK.line, height: 3 }} />All 3 maps put a line there</span>
+              <span><i style={{ background: FLOW_INK.line, height: 3, opacity: 0.7 }} />2 of 3 maps</span>
+              <span>
+                <i style={{ height: 3, opacity: 0.5,
+                            background: `repeating-linear-gradient(90deg, ${FLOW_INK.line} 0 4px, transparent 4px 9px)` }} />
+                Only this map
+              </span>
+            </>
+          )}
+          <span><i className="ring" style={{ borderColor: FLOW_INK.ring }} />Your boundary</span>
+          {waterFlow.mainArea && <span><i className="ring" style={{ borderColor: FLOW_INK.main }} />Area draining to the main stream</span>}
+          {waterFlow.pinArea && <span><i className="ring" style={{ borderColor: FLOW_INK.pinArea }} />Area draining to the chosen bore point</span>}
+          {waterFlow.others && <span><i style={{ background: FLOW_INK.other, height: 1 }} />The other maps' lines</span>}
+          {waterFlow.lines.length > 0 && (
+            <span><i style={{ background: FLOW_INK.line, height: 1 }} />thin to thick: more land drains</span>
+          )}
+          <span>
+            <b style={{ background: FLOW_INK.high }} /><b style={{ background: FLOW_INK.medium }} /><b style={{ background: FLOW_INK.low }} />
+            Bore points: high, medium, low confidence
+          </span>
+        </div>
+      )}
       {/* Positioned from the side's midpoint, then clamped to the panel by
           the layout effect below, so it can never leave the map. */}
       {showTip && (
@@ -1538,7 +1818,7 @@ export default function MapCanvas({
         <span className="vmnote">
           {villageCount > 0
             ? `${village} · ${villageCount.toLocaleString('en-IN')} plots`
-            : `No village map on file for ${village}`}
+            : `No cadastral map on file for ${village}`}
         </span>
       )}
 
@@ -1571,11 +1851,11 @@ export default function MapCanvas({
             ? `${offPlace} Showing the village instead.`
             : anyMarks || hasPin
               ? 'No boundary saved on this property.'
-              : 'This record has no location yet.'}
+              : 'This property has no location yet.'}
         </p>
       )}
-      {!still && tilesFailed && (
-        <p className="nogeo low">
+      {!still && tilesFailed && !onTilesFailed && (
+        <p className="nogeo low" role="status">
           {basemap === 'satellite'
             ? 'Satellite imagery is unavailable here.'
             : 'Street map tiles are unavailable.'}

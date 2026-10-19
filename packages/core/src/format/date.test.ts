@@ -152,6 +152,16 @@ describe('parseISOToDisplay', () => {
     expect(Number.isNaN(new Date('25/07/2026').getTime())).toBe(true);
   });
 
+  test('a day-first date is kept day-first, never read month-first by Date', () => {
+    // A deed reading's registration_date is DD/MM/YYYY. new Date('04/03/1998')
+    // is 3 April; the paper was registered on 4 March.
+    expect(parseISOToDisplay('04/03/1998')).toBe('04/03/1998');
+    expect(parseISOToDisplay('4/3/1998')).toBe('04/03/1998');
+    expect(parseISOToDisplay('04-03-1998')).toBe('04/03/1998');
+    expect(parseISOToDisplay('04.03.1998')).toBe('04/03/1998');
+    expect(parseISOToDisplay('12/01/2026')).toBe('12/01/2026');
+  });
+
   test('a loose ISO string goes through Date and still lands on DD/MM/YYYY', () => {
     // "2026-1-5" misses the strict \d{2} branch, but Date reads it as a LOCAL
     // calendar date, so no zone can move it and the shape still holds.

@@ -22,7 +22,7 @@ test('probe · toast after filing a paper', async ({ page, world }) => {
     return `w-probe-${filed.length}`;
   });
 
-  await page.goto(`/app/records/${ID.parcel}`);
+  await page.goto(`/properties/${ID.parcel}/documents`);
   await page.locator('header.sechead').getByRole('button', { name: 'Add a document' }).click();
   await expect(page.getByRole('dialog', { name: /^File a paper$/ })).toBeVisible();
   await page.getByLabel('Add a document to this property').setInputFiles({

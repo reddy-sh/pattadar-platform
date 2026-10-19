@@ -12,7 +12,7 @@ struct OwnerHistorySection: View {
 
     var body: some View {
         if !owners.isEmpty {
-            Section("Ownership") {
+            Section("Owners") {
                 ForEach(sorted) { o in
                     VStack(alignment: .leading, spacing: Space.xs) {
                         HStack {
@@ -100,7 +100,7 @@ struct RecordHistorySection: View {
     let events: [AuditEvent]
 
     var body: some View {
-        Section("History") {
+        Section("Activity") {
             if events.isEmpty {
                 Text("Nothing recorded against this yet.").foregroundStyle(.secondary)
             } else {

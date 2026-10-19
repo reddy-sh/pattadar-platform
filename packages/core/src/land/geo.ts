@@ -70,7 +70,7 @@ export function checkLocation(
   if (!pin || !centroid) return { suspect: false, distanceKm: 0, message: '' };
   const distanceKm = haversineKm(pin, centroid);
   if (distanceKm <= radiusKm) return { suspect: false, distanceKm, message: '' };
-  const where = placeName ? ` from ${placeName}` : ' from this record’s village';
+  const where = placeName ? ` from ${placeName}` : ' from this property’s village';
   return {
     suspect: true,
     distanceKm,
@@ -323,6 +323,6 @@ export function checkPhotoOnRecord(
   const far = distanceM > radiusM * 10;
   return {
     status: far ? 'far' : 'outside', distanceM: Math.round(distanceM), suspect: true,
-    message: `This photo's location is ${formatDistance(distanceM / 1000)} from where this record is pinned. The phone's location may be wrong, or this may not be a photo of this land.`,
+    message: `This photo's location is ${formatDistance(distanceM / 1000)} from where this property is pinned. The phone's location may be wrong, or this may not be a photo of this land.`,
   };
 }

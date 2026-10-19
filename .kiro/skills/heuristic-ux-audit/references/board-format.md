@@ -8,20 +8,20 @@ the full record.
 ## Files
 
 ```text
-.local/ux-audits/<yyyy-mm-dd>-<slug>/
+<audit>/        .local/ux-audits/<yyyy-mm-dd>-<slug> (SKILL.md § Output)
   board.html    the filled template, and the text version of both images
   compare.png   rendered from board.html#compare: panel labels and screens only
   board.png     rendered from board.html: screens, notes and footer
   evidence/     sealed captures or copied user screenshots
-  scratch/      downscaled copies and crops made only to read images back
+  scratch/      downscaled copies and crops made only to read images back,
+                deleted when the audit is reported
 ```
 
 - The slug is the page in lowercase with hyphens: `landing`, `pricing`,
   `w360-money-tab`.
-- The folder sits three levels below the repository root, which is what the
-  template's `../../../apps/web/src/styles/tokens.css` link needs. The same is
-  true of `docs/ux-audits/<yyyy-mm-dd>-<slug>/`, used only when the user asks
-  to keep an audit.
+- The board loads nothing, so it renders from `<audit>` and from
+  `docs/ux-audits/<yyyy-mm-dd>-<slug>/`, used only when the user asks to keep
+  an audit.
 
 ## Layout
 
@@ -40,8 +40,9 @@ the full record.
 ## Looks
 
 - `bloom-dark` for marketing, content, legal and auth pages.
-- `wire-light` for `/app/*`. W360 ships Light, Dark and High Contrast, so its
-  schematic stays neutral and shows structure, not a scheme.
+- `wire-light` for the signed-in app (`/home`, `/properties`, …). W360 offers every scheme in
+  `packages/tokens/src/palette/registry.ts`, so its schematic stays neutral
+  and shows structure, not a scheme.
 - Both panels use the same look. The look supplies every colour: add no
   colours, gradients or shadows to a schematic.
 
@@ -125,11 +126,11 @@ repository root with absolute paths:
 
 ```sh
 tests/e2e-app/node_modules/.bin/playwright screenshot --full-page --viewport-size=1600,600 \
-  "file://<repo>/.local/ux-audits/<slug>/board.html#compare" \
-  "<repo>/.local/ux-audits/<slug>/compare.png"
+  "file://<repo>/<audit>/board.html#compare" \
+  "<repo>/<audit>/compare.png"
 tests/e2e-app/node_modules/.bin/playwright screenshot --full-page --viewport-size=2040,1200 \
-  "file://<repo>/.local/ux-audits/<slug>/board.html" \
-  "<repo>/.local/ux-audits/<slug>/board.png"
+  "file://<repo>/<audit>/board.html" \
+  "<repo>/<audit>/board.png"
 ```
 
 Both use Playwright's cached Chromium. If it reports a missing browser, stop
@@ -145,11 +146,11 @@ nothing else; its `board.png` must render as before.
 
 ## Read back
 
-`board.png` is 2040 px wide, so never open it, or any crop of it, with a side
-over 2000 px (SKILL.md § Safety). Check each image with
-`sips -g pixelWidth -g pixelHeight`, then read a `sips -Z 1800` copy, or crops
-no larger than 1800 px on either side, written to the audit folder's
-`scratch/`.
+`board.png` is 2040 px wide and `compare.png` can be over 2000 px tall, so
+never open either, or any crop of it, with a side over 2000 px (SKILL.md
+§ Safety). Check each image with `sips -g pixelWidth -g pixelHeight`, then
+read a `sips -Z 1800 <file> --out <audit>/scratch/<name>` copy, or crops no
+larger than 1800 px on either side, written to `<audit>/scratch/`.
 
 Read both PNGs back with the image reader. Fix and re-render until all of
 these hold:

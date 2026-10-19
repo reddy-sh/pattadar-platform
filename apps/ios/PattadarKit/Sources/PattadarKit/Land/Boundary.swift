@@ -158,7 +158,7 @@ public func boundaryExtentMismatch(drawnAcres: Double, recordedAcres: Double) ->
     guard drawnAcres > 0, recordedAcres > 0 else { return "" }
     let ratio = drawnAcres / recordedAcres
     guard ratio < 0.925 || ratio > 1.075 else { return "" }
-    return String(format: "The drawn boundary encloses %.2f acres; the record says %.2f. "
+    return String(format: "The drawn boundary encloses %.2f acres; the extent on record is %.2f. "
         + "One corner off by a digit is the usual reason.", drawnAcres, recordedAcres)
 }
 
@@ -214,7 +214,7 @@ public func parseBoundaryFile(_ text: String, fileName: String = "") throws -> P
     if body.hasPrefix("<") || fileName.lowercased().hasSuffix(".kml") {
         let scope = capture("<Polygon\\b[\\s\\S]*?</Polygon>", in: body, group: 0) ?? body
         guard let block = capture("<coordinates>([\\s\\S]*?)</coordinates>", in: scope) else {
-            throw BoundaryFileError("That KML has no <coordinates> in it.")
+            throw BoundaryFileError("This file has no boundary in it.")
         }
         let corners = block.split(whereSeparator: { $0.isWhitespace }).compactMap { token -> LatLng? in
             let pair = token.split(separator: ",", omittingEmptySubsequences: false)
@@ -225,7 +225,7 @@ public func parseBoundaryFile(_ text: String, fileName: String = "") throws -> P
             (capture("<name>([\\s\\S]*?)</name>", in: body) ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
     }
     guard let root = try? JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any] else {
-        throw BoundaryFileError("That file is not readable as KML or GeoJSON.")
+        throw BoundaryFileError("This file could not be read. Choose a boundary file (KML or GeoJSON).")
     }
     func geoRing(_ node: Any?) -> [[Double]]? {
         guard let o = node as? [String: Any], let type = o["type"] as? String else { return nil }
@@ -249,7 +249,7 @@ public func parseBoundaryFile(_ text: String, fileName: String = "") throws -> P
         default: return nil
         }
     }
-    guard let coordinates = geoRing(root) else { throw BoundaryFileError("That GeoJSON has no polygon in it.") }
+    guard let coordinates = geoRing(root) else { throw BoundaryFileError("This file has no boundary in it.") }
     let corners = coordinates.compactMap { $0.count >= 2 ? point($0[0], $0[1]) : nil }
     let properties = root["properties"] as? [String: Any] ?? [:]
     let name = String(describing: properties["name"] ?? properties["village"] ?? "")

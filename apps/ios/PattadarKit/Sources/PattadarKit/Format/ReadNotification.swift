@@ -37,7 +37,7 @@ public func readReadyNotification(_ fields: [String: Any]) -> ReadNotification {
         summary = summary.isEmpty ? count : summary + " · " + count
     }
 
-    let action = "Tap to check it — nothing has been saved yet."
+    let action = "Open it to check — nothing has been saved yet."
     let body = summary.isEmpty ? action : summary + " " + action
     return ReadNotification(title: "\(what) ready to review", body: body)
 }
@@ -61,6 +61,6 @@ public func readFailedNotification(_ reason: String) -> ReadNotification {
     let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
     let cause = trimmed.isEmpty ? "The read did not finish." : trimmed
     return ReadNotification(
-        title: "Couldn’t read the document",
+        title: "Could not read the document",
         body: String(cause.prefix(140)) + " Nothing was saved — the document is still on your phone.")
 }

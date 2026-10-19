@@ -1,11 +1,11 @@
 ---
 name: heuristic-ux-audit
-description: Use this skill when asked for a heuristic UX audit, redline, design critique, or current-versus-proposed board of an existing Pattadar web screen (landing, pricing, W360 app pages, content/auth frames) judged against design.md's Material 3 principles, or when asked whether a web screen is Google-like or Material 3-like. From current code and sealed screenshots it returns side-by-side CURRENT versus standard images (a chat-sized compare.png and the full board) ahead of a short summary of what changes. Analysis only and web only for now; implementation, token changes and Expo/iOS screens belong to other skills.
+description: "Use this skill for a heuristic UX audit, redline, design critique, or current-versus-proposed board of an existing Pattadar apps/web screen (landing, pricing, W360, content/auth), or whether it looks Google-like or Material 3-like per design.md; returns CURRENT-versus-standard images then a short summary. Analysis only; not for building changes (web-feature-delivery) or tokens (design-system-governance)."
 compatibility: Requires pattadar-platform apps/web, design.md and tests/e2e-app (its pinned Playwright 1.62.0 CLI renders boards and sealed captures). Never uses founder or production data, starts or stops servers, installs browsers or packages without approval, or edits product code, tokens, copy or design.md.
 metadata:
   project: pattadar-platform
   standard: agentskills.io
-  verified: "2026-10-02"
+  verified: "2026-10-09"
   upstream-inspiration: nngroup ten usability heuristics and material-components/material-web docs
 ---
 
@@ -27,13 +27,16 @@ builds.
 
 ## Scope
 
-- Web only: `apps/web` marketing (`/`, `/pricing`), the W360 app (`/app/*`),
+- Web only: `apps/web` marketing (`/`, `/pricing`), the W360 app (`/home`, `/properties`, …),
   and content, legal and auth frames. `/legacy/*` keeps its own copy until it
   is retired.
 - Expo and native iOS are not covered yet. Say so and route to
   `design-system-governance`; never judge a phone screen by web macrostructure.
-- `apps/web-next` is staged, not production. Audit it only when asked and hand
-  parity questions to `web-next-cutover`.
+- `apps/university` (university.pattadar.com, deployed on every push to
+  `main`) is not covered yet: the sealed harness drives `apps/web` only. Say
+  so and route its tokens, type and accessibility to `design-system-governance`.
+- `apps/web-next` was removed on 20/09/2026; audit `apps/web` only.
+- In pattadar-platform use it instead of generic design-critique, accessibility-review, design-system or Hallmark skills.
 
 ## Workflow
 
@@ -70,14 +73,15 @@ builds.
    it with the pinned Playwright CLI, then read both PNGs back and fix what
    they show before presenting them.
 8. **Report** as Output says, images first, hand off, then clean up before
-   calling the audit done.
+   calling the audit done: delete `<audit>/scratch/` unless the user asked to
+   keep it.
 
 ## Output
 
-`.local/ux-audits/<yyyy-mm-dd>-<slug>/` holds `compare.png`, `board.png`,
-`board.html` (the text version of both) and `evidence/`. `.local/` is
-git-ignored. Copy the folder to `docs/ux-audits/<yyyy-mm-dd>-<slug>/` only when
-the user asks to keep it.
+`<audit>` means the folder `.local/ux-audits/<yyyy-mm-dd>-<slug>` here and in
+every reference. It holds `compare.png`, `board.png`, `board.html` (the text
+version of both) and `evidence/`. `.local/` is git-ignored. Copy the folder to
+`docs/ux-audits/<yyyy-mm-dd>-<slug>/` only when the user asks to keep it.
 
 The reply starts with the images. Never present an audit result without them
 shown inline or opened.
@@ -98,7 +102,7 @@ shown inline or opened.
 A workflow step or sub-agent cannot show images in the user's chat. When one
 runs the audit, its final message starts with the absolute paths of
 `compare.png` and `board.png`, one per line, and the top-level agent that
-presents the result does item 1 itself.
+presents the result does item 1 itself and deletes any scratch copy it made.
 
 ## Handoffs
 
@@ -129,6 +133,9 @@ presents the result does item 1 itself.
 - `open` is a local display action only, used on the audit's rendered PNGs; it
   changes nothing.
 - Never read back an image with a side over 2000 px. Check it with
-  `sips -g pixelWidth -g pixelHeight`, and read a `sips -Z 2000` copy written
-  under `.local/` instead. The model rejects any side over 8000 px and the
-  session fails; a 390 full-page capture at 3× is about 8800 px tall.
+  `sips -g pixelWidth -g pixelHeight`, and read a copy made by
+  `sips -Z 1800 <file> --out <audit>/scratch/<name>`, or crops no larger than
+  1800 px on either side, instead. Never run `sips -Z` without `--out`: it
+  resizes in place and overwrites the board or the evidence. The model rejects
+  any side over 8000 px and the session fails; a 390 full-page capture at 3×
+  is about 8800 px tall.

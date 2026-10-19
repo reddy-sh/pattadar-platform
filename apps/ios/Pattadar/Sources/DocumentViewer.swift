@@ -75,7 +75,7 @@ struct ConfidencePill: View {
     let level: String
 
     var body: some View {
-        Text(level == "unsure" ? "The agent is unsure" : "Check this")
+        Text(level == "unsure" ? "Not sure — check this" : "Check this")
             .font(.scaled(10.5, weight: .semibold))
             .padding(.horizontal, Space.sm).padding(.vertical, Space.xs)
             .background((level == "unsure" ? Palette.danger : Palette.caution).opacity(0.16),
@@ -360,7 +360,7 @@ struct DocDetailsSection: View {
                         .multilineTextAlignment(.trailing)
                     if sensitive {
                         Button { toggleReveal(rowID) } label: {
-                            Text(isOpen ? "Hide" : "Tap to reveal")
+                            Text(isOpen ? "Hide" : "Show")
                                 .font(.scaled(10.5, weight: .semibold))
                                 .foregroundStyle(.tint)
                         }

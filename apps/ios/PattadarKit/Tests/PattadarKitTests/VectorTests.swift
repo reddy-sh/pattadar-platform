@@ -174,11 +174,11 @@ func extentUnitIsRead() {
 
 // MARK: - Dates a person reads
 
-@Test("An ISO date is written the way it is spoken")
+@Test("An ISO date is written DD/MM/YYYY, as on web")
 func isoDatesAreHumanised() {
-    #expect(humanDate("2003-01-04") == "4 January 2003")
-    #expect(humanDate("2009-07-19") == "19 July 2009")
-    #expect(humanDate("2024-12-31T10:04:00") == "31 December 2024")
+    #expect(humanDate("2003-01-04") == "04/01/2003")
+    #expect(humanDate("2009-07-19") == "19/07/2009")
+    #expect(humanDate("2024-12-31T10:04:00") == "31/12/2024")
 }
 
 @Test("An ambiguous date is never guessed at")
@@ -187,8 +187,8 @@ func ambiguousDatesAreLeftAlone() {
     // the raw text is the only honest answer.
     #expect(humanDate("04-01-2003") == "04-01-2003")
     // A day above 12 settles it.
-    #expect(humanDate("19-07-2009") == "19 July 2009")
-    #expect(humanDate("19/07/2009") == "19 July 2009")
+    #expect(humanDate("19-07-2009") == "19/07/2009")
+    #expect(humanDate("19/07/2009") == "19/07/2009")
     // Nonsense is passed through rather than turned into a plausible date.
     #expect(humanDate("2003-13-45") == "2003-13-45")
     #expect(humanDate("") == "")

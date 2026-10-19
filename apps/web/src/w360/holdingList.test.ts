@@ -5,7 +5,6 @@ import {
   HOLDING_SORTS, holdingCsvRows, holdingFacets, holdingSummary, filteredEmptyNote, matchesHolding,
   sortHoldings,
 } from './holdingList';
-import { holdingsPathFrom } from './holdingPath';
 import { csvCell } from './ui';
 
 /** A whole, bounded farm of two records until a test takes something away. */
@@ -29,15 +28,15 @@ test('facets are counted over the list and an option nothing carries is not offe
   const groups = holdingFacets(list);
   const byKey = Object.fromEntries(groups.map((g) => [g.key, g.options]));
   expect(byKey.complete).toEqual([
-    { key: 'complete', label: 'All records present', count: 2 },
-    { key: 'missing', label: 'Missing a record', count: 1 },
+    { key: 'complete', label: 'All properties present', count: 2 },
+    { key: 'missing', label: 'Missing a property', count: 1 },
   ]);
   expect(byKey.ground.map((o) => [o.key, o.count])).toEqual([['all', 1], ['some', 1], ['none', 1]]);
   // Nothing is built, so "Built area" is dropped rather than offered at 0.
   expect(byKey.land.map((o) => o.key)).toEqual(['farm', 'plot']);
 });
 
-test('a row short of a record is what "Missing a record" finds', () => {
+test('a row short of a property is what "Missing a property" finds', () => {
   expect(list.filter((c) => matchesHolding(c, { complete: ['missing'] })).map((c) => c.id)).toEqual(['b']);
 });
 
@@ -63,9 +62,9 @@ test('each sort order, without touching the input', () => {
 });
 
 test('the summary never adds acres to square yards, and agrees in number', () => {
-  expect(holdingSummary(list)).toBe('3 holdings · 62.86 ac · 400 Sq.yd');
+  expect(holdingSummary(list)).toBe('3 holdings · 62.86 ac · 400 sq.yd');
   expect(holdingSummary([farm])).toBe('1 holding · 34.53 ac');
-  expect(holdingSummary([row({ marketValue: 14000000 })])).toBe('1 holding · 30.00 ac · ₹1.40 Cr valued');
+  expect(holdingSummary([row({ marketValue: 14000000 })])).toBe('1 holding · 30.00 ac · ₹1.40 Cr market estimate');
   expect(holdingSummary([])).toBe('0 holdings');
 });
 
@@ -82,12 +81,3 @@ test('the CSV has a header row and keeps a formula in a name as text', () => {
   expect(csvCell(rows[1][0])).toBe(`"'=HYPERLINK(""x"")"`);
 });
 
-test('an old /app/combined address maps onto /app/holdings, id and tab kept', () => {
-  expect(holdingsPathFrom('/app/combined')).toBe('/app/holdings');
-  expect(holdingsPathFrom('/app/combined/')).toBe('/app/holdings/');
-  expect(holdingsPathFrom('/app/combined/cp-1')).toBe('/app/holdings/cp-1');
-  expect(holdingsPathFrom('/app/combined/cp-1/papers')).toBe('/app/holdings/cp-1/papers');
-  // Only the whole segment moves; a look-alike and other routes are untouched.
-  expect(holdingsPathFrom('/app/combinedx')).toBe('/app/combinedx');
-  expect(holdingsPathFrom('/app/records/combined')).toBe('/app/records/combined');
-});

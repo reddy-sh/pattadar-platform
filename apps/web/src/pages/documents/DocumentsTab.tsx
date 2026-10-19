@@ -545,7 +545,7 @@ export function DocumentsTab({
       )?.createParcelFromDocument;
       onToast(`Parcel ${par?.ref || ''} created`, 'success');
       refresh();
-      if (par?.id) navigate('/app/parcels');
+      if (par?.id) navigate('/properties?kind=parcel');
     } catch {
       onToast('Could not create a parcel from this deed', 'error');
     }

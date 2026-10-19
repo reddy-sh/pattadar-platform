@@ -1,5 +1,5 @@
 /**
- * Combined map (a Holding tab) · /app/holdings/:id/fmb — a holding's boundaries on one map.
+ * Boundaries (a Holding tab, once "Combined map") · /holdings/:id/fmb — a holding's boundaries on one map.
  *
  * Written with the second heuristic audit of this tab (28/09/2026). Each test
  * is one thing the tab owes an owner, and every write it offers is exercised
@@ -16,7 +16,7 @@ import { ID } from '../fixtures/ids';
 
 const CP = 'cp-katragunta';
 const EAST = 'w-sy-214-3';
-const TAB = `/app/holdings/${CP}/fmb`;
+const TAB = `/holdings/${CP}/fmb`;
 /** A storage UUID, so the sheet's bytes are actually fetched (isStorageRef). */
 const SHEET_REF = '3f0c5a8e-2b1d-4c6e-9f7a-1d2e3f4a5b6c';
 const UPLOADED = '9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d';
@@ -28,7 +28,10 @@ const member = (over: Record<string, unknown>) => ({
   id: `cpm-${String(over.recordId)}`, recordKind: 'parcel', placeLine: 'Katragunta, Markapur, Prakasam',
   khataNo: '1042', ownerName: '', status: 'owned', extent: 2.4, extentUnit: 'ac', extentDetail: '',
   marketValue: 0, paperCount: 1, ground: 'surveyed', sheetTitle: 'Joint FMB sketch', sheetId: '',
-  archived: false, sort: 0, ...over,
+  archived: false, sort: 0,
+  // WHO holds it (decision memo 06/10/2026): '' and "In your own name" for
+  // land in nobody's group.
+  groupId: '', holderLabel: 'In your own name', ...over,
 });
 
 const COMBINED = {
@@ -37,6 +40,7 @@ const COMBINED = {
   paperCount: 3, surveyedCount: 2, combinedSpend: 0, memberSpend: 0,
   placeLine: 'Katragunta & Konakalamitla, Prakasam', isComplete: true,
   createdAt: '2026-09-20', updatedAt: '2026-09-20',
+  heldBy: [{ groupId: '', name: 'In your own name', count: 3 }],
   members: [
     member({ recordId: ID.parcel, title: 'Sy 214/2', sheetId: 'p-jf-1', sort: 0 }),
     member({ recordId: EAST, title: 'Sy 214/3', sheetId: 'p-jf-2', sort: 1 }),
@@ -61,7 +65,7 @@ const drawn = (recordId: string, title: string, ring: number[], lon: number, she
 
 const FMB = {
   id: CP, name: 'Katragunta Land', drawnCount: 2, surveyedCount: 2, sheetCount: 2, pieceCount: 1,
-  caption: '2 saved boundaries, each drawn as its own record filed it, touching as one piece of ground. Not a merged or official FMB.',
+  caption: '2 saved boundaries, each drawn as its own property filed it, touching as one piece of ground. Not a merged or official FMB.',
   missing: ['Sy 88'], measuredAc: 4.7, recordedAc: 4.8, comparable: true,
   shapes: [
     drawn(ID.parcel, 'Sy 214/2', WEST_RING, 79.2699, 'p-jf-1'),
@@ -87,7 +91,7 @@ test.beforeEach(({ world }) => {
 
 async function openMap(page: Page) {
   await page.goto(TAB);
-  await expect(page.getByRole('heading', { name: 'Boundaries side by side' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Boundaries', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Select Sy 214/2' })).toBeVisible();
 }
 
@@ -106,7 +110,7 @@ const boxesOf = (loc: Locator): Promise<Box[]> => loc.evaluateAll((els) => els.m
   return { x: r.x, y: r.y, width: r.width, height: r.height };
 }));
 
-test.describe('Combined map', () => {
+test.describe('Boundaries', () => {
   test('the map counts boundaries, names its records, and labels both of its figures @phone', async ({ page }) => {
     await openMap(page);
 
@@ -184,7 +188,7 @@ test.describe('Combined map', () => {
     await expect(page).toHaveURL(new RegExp(`${TAB}$`));
     // The way to the record's own map is the link that says so.
     await expect(stage(page).getByRole('link', { name: 'Its boundary' }))
-      .toHaveAttribute('href', `/app/records/${ID.parcel}/map`);
+      .toHaveAttribute('href', `/properties/${ID.parcel}/location`);
   });
 
   test('where two boundaries share a corner both letters can be read, and no name sits on a length @phone', async ({ page }) => {
@@ -270,14 +274,14 @@ test.describe('Combined map', () => {
 
     await kebab.click();
     const menu = page.getByRole('menu', { name: 'Actions for Katragunta Land' });
-    await expect(menu.getByRole('menuitem', { name: 'Remove this holding' })).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: 'Delete this holding' })).toBeVisible();
     const m = (await menu.boundingBox())!;
     expect(m.x).toBeGreaterThanOrEqual(0);
     expect(m.x + m.width).toBeLessThanOrEqual(page.viewportSize()!.width);
     await page.keyboard.press('Escape');
 
     const strip = page.getByRole('navigation', { name: 'This holding' });
-    const tab = strip.getByRole('link', { name: /^Combined map/ });
+    const tab = strip.getByRole('link', { name: /^Boundaries/ });
     const [s, a] = [(await strip.boundingBox())!, (await tab.boundingBox())!];
     expect(a.x).toBeGreaterThanOrEqual(s.x - 1);
     expect(a.x + a.width, 'the current tab is cut off at the edge of the strip').toBeLessThanOrEqual(s.x + s.width + 1);
@@ -297,7 +301,7 @@ test.describe('Combined map', () => {
     await page.getByRole('menuitem', { name: 'Remove' }).click();
 
     const ask = page.getByRole('dialog', { name: 'Remove Joint FMB sketch?' });
-    await expect(ask).toContainText('It comes off all 2 records it was filed on. The uploaded file itself is kept.');
+    await expect(ask).toContainText('It comes off all 2 properties it was saved on. The uploaded file itself is kept.');
     await ask.getByRole('button', { name: 'Remove' }).click();
     await expect(ask.getByRole('alert'))
       .toHaveText('That joint FMB could not be removed. It may already be gone. Reload the page.');
@@ -311,26 +315,26 @@ test.describe('Combined map', () => {
     expect(world.lastVars('deleteJointFmb')).toEqual({ jointId: 'jf-1' });
   });
 
-  test('adding a joint FMB files one uploaded sheet on every record ticked, and a refused filing says so @phone', async ({ page, world }) => {
+  test('adding a joint FMB files one uploaded sheet on every property ticked, and a refused filing says so @phone', async ({ page, world }) => {
     world.route(/\/api\/gateway\/storage\/files\?/, () => ({
       json: { id: UPLOADED, name: 'joint-sketch.png', sizeBytes: BLANK_TILE.length, mimeType: 'image/png' },
     }));
     world.set('addJointFmb', '');
     await openMap(page);
 
-    await page.getByRole('button', { name: 'Add joint FMB' }).click();
+    await page.getByRole('button', { name: 'Add a joint FMB' }).click();
     const dialog = page.getByRole('dialog', { name: 'Add a joint FMB' });
-    await expect(dialog.getByRole('group', { name: 'Which records it covers' })).toBeVisible();
+    await expect(dialog.getByRole('group', { name: 'Which properties it covers' })).toBeVisible();
     await dialog.getByLabel('The sheet (PDF or photo)').setInputFiles({
       name: 'joint-sketch.png', mimeType: 'image/png', buffer: BLANK_TILE,
     });
-    await dialog.getByRole('button', { name: 'Add to records' }).click();
+    await dialog.getByRole('button', { name: 'Add to properties' }).click();
     await expect(dialog.getByRole('alert')).toHaveText(
-      'The sheet was uploaded but not filed. One of those records may have left this holding — reload the page and try again.');
+      'The sheet was uploaded but not saved. One of those properties may have left this holding. Reload the page and try again.');
     expect(world.restCalls(/storage\/files\?/)).toHaveLength(1);
 
     world.set('addJointFmb', 'jf-2');
-    await dialog.getByRole('button', { name: 'Add to records' }).click();
+    await dialog.getByRole('button', { name: 'Add to properties' }).click();
     await expect(dialog).toBeHidden();
     expect(world.restCalls(/storage\/files\?/)).toHaveLength(2);
     expect(world.lastVars('addJointFmb')).toMatchObject({
@@ -343,7 +347,7 @@ test.describe('Combined map', () => {
     const card = jointCard(page);
     await card.getByRole('button', { name: 'Place outlines' }).click();
     await expect(card.getByRole('alert')).toHaveText(
-      'No georeferenced survey lines were found in this sheet. Give each record its boundary on its own Location tab.');
+      'This sheet does not carry map positions for its survey lines. Give each property its boundary on its own Location tab.');
     expect(world.restCalls(new RegExp(`storage/files/${SHEET_REF}/content`))).toHaveLength(1);
   });
 
@@ -351,7 +355,7 @@ test.describe('Combined map', () => {
     world.set('updateCombinedProperty', false);
     await openMap(page);
     await page.getByRole('button', { name: 'Actions for Katragunta Land' }).click();
-    await page.getByRole('menuitem', { name: 'Edit name & records' }).click();
+    await page.getByRole('menuitem', { name: 'Edit name and properties' }).click();
 
     const dialog = page.getByRole('dialog', { name: 'Edit Katragunta Land' });
     await dialog.getByLabel('What do you call it').fill('Katragunta Farm');
@@ -366,30 +370,30 @@ test.describe('Combined map', () => {
     expect(world.calls('setCombinedMembers')).toHaveLength(0);
   });
 
-  test('removing the holding asks first, keeps it when refused, and goes back to the list when done @phone', async ({ page, world }) => {
+  test('deleting the holding asks first, keeps it when refused, and goes back to the list when done @phone', async ({ page, world }) => {
     world.set('deleteCombinedProperty', false);
     world.set('combinedProperties', []);
     await openMap(page);
     await page.getByRole('button', { name: 'Actions for Katragunta Land' }).click();
-    await page.getByRole('menuitem', { name: 'Remove this holding' }).click();
+    await page.getByRole('menuitem', { name: 'Delete this holding' }).click();
 
-    const ask = page.getByRole('dialog', { name: 'Remove the holding Katragunta Land?' });
-    await expect(ask).toContainText('3 records go back to standing on their own.');
-    await ask.getByRole('button', { name: 'Remove' }).click();
+    const ask = page.getByRole('dialog', { name: 'Delete the holding Katragunta Land?' });
+    await expect(ask).toContainText('3 properties go back to standing on their own.');
+    await ask.getByRole('button', { name: 'Delete holding' }).click();
     await expect(ask.getByRole('alert')).toHaveText(
-      'That holding could not be removed — it may already be gone. Reload the page.');
+      'That holding could not be deleted. It may already be gone. Reload the page.');
     await expect(page).toHaveURL(new RegExp(`${TAB}$`));
 
     world.set('deleteCombinedProperty', true);
-    await ask.getByRole('button', { name: 'Remove' }).click();
-    await expect(page).toHaveURL(/\/app\/holdings$/);
+    await ask.getByRole('button', { name: 'Delete holding' }).click();
+    await expect(page).toHaveURL(/\/holdings$/);
     await expect(page.getByText('No holdings yet')).toBeVisible();
     expect(world.lastVars('deleteCombinedProperty')).toEqual({ id: CP });
   });
 
-  test('the combined map waits in its own words', async ({ page, world }) => {
+  test('the boundaries tab waits in its own words', async ({ page, world }) => {
     world.set('combinedFmb', World.never());
     await page.goto(TAB);
-    await expect(page.getByRole('status', { name: 'Loading the combined map' })).toBeVisible();
+    await expect(page.getByRole('status', { name: 'Loading the boundaries' })).toBeVisible();
   });
 });

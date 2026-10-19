@@ -162,7 +162,7 @@ export function DashboardPage() {
       title: `${missingDeed} parcel${missingDeed !== 1 ? 's are' : ' is'} missing ${missingDeed !== 1 ? 'their' : 'its'} deed`,
       body: 'Without a deed copy, proving ownership later is much harder.',
       action: 'Upload deeds',
-      go: '/app/documents',
+      go: '/papers',
     });
   if (litigation > 0)
     attnRows.push({
@@ -171,7 +171,7 @@ export function DashboardPage() {
       title: `${litigation} holding${litigation !== 1 ? 's are' : ' is'} flagged in litigation`,
       body: 'Keep the court papers beside the land record so decisions stay informed.',
       action: 'Review',
-      go: '/app/parcels',
+      go: '/properties?kind=parcel',
     });
   if (invites > 0)
     attnRows.push({
@@ -180,7 +180,7 @@ export function DashboardPage() {
       title: `${invites} family invitation${invites !== 1 ? 's are' : ' is'} waiting`,
       body: "People you invited haven't joined yet. A reminder usually helps.",
       action: 'Send reminder',
-      go: '/app/invitations',
+      go: '/invitations',
     });
   if (membersPending > 0)
     attnRows.push({
@@ -189,7 +189,7 @@ export function DashboardPage() {
       title: `${membersPending} family member${membersPending !== 1 ? 's aren’t' : ' isn’t'} verified yet`,
       body: 'Verified members can be named as heirs on your parcels.',
       action: 'Verify now',
-      go: '/app/groups',
+      go: '/groups',
     });
 
   const allClear: string[] = [];
@@ -213,7 +213,7 @@ export function DashboardPage() {
     return (
       <Box
         key={p.id}
-        onClick={() => navigate(`/app/parcels/${p.id}`)}
+        onClick={() => navigate(`/properties/${p.id}`)}
         sx={{
           display: 'flex',
           alignItems: 'center',
@@ -278,12 +278,12 @@ export function DashboardPage() {
   );
 
   const tools = [
-    { label: 'New passbook', icon: <MenuBookOutlinedIcon fontSize="small" />, go: '/app/passbooks' },
-    { label: 'Add parcel', icon: <AddOutlinedIcon fontSize="small" />, go: '/app/parcels' },
-    { label: 'Upload deed', icon: <UploadFileOutlinedIcon fontSize="small" />, go: '/app/documents' },
-    { label: 'Find SRO office', icon: <AccountBalanceOutlinedIcon fontSize="small" />, go: '/app/tools?tab=sro' },
-    { label: 'Stamp duty', icon: <CalculateOutlinedIcon fontSize="small" />, go: '/app/tools?tab=stamp-duty' },
-    { label: 'History', icon: <HistoryOutlinedIcon fontSize="small" />, go: '/app/audit' },
+    { label: 'New passbook', icon: <MenuBookOutlinedIcon fontSize="small" />, go: '/properties?kind=parcel' },
+    { label: 'Add parcel', icon: <AddOutlinedIcon fontSize="small" />, go: '/properties?kind=parcel' },
+    { label: 'Upload deed', icon: <UploadFileOutlinedIcon fontSize="small" />, go: '/papers' },
+    { label: 'Find SRO office', icon: <AccountBalanceOutlinedIcon fontSize="small" />, go: '/tools?tab=sro' },
+    { label: 'Stamp duty', icon: <CalculateOutlinedIcon fontSize="small" />, go: '/tools?tab=stamp-duty' },
+    { label: 'History', icon: <HistoryOutlinedIcon fontSize="small" />, go: '/audit' },
   ];
 
   return (
@@ -322,10 +322,10 @@ export function DashboardPage() {
             </Typography>
           </Box>
           <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap' }}>
-            <Button variant="contained" onClick={() => navigate('/app/passbooks')}>
+            <Button variant="contained" onClick={() => navigate('/properties?kind=parcel')}>
               Upload your passbook
             </Button>
-            <Button variant="text" onClick={() => navigate('/app/documents')}>
+            <Button variant="text" onClick={() => navigate('/papers')}>
               or upload a deed / other documents
             </Button>
           </Box>
@@ -389,13 +389,13 @@ export function DashboardPage() {
             <Box sx={{ display: 'flex', gap: 1.5, mt: 2.5, flexWrap: 'wrap' }}>
               {/* The page's one amber CTA — everything else on the dashboard
                   is tonal or ghost, so this is unambiguously the next step. */}
-              <Button variant="contained" onClick={() => navigate('/app/parcels')}>
+              <Button variant="contained" onClick={() => navigate('/properties?kind=parcel')}>
                 + Add land
               </Button>
               <Button
                 variant="outlined"
                 color="inherit"
-                onClick={() => navigate('/app/documents')}
+                onClick={() => navigate('/papers')}
                 sx={{ borderColor: 'divider', color: 'text.primary' }}
               >
                 Upload a deed
@@ -410,7 +410,7 @@ export function DashboardPage() {
                   {d.parcels.length} farmland parcels haven&apos;t been valued yet.{' '}
                   <Box
                     component="span"
-                    onClick={() => navigate('/app/parcels')}
+                    onClick={() => navigate('/properties?kind=parcel')}
                     sx={{ fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }}
                   >
                     Add farmland values →
@@ -547,7 +547,7 @@ export function DashboardPage() {
                 {d.properties.map((p) => (
                   <Box
                     key={p.id}
-                    onClick={() => navigate(`/app/properties/${p.id}`)}
+                    onClick={() => navigate(`/properties/${p.id}`)}
                     sx={{
                       display: 'flex',
                       alignItems: 'center',
@@ -583,7 +583,7 @@ export function DashboardPage() {
                   </Box>
                 ))}
                 <Box sx={{ textAlign: 'center', mt: 2 }}>
-                  <Button variant="text" onClick={() => navigate('/app/parcels')}>
+                  <Button variant="text" onClick={() => navigate('/properties?kind=parcel')}>
                     See all {d.parcels.length + d.properties.length} holdings →
                   </Button>
                 </Box>

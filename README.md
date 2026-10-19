@@ -46,7 +46,7 @@ Region: **ap-south-1 (Mumbai)**. Auth: **Amazon Cognito** (ap-south-1, Essential
 
 | Host | Serves |
 |---|---|
-| `pattadar.com` | Public landing page at `/` + the Cognito-gated web app under `/app/*` — one SPA via CloudFront |
+| `pattadar.com` | Public landing page at `/` + the Cognito-gated web app at top-level feature paths (`/home`, `/properties`, `/properties/<id>`, …; no `/app` prefix) — one SPA via CloudFront |
 | `www.pattadar.com` | Same CloudFront distribution |
 | `api.pattadar.com` | ALB directly — EventBridge cron target + direct API access |
 | `pattadar-auth-<env>` (Cognito prefix domain) | Cognito hosted-UI auth for the pilot (custom `auth.pattadar.com` later) |

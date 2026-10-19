@@ -140,7 +140,7 @@ struct RequestDetailSheet: View {
                         Button("Mark it done") { Task { await save(closed: true) } }
                     }
                     Button(role: .destructive) { confirmDelete = true } label: {
-                        Text("Remove this request")
+                        Text("Delete this request")
                     }
                 }
             }
@@ -148,10 +148,10 @@ struct RequestDetailSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
             }
-            .confirmationDialog("Remove this request?", isPresented: $confirmDelete,
+            .confirmationDialog("Delete this request?", isPresented: $confirmDelete,
                                 titleVisibility: .visible) {
-                Button("Remove", role: .destructive) { Task { await remove() } }
-                Button("Keep it", role: .cancel) { }
+                Button("Delete request", role: .destructive) { Task { await remove() } }
+                Button("Cancel", role: .cancel) { }
             }
         }
     }

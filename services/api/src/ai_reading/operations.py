@@ -27,6 +27,8 @@ from .providers.anthropic import (
     vision_extract,
 )
 from .config import IMPORT_MODEL, MODEL_TIMEOUT_SECONDS
+from . import settings as reading_settings
+from .providers import google as google_reader
 from .consent import require_read_consent
 from .prompts import (
     AADHAAR_SYSTEM,
@@ -47,15 +49,27 @@ _log = logging.getLogger("pattadar")
 
 async def import_passbook(file: UploadFile = File(...), request: Request = None):
     await require_read_consent(request)
-    api_key = provider_api_key()
-    if not api_key:
-        return JSONResponse(status_code=503, content={"error": "AI import is not configured"})
     data = await file.read()
     if len(data) > 8 * 1024 * 1024:
         return JSONResponse(status_code=413, content={"error": "File too large (max 8 MB)"})
     mime = (file.content_type or "").lower()
     name = (file.filename or "").lower()
     log_name = safe_file_label(file.filename)
+    cfg = await reading_settings.load()
+    if cfg.effective_provider == "gemini":
+        out = await google_reader.extract(
+            data, "application/pdf" if name.endswith(".pdf") else mime,
+            file.filename or "", PASSBOOK_SYSTEM,
+            "Extract the passbook fields and return ONLY the JSON object.",
+            model=cfg.gemini_model, api_key=cfg.gemini_api_key, ocr_enabled=cfg.ocr_enabled,
+            processor=cfg.processor, service_account_json=cfg.google_service_account, endpoint="import-passbook")
+        if "_error" in out:
+            status, message = out["_error"]
+            return JSONResponse(status_code=status, content={"error": message})
+        return out
+    api_key = await provider_api_key()
+    if not api_key:
+        return JSONResponse(status_code=503, content={"error": "AI import is not configured"})
     b64 = base64.standard_b64encode(data).decode()
     if mime == "application/pdf" or name.endswith(".pdf"):
         block = {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": b64}}
@@ -64,7 +78,7 @@ async def import_passbook(file: UploadFile = File(...), request: Request = None)
     else:
         return JSONResponse(status_code=400, content={"error": "Upload a PDF, JPG or PNG"})
     payload = {
-        "model": IMPORT_MODEL,
+        "model": cfg.claude_model,
         # Output is pure JSON and you only pay for what is produced, so the
         # ceiling is set by the longest document, not the typical one. At 3000
         # a 14 MB multi-page deed stopped mid-object (stop_reason=max_tokens)
@@ -95,7 +109,7 @@ async def import_passbook(file: UploadFile = File(...), request: Request = None)
         _log.warning("AI extract non-200 (file=%s, status=%s): %s", log_name, r.status_code, (r.text or '')[:300])
         return JSONResponse(status_code=502, content={"error": f"The AI service refused this file (HTTP {r.status_code}). {(r.text or '')[:160]}"})
     body = r.json()
-    usage = log_usage(body, endpoint="import-passbook", name=log_name, attempt="first")
+    usage = log_usage(body, endpoint="import-passbook", name=log_name, attempt="first", model=payload["model"])
     text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
     fields = extract_json(text)
     # Running out of room is a budget problem, not a bad document — so try once
@@ -111,7 +125,7 @@ async def import_passbook(file: UploadFile = File(...), request: Request = None)
                 body = r2.json()
                 # The retry is a second paid call; the reported cost is the sum.
                 usage = merge_usage(usage, log_usage(
-                    body, endpoint="import-passbook", name=log_name, attempt="low-effort-retry"))
+                    body, endpoint="import-passbook", name=log_name, attempt="low-effort-retry", model=payload["model"]))
                 text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
                 fields = extract_json(text)
         except Exception as e:
@@ -207,14 +221,31 @@ async def extract_aadhaar(file: UploadFile = File(...), request: Request = None)
 
 async def import_registered_document(file: UploadFile = File(...), request: Request = None):
     await require_read_consent(request)
-    api_key = provider_api_key()
-    if not api_key:
-        return JSONResponse(status_code=503, content={"error": "AI import is not configured"})
     data = await file.read()
     if len(data) > 25 * 1024 * 1024:
         return JSONResponse(status_code=413, content={"error": "File too large (max 25 MB)"})
     mime = (file.content_type or "").lower()
     name = (file.filename or "").lower()
+    cfg = await reading_settings.load()
+    if cfg.effective_provider == "gemini":
+        out = await google_reader.extract(
+            data, "application/pdf" if name.endswith(".pdf") else mime,
+            file.filename or "", DEED_SYSTEM,
+            "Extract the registered-document fields and return ONLY the JSON object.",
+            model=cfg.gemini_model, api_key=cfg.gemini_api_key, ocr_enabled=cfg.ocr_enabled,
+            processor=cfg.processor, service_account_json=cfg.google_service_account, endpoint="import-registered-document")
+        if "_error" in out:
+            status, message = out["_error"]
+            return JSONResponse(status_code=status, content={"error": message})
+        fields = out["fields"]
+        try:
+            fmb_geometry.attach_geometry(fields)
+        except Exception as exc:
+            _log.warning("FMB geometry derivation failed (file=%s): %r", safe_file_label(file.filename), exc)
+        return {**aadhaar.sanitize_document_result(out), "usage": out["usage"]}
+    api_key = await provider_api_key()
+    if not api_key:
+        return JSONResponse(status_code=503, content={"error": "AI import is not configured"})
     b64 = base64.standard_b64encode(data).decode()
     if mime == "application/pdf" or name.endswith(".pdf"):
         block = {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": b64}}
@@ -223,7 +254,7 @@ async def import_registered_document(file: UploadFile = File(...), request: Requ
     else:
         return JSONResponse(status_code=400, content={"error": "Upload a PDF, JPG or PNG"})
     payload = {
-        "model": IMPORT_MODEL,
+        "model": cfg.claude_model,
         # Output is pure JSON and you only pay for what is produced, so the
         # ceiling is set by the longest document, not the typical one. At 3000
         # a 14 MB multi-page deed stopped mid-object (stop_reason=max_tokens)
@@ -269,7 +300,7 @@ async def extract_registered_fields(
         _log.warning("AI extract non-200 (file=%s, status=%s): %s", name, r.status_code, (r.text or '')[:300])
         return 502, {"error": f"The AI service refused this file (HTTP {r.status_code}). {(r.text or '')[:160]}"}
     body = r.json()
-    usage = log_usage(body, endpoint="import-registered-document", name=name, attempt="first")
+    usage = log_usage(body, endpoint="import-registered-document", name=name, attempt="first", model=payload["model"])
     text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
     fields = extract_json(text)
     # Running out of room is a budget problem, not a bad document — so try once
@@ -286,7 +317,7 @@ async def extract_registered_fields(
                 # The retry is a second paid call, not a replacement — the owner
                 # was charged for both, so the reported cost is their sum.
                 usage = merge_usage(usage, log_usage(
-                    body, endpoint="import-registered-document", name=name, attempt="low-effort-retry"))
+                    body, endpoint="import-registered-document", name=name, attempt="low-effort-retry", model=payload["model"]))
                 text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text").strip()
                 fields = extract_json(text)
         except Exception as e:
@@ -324,11 +355,22 @@ async def extract_registered_fields(
 async def extract_property(file: UploadFile = File(...), request: Request = None):
     await require_read_consent(request)
     data = await file.read()
+    cfg = await reading_settings.load()
+    if cfg.effective_provider == "gemini":
+        out = await google_reader.extract(
+            data, file.content_type or "", file.filename or "", PROPERTY_SYSTEM,
+            "Classify kind and extract the property (or agricultural parcel) fields. Return ONLY the JSON object.",
+            model=cfg.gemini_model, api_key=cfg.gemini_api_key, ocr_enabled=cfg.ocr_enabled,
+            processor=cfg.processor, service_account_json=cfg.google_service_account, endpoint="extract-property")
+        if "_error" in out:
+            status, message = out["_error"]
+            return JSONResponse(status_code=status, content={"error": message})
+        return {"fields": out["fields"], "usage": out["usage"]}
     out = await vision_extract(
         data, file.content_type or "", file.filename or "",
         PROPERTY_SYSTEM,
         "Classify kind and extract the property (or agricultural parcel) fields. Return ONLY the JSON object.",
-        max_mb=25, max_tokens=16000, endpoint="extract-property",
+        max_mb=25, max_tokens=16000, endpoint="extract-property", model=cfg.claude_model,
     )
     if "_error" in out:
         status, msg = out["_error"]

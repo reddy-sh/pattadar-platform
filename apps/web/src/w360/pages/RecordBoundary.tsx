@@ -30,10 +30,12 @@ import {
 
 import {
   useBoundary, useAcceptMark, useAddMark, useDeleteMark, useSetPin, useSetBoundary,
-  useUpdateMark, useMarksFromBoundary, useMoveMark, useAddPaper,
+  useUpdateMark, useMarksFromBoundary, useMoveMark, useAddPaper, useWaterFlow, useWaterFlowOthers, useRetryWaterFlow,
 } from '../api';
-import { Card, Failed, KV, Loading, Menu, StatusChip, coords, num, pairs, useNarrow } from '../ui';
+import type { FlowMap } from '../api';
+import { Card, Failed, KV, Menu, StatusChip, coords, num, pairs, useNarrow } from '../ui';
 import { BoundaryMeasurementsCard } from '../BoundaryMeasurementsCard';
+import { FLOW_MAPS, FlowProgress, WaterFlowCard, flowArea, flowLines, flowMapName } from '../WaterFlowCard';
 import { ConfirmDialog } from './PropertyActions';
 import { MAX_UPLOAD_BYTES, mb } from '../filePhotos';
 import { getFmbState, runFmbUpload, subscribeFmb } from '../fmbUpload';
@@ -42,13 +44,23 @@ import type { Basemap, MapHandle } from '../MapCanvasLazy';
 import { loadVillage } from '../villageIndex';
 import type { VillagePlot } from '../villageIndex';
 import { plotAt } from '../villageGeom';
+import { orderHref } from '../orderFlow';
 import { useRecordCtx } from './Record';
 import { SectionHead } from './RecordHead';
+import { Sk, SkRowItems } from '../skeletons';
 import { checkBoundaryDraft } from './boundaryDraft';
+import { isAppPath } from '../appPath';
 
 /** Shown once and then forgotten, as asked. Not per record: the reveal
  *  explains how the screen reads, and that only needs saying the first time. */
 const INTRO_KEY = 'w360-boundary-intro';
+/** The map's marks while Hydrogeology is on: one array, so the map is not
+ *  redrawn on every render. */
+const NO_MARKS: [] = [];
+
+/** The view chips' labels, said once: the lock sentence under the map names
+ *  them, and a second hand-typed list once kept a name the chip had dropped. */
+const CHIP = { cadastral: 'Cadastral map', measure: 'Measure', hydrogeology: 'Hydrogeology' };
 
 /** What to call this record in a sentence. A flat is not a parcel, and the
  *  place note under the map called every record one. These three lines are
@@ -109,6 +121,8 @@ export function RecordBoundary() {
   // assert that nothing on this record says where the land is, directly under
   // the pin the Location card prints a few inches away.
   const [shownPlace, setShownPlace] = useState<{ label: string; suspect: string } | null>(null);
+  /** The basemap failed to load: said in the map's band, with Retry map. */
+  const [tilesFailed, setTilesFailed] = useState(false);
   const [busy, setBusy] = useState('');
   const [draftSource, setDraftSource] = useState('');
   const [importPreview, setImportPreview] = useState(0);
@@ -303,7 +317,7 @@ export function RecordBoundary() {
            *  hands it over: that is already percent-decoded, and decoding a
            *  second time is how a %252f payload gets under a prefix test. */
           const back = params.get('back') ?? '';
-          if (checked.ring.length >= 3 && back.startsWith('/app/')) nav(back);
+          if (checked.ring.length >= 3 && isAppPath(back)) nav(back);
         },
         onError: (e) => {
           if (currentRecord.current !== rec.id) return;
@@ -363,7 +377,7 @@ export function RecordBoundary() {
     setPinErr('');
     void runFmbUpload(rec.id, file, (node) => filePaper.mutateAsync({
       recordId: rec.id, fileRef: node.id, name: node.name || 'FMB sheet',
-      subtitle: 'FMB / survey sheet', shelf: 'map', pageCount: 0,
+      subtitle: 'FMB sheet', shelf: 'map', pageCount: 0,
       mimeType: node.mimeType, sizeBytes: node.sizeBytes,
     }).then(() => undefined));
   };
@@ -406,6 +420,21 @@ export function RecordBoundary() {
   // that a thing you have to know to ask for.
   const [measuring, setMeasuring] = useState(true);
   const [villageOn, setVillageOn] = useState(false);
+  /** Hydrogeology: where rainwater runs, and suggested bore points. A view,
+   *  like Measure — it changes nothing on the record. */
+  const [flowOn, setFlowOn] = useState(false);
+  const [flowMap, setFlowMap] = useState<FlowMap>('combined');
+  const [flowMain, setFlowMain] = useState(true);
+  const [flowPinArea, setFlowPinArea] = useState(true);
+  const [flowPin, setFlowPin] = useState<number | null>(1);
+  /** Lines draining less than this many acres are left off the map. */
+  const [flowMinAc, setFlowMinAc] = useState(2.2);
+  const [flowAgree, setFlowAgree] = useState(false);
+  const [flowCompare, setFlowCompare] = useState(false);
+  /** Only the boundary and the numbered bore points: no lines, no areas. */
+  const [flowPinsOnly, setFlowPinsOnly] = useState(false);
+  // Bore points only is a close look at the parcel: frame it.
+  useEffect(() => { if (flowPinsOnly) mapRef.current?.fit(); }, [flowPinsOnly]);
   /** A plot picked out of the village map, held until it is adopted or
    *  dismissed. Nothing is written to the record by clicking. */
   const [plot, setPlot] = useState<
@@ -495,6 +524,49 @@ export function RecordBoundary() {
   // that encloses anything; below that the record has a pin and no shape.
   const ring = useMemo(() => pairs(data?.ring ?? []), [data?.ring]);
   const surveyed = ring.length >= 3;
+
+  const flow = useWaterFlow(rec.id, flowMap, flowOn && surveyed);
+  const retryFlow = useRetryWaterFlow(rec.id, flowMap);
+  const flowData = flow.data?.status === 'ready' ? flow.data.data : null;
+  // Pieces memoised apart, so choosing a pin redraws three pins and one area
+  // and leaves the two thousand lines alone.
+  const flowLineSet = useMemo(
+    () => (flowData ? flowLines(flowData).filter((l) => l.ha * 2.4711 >= flowMinAc - 0.05) : null),
+    [flowData, flowMinAc]);
+  const otherMaps = FLOW_MAPS.map((m) => m.id).filter((m) => m !== flowMap && m !== 'combined');
+  const others = useWaterFlowOthers(rec.id, otherMaps, flowOn && surveyed && flowCompare);
+  const othersData = others.map((q) => (q.data?.status === 'ready' ? q.data.data : null));
+  const othersKey = othersData.map((d) => (d ? d.map : '-')).join(',');
+  const flowOtherLines = useMemo(
+    () => (flowCompare ? othersData.flatMap((d) => (d ? flowLines(d).filter((l) => l.ha * 2.4711 >= flowMinAc - 0.05) : [])) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- othersKey stands for othersData
+    [flowCompare, othersKey, flowMinAc]);
+  const flowMainArea = useMemo(
+    () => (flowData && flowMain ? flowArea(flowData.main_stream?.catchment) : null), [flowData, flowMain]);
+  const flowPins = useMemo(
+    () => flowData?.points.map(({ rank, lat, lon, confidence }) => ({ rank, lat, lon, confidence })) ?? [],
+    [flowData]);
+  const flowChosenArea = useMemo(
+    () => (flowData && flowPinArea
+      ? flowArea(flowData.points.find((p) => p.rank === flowPin)?.catchment) : null),
+    [flowData, flowPin, flowPinArea]);
+  /** What the layer is waiting for, said on the map and in the card, so an
+   *  empty or stale map is never mistaken for the answer. '' when settled. */
+  const flowComparing = flowCompare && others.some((q) => q.isLoading || q.data?.status === 'computing');
+  const flowLoading = !flowOn || !surveyed || mode !== 'idle' ? ''
+    : flow.isLoading || flow.data?.status === 'computing'
+      ? 'Preparing the hydrogeology map… It reads the slope of the land, about half a minute the first time.'
+      : flow.isPlaceholderData
+        ? `Loading the ${flowMapName(flowMap)} lines…`
+        : flowComparing ? 'Loading the other maps\' lines…' : '';
+  const waterFlow = useMemo(() => (flowLineSet ? {
+    lines: flowPinsOnly ? [] : flowLineSet,
+    mainArea: flowPinsOnly ? null : flowMainArea,
+    pinArea: flowPinsOnly ? null : flowChosenArea,
+    pins: flowPins,
+    selected: flowPin, byAgreement: flowAgree, others: flowPinsOnly ? null : flowOtherLines,
+    label: flowMapName(flowData?.map),
+  } : null), [flowLineSet, flowMainArea, flowChosenArea, flowPins, flowPin, flowAgree, flowOtherLines, flowData?.map, flowPinsOnly]);
 
   // Both of these are handed to the map, whose redraw effect keys on identity.
   // Rebuilt inline they would be new objects every render, and the map would
@@ -762,7 +834,23 @@ export function RecordBoundary() {
     beginDrawing();
   }, [params, isLoading, data]);
 
-  if (isLoading) return <Loading h="70vh" what="this boundary" />;
+  // The first read holds the screen's own shape: the real section title, the
+  // 34rem map panel and the Boundary marks rail card, so nothing moves when
+  // the boundary lands. The status sits on .split itself because w360.css
+  // styles `main > .split > .plot.live`, which a wrapper would break.
+  if (isLoading) return (
+    <>
+      <SectionHead title="Location & boundary" sub={<Sk w="16rem" />} />
+      <div className="split" role="status" aria-busy="true" aria-label="Loading this boundary">
+        <div className="plot live skeleton" aria-hidden style={{ minHeight: '34rem' }} />
+        <aside className="stack" aria-hidden>
+          <Card title="Boundary marks" className="railcard">
+            <div className="rows"><SkRowItems rows={3} /></div>
+          </Card>
+        </aside>
+      </div>
+    </>
+  );
   if (!data) return <Failed what="This boundary" error={error} boxed h="26rem" />;
 
   // The sketch is drawn in its own 0..1 space; marks sit on its corners in order.
@@ -778,12 +866,13 @@ export function RecordBoundary() {
   const showMeasurements = measuring && surveyed && !editing;
   /** Into the order flow at its survey step (see the comment on the head's
    *  link, which the phone menu shares). */
-  const surveyOrder = `/app/records/${rec.id}/order?service=survey&step=pick&why=boundary`;
+  const surveyOrder = orderHref(rec.id, { service: 'survey', why: 'boundary' });
   /** Why the tools, or the view chips, cannot be pressed right now — said in
    *  text under the map, because a disabled control's title tooltip is
    *  something touch never shows. '' when nothing is locked, or when the edit
    *  bar is already saying what is happening. */
-  const lockedChips = [village && 'Village map', surveyed && 'Measure']
+  // The chips' own labels (CHIP), so the sentence names what is on screen.
+  const lockedChips = [village && CHIP.cadastral, surveyed && CHIP.measure, surveyed && CHIP.hydrogeology]
     .filter((w): w is string => !!w);
   const lockWhy = naming
     ? 'Name the new mark in Boundary marks, or cancel it, to use the other tools.'
@@ -843,7 +932,7 @@ export function RecordBoundary() {
     if (saving || busy) return;
     setPinErr('');
     if (typeof window !== 'undefined' && window.isSecureContext === false) {
-      setPinErr('Location needs a secure (https) page. Click the map instead.');
+      setPinErr('Location needs a secure (https) page. Choose a point on the map instead.');
       return;
     }
     if (!navigator.geolocation) {
@@ -912,8 +1001,8 @@ export function RecordBoundary() {
           err.code === err.PERMISSION_DENIED
             ? 'Location permission was refused, so the pin was not moved.'
             : err.code === err.TIMEOUT
-              ? 'Reading your location took too long. Try again, or click the map.'
-              : 'Your location is not available right now. Click the map instead.');
+              ? 'Reading your location took too long. Try again, or choose a point on the map.'
+              : 'Your location is not available right now. Choose a point on the map instead.');
       },
       { enableHighAccuracy: true, timeout: 12_000, maximumAge: 0 },
     );
@@ -923,31 +1012,31 @@ export function RecordBoundary() {
   const atHere = !!here && !!pinDraft && pinDraft[0] === here.lat && pinDraft[1] === here.lon;
   const hereSays = mode === 'pin' && here && found && atHere ? (() => {
     const acc = <span className="num">±{here.accuracyM.toLocaleString('en-IN')} m</span>;
-    if (found.state === 'looking') return <>Finding your survey on the {village} village map…</>;
+    if (found.state === 'looking') return <>Finding your survey number on the {village} cadastral map…</>;
     if (found.state === 'plot') {
       const lead = (found.plot.lp.match(/\d+/) ?? [''])[0];
       return (
         <>
-          You're in Sy <span className="num">{found.plot.lp}</span>, {village} ({acc}).
-          {surveyNo && lead && lead !== surveyNo && <> This {noun} is filed as {rec.title}.</>}
+          You are in Sy <span className="num">{found.plot.lp}</span>, {village} ({acc}).
+          {surveyNo && lead && lead !== surveyNo && <> This {noun} is saved as {rec.title}.</>}
           {here.accuracyM > 50 && (
-            <> Location is only accurate to {acc} — check the plot before taking it.</>
+            <> Location is only accurate to {acc}. Check the parcel before taking it.</>
           )}
-          {' '}Save the pin here, or click the map to move it.
+          {' '}Save the pin here, or choose a point on the map to move it.
         </>
       );
     }
     if (found.why === 'nomap') {
       return (
         <>
-          There is no village map for {village || 'this village'}, so the survey could not be
+          There is no cadastral map for {village || 'this village'}, so the survey number could not be
           found. You can still save the pin where you are.
         </>
       );
     }
     return (
       <>
-        Your location is not inside any plot on the {village} village map.
+        Your location is not inside any parcel on the {village} cadastral map.
         {found.far && <> {found.far}</>} You can still save the pin where you are.
       </>
     );
@@ -981,7 +1070,7 @@ export function RecordBoundary() {
             )}
           </>
         )}
-        actions={(
+        controls={(
           <>
           {/* The picker the primary opens. Hidden, and deliberately next to the
               button that opens it rather than beside the tools that moved to
@@ -1003,49 +1092,38 @@ export function RecordBoundary() {
             hidden
             onChange={(e) => { void uploadFmb(e.target.files?.[0]); e.target.value = ''; }}
           />
-          {/* Into the order flow, not the old free-text /request?kind=survey
-              form: a survey asked for from the map is the same catalogue order
-              as one placed from Properties, and it has to be priced, reviewed
-              and made idempotent the same way. `why=boundary` is the one thing
-              this route knows that the flow does not — it writes "Asked for
-              from the boundary screen" onto the order, so whoever picks it up
-              knows the owner was looking at their own land when they asked. */}
-          {!narrow && (
-            <Link className="btn" to={surveyOrder}>
-              <StraightenOutlined sx={{ fontSize: 16 }} /> Order a survey
-            </Link>
-          )}
-
-          {/* Two pickers, each named for the file it takes and nothing else.
-              "Upload FMB" takes the sheet as the survey office issues it — a
-              PDF or a photograph — files it on this property's Documents tab
-              and reads its corners. "Import KML / GeoJSON" takes a coordinate
-              file a surveyor sent, and it is the one primary: it is what a
-              record without a boundary most often needs. It reads the same
-              words wherever it appears (it used to be "Import replacement
-              boundary" on the sheet card), and it steps down to outlined while
-              an edit is open, so the edit bar's own Save is the one fill. On a
-              phone "Upload FMB" and "Order a survey" move into the menu. */}
-          {!narrow && (
-            <button type="button" className="btn" disabled={!!busy || saving || fmb.busy}
-                    onClick={() => fmbInput.current?.click()}>
-              <UploadFileOutlined sx={{ fontSize: 16 }} /> {fmb.busy ? 'Reading FMB…' : 'Upload FMB'}
-            </button>
-          )}
-          <button type="button" className={editing ? 'btn' : 'btn primary'} disabled={!!busy || saving}
-                  onClick={() => fileRef.current?.click()}>
-            <UploadFileOutlined sx={{ fontSize: 16 }} /> Import KML / GeoJSON
-          </button>
-          <Menu label="More for this map" items={[
-            ...(narrow ? [
-              { label: 'Order a survey', onClick: () => nav(surveyOrder) },
-              {
-                label: fmb.busy ? 'Reading FMB…' : 'Upload FMB',
-                onClick: () => { if (!busy && !saving && !fmb.busy) fmbInput.current?.click(); },
-              },
-            ] : []),
+          </>
+        )}
+        actions={{
+          /* Into the order flow, not the old free-text /request?kind=survey
+             form: a survey asked for from the map is the same catalogue order
+             as one placed from Properties, and it has to be priced, reviewed
+             and made idempotent the same way. `why=boundary` is the one thing
+             this route knows that the flow does not — it writes "Asked for
+             from the boundary screen" onto the order, so whoever picks it up
+             knows the owner was looking at their own land when they asked. */
+          secondaries: narrow ? [] : [{
+            label: 'Order a survey', icon: <StraightenOutlined sx={{ fontSize: 16 }} />, to: surveyOrder,
+          }],
+          /* Upload FMB and Add boundary from a map file live in the menu
+             (Reddy, 13/10/2026): the head keeps Order a survey and the menu,
+             so the map starts higher. A record with no boundary still has
+             both as buttons on its empty card below the map. */
+          overflowHeader: rec.title,
+          overflow: [
+            ...(narrow ? [{ label: 'Order a survey', onClick: () => nav(surveyOrder) }] : []),
+            {
+              label: fmb.busy ? 'Reading FMB…' : 'Upload FMB',
+              icon: <UploadFileOutlined sx={{ fontSize: 17 }} />,
+              onClick: () => { if (!busy && !saving && !fmb.busy) fmbInput.current?.click(); },
+            },
+            {
+              label: 'Add boundary from a map file (KML or GeoJSON)',
+              icon: <UploadFileOutlined sx={{ fontSize: 17 }} />,
+              onClick: () => { if (!busy && !saving) fileRef.current?.click(); },
+            },
             ...(surveyed ? [{
-              label: 'Export GeoJSON',
+              label: 'Download boundary (map file, GeoJSON)',
               // Down, because it leaves the app. The pair of these is the one
               // place an icon can say the opposite of its label.
               icon: <FileDownloadOutlined sx={{ fontSize: 17 }} />,
@@ -1064,9 +1142,8 @@ export function RecordBoundary() {
               icon: <PrintOutlined sx={{ fontSize: 17 }} />,
               onClick: () => window.print(),
             },
-          ]} />
-          </>
-        )}
+          ],
+        }}
       />
 
       <div className="split">
@@ -1096,7 +1173,7 @@ export function RecordBoundary() {
           <div className="maptools" onClick={(e) => e.stopPropagation()}>
             {/* View chips, washed when pressed: they change what you see, not
                 the record, so none of them takes the amber fill. On a phone
-                they scroll sideways in one row (`.mapchips`). */}
+                they wrap, clear of the north rose (`.mapchips`). */}
             <span className="row tight mapchips">
               <button type="button" className="chip wash"
                       aria-pressed={satellite}
@@ -1107,7 +1184,7 @@ export function RecordBoundary() {
               {village && (
                 <button type="button" className="chip wash" aria-pressed={villageOn}
                         disabled={editing}
-                        title={editing ? 'Finish editing to choose a village plot' : `Every survey plot in ${village}`}
+                        title={editing ? 'Finish editing to choose a parcel' : `Every parcel in ${village}`}
                         onClick={() => {
                           const on = !villageOn;
                           setVillageOn(on);
@@ -1118,7 +1195,7 @@ export function RecordBoundary() {
                           // question, and they already know the answer's name.
                           setPlotQuery(on ? surveyNo : '');
                         }}>
-                  Village map
+                  {CHIP.cadastral}
                 </button>
               )}
               {/* The one control that shows and hides the measurements: the
@@ -1129,10 +1206,24 @@ export function RecordBoundary() {
                         title={measuring
                           ? 'Hide measurements' : 'Show boundary measurements'}
                         onClick={() => setMeasuring((on) => {
-                          if (on) { pickSide(null); pickCorner(null); }
+                          if (on) { pickSide(null); pickCorner(null); } else setFlowOn(false);
                           return !on;
                         })}>
-                  Measure
+                  {CHIP.measure}
+                </button>
+              )}
+              {surveyed && (
+                <button type="button" className="chip wash" aria-pressed={flowOn}
+                        disabled={editing}
+                        title={flowOn
+                          ? 'Hide hydrogeology' : 'Show hydrogeology: where rainwater flows and suggested bore points'}
+                        onClick={() => {
+                          // Measure's corner letters and side labels sit on the
+                          // bore points; the two views take turns.
+                          if (!flowOn) { setMeasuring(false); pickSide(null); pickCorner(null); }
+                          setFlowOn(!flowOn);
+                        }}>
+                  {CHIP.hydrogeology}
                 </button>
               )}
             </span>
@@ -1148,7 +1239,7 @@ export function RecordBoundary() {
               <button type="button" className="btn sm tools-toggle"
                       aria-expanded={toolsOpen} aria-controls="w360-maptools"
                       onClick={() => setToolsOpen((open) => !open)}>
-                Changes the record
+                Changes this property's saved boundary
               </button>
             )}
             <div id="w360-maptools"
@@ -1157,7 +1248,7 @@ export function RecordBoundary() {
                   on the map, and the next thing to happen is a click on the
                   map — a full menu sitting over the corner you meant to place
                   is the tool getting in the way of itself. */}
-              {mode === 'idle' && <span className="eyebrow">Changes the record</span>}
+              {mode === 'idle' && <span className="eyebrow">Changes this property's saved boundary</span>}
               <button type="button" className={mode === 'mark' || mode === 'move-mark' ? 'on' : ''}
                       aria-pressed={mode === 'mark' || mode === 'move-mark'}
                       disabled={saving || !!busy || !!naming}
@@ -1169,7 +1260,7 @@ export function RecordBoundary() {
                         setMode((m) => (m === 'mark' ? 'idle' : 'mark'));
                       }}>
                 <PlaceOutlined sx={{ fontSize: 16 }} />
-                {mode === 'mark' || mode === 'move-mark' ? 'Click the map — or cancel' : 'Add boundary mark'}
+                {mode === 'mark' || mode === 'move-mark' ? 'Choose a point on the map, or cancel' : 'Add a boundary mark'}
               </button>
               <button type="button" className={mode === 'pin' ? 'on' : ''}
                       aria-pressed={mode === 'pin'}
@@ -1228,16 +1319,16 @@ export function RecordBoundary() {
             {mode !== 'idle' && !hereSays && (
               <p className="hint">
                 {mode === 'mark'
-                  ? 'Click where the stone is.'
+                  ? 'Choose where the stone is.'
                   : mode === 'move-mark'
-                  ? `Click the corrected location for ${movingMark?.label || 'this mark'}.`
+                  ? `Choose the corrected location for ${movingMark?.label || 'this mark'}.`
                   : mode === 'pin'
                   ? (pinDraft
-                    ? 'Pin placed. Save it, or click again to move it.'
-                    : 'Click where the land is.')
+                    ? 'Pin placed. Save it, or choose again to move it.'
+                    : 'Choose where the land is.')
                   : draftSource
                     ? `Previewing ${draftSource}.`
-                    : 'Click each corner in order.'}
+                    : 'Choose each corner in order.'}
               </p>
             )}
 
@@ -1307,13 +1398,46 @@ export function RecordBoundary() {
                 <button type="button" className="btn sm" disabled={saving} onClick={stopEditing}>Cancel</button>
               </div>
             )}
+            {/* Every other line the map says sits in this one band too: drawn
+                loose, they all landed on the same bottom-left spot, over it. */}
+            {copied && <p className="nogeo low" role="status">Coordinates copied.</p>}
+            {/* Three states, not one. The map also calls back for a record that
+                HAS a pin, when that pin is implausibly far from the village
+                written on it — and the single sentence here then said nothing on
+                this record says where the land sits, contradicting the
+                coordinates printed in the Location card beside it. The check's
+                own message names the distance, so it is printed as it stands
+                rather than paraphrased into something vaguer.
+
+                `!surveyed` stays, and is load-bearing: MapCanvas leaves its
+                place-finding effect early once a ring exists and never calls
+                back with null, so a boundary drawn on this very screen would
+                otherwise leave the last label standing underneath it. */}
+            {shownPlace && !surveyed && (
+              <p className="nogeo low">
+                {!pinned
+                  ? `Showing ${shownPlace.label}, not this ${noun}.`
+                  : shownPlace.suspect
+                    || `The pin falls outside ${shownPlace.label}.`}
+              </p>
+            )}
+            {tilesFailed && (
+              <p className="nogeo low" role="status">
+                {satellite
+                  ? 'Satellite imagery is unavailable here.'
+                  : 'Street map tiles are unavailable.'}
+                {' '}<button type="button" className="btn sm" onClick={() => mapRef.current?.retryTiles()}>Retry map</button>
+              </p>
+            )}
           </div>
 
           <MapCanvas
             ref={mapRef}
             ring={ring}
             pin={pin}
-            marks={marks}
+            /* The stones' 1·2·3 step aside for the bore points' 1·2·3:
+               one numbering on the map at a time, as Measure takes turns. */
+            marks={flowOn && !editing ? NO_MARKS : marks}
             place={place}
             /* Both arguments: the place the map settled on, and its verdict on
                a pin that does not agree with it. Safe as an inline arrow —
@@ -1321,6 +1445,7 @@ export function RecordBoundary() {
                not one of its effect's dependencies. */
             onPlace={(label, msg) =>
               setShownPlace(label ? { label, suspect: msg ?? '' } : null)}
+            onTilesFailed={setTilesFailed}
             village={village}
             /* Everything after the village: the mandal and district a hit has to
                agree with before it is believed. */
@@ -1340,7 +1465,9 @@ export function RecordBoundary() {
               : undefined}
             activeCorner={showMeasurements ? pinnedCorner : null}
             tip={showMeasurements ? (cornerTip ?? sideTip) : null}
-            dimOutside={showMeasurements && !villageOn}
+            dimOutside={showMeasurements && !villageOn && !flowOn}
+            waterFlow={flowOn && !editing ? waterFlow : null}
+            onFlowPin={setFlowPin}
             introduce={introduce}
             picking={!saving && (mode === 'pin' || mode === 'mark' || mode === 'move-mark')}
             drawing={mode === 'draw'}
@@ -1396,9 +1523,16 @@ export function RecordBoundary() {
               ? `${data.caption} · ${basemap === 'satellite' ? 'Esri World Imagery' : 'OpenStreetMap'}`
               : data.caption}
           </span>
+          {flowLoading && (
+            <div className={`w-flow-loading${flowLoading.startsWith('Preparing') ? ' first' : ''}`}>
+              <FlowProgress key={flowLoading} className="panel"
+                            text={flowLoading.split('… ')[0].replace(/…?$/, '…')}
+                            slow={flowLoading.startsWith('Preparing')} />
+            </div>
+          )}
           {villageOn && !editing && (
             <div className="plotfind">
-              <label className="eyebrow" htmlFor="w360-plotfind">Find plot no.</label>
+              <label className="eyebrow" htmlFor="w360-plotfind">Find a parcel number</label>
               <input
                 id="w360-plotfind"
                 value={plotQuery}
@@ -1408,7 +1542,7 @@ export function RecordBoundary() {
               />
               {plotQuery.trim() !== '' && vmState && !vmState.found && (
                 <span className="note" style={{ color: 'var(--w-danger)' }}>
-                  No plot {plotQuery.trim()} in this village map.
+                  No parcel {plotQuery.trim()} on this cadastral map.
                 </span>
               )}
             </div>
@@ -1423,12 +1557,12 @@ export function RecordBoundary() {
           {plot && !editing && (
             <div className="plotpick">
               <div>
-                <span className="eyebrow">From the village map</span>
+                <span className="eyebrow">From the cadastral map</span>
                 <strong style={{ display: 'block', fontSize: '0.9375rem' }}>
-                  Plot {plot.lp}
+                  Parcel {plot.lp}
                 </strong>
                 <span className="note">
-                  {plot.ac ? `${plot.ac} ac on the village map` : 'extent not stated'}
+                  {plot.ac ? `${plot.ac} ac on the cadastral map` : 'extent not stated'}
                   {rec.extentUnit === 'ac' && rec.extent
                     ? ` · ${num(rec.extent, 2)} ac on this property`
                     : ''}
@@ -1449,10 +1583,10 @@ export function RecordBoundary() {
                         disabled={saveRing.isPending}
                         onClick={() => (surveyed
                           ? setAsking({ kind: 'replace', lp: plot.lp, ring: plot.ring })
-                          : saveDraft(plot.ring, `Taking plot ${plot.lp}…`))}>
+                          : saveDraft(plot.ring, `Taking parcel ${plot.lp}…`))}>
                   {saveRing.isPending
                     ? 'Saving…'
-                    : surveyed ? 'Replace the boundary with this plot' : 'This is my land'}
+                    : surveyed ? 'Replace the boundary with this parcel' : 'This is my land'}
                 </button>
                 <button type="button" className="btn sm" onClick={() => setPlot(null)}>
                   Not this one
@@ -1461,28 +1595,6 @@ export function RecordBoundary() {
             </div>
           )}
 
-          {copied && <p className="nogeo low">Coordinates copied.</p>}
-
-          {/* Three states, not one. The map also calls back for a record that
-              HAS a pin, when that pin is implausibly far from the village
-              written on it — and the single sentence here then said nothing on
-              this record says where the land sits, contradicting the
-              coordinates printed in the Location card beside it. The check's
-              own message names the distance, so it is printed as it stands
-              rather than paraphrased into something vaguer.
-
-              `!surveyed` stays, and is load-bearing: MapCanvas leaves its
-              place-finding effect early once a ring exists and never calls
-              back with null, so a boundary drawn on this very screen would
-              otherwise leave the last label standing underneath it. */}
-          {shownPlace && !surveyed && (
-            <p className="nogeo low">
-              {!pinned
-                ? `Showing ${shownPlace.label}, not this ${noun}.`
-                : shownPlace.suspect
-                  || `The pin falls outside ${shownPlace.label}.`}
-            </p>
-          )}
           <div className="zoom">
             <button type="button" aria-label="Zoom in"
                     onClick={() => mapRef.current?.zoomIn()}>+</button>
@@ -1499,6 +1611,22 @@ export function RecordBoundary() {
         </div>
 
         <aside className="stack">
+          {flowOn && surveyed && !editing && (
+            <WaterFlowCard
+              flow={flow.data} loading={flow.isLoading} error={flow.error}
+              stale={flow.isPlaceholderData || (flow.isFetching && flow.data?.status !== 'computing')}
+              source={flowMap} onSource={setFlowMap}
+              showMain={flowMain} onShowMain={setFlowMain}
+              showPinArea={flowPinArea} onShowPinArea={setFlowPinArea}
+              selected={flowPin} onSelect={setFlowPin}
+              minAcres={flowMinAc} onMinAcres={setFlowMinAc}
+              byAgreement={flowAgree} onByAgreement={setFlowAgree}
+              compare={flowCompare} onCompare={setFlowCompare}
+              pinsOnly={flowPinsOnly} onPinsOnly={setFlowPinsOnly}
+              loadingText={flowLoading}
+              onRetry={retryFlow}
+            />
+          )}
           {showMeasurements && measure && (
             <BoundaryMeasurementsCard
               sides={measure.sides}
@@ -1747,7 +1875,7 @@ export function RecordBoundary() {
                         // gallery is one item below, named for what it is.
                         {
                           label: "Open this property's photos",
-                          onClick: () => nav(`/app/records/${rec.id}/photos`),
+                          onClick: () => nav(`/properties/${rec.id}/media`),
                         },
                         {
                           label: removing === m.id ? 'Deleting…' : 'Delete this mark',
@@ -1767,7 +1895,7 @@ export function RecordBoundary() {
                               actually done, on the one mark an owner is most
                               likely to want a photograph of. */}
                           <button type="button" className="btn sm"
-                                  onClick={() => nav(`/app/records/${rec.id}/photos`)}>
+                                  onClick={() => nav(`/properties/${rec.id}/media`)}>
                             Open this property's photos
                           </button>
                           <button type="button" className="btn sm"
@@ -1794,7 +1922,7 @@ export function RecordBoundary() {
               no file is a button that can only disappoint. */}
           {!data.sheetTitle && (
             <Card title="FMB sheet" className="railcard">
-              <p className="note">No FMB or survey sheet filed yet.</p>
+              <p className="note">No FMB sheet filed yet.</p>
               {fmb.busy && (
                 <p className="note" role="status" style={{ marginTop: 'var(--space-sm)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <span className="spin" aria-hidden />
@@ -1812,7 +1940,7 @@ export function RecordBoundary() {
                 </button>
                 <button type="button" className="btn sm" disabled={!!busy || saving || fmb.busy}
                         onClick={() => fileRef.current?.click()}>
-                  <UploadFileOutlined sx={{ fontSize: 15 }} /> Import KML / GeoJSON
+                  <UploadFileOutlined sx={{ fontSize: 15 }} /> Add boundary from a map file (KML or GeoJSON)
                 </button>
                 <button type="button" className="btn sm" disabled={!!busy || saving || fmb.busy}
                         onClick={beginDrawing}>
@@ -1832,7 +1960,7 @@ export function RecordBoundary() {
               // changes; the marks, the pin and the documents stay.
               body={asking.kind === 'remove'
                 ? `The outline comes off this ${noun}. Its boundary marks, pin and documents stay. There is no undo.`
-                : `Plot ${asking.lp} from the village map becomes this ${noun}'s boundary. The outline saved now is replaced and cannot be brought back.`}
+                : `Parcel ${asking.lp} from the cadastral map becomes this ${noun}'s boundary. The outline saved now is replaced and cannot be brought back.`}
               actionLabel={asking.kind === 'remove' ? 'Remove' : 'Replace'}
               danger={asking.kind === 'remove'}
               busy={saveRing.isPending}
@@ -1844,7 +1972,7 @@ export function RecordBoundary() {
                 // one; only a save that landed closes it.
                 const done = (ok: boolean) => { if (ok) setAsking(null); };
                 if (next.kind === 'remove') saveDraft([], 'Removing the boundary…', done);
-                else saveDraft(next.ring, `Taking plot ${next.lp}…`, done);
+                else saveDraft(next.ring, `Taking parcel ${next.lp}…`, done);
               }}
               onClose={() => { setPinErr(''); setAsking(null); }}
             />
@@ -1880,10 +2008,10 @@ export function RecordBoundary() {
               </div>
               <div className="row tight" style={{ marginTop: 'var(--space-sm)' }}>
                 {/* The paper is on the shelf; the reader is where it opens. */}
-                <Link className="btn sm" to={`/app/papers/${data.sheetId}`}>Open sheet</Link>
+                <Link className="btn sm" to={`/papers/${data.sheetId}`}>Open sheet</Link>
                 <button type="button" className="btn sm" disabled={!!busy || saving}
                         onClick={() => fileRef.current?.click()}>
-                  <UploadFileOutlined sx={{ fontSize: 15 }} /> Import KML / GeoJSON
+                  <UploadFileOutlined sx={{ fontSize: 15 }} /> Add boundary from a map file (KML or GeoJSON)
                 </button>
               </div>
               {!surveyed && (

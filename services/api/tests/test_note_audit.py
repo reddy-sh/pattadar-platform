@@ -123,3 +123,31 @@ def test_filing_and_removing_a_note_name_the_same_trail():
     for kind in ("parcel", "passbook", "record"):
         assert main._note_target(kind, "entity-1", "note-1") == "entity-1"
     assert main._note_target("document", "entity-1", "note-1") == "note-1"
+
+
+def bodies(dsn):
+    with psycopg.connect(dsn) as conn:
+        return dict(conn.execute("SELECT id, body FROM notes ORDER BY id").fetchall())
+
+
+def test_editing_a_property_note_rewrites_it_and_is_audited_on_the_propertys_trail(db):
+    dsn, audited = db
+    note = asyncio.run(main.Mutation().update_note(info(OWNER), "note-r", "Gate lock **changed**"))
+    assert note is not None and note.body == "Gate lock **changed**"
+    assert bodies(dsn)["note-r"] == "Gate lock **changed**"
+    assert audited == [(OWNER, "edit_note", "record-a", "Edited a note")]
+
+
+def test_somebody_elses_note_is_neither_edited_nor_audited(db):
+    dsn, audited = db
+    assert asyncio.run(main.Mutation().update_note(info("stranger"), "note-r", "Mine now")) is None
+    assert bodies(dsn)["note-r"] == "Gate lock changed"
+    assert audited == []
+
+
+def test_an_empty_edit_is_refused_and_the_note_is_kept(db):
+    dsn, audited = db
+    with pytest.raises(ValueError):
+        asyncio.run(main.Mutation().update_note(info(OWNER), "note-r", "  \n "))
+    assert bodies(dsn)["note-r"] == "Gate lock changed"
+    assert audited == []

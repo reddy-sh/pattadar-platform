@@ -188,7 +188,7 @@ struct AddFromScanScreen: View {
         case .passbook: "This is a passbook — it lists several parcels"
         case .parcel: "This is agricultural land"
         case .property: "This is a plot or building"
-        case .vault: "This is a paper for your vault"
+        case .vault: "This is a document to keep in Documents"
         }
     }
 

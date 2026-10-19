@@ -1,0 +1,189 @@
+diff --git a/infra/terraform/envs/dev/runtime/main.tf b/infra/terraform/envs/dev/runtime/main.tf
+index 754ceb2..fb0a467 100644
+--- a/infra/terraform/envs/dev/runtime/main.tf
++++ b/infra/terraform/envs/dev/runtime/main.tf
+@@ -53,11 +53,13 @@ module "runtime" {
+   api_domain      = var.api_domain
+   api_base_url    = var.api_base_url
+ 
+-  identity_legacy_bindings = var.identity_legacy_bindings
+-  admin_subject_ids        = var.admin_subject_ids
+-  payments_mode            = var.payments_mode
+-  razorpay_live_confirmed  = var.razorpay_live_confirmed
+-  payment_secret_arns      = var.payment_secret_arns
++  identity_legacy_bindings          = var.identity_legacy_bindings
++  admin_subject_ids                 = var.admin_subject_ids
++  gemini_api_key_secret_arn         = var.gemini_api_key_secret_arn
++  google_service_account_secret_arn = var.google_service_account_secret_arn
++  payments_mode                     = var.payments_mode
++  razorpay_live_confirmed           = var.razorpay_live_confirmed
++  payment_secret_arns               = var.payment_secret_arns
+ 
+   # Matches prod: writes go to the dedicated KMS field key.
+   aadhaar_kms_writes_enabled   = true
+diff --git a/infra/terraform/envs/dev/runtime/variables.tf b/infra/terraform/envs/dev/runtime/variables.tf
+index cbe793c..6af9c4b 100644
+--- a/infra/terraform/envs/dev/runtime/variables.tf
++++ b/infra/terraform/envs/dev/runtime/variables.tf
+@@ -138,6 +138,18 @@ variable "admin_subject_ids" {
+   default     = []
+ }
+ 
++variable "gemini_api_key_secret_arn" {
++  description = "Existing persistent-CMK Secrets Manager ARN for Gemini; empty keeps Claude in use."
++  type        = string
++  default     = ""
++}
++
++variable "google_service_account_secret_arn" {
++  description = "Existing persistent-CMK Secrets Manager ARN for Document AI credentials."
++  type        = string
++  default     = ""
++}
++
+ variable "payments_mode" {
+   description = "Razorpay off/test/live mode. Off preserves the explicit simulated wallet."
+   type        = string
+diff --git a/infra/terraform/envs/prod/runtime/main.tf b/infra/terraform/envs/prod/runtime/main.tf
+index a7f1330..d6c05b6 100644
+--- a/infra/terraform/envs/prod/runtime/main.tf
++++ b/infra/terraform/envs/prod/runtime/main.tf
+@@ -20,6 +20,12 @@ provider "aws" {
+   }
+ }
+ 
++locals {
++  # Verified Cognito email sankara.telukutla@gmail.com, production pool
++  # ap-south-1_XfgAF21Z3; derived from immutable issuer + subject on 2026-10-09.
++  pattadar_intelligence_super_admin = "subject_f3fc1a5b74b9a9455b7a23ea4cb8bb20e9ccfbc2a5e2f9ad46619a160a9dff83"
++}
++
+ # CloudFront-scoped resources (ACM cert, WAF web ACL) must live in us-east-1.
+ provider "aws" {
+   alias  = "us_east_1"
+@@ -54,10 +60,16 @@ module "runtime" {
+   api_base_url    = var.api_base_url
+ 
+   identity_legacy_bindings = var.identity_legacy_bindings
+-  admin_subject_ids        = var.admin_subject_ids
+-  payments_mode            = var.payments_mode
+-  razorpay_live_confirmed  = var.razorpay_live_confirmed
+-  payment_secret_arns      = var.payment_secret_arns
++  admin_subject_ids        = distinct(concat(var.admin_subject_ids, [local.pattadar_intelligence_super_admin]))
++  super_admin_uids = distinct([
++    local.pattadar_intelligence_super_admin,
++    try(var.identity_legacy_bindings[local.pattadar_intelligence_super_admin], local.pattadar_intelligence_super_admin),
++  ])
++  gemini_api_key_secret_arn         = var.gemini_api_key_secret_arn
++  google_service_account_secret_arn = var.google_service_account_secret_arn
++  payments_mode                     = var.payments_mode
++  razorpay_live_confirmed           = var.razorpay_live_confirmed
++  payment_secret_arns               = var.payment_secret_arns
+ 
+   # The rollout decision, made: writes go to the dedicated KMS field key. Both
+   # flags false meant every Aadhaar write raised at runtime, discarding vision
+diff --git a/infra/terraform/envs/prod/runtime/variables.tf b/infra/terraform/envs/prod/runtime/variables.tf
+index 285c07c..8c29f31 100644
+--- a/infra/terraform/envs/prod/runtime/variables.tf
++++ b/infra/terraform/envs/prod/runtime/variables.tf
+@@ -138,6 +138,18 @@ variable "admin_subject_ids" {
+   default     = []
+ }
+ 
++variable "gemini_api_key_secret_arn" {
++  description = "Existing persistent-CMK Secrets Manager ARN for Gemini; empty keeps Claude in use."
++  type        = string
++  default     = ""
++}
++
++variable "google_service_account_secret_arn" {
++  description = "Existing persistent-CMK Secrets Manager ARN for Document AI credentials."
++  type        = string
++  default     = ""
++}
++
+ variable "payments_mode" {
+   description = "Razorpay off/test/live mode. Off preserves the explicit simulated wallet."
+   type        = string
+diff --git a/infra/terraform/modules/runtime/ecs.tf b/infra/terraform/modules/runtime/ecs.tf
+index f8639f7..49bc07d 100644
+--- a/infra/terraform/modules/runtime/ecs.tf
++++ b/infra/terraform/modules/runtime/ecs.tf
+@@ -65,7 +65,10 @@ data "aws_iam_policy_document" "execution_secrets" {
+       aws_secretsmanager_secret.db_app_password.arn,
+       ], var.enable_aadhaar_legacy_fernet ? [
+       local.persistent.secret_arns["aadhaar-legacy-fernet-key"],
+-    ] : [], values(var.payment_secret_arns))
++      ] : [], values(var.payment_secret_arns), compact([
++        var.gemini_api_key_secret_arn,
++        var.google_service_account_secret_arn,
++    ]))
+   }
+ 
+   statement {
+@@ -241,10 +244,12 @@ resource "aws_ecs_task_definition" "gateway" {
+         { name = "ADMIN_SUBJECT_IDS", value = join(",", var.admin_subject_ids) },
+       ]
+ 
+-      secrets = [
++      secrets = concat([
+         { name = "PG_PASSWORD", valueFrom = aws_secretsmanager_secret.db_app_password.arn },
+         { name = "ANTHROPIC_API_KEY", valueFrom = local.persistent.secret_arns["anthropic-api-key"] },
+-      ]
++        ], var.gemini_api_key_secret_arn == "" ? [] : [
++        { name = "GEMINI_API_KEY", valueFrom = var.gemini_api_key_secret_arn },
++      ])
+ 
+       logConfiguration = {
+         logDriver = "awslogs"
+@@ -306,6 +311,7 @@ resource "aws_ecs_task_definition" "api" {
+         { name = "PG_PORT", value = "5432" },
+         { name = "PG_USER", value = "pattadar_app" },
+         { name = "PG_DATABASE", value = "hub" },
++        { name = "SUPER_ADMIN_UIDS", value = join(",", var.super_admin_uids) },
+       ]
+ 
+       # CRON_SECRET is ALWAYS set (invariant): /cron/inactivity-check rejects
+@@ -316,7 +322,12 @@ resource "aws_ecs_task_definition" "api" {
+         { name = "PG_PASSWORD", valueFrom = aws_secretsmanager_secret.db_app_password.arn },
+         ], var.enable_aadhaar_legacy_fernet ? [
+         { name = "AADHAAR_ENC_KEY", valueFrom = local.persistent.secret_arns["aadhaar-legacy-fernet-key"] },
+-      ] : [], [for name, arn in var.payment_secret_arns : { name = name, valueFrom = arn }])
++        ] : [], [for name, arn in var.payment_secret_arns : { name = name, valueFrom = arn }],
++        var.gemini_api_key_secret_arn == "" ? [] : [
++          { name = "GEMINI_API_KEY", valueFrom = var.gemini_api_key_secret_arn },
++          ], var.google_service_account_secret_arn == "" ? [] : [
++          { name = "GOOGLE_SERVICE_ACCOUNT_JSON", valueFrom = var.google_service_account_secret_arn },
++      ])
+ 
+       logConfiguration = {
+         logDriver = "awslogs"
+diff --git a/infra/terraform/modules/runtime/variables.tf b/infra/terraform/modules/runtime/variables.tf
+index 34e6ace..ad98c0d 100644
+--- a/infra/terraform/modules/runtime/variables.tf
++++ b/infra/terraform/modules/runtime/variables.tf
+@@ -240,6 +240,24 @@ variable "admin_subject_ids" {
+   default     = []
+ }
+ 
++variable "super_admin_uids" {
++  description = "Reviewed API owner IDs for Pattadar policy and Intelligence administration."
++  type        = list(string)
++  default     = []
++}
++
++variable "gemini_api_key_secret_arn" {
++  description = "Existing Secrets Manager ARN containing the Gemini API key, encrypted with the persistent CMK; empty leaves Gemini unavailable."
++  type        = string
++  default     = ""
++}
++
++variable "google_service_account_secret_arn" {
++  description = "Existing Secrets Manager ARN containing Document AI service-account JSON, encrypted with the persistent CMK; empty leaves OCR unavailable."
++  type        = string
++  default     = ""
++}
++
+ variable "payments_mode" {
+   description = "Razorpay off/test/live mode. Off preserves the explicit simulated wallet."
+   type        = string

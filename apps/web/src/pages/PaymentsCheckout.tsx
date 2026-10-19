@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { apiFetch } from '../api/client';
+import { useDocumentTitle } from '../w360/ui';
 
 type PaymentState = {
   status: string; title: string; amount: number; currency: string; mode: 'off' | 'test' | 'live';
@@ -45,6 +46,9 @@ export function PaymentsCheckout() {
   const [state, setState] = useState<PaymentState>();
   const [problem, setProblem] = useState('');
   const [busy, setBusy] = useState(false);
+  // Checkout keeps its own bar (design.md § Page head, named exception), but
+  // the tab is still named after what is being paid for.
+  useDocumentTitle(state?.title || 'Service payment');
   const mounted = useRef(true);
   const context = useRef({ base, generation: 0 });
   const controller = useRef<AbortController | undefined>(undefined);
@@ -93,7 +97,7 @@ export function PaymentsCheckout() {
       setState(prepared);
       if (prepared.captured) { setBusy(false); return; }
       if (!prepared.orderId || !prepared.keyId) {
-        throw new Error(prepared.error || 'The payment order is being prepared. Check the status before trying again.');
+        throw new Error(prepared.error || 'The payment is being prepared. Check the status before trying again.');
       }
       await loadCheckout();
       if (!active() || !window.Razorpay) return;
@@ -123,21 +127,23 @@ export function PaymentsCheckout() {
   const settled = state?.status === 'settled';
   const captured = !!state?.captured;
   return (
-    <main style={{ maxWidth: 720, margin: '0 auto', padding: '2rem 1rem' }}>
-      <Link to={`/app/services/${encodeURIComponent(id)}`}>← Back to the service</Link>
+    // The shared app frame's padding and edge (design.md § Page head,
+    // "One frame"); checkout keeps only its own bar (a named exception).
+    <main>
+      <Link to={`/services/${encodeURIComponent(id)}`}>← Back to the service order</Link>
       <h1>{state?.title || 'Service payment'}</h1>
       {!state && !problem && <p role="status">Loading payment status…</p>}
       {state && <>
         <p style={{ fontSize: '1.5rem' }}>{amount}</p>
         {state.mode === 'test' && <p role="note"><strong>Test mode.</strong> Use test payment details. No real money moves.</p>}
         {state.mode === 'off' && <p>Online payments are not configured. No payment has been taken here.</p>}
-        {captured && <p role="status">{settled ? 'The provider confirmed the settlement operations.'
-          : 'The provider confirmed capture. The payment is reserved for this job until settlement.'}</p>}
-        {!captured && state.mode !== 'off' && <p>Your payment is confirmed only after the server checks capture with Razorpay.</p>}
-        {state.status === 'settlement_pending' && <p>Settlement is pending provider confirmation. Its progress appears below.</p>}
+        {captured && <p role="status">{settled ? 'The payment company confirmed it. The payment has been released.'
+          : 'The payment company confirmed it. Pattadar holds it for this service order until you accept the work.'}</p>}
+        {!captured && state.mode !== 'off' && <p>Your payment counts only once the payment company confirms it.</p>}
+        {state.status === 'settlement_pending' && <p>Waiting for the payment company to confirm. Its progress is shown below.</p>}
         {!!state.operations.length && <ul>
           {state.operations.map((operation) => <li key={operation.kind}>
-            {({ order: 'Payment order', capture: 'Payment confirmation', transfer: 'Worker payment', refund: 'Refund', fee: 'Service fee' } as Record<string, string>)[operation.kind] || operation.kind}: {({ pending: 'Queued', retry: 'Retrying after a delay', processing: 'Confirming', submitted: 'Processing with provider', done: 'Confirmed', attention: 'Needs attention' } as Record<string, string>)[operation.status] || operation.status}
+            {({ order: 'Order created', capture: 'Payment confirmation', transfer: 'Released to the provider', refund: 'Refund', fee: 'Pattadar fee' } as Record<string, string>)[operation.kind] || operation.kind}: {({ pending: 'Waiting', retry: 'Trying again', processing: 'Confirming', submitted: 'With the payment company', done: 'Confirmed', attention: 'Needs attention' } as Record<string, string>)[operation.status] || operation.status}
             {operation.error && <p>{operation.error}</p>}
           </li>)}
         </ul>}
@@ -147,7 +153,7 @@ export function PaymentsCheckout() {
       </>}
       {problem && <p role="alert">{problem}</p>}
       <p><button type="button" className="btn soft" onClick={() => { void refresh(); }}>Check payment status</button></p>
-      <p>Closing this page does not cancel a payment already accepted by the provider. You can return to check its status.</p>
+      <p>Closing this page does not cancel a payment already accepted by the payment company. You can return to check its status.</p>
     </main>
   );
 }

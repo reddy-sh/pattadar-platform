@@ -76,7 +76,8 @@ def usd_per_mtok(model: str) -> dict:
         "cache_read": p["input"] * 0.1,
     }
 
-def log_usage(body: dict, *, endpoint: str, name: str, attempt: str = "first") -> dict:
+def log_usage(body: dict, *, endpoint: str, name: str, attempt: str = "first",
+              model: str = IMPORT_MODEL) -> dict:
     """Record what a read actually cost, AND hand the same numbers back.
 
     Nothing on this path used to read `usage`, so nobody could say what reading
@@ -100,7 +101,7 @@ def log_usage(body: dict, *, endpoint: str, name: str, attempt: str = "first") -
     write = int(u.get("cache_creation_input_tokens") or 0)
     fresh = int(u.get("input_tokens") or 0)
     out = int(u.get("output_tokens") or 0)
-    rate = usd_per_mtok(IMPORT_MODEL)
+    rate = usd_per_mtok(model)
     usd = (
         fresh * rate["input"]
         + out * rate["output"]
@@ -110,12 +111,12 @@ def log_usage(body: dict, *, endpoint: str, name: str, attempt: str = "first") -
     _log.info(
         "ai.usage endpoint=%s attempt=%s model=%s file=%s prompt_total=%d "
         "(fresh=%d cache_write=%d cache_read=%d) output=%d stop=%s usd=%.4f",
-        endpoint, attempt, IMPORT_MODEL, safe_file_label(name),
+        endpoint, attempt, model, safe_file_label(name),
         fresh + write + read, fresh, write, read, out,
         body.get("stop_reason"), usd,
     )
     return {
-        "model": IMPORT_MODEL,
+        "model": model,
         # The whole prompt, priced or not: fresh is only the uncached remainder.
         "input_tokens": fresh + write + read,
         "output_tokens": out,

@@ -37,11 +37,11 @@ export function InboxWatcher() {
           onClick: () => navigate(reviewPath(item.jobId)),
         }, item.body || undefined);
       } else {
-        toast.notice("Your document couldn't be read", {
+        toast.notice('Your document could not be read', {
           label: 'Try again',
           onClick: () => {
             markRead.mutate({ ids: [item.id] });
-            navigate('/app/properties?new=1');
+            navigate('/properties?new=1');
           },
         }, item.body || undefined);
       }

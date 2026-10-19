@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from collections import OrderedDict
 import re
 import time
 from datetime import datetime, timezone
@@ -10,7 +11,7 @@ from typing import Any, Literal
 
 from .database import ReadOnlyDatabase
 from .embeddings import dependency_available, embed_query, to_vector_literal
-from .exceptions import PublicRecordsUnavailable, ToolInputError
+from .exceptions import PublicRecordsQueryTimeout, PublicRecordsUnavailable, ToolInputError
 from .settings import PublicRecordSettings
 
 Metric = Literal["count", "sum_market_value", "sum_consideration_value", "sum_extent"]
@@ -31,7 +32,59 @@ _AGGREGATES = {
     "sum_consideration_value": "COALESCE(SUM(consideration_value), 0)",
 }
 _MIN_PARTY_SIMILARITY = 0.5
+# The party table holds ~140M names. A bare `name_norm % query` trigram scan
+# drags in every row sharing "REDDY"-style trigrams (~436k for one name) and
+# outruns the statement timeout cold. Matching is therefore two bounded passes
+# over party rows only, then one primary-key join for the rows kept:
+#   1. every name word as a substring (the trigram GIN index intersects LIKEs),
+#   2. a fuzzy trigram pass for spelling variants (TAMMA/THAMMA, REDDI/REDDY),
+#      skipped when pass 1 already hit the candidate cap.
+# Each pass stops at _PARTY_CANDIDATE_CAP rows, so a very common name returns
+# a flagged sample instead of scoring ~1.6M rows.
+_PARTY_TOKEN_MIN = 3
+_REPORT_DEEDS = 30
+_SIDE_WORDS = {"claimant": "Buyer", "executant": "Seller"}
+_PARTY_CANDIDATE_CAP = 2000
+_PARTY_WORDS_TIMEOUT_MS = 8_000
+_PARTY_FUZZY_TIMEOUT_MS = 14_000
+_PARTY_WORK_MEM = "64MB"  # keeps the bitmap exact instead of lossy rechecks
+_PARTY_SAMPLE_NOTE = (
+    "This name is very common; only a sample of matching deeds was ranked. "
+    "Add the surname or full name as written in the deed for complete results."
+)
+_PARTY_VARIANTS_NOTE = (
+    "Spelling variants were not searched in time; results cover the name as typed."
+)
+_PARTY_FILTER_SAMPLE_NOTE = (
+    "This name is very common in the chosen places; only a sample of its deeds was "
+    "checked against them. Add the surname or full name as written in the deed."
+)
+# A place filter (villages / SRO) joins each candidate party row to its deed
+# INSIDE the candidate pass, so the cap counts deeds that are really in the
+# place. The planner drives that join from whichever side is smaller (a 50k-deed
+# village → village first, ~1 s); for a very common name in a huge urban
+# village neither side is small, so the pass gets a shorter budget and, if it
+# runs out, falls back to the plain bounded pass filtered afterwards.
+_PARTY_FILTERED_TIMEOUT_MS = 6_000
+_MAX_PLACE_FILTERS = 10
+# Fuzzy village resolution scans the trigram index of the 45M-row records table
+# (~2.5 s per misspelt name). It runs one name at a time, so a refinement holds
+# one pool connection and never starves other users' lookups, each name gets a
+# short budget, and at most a few misspelt names are tried per search; the
+# rest are reported "not found" rather than queued behind each other.
+_VILLAGE_FUZZY_TIMEOUT_MS = 3_000
+_MAX_FUZZY_VILLAGES = 3
+# A deed's rid starts with an 8-character office code (AP070730… is VINUKONDA),
+# and party rows are indexed by rid. An SRO filter therefore becomes rid ranges
+# that idx_party_rid can AND with the name's trigram bitmap — without it the
+# planner drove from the name side and probed every candidate's deed, which
+# never finished for a common name (77k–540k deeds per office).
+_RID_OFFICE_CHARS = 8
+_SRO_CACHE_SECONDS = 6 * 3600
+_FACET_VILLAGES = 15
+_FACET_SROS = 10
 _WS = re.compile(r"\s+")
+_DOC_NO = re.compile(r"\d+/\d{4}")
 _NAME_SEPARATORS = re.compile(r"[.,\s]+")
 _RECORD_COLUMNS = (
     "rid, s_no, doc_no, year, sro_name, book_no, page_no, "
@@ -60,6 +113,82 @@ def _normalize_village(name: str) -> str:
 
 def _normalize_name(name: str | None) -> str:
     return _NAME_SEPARATORS.sub(" ", name or "").strip().upper()
+
+
+def _like_escape(token: str) -> str:
+    return token.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _party_tokens(query: str) -> list[str]:
+    return [token for token in dict.fromkeys(query.split()) if len(token) >= _PARTY_TOKEN_MIN]
+
+
+def _clean(value: Any) -> str:
+    return str(value).strip() if value not in (None, "") else ""
+
+
+def _location(row: dict[str, Any]) -> str | None:
+    """Where the property is, from whatever the deed recorded.
+
+    Many deeds leave village blank but still carry a plot, house number or
+    apartment, and always the registering SRO, so those stand in for it.
+    """
+    village = _clean(row.get("village")) or _clean(row.get("village_full"))
+    parts = [
+        f"Plot {_clean(row.get('plot_no'))}" if _clean(row.get("plot_no")) else "",
+        f"H.No {_clean(row.get('house_no'))}" if _clean(row.get("house_no")) else "",
+        _clean(row.get("apartment_name")),
+        village or (f"{_clean(row.get('sro_name'))} SRO area" if _clean(row.get("sro_name")) else ""),
+    ]
+    text = ", ".join(part for part in parts if part)
+    return text or None
+
+
+def _boundaries(row: dict[str, Any]) -> str | None:
+    sides = (("N", "boundary_north"), ("S", "boundary_south"), ("E", "boundary_east"), ("W", "boundary_west"))
+    text = " · ".join(f"{label}: {_clean(row.get(key))}" for label, key in sides if _clean(row.get(key)))
+    return text or None
+
+
+def _names(value: Any) -> str | None:
+    if isinstance(value, (list, tuple)):
+        names = [_clean(name) for name in value if _clean(name)]
+        return ", ".join(names) or None
+    return _clean(value) or None
+
+
+def _party_match_row(row: dict[str, Any]) -> dict[str, Any]:
+    """One deed a matched party appears on, with the details worth checking."""
+    side = row.get("side")
+    # The other side of the deed: sellers for a buyer, buyers for a seller.
+    other = row.get("sellers") if side == "claimant" else row.get("buyers") if side == "executant" else None
+    # orig_doc_no is sometimes "CD_Volume: 141\n    3690/2011"; keep the number.
+    original = _WS.sub(" ", _clean(row.get("orig_doc_no")))
+    numbered = _DOC_NO.search(original)
+    document = (numbered.group(0) if numbered else original) or (
+        f"{_clean(row.get('doc_no'))}/{_clean(row.get('year'))}" if _clean(row.get("doc_no")) else ""
+    )
+    return {
+        "rid": row.get("rid"),
+        "s_no": row.get("s_no"),
+        "matched_name": row.get("matched_name"),
+        "role": row.get("role"),
+        "side": side,
+        "score": row.get("score"),
+        "location": _location(row),
+        "village": _clean(row.get("village")) or _clean(row.get("village_full")) or None,
+        "survey_no": row.get("survey_no"),
+        "transaction_type": row.get("transaction_type"),
+        "reg_date": row.get("reg_date"),
+        "extent_val": row.get("extent_val"),
+        "extent_unit": row.get("extent_unit"),
+        "consideration_value": row.get("consideration_value"),
+        "market_value": row.get("market_value"),
+        "counterparty": _names(other),
+        "document": document or None,
+        "sro_name": row.get("sro_name"),
+        "boundaries": _boundaries(row),
+    }
 
 
 def _inr(value: Any) -> str:
@@ -123,8 +252,77 @@ def _footer(report_id: str, now: datetime) -> list[str]:
         "",
         f"> ⚠️ _{_AI_DISCLAIMER}_",
         "",
-        f"<sub>{report_id} · pattadar.com · page 1 of 1</sub>",
+        f"{report_id} · pattadar.com",
     ]
+
+
+_EXACT_SCORE = 0.999
+
+
+def _score(row: dict[str, Any]) -> float:
+    value = row.get("score")
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0.0
+
+
+def party_facets(rows: list[dict[str, Any]], *, sampled: bool = False) -> dict[str, Any]:
+    """Where and how well a party search matched, over ALL its matched rows.
+
+    Computed in Python from rows the search already fetched (≤ the candidate
+    cap), so the refine checkboxes cost no extra query. Confidence buckets are
+    disjoint: exact ≥ 99.9%, high ≥ 90%, medium ≥ 70%, low below that.
+
+    Places are RANKED by their confident (≥ 90%) matches first and only then
+    by their total, while the count shown stays the total. A common name pulls
+    in a thousand low-confidence spellings; ranked by raw count alone, the
+    villages where the person really appears (4 exact deeds in VINUKONDA for
+    "Usharani Bobba") fell out of the top 15 behind CHITTOOR's 85 near-misses.
+
+    ``sampled`` says the rows are a capped sample (a very common name), so the
+    places are where the sample fell, not where the person is; the browser
+    says so instead of presenting them as the answer.
+    """
+    villages: dict[str, int] = {}
+    sros: dict[str, int] = {}
+    strong_villages: dict[str, int] = {}
+    strong_sros: dict[str, int] = {}
+    confidence = {"exact": 0, "high": 0, "medium": 0, "low": 0}
+    for row in rows:
+        score = _score(row)
+        strong = score >= 0.9
+        village = _clean(row.get("village_norm")) or _normalize_village(
+            _clean(row.get("village")) or _clean(row.get("village_full"))
+        )
+        if village:
+            villages[village] = villages.get(village, 0) + 1
+            if strong:
+                strong_villages[village] = strong_villages.get(village, 0) + 1
+        sro = _clean(row.get("sro_name"))
+        if sro:
+            sros[sro] = sros.get(sro, 0) + 1
+            if strong:
+                strong_sros[sro] = strong_sros.get(sro, 0) + 1
+        bucket = "exact" if score >= _EXACT_SCORE else "high" if strong else (
+            "medium" if score >= 0.7 else "low"
+        )
+        confidence[bucket] += 1
+
+    def top(counts: dict[str, int], strong: dict[str, int], size: int) -> list[dict[str, Any]]:
+        ranked = sorted(
+            counts.items(), key=lambda item: (-strong.get(item[0], 0), -item[1], item[0])
+        )[:size]
+        return [{"name": name, "count": count} for name, count in ranked]
+
+    return {
+        "villages": top(villages, strong_villages, _FACET_VILLAGES),
+        "sros": top(sros, strong_sros, _FACET_SROS),
+        "confidence": confidence,
+        "sampled": bool(sampled),
+    }
+
+
+_REPORT_ID = re.compile(r"\bPTR-\d{8}-\d{6}-[0-9A-F]{6}\b")
+_DETAIL_HEADING = "## 3. Deed details"
+_MAX_KEPT_REPORTS = 32
 
 
 class PublicRecordsService:
@@ -133,9 +331,15 @@ class PublicRecordsService:
     def __init__(self, settings: PublicRecordSettings):
         self.settings = settings
         self.db = ReadOnlyDatabase(settings)
+        # Full report text by report id, for the browser view (see brief_report).
+        self._full_reports: "OrderedDict[str, str]" = OrderedDict()
         self._capability_lock = asyncio.Lock()
         self._capability_checked_at = 0.0
         self._capability_cache = self._unavailable_capability()
+        self._sro_names: list[str] = []
+        self._sro_names_at = 0.0
+        self._sro_offices: dict[str, list[str]] = {}
+        self._sro_offices_at = 0.0
 
     @staticmethod
     def _unavailable_capability() -> dict[str, Any]:
@@ -145,6 +349,30 @@ class PublicRecordsService:
             "tool_count": len(PUBLIC_RECORD_TOOL_NAMES),
             "semantic_search_ready": False,
         }
+
+    def brief_report(self, markdown: str) -> str:
+        """What the model reads of a report: everything but the per-deed details.
+
+        The per-deed section is most of a report's tokens and the model only
+        needs to summarise, so it is kept here for the browser, which renders
+        the full report itself (see full_report).
+        """
+        found = _REPORT_ID.search(markdown)
+        cut = markdown.find(_DETAIL_HEADING)
+        if not found or cut < 0:
+            return markdown
+        self._full_reports[found.group(0)] = markdown
+        while len(self._full_reports) > _MAX_KEPT_REPORTS:
+            self._full_reports.popitem(last=False)
+        return (
+            markdown[:cut]
+            + f"{_DETAIL_HEADING}\n_Per-deed details are shown to the user in the full report "
+            "(not repeated here)._\n"
+        )
+
+    def full_report(self, brief: str) -> str | None:
+        found = _REPORT_ID.search(brief or "")
+        return self._full_reports.pop(found.group(0), None) if found else None
 
     async def close(self) -> None:
         await self.db.close()
@@ -164,6 +392,7 @@ class PublicRecordsService:
                     tables = await self.db.inspect_schema()
                     ready = bool(tables.get("records") and tables.get("party"))
                     capability = {
+                        "coverage": self.settings.coverage,
                         "ready": ready,
                         "status": "ready" if ready else "temporarily_unavailable",
                         "tool_count": len(PUBLIC_RECORD_TOOL_NAMES),
@@ -180,7 +409,9 @@ class PublicRecordsService:
             self._capability_checked_at = time.monotonic()
             return dict(capability)
 
-    async def resolve_village_norm(self, name: str, fuzzy: bool = True) -> str | None:
+    async def resolve_village_norm(
+        self, name: str, fuzzy: bool = True, *, timeout_ms: int | None = None
+    ) -> str | None:
         table = self.settings.records_fqn
         normalized = _normalize_village(name)
         if not normalized:
@@ -198,6 +429,7 @@ class PublicRecordsService:
             f"FROM {table} WHERE village_norm %% %(n)s GROUP BY village_norm "
             "ORDER BY sim DESC LIMIT 1",
             {"n": normalized},
+            timeout_ms=timeout_ms,
         )
         return rows[0]["village_norm"] if rows else None
 
@@ -379,39 +611,317 @@ class PublicRecordsService:
             )
         return rows
 
+    async def resolve_sro_names(self, sro: str) -> list[str]:
+        """Exact ``sro_name`` spellings containing ``sro`` (case-insensitive).
+
+        ~300 distinct offices, read once with a loose index scan on idx_sro and
+        kept for hours, so a filter becomes ``sro_name = ANY(...)``, which the
+        btree can drive, instead of an unindexable ``ILIKE '%x%'``.
+        """
+        needle = _normalize_village(sro)
+        if not needle:
+            return []
+        now = time.monotonic()
+        if not self._sro_names or now - self._sro_names_at > _SRO_CACHE_SECONDS:
+            table = self.settings.records_fqn
+            rows = await self.db.fetch_all(
+                "WITH RECURSIVE t AS ("
+                f"SELECT min(sro_name) AS s FROM {table} UNION ALL "
+                f"SELECT (SELECT min(sro_name) FROM {table} WHERE sro_name > t.s) "
+                "FROM t WHERE t.s IS NOT NULL) "
+                "SELECT s AS sro_name FROM t WHERE s IS NOT NULL LIMIT 2000",
+            )
+            self._sro_names = [str(row["sro_name"]) for row in rows if row.get("sro_name")]
+            self._sro_names_at = now
+        exact = [name for name in self._sro_names if _normalize_village(name) == needle]
+        if exact:
+            return exact
+        return [name for name in self._sro_names if needle in _normalize_village(name)][:20]
+
+    async def rid_offices(self, sro_names: list[str]) -> list[str]:
+        """The rid office prefixes of these SROs, or [] when any is unknown.
+
+        ~300 prefixes, read once with a loose index scan on the records pkey
+        (each prefix's first deed names its office) and kept for hours. An SRO
+        without a known prefix returns [] so the caller filters by name only —
+        a missing prefix must never silently drop that office's deeds.
+        """
+        now = time.monotonic()
+        if not self._sro_offices_at or now - self._sro_offices_at > _SRO_CACHE_SECONDS:
+            table = self.settings.records_fqn
+            width = _RID_OFFICE_CHARS
+            rows = await self.db.fetch_all(
+                "WITH RECURSIVE t AS ("
+                f"SELECT min(rid) AS r FROM {table} UNION ALL "
+                f"SELECT (SELECT min(rid) FROM {table} WHERE rid >= substr(t.r, 1, {width}) || '~') "
+                "FROM t WHERE t.r IS NOT NULL) "
+                f"SELECT substr(t.r, 1, {width}) AS office, "
+                f"(SELECT sro_name FROM {table} x WHERE x.rid = t.r ORDER BY x.s_no LIMIT 1) AS sro_name "
+                "FROM t WHERE t.r IS NOT NULL LIMIT 2000",
+            )
+            offices: dict[str, list[str]] = {}
+            for row in rows:
+                office, sro = str(row.get("office") or ""), str(row.get("sro_name") or "")
+                if len(office) == width and office.isalnum() and sro:
+                    offices.setdefault(sro, []).append(office)
+            self._sro_offices = offices
+            self._sro_offices_at = now
+        found: list[str] = []
+        for name in sro_names:
+            prefixes = self._sro_offices.get(name)
+            if not prefixes:
+                return []
+            found.extend(prefixes)
+        return list(dict.fromkeys(found))
+
+    async def _resolve_villages(self, villages: list[str] | None) -> tuple[list[str], list[str]]:
+        """(resolved village_norm names, the inputs that matched nothing).
+
+        Exact names are looked up in one indexed query; only the misspelt
+        ones go to the slow fuzzy pass, one at a time and time-boxed (see
+        _VILLAGE_FUZZY_TIMEOUT_MS)."""
+        wanted = list(dict.fromkeys(
+            _normalize_village(str(item))[:80] for item in (villages or []) if _normalize_village(str(item))
+        ))
+        if len(wanted) > _MAX_PLACE_FILTERS:
+            raise ToolInputError(f"Choose at most {_MAX_PLACE_FILTERS} villages.")
+        if not wanted:
+            return [], []
+        rows = await self.db.fetch_all(
+            f"SELECT w AS village_norm FROM unnest(%(w)s::text[]) AS w WHERE EXISTS "
+            f"(SELECT 1 FROM {self.settings.records_fqn} r WHERE r.village_norm = w)",
+            {"w": wanted},
+        )
+        exact = {str(row["village_norm"]) for row in rows}
+        found: dict[str, str | None] = {item: item for item in wanted if item in exact}
+        fuzzy_tried = 0
+        for item in wanted:
+            if item in found:
+                continue
+            if fuzzy_tried >= _MAX_FUZZY_VILLAGES:
+                found[item] = None
+                continue
+            fuzzy_tried += 1
+            try:
+                found[item] = await self.resolve_village_norm(
+                    item, fuzzy=True, timeout_ms=_VILLAGE_FUZZY_TIMEOUT_MS
+                )
+            except PublicRecordsQueryTimeout:
+                found[item] = None
+        resolved = list(dict.fromkeys(name for name in (found[item] for item in wanted) if name))
+        missing = [item for item in wanted if not found[item]]
+        return resolved, missing
+
+    async def _party_candidates(
+        self,
+        query: str,
+        threshold: float,
+        side: str | None,
+        villages: list[str] | None = None,
+        sros: list[str] | None = None,
+        *,
+        fuzzy: bool = True,
+        offices: list[str] | None = None,
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """Party rows matching ``query``, best score per (rid, s_no, seq).
+
+        With ``villages`` / ``sros`` the deed join happens inside each pass (see
+        _PARTY_FILTERED_TIMEOUT_MS); every pass is still LIMITed to the cap.
+        """
+        side_sql = " AND p.side = %(side)s" if side else ""
+        base: dict[str, Any] = {"query": query, "threshold": threshold, "cap": _PARTY_CANDIDATE_CAP + 1}
+        if side:
+            base["side"] = side
+        place_sql = ""
+        if villages:
+            place_sql += " AND r.village_norm = ANY(%(villages)s::text[])"
+            base["villages"] = list(villages)
+        if sros:
+            place_sql += " AND r.sro_name = ANY(%(sros)s::text[])"
+            base["sros"] = list(sros)
+            if offices:
+                # The same offices as rid ranges on the party row itself, so the
+                # index narrows the candidates before any deed is probed.
+                ranges = []
+                for i, office in enumerate(offices):
+                    base[f"lo{i}"] = office
+                    base[f"hi{i}"] = office[:-1] + chr(ord(office[-1]) + 1)
+                    ranges.append(f"(p.rid >= %(lo{i})s AND p.rid < %(hi{i})s)")
+                place_sql += " AND (" + " OR ".join(ranges) + ")"
+        filtered = bool(place_sql)
+        join_sql = (
+            f"JOIN {self.settings.records_fqn} r ON r.rid = p.rid AND r.s_no = p.s_no "
+            if filtered else ""
+        )
+        select = (
+            "SELECT p.rid, p.s_no, p.seq, p.name, p.role, p.side, "
+            f"similarity(p.name_norm, %(query)s) AS score FROM {self.settings.party_fqn} p "
+            f"{join_sql}"
+        )
+        found: dict[tuple, dict[str, Any]] = {}
+
+        def keep(rows: list[dict[str, Any]]) -> None:
+            for row in rows:
+                key = (row["rid"], row["s_no"], row["seq"])
+                if key not in found or (row["score"] or 0) > (found[key]["score"] or 0):
+                    found[key] = row
+
+        tokens = _party_tokens(query)
+        if tokens:
+            words = " AND ".join(f"p.name_norm LIKE %(w{i})s" for i in range(len(tokens)))
+            word_params = {**base, **{f"w{i}": f"%{_like_escape(t)}%" for i, t in enumerate(tokens)}}
+            try:
+                rows = await self.db.fetch_all(
+                    f"{select}WHERE {words} AND similarity(p.name_norm, %(query)s) >= %(threshold)s"
+                    f"{side_sql}{place_sql} LIMIT %(cap)s",
+                    word_params,
+                    local_settings={"work_mem": _PARTY_WORK_MEM},
+                    timeout_ms=_PARTY_FILTERED_TIMEOUT_MS if filtered else _PARTY_WORDS_TIMEOUT_MS,
+                )
+            except PublicRecordsQueryTimeout:
+                if not filtered:
+                    raise
+                # The place join ran out of time: take the plain bounded sample
+                # and let _party_rows filter it by place. No fuzzy pass after.
+                rows, _ = await self._party_candidates(query, threshold, side, fuzzy=False)
+                return rows, _PARTY_FILTER_SAMPLE_NOTE
+            keep(rows)
+            if len(rows) > _PARTY_CANDIDATE_CAP:
+                return list(found.values()), _PARTY_SAMPLE_NOTE
+        if not fuzzy:
+            return list(found.values()), None
+        try:
+            rows = await self.db.fetch_all(
+                f"{select}WHERE p.name_norm %% %(query)s{side_sql}{place_sql} LIMIT %(cap)s",
+                base,
+                local_settings={
+                    "pg_trgm.similarity_threshold": threshold,
+                    "work_mem": _PARTY_WORK_MEM,
+                },
+                timeout_ms=_PARTY_FUZZY_TIMEOUT_MS,
+            )
+        except PublicRecordsQueryTimeout:
+            if not found:
+                raise
+            return list(found.values()), _PARTY_VARIANTS_NOTE
+        keep(rows)
+        return list(found.values()), (_PARTY_SAMPLE_NOTE if len(rows) > _PARTY_CANDIDATE_CAP else None)
+
+    async def _party_rows(
+        self,
+        query: str,
+        threshold: float,
+        side: str | None = None,
+        villages: list[str] | None = None,
+        sros: list[str] | None = None,
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """Matched deeds joined to their best-matching party (no ordering applied).
+
+        One row per deed: a deed naming the person twice (both sides, or two
+        co-parties spelt alike) is still one deed, in the table, the totals and
+        the facet counts."""
+        offices = await self.rid_offices(list(sros)) if sros else []
+        candidates, note = await self._party_candidates(
+            query, threshold, side, villages, sros, offices=offices or None
+        )
+        if not candidates:
+            return [], note
+        keys = list(dict.fromkeys((row["rid"], row["s_no"]) for row in candidates))
+        records = await self.db.fetch_all(
+            "SELECT r.rid, r.s_no, r.village, r.village_full, r.village_norm, r.survey_no, r.plot_no, "
+            "r.house_no, r.apartment_name, r.sro_name, r.orig_doc_no, r.doc_no, r.year, "
+            "r.txn_class, r.transaction_type, r.market_value, r.consideration_value, "
+            "r.extent_val, r.extent_unit, r.reg_date, r.buyers, r.sellers, "
+            "r.boundary_north, r.boundary_south, r.boundary_east, r.boundary_west "
+            f"FROM {self.settings.records_fqn} r "
+            "JOIN unnest(%(rids)s::text[], %(snos)s::int[]) AS k(rid, s_no) "
+            "ON r.rid = k.rid AND r.s_no = k.s_no",
+            {"rids": [key[0] for key in keys], "snos": [key[1] for key in keys]},
+        )
+        village_set = set(villages or ())
+        sro_set = set(sros or ())
+        by_key = {
+            (row["rid"], row["s_no"]): row for row in records
+            # The same place rule again, in Python: it is what keeps the
+            # timed-out fallback sample honest, and a no-op otherwise.
+            if (not village_set or row.get("village_norm") in village_set)
+            and (not sro_set or row.get("sro_name") in sro_set)
+        }
+        best: dict[tuple, dict[str, Any]] = {}
+        for party in candidates:
+            key = (party["rid"], party["s_no"])
+            if key not in best or (party["score"] or 0) > (best[key]["score"] or 0):
+                best[key] = party
+        rows = []
+        for party in best.values():
+            record = by_key.get((party["rid"], party["s_no"]))
+            if record is None:
+                continue
+            rows.append({
+                **record,
+                "matched_name": party["name"],
+                "role": party["role"],
+                "side": party["side"],
+                "score": party["score"],
+            })
+        return rows, note
+
     async def find_properties_by_party(
         self,
         name: str,
         side: str | None = None,
         limit: int = 20,
         min_similarity: float = 0.6,
-    ) -> list[dict[str, Any]]:
+        villages: list[str] | None = None,
+        sro: str | None = None,
+    ) -> dict[str, Any]:
         query = _normalize_name(name)
-        if not query:
-            return []
         threshold = min(1.0, max(_MIN_PARTY_SIMILARITY, float(min_similarity)))
-        where = "p.name_norm %% %(query)s"
-        params: dict[str, Any] = {"query": query, "limit": max(1, min(int(limit), 100))}
+        normalized_side = None
         if side:
             normalized_side = side.strip().lower()
             if normalized_side not in {"executant", "claimant"}:
                 raise ToolInputError("side must be executant or claimant.")
-            where += " AND p.side = %(side)s"
-            params["side"] = normalized_side
-        sql = (
-            "SELECT p.rid, p.s_no, p.name AS matched_name, p.role, p.side, "
-            "similarity(p.name_norm, %(query)s) AS score, "
-            "r.village, r.survey_no, r.transaction_type, r.reg_date, "
-            "r.extent_val, r.extent_unit "
-            f"FROM {self.settings.party_fqn} p "
-            f"JOIN {self.settings.records_fqn} r USING (rid, s_no) "
-            f"WHERE {where} ORDER BY score DESC, r.reg_date DESC NULLS LAST LIMIT %(limit)s"
+        sro_text = _clean(sro)[:80] or None
+        echo = {
+            "name": _clean(name)[:120], "villages": [], "sro": sro_text,
+            "min_similarity": threshold, "side": normalized_side,
+        }
+        if not query:
+            return {"matches": [], "total_matches": 0, "complete": True, "note": None,
+                    "facets": party_facets([]), "query": echo}
+        resolved_villages, missing = await self._resolve_villages(villages)
+        echo["villages"] = resolved_villages
+        sro_names = await self.resolve_sro_names(sro_text) if sro_text else []
+        unknown = []
+        if villages and not resolved_villages:
+            unknown.append("village " + ", ".join(missing))
+        if sro_text and not sro_names:
+            unknown.append(f"SRO {sro_text}")
+        if unknown:
+            return {
+                "matches": [], "total_matches": 0, "complete": True,
+                "note": "No such " + " or ".join(unknown) + " in the records.",
+                "facets": party_facets([]), "query": echo,
+            }
+        rows, note = await self._party_rows(
+            query, threshold, normalized_side, resolved_villages or None, sro_names or None
         )
-        return await self.db.fetch_all(
-            sql,
-            params,
-            local_settings={"pg_trgm.similarity_threshold": threshold},
-        )
+        if missing:
+            note = " ".join(filter(None, [note, "Not found, so not searched: " + ", ".join(missing) + "."]))
+        rows.sort(key=lambda row: str(row.get("reg_date") or ""), reverse=True)
+        rows.sort(key=lambda row: row.get("score") or 0, reverse=True)
+        keep = max(1, min(int(limit), 100))
+        return {
+            "matches": [_party_match_row(row) for row in rows[:keep]],
+            "total_matches": len(rows),
+            "complete": note is None,
+            "note": note,
+            # Over every matched deed (≤ the candidate cap), not just the page.
+            "facets": party_facets(rows, sampled=bool(note) and (
+                _PARTY_SAMPLE_NOTE in note or _PARTY_FILTER_SAMPLE_NOTE in note)),
+            "query": echo,
+        }
 
     async def get_price_rates(
         self,
@@ -521,20 +1031,22 @@ class PublicRecordsService:
         rid: str | None = None,
         s_no: int | None = None,
         title: str | None = None,
+        min_similarity: float | None = None,
     ) -> str:
         if party:
-            return await self._party_report(party, title)
+            threshold = 0.35 if min_similarity is None else min(1.0, max(0.35, float(min_similarity)))
+            return await self._party_report(party, title, threshold)
         if rid:
             return await self._dossier_report(rid, s_no, title)
         return await self._market_report(
             village, area_sro, transaction_class, land_class, year, title
         )
 
-    async def _party_report(self, name: str, title: str | None) -> str:
+    async def _party_report(self, name: str, title: str | None, threshold: float = 0.35) -> str:
         now = datetime.now(timezone.utc)
-        scope = f"Party: {name}"
+        scope = f"Party: {name}" + (" (exact name matches only)" if threshold >= 1.0 else "")
         report_id = _report_id(now, scope)
-        heading = title or "PATTADAR PARTY PORTFOLIO REPORT"
+        heading = title or "PATTADAR PARTY REPORT"
         query = _normalize_name(name)
         if not query:
             return "\n".join(
@@ -543,23 +1055,20 @@ class PublicRecordsService:
                 + _footer(report_id, now)
             )
         cap = 1000
-        rows = await self.db.fetch_all(
-            "SELECT p.name AS matched_name, p.role, p.side, "
-            "similarity(p.name_norm, %(query)s) AS score, r.rid, r.s_no, r.village, "
-            "r.survey_no, r.txn_class, r.transaction_type, r.market_value, "
-            "r.extent_val, r.extent_unit, r.reg_date "
-            f"FROM {self.settings.party_fqn} p "
-            f"JOIN {self.settings.records_fqn} r USING (rid, s_no) "
-            "WHERE p.name_norm %% %(query)s ORDER BY r.reg_date DESC NULLS LAST "
-            "LIMIT %(cap)s",
-            {"query": query, "cap": cap},
-            local_settings={"pg_trgm.similarity_threshold": 0.35},
-        )
+        rows, note = await self._party_rows(query, threshold)
+        if threshold >= 1.0:
+            # similarity() is a float; "100%" means the name as typed, word for word.
+            rows = [row for row in rows if (row.get("score") or 0) >= 0.999]
+        rows.sort(key=lambda row: str(row.get("reg_date") or ""), reverse=True)
+        rows = rows[:cap]
         lines = _header(heading, report_id, now, scope)
+        if note:
+            lines += [f"> {note}", ""]
         if not rows:
             return "\n".join(
                 lines + [f'_No parties matched "{name}"._'] + _footer(report_id, now)
             )
+        details = [(row, _party_match_row(row)) for row in rows]
         documents = {row["rid"] for row in rows}
         villages = {row["village"] for row in rows if row["village"]}
         dates = [str(row["reg_date"]) for row in rows if row["reg_date"]]
@@ -592,23 +1101,49 @@ class PublicRecordsService:
                 ),
                 "## 2. Deeds (most recent first)",
                 _table(
-                    ["Date", "Village", "Survey", "Role/Side", "Txn", "Market value"],
+                    ["Date", "Location", "Survey", "Side", "Transaction", "Amount in the deed", "Document"],
                     [
                         [
-                            row["reg_date"] or "—",
-                            row["village"] or "—",
-                            row["survey_no"] or "—",
-                            f'{row["role"] or "?"}/{row["side"] or "?"}',
-                            row["txn_class"] or row["transaction_type"] or "—",
-                            _inr(row["market_value"]),
+                            detail["reg_date"] or "—",
+                            detail["location"] or "—",
+                            detail["survey_no"] or "—",
+                            _SIDE_WORDS.get(detail["side"] or "", detail["side"] or "—"),
+                            detail["transaction_type"] or row.get("txn_class") or "—",
+                            _inr(detail["consideration_value"]),
+                            detail["document"] or "—",
                         ]
-                        for row in rows[:30]
+                        for row, detail in details[:_REPORT_DEEDS]
                     ],
                 ),
             ]
         )
-        if len(rows) > 30:
-            lines.append(f"_…showing 30 of {len(rows)} deeds._\n")
+        if len(rows) > _REPORT_DEEDS:
+            lines.append(f"_…showing {_REPORT_DEEDS} of {len(rows)} deeds._\n")
+        lines.append("## 3. Deed details")
+        for index, (row, detail) in enumerate(details[:_REPORT_DEEDS], start=1):
+            extent = detail["extent_val"]
+            lines.extend([
+                f"### {index}. {detail['reg_date'] or 'Undated'} · {detail['transaction_type'] or 'Deed'}"
+                f" · {detail['location'] or 'location not recorded'}",
+                _table(
+                    ["Field", "Value"],
+                    [
+                        ["Name in deed", detail["matched_name"] or "—"],
+                        ["Name match", f"{round((detail['score'] or 0) * 100)}%"],
+                        ["Side", _SIDE_WORDS.get(detail["side"] or "", detail["side"] or "—")],
+                        ["Location", detail["location"] or "—"],
+                        ["Survey number", detail["survey_no"] or "—"],
+                        ["Extent", f"{extent} {detail['extent_unit'] or ''}".strip() if extent is not None else "—"],
+                        ["Government value", _inr(detail["market_value"])],
+                        ["Amount in the deed", _inr(detail["consideration_value"])],
+                        ["Other party", detail["counterparty"] or "—"],
+                        ["Document number", detail["document"] or "—"],
+                        ["SRO", detail["sro_name"] or "—"],
+                        ["Boundaries", detail["boundaries"] or "—"],
+                        ["Record ID", f"{detail['rid']} / {detail['s_no']}"],
+                    ],
+                ),
+            ])
         return "\n".join(lines + _footer(report_id, now))
 
     async def _dossier_report(
@@ -678,8 +1213,8 @@ class PublicRecordsService:
                             ["Extent", extent],
                             ["Land class / Type", f'{record["land_class"] or "—"} / {record["property_type"] or "—"}'],
                             ["Transaction", f'{record["txn_class"] or "—"} ({record["transaction_type"] or "—"})'],
-                            ["Market value", _inr(record["market_value"])],
-                            ["Consideration", _inr(record["consideration_value"])],
+                            ["Government value", _inr(record["market_value"])],
+                            ["Amount in the deed", _inr(record["consideration_value"])],
                             ["Reg / Exec / Pres date", f'{record["reg_date"] or "—"} / {record["exec_date"] or "—"} / {record["pres_date"] or "—"}'],
                         ],
                     ),

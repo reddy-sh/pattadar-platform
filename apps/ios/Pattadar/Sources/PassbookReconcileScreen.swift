@@ -96,7 +96,7 @@ struct PassbookReconcileScreen: View {
                                     title: "Sy \(e.surveyNo)",
                                     was: acresText(e.extent),
                                     now: acresText(s.acres),
-                                    note: s.acres < e.extent ? "Smaller than your record" : "Larger than your record",
+                                    note: s.acres < e.extent ? "Smaller than you saved" : "Larger than you saved",
                                     take: binding(parcel: c))
                             }
                         }
@@ -124,7 +124,7 @@ struct PassbookReconcileScreen: View {
                     } header: {
                         Label("No longer listed — \(diff.missing.count)", systemImage: "exclamationmark.triangle.fill")
                     } footer: {
-                        Text("Kept unless you say otherwise. A page that did not fit in the photograph looks exactly like a parcel that was sold.")
+                        Text("Kept unless you say otherwise. A page that did not fit in the photo looks exactly like a parcel that was sold.")
                     }
                 }
 
@@ -165,7 +165,7 @@ struct PassbookReconcileScreen: View {
                     .controlSize(.large)
                     .disabled(applying)
                     if chosenCount == 0 && !diff.isIdentical {
-                        Text("Nothing selected — your record stays exactly as it is.")
+                        Text("Nothing selected — your property stays exactly as it is.")
                             .font(.caption2).foregroundStyle(.secondary)
                     }
                 }

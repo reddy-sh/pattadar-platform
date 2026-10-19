@@ -1,0 +1,724 @@
+{
+  "company": {
+    "default_role": "Director",
+    "fields": [
+      {
+        "default": "IN",
+        "key": "country",
+        "kind": "country",
+        "label": "Country"
+      },
+      {
+        "key": "sub_kind",
+        "kind": "select",
+        "label": "Kind of company",
+        "options": [
+          "Private limited",
+          "Public limited",
+          "One person company",
+          "Section 8",
+          "Producer company",
+          "LLP",
+          "Other"
+        ],
+        "required": true
+      },
+      {
+        "help": "Corporate Identity Number, 21 characters, like U01100TG2015PTC123456.",
+        "key": "cin",
+        "kind": "text",
+        "label": "CIN",
+        "pattern": "^[LU]\\d{5}[A-Z]{2}\\d{4}[A-Z]{3}\\d{6}$",
+        "required": true,
+        "upper": true,
+        "when": [
+          {
+            "in": [
+              "IN"
+            ],
+            "key": "country"
+          },
+          {
+            "key": "sub_kind",
+            "not": [
+              "LLP",
+              "Other"
+            ]
+          }
+        ]
+      },
+      {
+        "help": "Like AAB-1234.",
+        "key": "llpin",
+        "kind": "text",
+        "label": "LLPIN",
+        "pattern": "^[A-Z]{3}-\\d{4}$",
+        "required": true,
+        "upper": true,
+        "when": [
+          {
+            "in": [
+              "IN"
+            ],
+            "key": "country"
+          },
+          {
+            "in": [
+              "LLP"
+            ],
+            "key": "sub_kind"
+          }
+        ]
+      },
+      {
+        "help": "The number the company registry gave it.",
+        "key": "reg_no",
+        "kind": "text",
+        "label": "Registration number",
+        "required": true,
+        "when": [
+          {
+            "key": "country",
+            "not": [
+              "IN"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "incorporated_on",
+        "kind": "date",
+        "label": "Date of incorporation",
+        "past": true,
+        "required": true
+      },
+      {
+        "help": "Must match the sale deed.",
+        "key": "address",
+        "kind": "text",
+        "label": "Registered office",
+        "required": true
+      },
+      {
+        "entity": "company",
+        "help": "Ten characters: five letters, four digits, then a letter.",
+        "key": "pan",
+        "kind": "text",
+        "label": "PAN",
+        "pan4": {
+          "*": "C",
+          "LLP": "F",
+          "Other": ""
+        },
+        "pattern": "^[A-Z]{5}\\d{4}[A-Z]$",
+        "upper": true,
+        "when": [
+          {
+            "in": [
+              "IN"
+            ],
+            "key": "country"
+          }
+        ]
+      },
+      {
+        "help": "The entity's tax number in its country, e.g. EIN, UTR, TRN.",
+        "key": "tax_id",
+        "kind": "text",
+        "label": "Tax ID",
+        "when": [
+          {
+            "key": "country",
+            "not": [
+              "IN"
+            ]
+          }
+        ]
+      },
+      {
+        "help": "A struck-off company cannot convey cleanly.",
+        "key": "status",
+        "kind": "select",
+        "label": "Status",
+        "options": [
+          "Active",
+          "Struck off",
+          "Under liquidation"
+        ]
+      }
+    ],
+    "has_tree": false,
+    "label": "Company / LLP",
+    "member_fields": [
+      {
+        "help": "Director Identification Number, 8 digits.",
+        "key": "din",
+        "kind": "text",
+        "label": "DIN",
+        "pattern": "^\\d{8}$",
+        "roles": [
+          "Director",
+          "Managing director",
+          "Whole-time director"
+        ],
+        "when": [
+          {
+            "in": [
+              "IN"
+            ],
+            "key": "country"
+          }
+        ]
+      },
+      {
+        "help": "Designated Partner Identification Number, 8 digits.",
+        "key": "dpin",
+        "kind": "text",
+        "label": "DPIN",
+        "pattern": "^\\d{8}$",
+        "roles": [
+          "Designated partner"
+        ],
+        "when": [
+          {
+            "in": [
+              "IN"
+            ],
+            "key": "country"
+          }
+        ]
+      },
+      {
+        "key": "appointed_on",
+        "kind": "date",
+        "label": "Appointed on",
+        "past": true
+      },
+      {
+        "help": "A director or officer who has left cannot sign for the company.",
+        "key": "ceased_on",
+        "kind": "date",
+        "label": "Ceased on"
+      },
+      {
+        "key": "resolution_on",
+        "kind": "date",
+        "label": "Board resolution date",
+        "past": true,
+        "roles": [
+          "Authorized Signatory"
+        ],
+        "when": [
+          {
+            "key": "sub_kind",
+            "not": [
+              "LLP"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "resolution_on",
+        "kind": "date",
+        "label": "Partners' resolution date",
+        "past": true,
+        "roles": [
+          "Authorized Signatory"
+        ],
+        "when": [
+          {
+            "in": [
+              "LLP"
+            ],
+            "key": "sub_kind"
+          }
+        ]
+      }
+    ],
+    "primary_role": "Director",
+    "roles": [
+      "Director",
+      "Managing director",
+      "Whole-time director",
+      "Authorized Signatory",
+      "Company secretary",
+      "Chief financial officer",
+      "Shareholder",
+      "Nominee",
+      "Designated partner",
+      "Partner",
+      "Member"
+    ],
+    "share_roles": {
+      "Designated partner": "Profit share %",
+      "Partner": "Profit share %",
+      "Shareholder": "Shareholding %"
+    }
+  },
+  "family": {
+    "default_role": "Spouse",
+    "fields": [
+      {
+        "default": "IN",
+        "key": "country",
+        "kind": "country",
+        "label": "Country"
+      },
+      {
+        "help": "Decides who inherits. Hindu includes Sikh, Jain and Buddhist.",
+        "key": "personal_law",
+        "kind": "select",
+        "label": "Personal law",
+        "options": [
+          "Hindu",
+          "Muslim",
+          "Christian",
+          "Parsi",
+          "Other"
+        ],
+        "when": [
+          {
+            "in": [
+              "IN"
+            ],
+            "key": "country"
+          }
+        ]
+      }
+    ],
+    "has_tree": true,
+    "label": "Family",
+    "member_fields": [],
+    "primary_role": "Head",
+    "roles": [
+      "Head",
+      "Spouse",
+      "Son",
+      "Daughter",
+      "Father",
+      "Mother",
+      "Brother",
+      "Sister",
+      "Grandfather",
+      "Grandmother",
+      "Grandson",
+      "Granddaughter",
+      "Other"
+    ],
+    "share_roles": {}
+  },
+  "huf": {
+    "default_role": "Coparcener",
+    "fields": [
+      {
+        "default": "IN",
+        "key": "country",
+        "kind": "country",
+        "label": "Country"
+      },
+      {
+        "entity": "HUF",
+        "help": "Ten characters: five letters, four digits, then a letter.",
+        "key": "pan",
+        "kind": "text",
+        "label": "PAN",
+        "pan4": {
+          "*": "H"
+        },
+        "pattern": "^[A-Z]{5}\\d{4}[A-Z]$",
+        "upper": true,
+        "when": [
+          {
+            "in": [
+              "IN"
+            ],
+            "key": "country"
+          }
+        ]
+      },
+      {
+        "help": "The entity's tax number in its country, e.g. EIN, UTR, TRN.",
+        "key": "tax_id",
+        "kind": "text",
+        "label": "Tax ID",
+        "when": [
+          {
+            "key": "country",
+            "not": [
+              "IN"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "partition",
+        "kind": "select",
+        "label": "Partition",
+        "options": [
+          "None",
+          "Partial",
+          "Full"
+        ]
+      },
+      {
+        "key": "partition_on",
+        "kind": "date",
+        "label": "Partition date",
+        "past": true,
+        "when": [
+          {
+            "in": [
+              "Partial",
+              "Full"
+            ],
+            "key": "partition"
+          }
+        ]
+      }
+    ],
+    "has_tree": false,
+    "label": "HUF",
+    "member_fields": [],
+    "primary_role": "Karta",
+    "roles": [
+      "Karta",
+      "Coparcener",
+      "Member"
+    ],
+    "share_roles": {}
+  },
+  "partnership": {
+    "default_role": "Partner",
+    "fields": [
+      {
+        "default": "IN",
+        "key": "country",
+        "kind": "country",
+        "label": "Country"
+      },
+      {
+        "help": "In India an unregistered firm cannot sue to enforce its rights.",
+        "key": "registered",
+        "kind": "select",
+        "label": "Registered firm?",
+        "options": [
+          "Yes",
+          "No"
+        ],
+        "required": true
+      },
+      {
+        "help": "The number on the registration certificate.",
+        "key": "reg_no",
+        "kind": "text",
+        "label": "Registration number",
+        "required": true,
+        "when": [
+          {
+            "in": [
+              "Yes"
+            ],
+            "key": "registered"
+          }
+        ]
+      },
+      {
+        "key": "deed_date",
+        "kind": "date",
+        "label": "Partnership deed date",
+        "past": true,
+        "required": true
+      },
+      {
+        "help": "Where the deed is registered, its number and year.",
+        "key": "deed_ref",
+        "kind": "text",
+        "label": "Deed reference"
+      },
+      {
+        "entity": "firm",
+        "help": "Ten characters: five letters, four digits, then a letter.",
+        "key": "pan",
+        "kind": "text",
+        "label": "PAN",
+        "pan4": {
+          "*": "F"
+        },
+        "pattern": "^[A-Z]{5}\\d{4}[A-Z]$",
+        "upper": true,
+        "when": [
+          {
+            "in": [
+              "IN"
+            ],
+            "key": "country"
+          }
+        ]
+      },
+      {
+        "help": "The entity's tax number in its country, e.g. EIN, UTR, TRN.",
+        "key": "tax_id",
+        "kind": "text",
+        "label": "Tax ID",
+        "when": [
+          {
+            "key": "country",
+            "not": [
+              "IN"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "address",
+        "kind": "text",
+        "label": "Principal place of business"
+      }
+    ],
+    "has_tree": false,
+    "label": "Partnership",
+    "member_fields": [
+      {
+        "key": "admitted_on",
+        "kind": "date",
+        "label": "Admitted on",
+        "past": true
+      },
+      {
+        "help": "A retired partner cannot sign a deed.",
+        "key": "retired_on",
+        "kind": "date",
+        "label": "Retired on"
+      }
+    ],
+    "primary_role": "Managing Partner",
+    "roles": [
+      "Managing Partner",
+      "Partner",
+      "Sleeping partner",
+      "Minor admitted to benefits",
+      "Authorized Signatory",
+      "Member"
+    ],
+    "share_roles": {
+      "Managing Partner": "Profit share %",
+      "Member": "Profit share %",
+      "Minor admitted to benefits": "Profit share %",
+      "Partner": "Profit share %",
+      "Sleeping partner": "Profit share %"
+    }
+  },
+  "trust": {
+    "default_role": "Trustee",
+    "fields": [
+      {
+        "default": "IN",
+        "key": "country",
+        "kind": "country",
+        "label": "Country"
+      },
+      {
+        "key": "sub_kind",
+        "kind": "select",
+        "label": "Kind of trust or society",
+        "options": [
+          "Private trust",
+          "Public charitable trust",
+          "Religious or endowment",
+          "Waqf",
+          "Registered society",
+          "Cooperative society",
+          "Other"
+        ],
+        "required": true
+      },
+      {
+        "key": "deed_date",
+        "kind": "date",
+        "label": "Trust deed date",
+        "past": true,
+        "required": true,
+        "when": [
+          {
+            "in": [
+              "Private trust",
+              "Public charitable trust",
+              "Religious or endowment",
+              "Waqf"
+            ],
+            "key": "sub_kind"
+          }
+        ]
+      },
+      {
+        "help": "Where the deed is registered, its number and year. A trust of land needs a registered deed.",
+        "key": "deed_ref",
+        "kind": "text",
+        "label": "Deed reference",
+        "required": true,
+        "when": [
+          {
+            "in": [
+              "Private trust",
+              "Public charitable trust",
+              "Religious or endowment",
+              "Waqf"
+            ],
+            "key": "sub_kind"
+          }
+        ]
+      },
+      {
+        "help": "The number on the registration certificate, with its year.",
+        "key": "reg_no",
+        "kind": "text",
+        "label": "Registration number",
+        "when": [
+          {
+            "key": "sub_kind",
+            "not": [
+              "Private trust"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "reg_authority",
+        "kind": "text",
+        "label": "Registered with",
+        "when": [
+          {
+            "key": "sub_kind",
+            "not": [
+              "Private trust"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "reg_date",
+        "kind": "date",
+        "label": "Registration date",
+        "past": true,
+        "required": true,
+        "when": [
+          {
+            "in": [
+              "Registered society",
+              "Cooperative society"
+            ],
+            "key": "sub_kind"
+          }
+        ]
+      },
+      {
+        "key": "sanction",
+        "kind": "select",
+        "label": "Sale needs regulator sanction?",
+        "options": [
+          "Yes",
+          "No"
+        ],
+        "when": [
+          {
+            "in": [
+              "Public charitable trust",
+              "Religious or endowment",
+              "Waqf"
+            ],
+            "key": "sub_kind"
+          }
+        ]
+      },
+      {
+        "key": "sanction_authority",
+        "kind": "text",
+        "label": "Sanctioning authority",
+        "when": [
+          {
+            "in": [
+              "Yes"
+            ],
+            "key": "sanction"
+          }
+        ]
+      },
+      {
+        "entity": "trust",
+        "help": "Ten characters: five letters, four digits, then a letter.",
+        "key": "pan",
+        "kind": "text",
+        "label": "PAN",
+        "pan4": {
+          "*": "T",
+          "Cooperative society": "A",
+          "Other": "",
+          "Registered society": "A"
+        },
+        "pattern": "^[A-Z]{5}\\d{4}[A-Z]$",
+        "upper": true,
+        "when": [
+          {
+            "in": [
+              "IN"
+            ],
+            "key": "country"
+          }
+        ]
+      },
+      {
+        "help": "The entity's tax number in its country, e.g. EIN, UTR, TRN.",
+        "key": "tax_id",
+        "kind": "text",
+        "label": "Tax ID",
+        "when": [
+          {
+            "key": "country",
+            "not": [
+              "IN"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "address",
+        "kind": "text",
+        "label": "Address"
+      }
+    ],
+    "has_tree": false,
+    "label": "Trust / society",
+    "member_fields": [
+      {
+        "key": "appointed_on",
+        "kind": "date",
+        "label": "From",
+        "past": true
+      },
+      {
+        "key": "ceased_on",
+        "kind": "date",
+        "label": "Until"
+      }
+    ],
+    "primary_role": "Trustee",
+    "roles": [
+      "Trustee",
+      "Managing trustee",
+      "Settlor",
+      "Beneficiary",
+      "Mutawalli",
+      "President",
+      "Vice-president",
+      "Secretary",
+      "Joint secretary",
+      "Treasurer",
+      "Committee member",
+      "Member",
+      "Authorized Signatory"
+    ],
+    "share_roles": {
+      "Beneficiary": "Beneficial share %"
+    }
+  }
+}

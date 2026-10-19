@@ -97,6 +97,10 @@ export const EXPENSE = {
 } as const;
 
 /** The eight shelves the vault wall is built from (ui.tsx SHELF_LABEL). */
+// The order flow's duplicate guard: the seeded ORDERS hold an open EC and an
+// open survey on ID.parcel, so `?service=ec` or `?service=survey` deep links on
+// it are sent back to the catalogue. Deep-link an orderable service instead —
+// `patta_copy` or `title_opinion` — when a test is about the order form.
 export const SHELVES = ['title', 'revenue', 'map', 'search', 'identity', 'old', 'photos', 'unsorted'] as const;
 export type Shelf = (typeof SHELVES)[number];
 
@@ -104,50 +108,44 @@ export type Shelf = (typeof SHELVES)[number];
 export const STATUSES = ['owned', 'for_sale', 'disputed', 'managed', 'watch', 'archived'] as const;
 
 /** The six hangers a record 360 opens onto, as route suffixes. */
-export const HANGERS = ['', 'features', 'people', 'money', 'expenses', 'services', 'history', 'map', 'photos'] as const;
+export const HANGERS = ['', 'documents', 'site-features', 'people', 'money', 'expenses', 'services', 'activity', 'location', 'media', 'notes'] as const;
 
-/** Every navigable route under /app, for the routing sweep. */
+/** Every navigable signed-in top-level route, for the routing sweep. */
 export const APP_ROUTES = [
-  '/app',
-  '/app/properties',
-  '/app/map',
-  '/app/maps',
-  '/app/shared',
-  '/app/assigned',
-  '/app/services',
-  '/app/order',
-  '/app/papers',
-  '/app/wallet',
-  '/app/account',
-  '/app/groups',
-  '/app/invitations',
-  '/app/notifications',
-  '/app/tools',
-  '/app/audit',
-  '/app/admin',
-  '/app/profile',
-  '/app/help',
-  '/app/refer',
+  '/home',
+  '/properties',
+  '/map',
+  '/maps',
+  '/shared',
+  '/assigned',
+  '/services',
+  '/order',
+  '/papers',
+  '/wallet',
+  '/account',
+  '/groups',
+  '/invitations',
+  '/notifications',
+  '/tools',
+  '/audit',
+  '/profile',
+  '/help',
+  '/refer',
+  // Several properties on one piece of ground (Holdings.tsx).
+  '/holdings',
 ] as const;
 
-/** Old URLs that must still resolve, and where each must land (routes.tsx). */
+/** Old /legacy URLs that must still resolve, and where each must land
+ *  (routes.tsx). The signed-in app keeps no old addresses (no legacy links). */
 export const REDIRECTS: Array<{ from: string; to: string | RegExp }> = [
-  { from: '/app/dashboard', to: '/app' },
-  { from: '/app/parcels', to: '/app/properties?kind=parcel' },
-  { from: '/app/passbooks', to: '/app/properties?kind=parcel' },
-  { from: '/app/documents', to: '/app/papers' },
-  { from: '/app/deeds', to: '/app/papers' },
-  { from: `/app/parcels/${ID.parcel}`, to: `/app/records/${ID.parcel}` },
-  { from: `/app/properties/${ID.parcel}`, to: `/app/records/${ID.parcel}` },
-  { from: '/app/passbooks/pb-1', to: '/legacy/passbooks/pb-1' },
   { from: '/legacy/properties', to: '/legacy/parcels?tab=properties' },
   { from: '/legacy/deeds', to: '/legacy/documents' },
   // Tools is drawn in this app now; the old legacy addresses carry their tab in.
-  { from: '/legacy/tools', to: '/app/tools' },
-  { from: '/legacy/sro', to: '/app/tools?tab=sro' },
-  { from: '/legacy/stamp-duty', to: '/app/tools?tab=stamp-duty' },
-  { from: '/legacy/market-value', to: '/app/tools?tab=market-value' },
-  { from: '/legacy/calculator', to: '/app/tools?tab=calculator' },
+  { from: '/legacy/tools', to: '/tools' },
+  { from: '/legacy/sro', to: '/tools?tab=sro' },
+  { from: '/legacy/stamp-duty', to: '/tools?tab=stamp-duty' },
+  { from: '/legacy/market-value', to: '/tools?tab=market-value' },
+  { from: '/legacy/calculator', to: '/tools?tab=calculator' },
 ];
 
 /** The public doors — reachable with no account at all (routes.tsx). */

@@ -53,7 +53,7 @@ struct AddFeatureSheet: View {
                     Text("What kind")
                 } footer: {
                     Text(usingCustom
-                         ? "Your own heading. It stays on your records and is never suggested to anybody else."
+                         ? "Your own heading. It stays with your properties and is never suggested to anybody else."
                          : "None of these fit? Turn on “Something else” and name it yourself.")
                 }
 

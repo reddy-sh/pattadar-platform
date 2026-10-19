@@ -66,7 +66,7 @@ func unknownTypeStillReads() {
 @Test("A failure names the cause and says nothing changed")
 func failureIsInterpretable() {
     let n = readFailedNotification("The network connection was lost.")
-    #expect(n.title == "Couldn’t read the document")
+    #expect(n.title == "Could not read the document")
     #expect(n.body.contains("The network connection was lost."))
     #expect(n.body.contains("Nothing was saved"))
     // A blank reason must not produce a blank banner.

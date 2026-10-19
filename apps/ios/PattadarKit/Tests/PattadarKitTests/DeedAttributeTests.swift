@@ -151,7 +151,7 @@ func partiesCarryTheirDetails() {
     #expect(a["Seller age"] == "45")
     #expect(a["Buyer address"] == "L.I.G. 164, Housing Board Colony, Guntur")
     // The survey number has no column on a property and would be lost.
-    #expect(a["Survey no."] == "563/5")
+    #expect(a["Survey number"] == "563/5")
 }
 
 @Test("The present owner is named first")

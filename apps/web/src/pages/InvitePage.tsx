@@ -31,8 +31,8 @@ const SPENT_LINK_CODES = new Set(['LINK_INVALID', 'LINK_EXPIRED', 'LINK_ALREADY_
 
 const HEADLINE: Record<string, (who: string) => string> = {
   beneficiary: (who) => `${who} listed you as an heir`,
-  family: (who) => `${who} added you to their family record`,
-  co_manage: (who) => `${who} invited you to their land records`,
+  family: (who) => `${who} added you to their family`,
+  co_manage: (who) => `${who} invited you to their properties`,
 };
 
 export function InvitePage() {
@@ -65,7 +65,7 @@ export function InvitePage() {
     try {
       const r = await claimInvitation(token, consent);
       localStorage.removeItem(PENDING_INVITE);
-      if (r.memberId) navigate(`/app/heir/${r.memberId}`, { replace: true });
+      if (r.memberId) navigate(`/heir/${r.memberId}`, { replace: true });
       else setClaimed(r.message || 'Accepted.');
     } catch (e) {
       setClaimError(e instanceof Error ? e.message : 'That invitation could not be accepted.');
@@ -91,10 +91,12 @@ export function InvitePage() {
     }
   };
 
+  // Consent wording changed 06/10/2026: "household" -> "family" (naming
+  // standard 2.3). The purpose is the same; only the word changed.
   const consentBox = (
     <FormControlLabel
       control={<Checkbox checked={consent} onChange={(e) => setConsent(e.target.checked)} />}
-      label="I agree to receive household inactivity safeguard emails at my verified address. I can withdraw from a safeguard email later."
+      label="I agree to receive family inactivity safeguard emails at my verified address. I can withdraw from a safeguard email later."
     />
   );
 
@@ -124,9 +126,9 @@ export function InvitePage() {
                 </ol>
               </div>
 
-              {claimed && <Alert severity="success">{claimed} <RouterLink to="/app">Go to Home</RouterLink></Alert>}
+              {claimed && <Alert severity="success">{claimed} <RouterLink to="/home">Go to Home</RouterLink></Alert>}
               {claimError && <Alert severity="error">{claimError}</Alert>}
-              {verify === 'done' && <Alert severity="success">Your membership details are verified.</Alert>}
+              {verify === 'done' && <Alert severity="success">Your details are confirmed.</Alert>}
 
               {!claimed && verify !== 'done' && !isLoading && (
                 <>
@@ -152,7 +154,7 @@ export function InvitePage() {
                     <Typography color="text.secondary">
                       Only want to confirm?{' '}
                       <Button variant="text" disabled={verify === 'saving'} onClick={() => void verifyAnonymously()}>
-                        {verify === 'saving' ? 'Verifying…' : 'Verify membership without an account'}
+                        {verify === 'saving' ? 'Confirming…' : 'Confirm my details without an account'}
                       </Button>
                       {verify === 'failed' && ' That did not work. Nothing changed. Try again.'}
                     </Typography>
@@ -167,7 +169,7 @@ export function InvitePage() {
               <Typography variant="h4">This invitation cannot be used</Typography>
               <Alert severity="warning">
                 {preview.state === 'expired' ? 'It has expired.' : preview.state === 'used'
-                  ? 'It has already been accepted.' : 'The link is invalid or has been withdrawn.'}{' '}
+                  ? 'It has already been accepted.' : 'The link is invalid or has been revoked.'}{' '}
                 Ask the person who invited you to send a new one.
               </Alert>
             </>
@@ -177,24 +179,24 @@ export function InvitePage() {
             // The preview could not be read (an older server, or offline): the
             // original verify-only path still works for a heir's link.
             <>
-              <Typography variant="h4">Verify membership</Typography>
+              <Typography variant="h4">Confirm how you are listed</Typography>
               <Typography color="text.secondary">
-                Confirm that this family or beneficiary record belongs to you. Verification does not
-                grant access to the household's account, documents, or property.
+                Confirm these details are about you. Confirming does not give you access to the
+                family's account, documents or properties.
               </Typography>
-              {verify === 'done' && <Alert severity="success">Your membership details are verified.</Alert>}
+              {verify === 'done' && <Alert severity="success">Your details are confirmed.</Alert>}
               {verify === 'invalid' && (
                 <Alert severity="warning">This verification link is invalid, expired, or has already been used.</Alert>
               )}
               {verify === 'failed' && (
-                <Alert severity="error">Pattadar could not verify this membership. Nothing changed. Try again.</Alert>
+                <Alert severity="error">Pattadar could not confirm your details. Nothing changed. Try again.</Alert>
               )}
               {verify !== 'done' && verify !== 'invalid' && (
                 <>
                   {consentBox}
                   <Button variant="contained" disabled={verify === 'saving'} onClick={() => void verifyAnonymously()}
                           sx={{ alignSelf: 'flex-start', minHeight: 44 }}>
-                    {verify === 'saving' ? 'Verifying…' : 'Verify membership'}
+                    {verify === 'saving' ? 'Confirming…' : 'Confirm my details'}
                   </Button>
                 </>
               )}
@@ -215,7 +217,7 @@ export function ReferralLanding() {
     if (isLoading) return;
     const clean = code.trim().toUpperCase();
     if (/^[A-Z]{2,8}[0-9]{2,4}$/.test(clean)) localStorage.setItem(PENDING_REFERRAL, clean);
-    navigate(isAuthenticated ? '/app' : '/signup', { replace: true });
+    navigate(isAuthenticated ? '/home' : '/signup', { replace: true });
   }, [code, isAuthenticated, isLoading, navigate]);
   return null;
 }

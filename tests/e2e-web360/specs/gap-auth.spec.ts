@@ -30,22 +30,22 @@ test.describe('public family capability links', () => {
   test('membership verification is deliberate and can record safeguard-email consent', async ({ page }) => {
     const calls = await watchMutation(page, 'verifyBeneficiary', { id: 'w360-invite-e2e' });
     await page.goto(`/verify/${CAPABILITY}`);
-    await expect(page.getByRole('heading', { name: 'Verify membership' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Confirm how you are listed' })).toBeVisible();
     await expect(page.getByText(CAPABILITY)).toHaveCount(0);
     await expect.poll(() => calls.length).toBe(0);
 
-    await page.getByRole('checkbox', { name: /receive household inactivity safeguard emails/i }).check();
-    await page.getByRole('button', { name: 'Verify membership' }).click();
+    await page.getByRole('checkbox', { name: /receive family inactivity safeguard emails/i }).check();
+    await page.getByRole('button', { name: 'Confirm my details' }).click();
     await expect.poll(() => calls.length).toBe(1);
     expect(calls[0]).toContain(CAPABILITY);
     expect(calls[0]).toContain('"consent":true');
-    await expect(page.getByText('Your membership details are verified.')).toBeVisible();
+    await expect(page.getByText('Your details are confirmed.')).toBeVisible();
   });
 
   test('an invalid membership capability says so', async ({ page }) => {
     await watchMutation(page, 'verifyBeneficiary', null);
     await page.goto('/verify/not-a-real-token');
-    await page.getByRole('button', { name: 'Verify membership' }).click();
+    await page.getByRole('button', { name: 'Confirm my details' }).click();
     await expect(page.getByText(/invalid, expired, or has already been used/i)).toBeVisible();
   });
 

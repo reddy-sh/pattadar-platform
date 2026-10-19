@@ -1,4 +1,4 @@
-/** Tools — the five land utilities, drawn in this app (the redrawn /app/tools).
+/** Tools — the five land utilities, drawn in this app (the redrawn /tools).
  *
  *  This replaces the "still in the previous version" signpost and the MUI
  *  screen it pointed at (pages/ToolsPage.tsx + pages/tools/*, now deleted).
@@ -31,10 +31,11 @@
  *  samples — so without a schedule it now says it cannot run, instead of
  *  offering a picker with nothing in it.
  */
-import { useId, useMemo, useState } from 'react';
+import { useId, useLayoutEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useSearchParams } from 'react-router';
 import CloseOutlined from '@mui/icons-material/CloseOutlined';
+import FileDownloadOutlined from '@mui/icons-material/FileDownloadOutlined';
 import PrintOutlined from '@mui/icons-material/PrintOutlined';
 import SearchOutlined from '@mui/icons-material/SearchOutlined';
 
@@ -68,14 +69,22 @@ import { fenceBill } from '../fenceBill';
 import { FenceBillTable, FenceBuildFields, FenceSheet, sideName, useFenceBuild } from '../FenceParts';
 // The tab strip and its panel are the shared ui.tsx TabStrip / TabPanel (one
 // role="tablist" contract, Arrow/Home/End, for this screen and Families & groups).
-import { Card, Empty, Failed, Loading, PageHead, TabPanel, TabStrip, num, plural } from '../ui';
+import {
+  Card, Empty, Failed, PageHead, Segmented, SelectAllBox, SelectCell, SelectionBar, TabPanel, TabStrip, TablePager, Th,
+  downloadCsv, num, plural, sortBy, usePaged, useRowSelection,
+} from '../ui';
+import type { SegmentOption, SortState } from '../ui';
+import { Sk, SkTable } from '../skeletons';
+import { SectionHead } from './RecordHead';
 
 // ── Small form atoms ───────────────────────────────────────────────────
 
 /** A labelled number box. Labels are real `<label for>` so the field is named
  *  by what it asks for, not by its placeholder. */
-function NumField({ label, value, onChange, placeholder, invalid }: {
+function NumField({ label, value, onChange, placeholder, invalid, hint }: {
   label: string; value: string; onChange: (v: string) => void; placeholder?: string;
+  /** A short gloss under the box, for a label an owner may know by another name. */
+  hint?: string;
   /** The box holds something that is not an answer to its question. */
   invalid?: boolean;
 }) {
@@ -88,6 +97,7 @@ function NumField({ label, value, onChange, placeholder, invalid }: {
         aria-invalid={invalid || undefined}
         onChange={(e) => onChange(e.currentTarget.value)}
       />
+      {hint && <span className="note">{hint}</span>}
     </div>
   );
 }
@@ -106,10 +116,36 @@ function SelectField<T extends string>({ label, value, onChange, children }: {
   );
 }
 
+// ── The head's summary ─────────────────────────────────────────────────
+
+/** Hands the open tool's totals up to the page head (design.md § Page head,
+ *  slot 3) from the read that tool already makes, so the head never fetches
+ *  for a tab that is not open: a placeholder while the first read is pending,
+ *  nothing once it failed or the table is empty. Area and Fence read nothing,
+ *  so they have no summary. */
+function useHeadSummary(set: (s: ReactNode) => void, isLoading: boolean, isSample: boolean, line: string) {
+  useLayoutEffect(() => {
+    set(isLoading ? <Sk w="18rem" h="1rem" r="var(--radius-xs)" /> : isSample ? undefined : line || undefined);
+    return () => set(undefined);
+  }, [set, isLoading, isSample, line]);
+}
+
 // ── Find SRO ───────────────────────────────────────────────────────────
 
-function SroTool() {
+const SRO_NOUN = ['office', 'offices'] as const;
+const GV_NOUN = ['government value', 'government values'] as const;
+const rowId = (o: { id: string }) => o.id;
+
+function SroTool({ onSummary }: { onSummary: (s: ReactNode) => void }) {
   const { data: offices, isSample, isLoading, error, refetch } = useSroOffices();
+  // The directory's totals; a search narrows the card's count, not these.
+  // The bundled AP-IGRS directory loads every office with a blank district
+  // (main.py _load_reference_data), so a blank is not a district and none
+  // drops the figure rather than claiming "1 district".
+  const districts = new Set(offices.map((o) => o.district).filter(Boolean)).size;
+  useHeadSummary(onSummary, isLoading, isSample, offices.length
+    ? [plural(offices.length, 'SRO office'), districts ? plural(districts, 'district') : ''].filter(Boolean).join(' · ')
+    : '');
   const [q, setQ] = useState('');
   const needle = q.trim().toLowerCase();
   const rows = needle
@@ -117,21 +153,31 @@ function SroTool() {
         [o.code, o.name, o.drZone, o.district, o.mandal].join(' ').toLowerCase().includes(needle),
       )
     : offices;
+  const paged = usePaged(rows, { resetKey: needle, storeKey: 'pattadar.table.tools-sro' });
+  const sel = useRowSelection(rows, rowId, needle);
 
-  if (isLoading) return <Loading h="16rem" what="the office directory" />;
+  if (isLoading) {
+    return (
+      <section className="stack">
+        <SectionHead title="SRO offices" info="The Sub-Registrar Office that serves your village." />
+        <Sk w="min(36rem, 100%)" h="2.375rem" r="var(--radius-pill)" />
+        <SkTable label="Loading the office directory" minWidth="36rem" rows={8}
+                 cols={[{ head: 'Code', w: '3rem' }, { head: 'Office' }, { head: 'DR zone' }, { head: 'District' }, { head: 'Mandal' }]} />
+      </section>
+    );
+  }
   // Branch on the failure first: an empty list after a failed read is not
   // "no offices match", and the owner has not searched for anything yet.
   if (isSample) return <Failed what="The office directory" error={error} onRetry={refetch} boxed />;
 
   return (
-    <Card
-      title="SRO offices"
-      aside={<span className="num muted">{rows.length}</span>}
-    >
-      <p className="note" style={{ margin: '0 0 var(--space-md)' }}>
-        The Sub-Registrar Office that serves your village.
-      </p>
-      <div className="search" style={{ marginBottom: 'var(--space-md)', justifySelf: 'start' }}>
+    <section className="stack">
+      {/* The directory's totals are the page head's; the line under this
+          heading only says what a search has narrowed it to (design.md
+          § Page head, one level down). */}
+      <SectionHead title="SRO offices" info="The Sub-Registrar Office that serves your village."
+                   sub={needle && rows.length > 0 ? `${plural(rows.length, 'office')} found` : undefined} />
+      <div className="search" style={{ justifySelf: 'start' }}>
         <SearchOutlined sx={{ fontSize: 16 }} aria-hidden />
         <input
           type="search" value={q} onChange={(e) => setQ(e.currentTarget.value)}
@@ -145,11 +191,14 @@ function SroTool() {
         <Empty title="No offices match">
           Try a district or mandal name — for example Guntur, Gannavaram or Kurnool.
         </Empty>
-      ) : (
-        <div className="scroll-x">
-          <table>
+      ) : (<div>
+        <Card flush className="scroll-x edgefade">
+          <table className="rectable" aria-label="SRO offices" style={{ minWidth: '36rem' }}>
             <thead>
               <tr>
+                <th className="selcol">
+                  <SelectAllBox total={rows.length} picked={sel.picked.length} noun={SRO_NOUN} onToggle={sel.toggleAll} />
+                </th>
                 <th scope="col">Code</th>
                 <th scope="col">Office</th>
                 <th scope="col">DR zone</th>
@@ -158,8 +207,9 @@ function SroTool() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((o) => (
-                <tr key={o.id}>
+              {paged.shown.map((o) => (
+                <tr key={o.id} className={sel.selected.has(o.id) ? 'selected' : undefined}>
+                  <SelectCell checked={sel.selected.has(o.id)} label={`Select ${o.name}`} onToggle={() => sel.toggle(o.id)} />
                   <td className="num">{o.code}</td>
                   <td><strong>{o.name}</strong></td>
                   <td>{o.drZone}</td>
@@ -168,10 +218,29 @@ function SroTool() {
                 </tr>
               ))}
             </tbody>
+            <tfoot>
+              <tr>
+                <td className="selcol" />
+                <th scope="row" colSpan={5}>
+                  {sel.picked.length > 0
+                    ? `${plural(sel.picked.length, ...SRO_NOUN)} selected`
+                    : `Total · ${plural(rows.length, ...SRO_NOUN)}`}
+                </th>
+              </tr>
+            </tfoot>
           </table>
-        </div>
-      )}
-    </Card>
+        </Card>
+        <TablePager {...paged} onSize={paged.setSize} label="SRO office pages" />
+      </div>)}
+      <SelectionBar count={sel.picked.length} noun={SRO_NOUN} label="Act on the selected offices" onClear={sel.clear}>
+        <button type="button" className="btn sm" onClick={() => downloadCsv('sro-offices.csv', [
+          ['Code', 'Office', 'DR zone', 'District', 'Mandal'],
+          ...sel.picked.map((o) => [o.code, o.name, o.drZone, o.district, o.mandal]),
+        ])}>
+          <FileDownloadOutlined sx={{ fontSize: 15 }} /> Export
+        </button>
+      </SelectionBar>
+    </section>
   );
 }
 
@@ -190,8 +259,9 @@ interface DutyResult {
 
 const deedLabel = (r: FeeScheduleRow) => `${r.natureEn} — ${r.regTypeEn}`;
 
-function StampDutyTool() {
+function StampDutyTool({ onSummary }: { onSummary: (s: ReactNode) => void }) {
   const { data: fees, isSample, isLoading, error, refetch } = useFeeSchedule();
+  useHeadSummary(onSummary, isLoading, isSample, fees.length ? plural(fees.length, 'AP deed type') : '');
   const [deedId, setDeedId] = useState('');
   const [consideration, setConsideration] = useState('');
   const [marketValue, setMarketValue] = useState('');
@@ -217,7 +287,7 @@ function StampDutyTool() {
     const c = Number(consideration);
     const m = Number(marketValue);
     if (!deed || !(c >= 0) || !(m >= 0) || (!c && !m)) {
-      setProblem('Pick a deed type and enter the consideration and market value.');
+      setProblem('Choose a deed type and enter the amount in the deed and the government value.');
       return;
     }
     setProblem('');
@@ -248,7 +318,30 @@ function StampDutyTool() {
     }
   };
 
-  if (isLoading) return <Loading h="16rem" what="the fee schedule" />;
+  if (isLoading) {
+    // The form's own card and the idle answer box, so nothing moves when the
+    // deed types land; only the boxes that need the schedule go grey.
+    return (
+      <div className="two">
+        <div role="status" aria-busy="true" aria-label="Loading the fee schedule">
+          <Card title="Stamp duty & fee calculator">
+            <div className="stack" aria-hidden>
+              {['Deed type', 'Amount in the deed (₹)', 'Government value (₹)'].map((l, i) => (
+                <div key={l} className="field">
+                  <Sk w="40%" /><Sk h="2.5rem" r="var(--radius-sm)" />
+                  {i > 0 && <Sk w="55%" />}{/* the amount boxes' hint line */}
+                </div>
+              ))}
+              <Sk h="2.5rem" r="var(--radius-pill)" />
+            </div>
+          </Card>
+        </div>
+        <Empty boxed title="Enter values, then choose Calculate">
+          Duty is on the higher of the amount in the deed and the government value.
+        </Empty>
+      </div>
+    );
+  }
   // Without a schedule there are no rates to charge, so there is nothing this
   // tool can honestly compute. Say that, rather than offer an empty picker.
   if (isSample) return <Failed what="The AP fee schedule" error={error} onRetry={refetch} boxed />;
@@ -281,10 +374,10 @@ function StampDutyTool() {
               ))}
             </select>
           </div>
-          <NumField label="Consideration amount (₹)" value={consideration} onChange={setConsideration}
-                    placeholder="e.g. 5000000" />
-          <NumField label="Market / guideline value (₹)" value={marketValue} onChange={setMarketValue}
-                    placeholder="e.g. 6000000" />
+          <NumField label="Amount in the deed (₹)" value={consideration} onChange={setConsideration}
+                    placeholder="e.g. 5000000" hint="The sale price, also called the consideration" />
+          <NumField label="Government value (₹)" value={marketValue} onChange={setMarketValue}
+                    placeholder="e.g. 6000000" hint="Also called market or guideline value" />
           {problem && <p className="note" role="alert" style={{ color: 'var(--w-danger)', margin: 0 }}>{problem}</p>}
           <button type="submit" className="btn primary" disabled={busy} style={{ justifyContent: 'center' }}>
             {busy ? 'Calculating…' : 'Calculate'}
@@ -296,8 +389,8 @@ function StampDutyTool() {
         <Card title="Duty & fee breakup" busy={busy}>
           <dl className="kv">
             <div><dt>Deed type</dt><dd>{result.deedType.replace(/_/g, ' ')}</dd></div>
-            <div><dt>Consideration</dt><dd>{formatINR(result.consideration)}</dd></div>
-            <div><dt>Market value</dt><dd>{formatINR(result.marketValue)}</dd></div>
+            <div><dt>Amount in the deed</dt><dd>{formatINR(result.consideration)}</dd></div>
+            <div><dt>Government value</dt><dd>{formatINR(result.marketValue)}</dd></div>
             <div><dt>Stamp duty</dt><dd>{formatINR(result.stampDuty)}</dd></div>
             <div><dt>Transfer duty</dt><dd>{formatINR(result.transferDuty)}</dd></div>
             <div><dt>Registration fee</dt><dd>{formatINR(result.registrationFee)}</dd></div>
@@ -309,8 +402,8 @@ function StampDutyTool() {
           </p>
         </Card>
       ) : (
-        <Empty boxed title="Enter values and click Calculate">
-          Duty is on the higher of the sale price and the guideline value.
+        <Empty boxed title="Enter values, then choose Calculate">
+          Duty is on the higher of the amount in the deed and the government value.
         </Empty>
       )}
     </div>
@@ -321,8 +414,13 @@ function StampDutyTool() {
 
 const ALL = '__all__';
 
-function MarketValueTool() {
+function MarketValueTool({ onSummary }: { onSummary: (s: ReactNode) => void }) {
   const { data: rows, isSample, isLoading, error, refetch } = useMarketValues();
+  // Totals over every row, not the cascade's; a village name recurs across
+  // mandals, so a village is counted by its whole place.
+  useHeadSummary(onSummary, isLoading, isSample, rows.length
+    ? `${plural(rows.length, 'government value')} · ${plural(new Set(rows.map((r) => `${r.district}|${r.mandal}|${r.village}`)).size, 'village')}`
+    : '');
   const [district, setDistrict] = useState(ALL);
   const [mandal, setMandal] = useState(ALL);
   const [village, setVillage] = useState(ALL);
@@ -343,6 +441,7 @@ function MarketValueTool() {
       ].sort(),
     [rows, district, mandal],
   );
+  const [sort, setSort] = useState<SortState<'rate'>>(null);
   const shown = rows.filter(
     (r) =>
       (district === ALL || r.district === district) &&
@@ -350,8 +449,30 @@ function MarketValueTool() {
       (village === ALL || r.village === village),
   );
 
-  if (isLoading) return <Loading h="16rem" what="guideline rates" />;
-  if (isSample) return <Failed what="The guideline rates" error={error} onRetry={refetch} boxed />;
+  const paged = usePaged(sortBy(shown, sort, { rate: (r) => r.ratePerUnit }), {
+    resetKey: `${district}|${mandal}|${village}|${sort?.key ?? ''}${sort?.dir ?? ''}`,
+    storeKey: 'pattadar.table.tools-government-values',
+  });
+  // The picks narrow the list; a sort only reorders it, so it keeps the ticks.
+  const sel = useRowSelection(shown, rowId, `${district}|${mandal}|${village}`);
+
+  if (isLoading) {
+    return (
+      <section className="stack">
+        <SectionHead title="Government values"
+                     info="Government values (also called market or guideline values) from AP Registration & Stamps. Sale prices can differ." />
+        <div className="toolfields" aria-hidden>
+          {['District', 'Mandal', 'Village'].map((l) => (
+            <div key={l} className="field"><Sk w="40%" /><Sk h="2.5rem" r="var(--radius-sm)" /></div>
+          ))}
+        </div>
+        <SkTable label="Loading government values" minWidth="48rem" rows={8}
+                 cols={[{ head: 'District' }, { head: 'Mandal' }, { head: 'Village' }, { head: 'Classification' },
+                   { head: 'Rate / unit (₹)', right: true, w: '5rem' }, { head: 'Unit', w: '3rem' }, { head: 'Effective from', w: '5.5rem' }]} />
+      </section>
+    );
+  }
+  if (isSample) return <Failed what="The government values" error={error} onRetry={refetch} boxed />;
 
   const options = (list: string[], allLabel: string) => (
     <>
@@ -361,10 +482,12 @@ function MarketValueTool() {
   );
 
   return (
-    <div className="stack">
-      <p className="note" style={{ margin: 0 }}>
-        Guideline values from AP Registration &amp; Stamps. Market prices can differ.
-      </p>
+    <section className="stack">
+      {/* The page head carries the totals; the line here is only what the
+          district / mandal / village choice has narrowed the table to. */}
+      <SectionHead title="Government values"
+                   info="Government values (also called market or guideline values) from AP Registration & Stamps. Sale prices can differ."
+                   sub={shown.length > 0 && shown.length < rows.length ? `${plural(shown.length, 'government value')} for this selection` : undefined} />
 
       <div className="toolfields">
         <SelectField label="District" value={district}
@@ -391,44 +514,70 @@ function MarketValueTool() {
         </div>
       )}
 
-      <section className="card" style={{ padding: 'var(--space-md)' }} aria-label="Guideline rates">
-        <div className="scroll-x">
-          <table>
+      <div>
+        <Card flush className="scroll-x edgefade">
+          <table className="rectable" aria-label="Government values" style={{ minWidth: '48rem' }}>
             <thead>
               <tr>
+                <th className="selcol">
+                  <SelectAllBox total={shown.length} picked={sel.picked.length} noun={GV_NOUN} onToggle={sel.toggleAll} />
+                </th>
                 <th scope="col">District</th>
                 <th scope="col">Mandal</th>
                 <th scope="col">Village</th>
                 <th scope="col">Classification</th>
-                <th scope="col" style={{ textAlign: 'right' }}>Rate / unit (₹)</th>
+                <Th k="rate" label="Rate / unit (₹)" right sort={sort} setSort={setSort} />
                 <th scope="col">Unit</th>
                 <th scope="col">Effective from</th>
               </tr>
             </thead>
             <tbody>
-              {shown.map((r) => (
-                <tr key={r.id}>
+              {paged.shown.map((r) => (
+                <tr key={r.id} className={sel.selected.has(r.id) ? 'selected' : undefined}>
+                  <SelectCell checked={sel.selected.has(r.id)} label={`Select ${r.village} ${r.classification}`}
+                              onToggle={() => sel.toggle(r.id)} />
                   <td>{r.district}</td>
                   <td>{r.mandal}</td>
                   <td>{r.village}</td>
                   <td>{r.classification}</td>
-                  <td className="num" style={{ textAlign: 'right' }}>₹{formatNumberIN(r.ratePerUnit)}</td>
+                  <td className="right num">₹{formatNumberIN(r.ratePerUnit)}</td>
                   <td>{r.unit}</td>
                   <td className="num" style={{ whiteSpace: 'nowrap' }}>{parseISOToDisplay(r.effectiveFrom)}</td>
                 </tr>
               ))}
               {shown.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="note" style={{ textAlign: 'center', padding: 'var(--space-lg)' }}>
-                    {rows.length === 0 ? 'No guideline rates have been published yet.' : 'No guideline rates match this selection.'}
+                  <td colSpan={8} className="note" style={{ textAlign: 'center', padding: 'var(--space-lg)' }}>
+                    {rows.length === 0 ? 'No government values have been published yet.' : 'No government values match this selection.'}
                   </td>
                 </tr>
               )}
             </tbody>
+            {/* Rates are per different units, so nothing sums; the count is the point. */}
+            <tfoot>
+              <tr>
+                <td className="selcol" />
+                <th scope="row" colSpan={7}>
+                  {sel.picked.length > 0
+                    ? `${plural(sel.picked.length, ...GV_NOUN)} selected`
+                    : `Total · ${plural(shown.length, ...GV_NOUN)}`}
+                </th>
+              </tr>
+            </tfoot>
           </table>
-        </div>
-      </section>
-    </div>
+        </Card>
+        <TablePager {...paged} onSize={paged.setSize} label="Government value pages" />
+      </div>
+      <SelectionBar count={sel.picked.length} noun={GV_NOUN} label="Act on the selected government values" onClear={sel.clear}>
+        <button type="button" className="btn sm" onClick={() => downloadCsv('government-values.csv', [
+          ['District', 'Mandal', 'Village', 'Classification', 'Rate / unit (₹)', 'Unit', 'Effective from'],
+          ...sel.picked.map((r) => [r.district, r.mandal, r.village, r.classification, r.ratePerUnit, r.unit,
+            parseISOToDisplay(r.effectiveFrom)]),
+        ])}>
+          <FileDownloadOutlined sx={{ fontSize: 15 }} /> Export
+        </button>
+      </SelectionBar>
+    </section>
   );
 }
 
@@ -464,7 +613,7 @@ function UsePerimeter({ perimFt, sidesM, onUse, extra }: {
       <span className="note">
         Perimeter ≈ {round2(perimFt).toLocaleString('en-IN')} ft{extra ? ` (${extra})` : ''}
       </span>
-      <button type="button" className="btn sm" onClick={() => onUse(sidesM)}>Use in Fencing →</button>
+      <button type="button" className="btn sm" onClick={() => onUse(sidesM)}>Use in Fence calculator →</button>
     </div>
   );
 }
@@ -521,22 +670,16 @@ function PlotAreaTab({ onUseSides }: { onUseSides: (m: number[]) => void }) {
   const side = (k: string, label: string) => (
     <NumField key={k} label={label} value={d[k] ?? ''} onChange={(v) => setD((p) => ({ ...p, [k]: v }))} />
   );
-  const SHAPES: { id: Shape; label: string }[] = [
-    { id: 'rect', label: 'Rectangle' },
-    { id: 'tri', label: 'Triangle' },
-    { id: 'quad', label: 'Quadrilateral' },
+  const SHAPES: SegmentOption<Shape>[] = [
+    { value: 'rect', label: 'Rectangle' },
+    { value: 'tri', label: 'Triangle' },
+    { value: 'quad', label: 'Quadrilateral' },
   ];
 
   return (
     <>
       <div className="row" style={{ marginBottom: 'var(--space-md)', alignItems: 'flex-end', gap: 'var(--space-md)' }}>
-        <div className="segmented" role="group" aria-label="Plot shape">
-          {SHAPES.map((s) => (
-            <button key={s.id} type="button" aria-pressed={shape === s.id} onClick={() => setShape(s.id)}>
-              {s.label}
-            </button>
-          ))}
-        </div>
+        <Segmented label="Plot shape" options={SHAPES} value={shape} onChange={setShape} />
         <div style={{ minWidth: '10rem' }}>
           <SelectField label="Measured in" value={lu} onChange={setLu}>
             {LENGTH_UNITS.map((u) => <option key={u.key} value={u.key}>{u.label}</option>)}
@@ -660,7 +803,7 @@ function FenceTool({ initial }: { initial?: string[] }) {
         </button>
       </div>
       <p className="note" style={{ marginTop: 'var(--space-sm)' }}>
-        File this plot as a property to raise it as work.
+        Add this plot as a property to order the fencing as a service order.
       </p>
     </>
   );
@@ -732,9 +875,9 @@ const NONE_DROPPED = new Set<number>();
 
 type ToolTab = 'sro' | 'stamp-duty' | 'market-value' | 'calculator' | 'fence';
 const TOOL_TABS: { id: ToolTab; label: string }[] = [
-  { id: 'sro', label: 'Find SRO' },
+  { id: 'sro', label: 'SRO finder' },
   { id: 'stamp-duty', label: 'Stamp duty' },
-  { id: 'market-value', label: 'Market value' },
+  { id: 'market-value', label: 'Government value' },
   { id: 'calculator', label: 'Area calculator' },
   { id: 'fence', label: 'Fence calculator' },
 ];
@@ -750,6 +893,8 @@ export function Tools() {
   // key starts the fence tool afresh from them. A blank or zero side goes in
   // as a blank box ("not entered"), never as a 0 m side.
   const [fenceSeed, setFenceSeed] = useState<{ n: number; sides: string[] } | null>(null);
+  // Set by the open tool from its own read (useHeadSummary).
+  const [summary, setSummary] = useState<ReactNode>();
   const handOffSides = (m: number[]) => {
     setFenceSeed((s) => ({ n: (s?.n ?? 0) + 1, sides: m.map((v) => (v > 0 ? String(round2(v)) : '')) }));
     choose('fence');
@@ -757,19 +902,15 @@ export function Tools() {
 
   return (
     <main>
-      <PageHead title="Tools">
-        <p className="lede" style={{ maxWidth: '46rem' }}>
-          SRO finder · Stamp duty · Guideline values · Area · Fencing
-        </p>
-      </PageHead>
-      <TabStrip tabs={TOOL_TABS} value={tab} onChange={choose} label="Tools" idBase="tools" />
+      <PageHead title="Tools" summary={summary}
+                tabs={<TabStrip tabs={TOOL_TABS} value={tab} onChange={choose} label="Tools" idBase="tools" />} />
       <TabPanel idBase="tools" id={tab}>
         {tab === 'sro' ? (
-          <SroTool />
+          <SroTool onSummary={setSummary} />
         ) : tab === 'stamp-duty' ? (
-          <StampDutyTool />
+          <StampDutyTool onSummary={setSummary} />
         ) : tab === 'market-value' ? (
-          <MarketValueTool />
+          <MarketValueTool onSummary={setSummary} />
         ) : tab === 'fence' ? (
           <FenceTool key={fenceSeed?.n ?? 0} initial={fenceSeed?.sides} />
         ) : (

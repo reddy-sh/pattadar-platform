@@ -24,6 +24,8 @@ export interface RecordGuide {
   practice: string;
   sourceIds: string[];
   videoTakeaways: string[];
+  /** false while a guide has no rendered film yet (renderRecordVideos.py needs Reddy's approval to run). */
+  video?: boolean;
 }
 
 export const recordGuides = guides as RecordGuide[];
@@ -44,6 +46,10 @@ export function recordGuidePath(guide: RecordGuide): string {
 export function recordGuideBySlug(stateSlug: string | undefined, guideSlug: string | undefined): RecordGuide | undefined {
   const stateCode = stateSlug === 'andhra-pradesh' ? 'AP' : stateSlug === 'telangana' ? 'TS' : undefined;
   return recordGuides.find((guide) => guide.stateCode === stateCode && guide.slug === guideSlug);
+}
+
+export function hasRecordVideo(guide: RecordGuide): boolean {
+  return guide.video !== false;
 }
 
 export function recordVideoUrl(guide: RecordGuide, extension: 'mp4' | 'vtt' | 'txt' | 'jpg'): string {

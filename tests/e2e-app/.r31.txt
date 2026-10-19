@@ -1,0 +1,2368 @@
+
+Running 124 tests using 3 workers
+
+[1/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /properties — one h1, a named tab, and commands in their places
+[2/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /home — one h1, a named tab, and commands in their places
+[3/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /map — one h1, a named tab, and commands in their places
+  1) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /properties — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    Error: ENOENT: no such file or directory, open '/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/test-results/.playwright-artifacts-1/24787b98539f6a7b0a69462d64c16fd8.zip'
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-4bbd8-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-4bbd8-nd-commands-in-their-places-app/error-context.md
+
+
+  2) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /map — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-1bbe0-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-1bbe0-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-1bbe0-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-1bbe0-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  3) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /home — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-36db5-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-36db5-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-36db5-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-36db5-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[4/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /maps — one h1, a named tab, and commands in their places
+[5/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /shared — one h1, a named tab, and commands in their places
+[6/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /assigned — one h1, a named tab, and commands in their places
+  4) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /maps — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-8a886-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-8a886-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-8a886-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-8a886-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  5) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /shared — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-e939e-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-e939e-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-e939e-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-e939e-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  6) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /assigned — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-c8500-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-c8500-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-c8500-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-c8500-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[7/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /services — one h1, a named tab, and commands in their places
+[8/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /order — one h1, a named tab, and commands in their places
+[9/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /papers — one h1, a named tab, and commands in their places
+  7) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /services — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-b3e83-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-b3e83-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-b3e83-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-b3e83-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  8) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /papers — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-1590a-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-1590a-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-1590a-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-1590a-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  9) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /order — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-ac54f-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-ac54f-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-ac54f-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-ac54f-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[10/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /wallet — one h1, a named tab, and commands in their places
+[11/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /account — one h1, a named tab, and commands in their places
+[12/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /groups — one h1, a named tab, and commands in their places
+  10) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /wallet — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-146d2-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-146d2-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-146d2-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-146d2-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  11) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /groups — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-69465-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-69465-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-69465-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-69465-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  12) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /account — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-43c8d-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-43c8d-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-43c8d-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-43c8d-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[13/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /invitations — one h1, a named tab, and commands in their places
+  13) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /invitations — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-c0da2-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-c0da2-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-c0da2-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-c0da2-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[14/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /notifications — one h1, a named tab, and commands in their places
+[15/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /tools — one h1, a named tab, and commands in their places
+[16/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /audit — one h1, a named tab, and commands in their places
+  14) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /notifications — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-29674-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-29674-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-29674-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-29674-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  15) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /tools — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-1dd43-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-1dd43-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-1dd43-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-1dd43-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  16) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /audit — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-d00a7-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-d00a7-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-d00a7-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-d00a7-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[17/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /profile — one h1, a named tab, and commands in their places
+[18/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /help — one h1, a named tab, and commands in their places
+[19/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /refer — one h1, a named tab, and commands in their places
+  17) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /profile — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-9f16d-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-9f16d-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-9f16d-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-9f16d-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  18) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /help — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-7f798-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-7f798-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-7f798-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-7f798-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[20/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /holdings — one h1, a named tab, and commands in their places
+  19) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /refer — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-7b7f8-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-7b7f8-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-7b7f8-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-7b7f8-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[21/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /desk/associates — one h1, a named tab, and commands in their places
+  20) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /holdings — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-37b7d-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-37b7d-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-37b7d-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-37b7d-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  21) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /desk/associates — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-1a32c-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-1a32c-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-1a32c-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-1a32c-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[22/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /admin/members — one h1, a named tab, and commands in their places
+[23/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /admin/catalogue — one h1, a named tab, and commands in their places
+  22) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /admin/members — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-9c706-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-9c706-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-9c706-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-9c706-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[24/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /admin/compliance — one h1, a named tab, and commands in their places
+  23) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /admin/catalogue — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-830a6-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-830a6-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-830a6-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-830a6-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  24) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /admin/compliance — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-4eab2-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-4eab2-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-4eab2-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-4eab2-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[25/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /admin/geography — one h1, a named tab, and commands in their places
+[26/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /properties/w-sy-214-2 — one h1, a named tab, and commands in their places
+[27/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /properties/w-sy-214-2/documents — one h1, a named tab, and commands in their places
+  25) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /admin/geography — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-2d9b7-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-2d9b7-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-2d9b7-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-2d9b7-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  26) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /properties/w-sy-214-2 — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-b1994-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-b1994-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-b1994-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-b1994-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  27) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /properties/w-sy-214-2/documents — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-7ec8d-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-7ec8d-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-7ec8d-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-7ec8d-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[28/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /properties/w-sy-214-2/site-features — one h1, a named tab, and commands in their places
+[29/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /properties/w-sy-214-2/money — one h1, a named tab, and commands in their places
+[30/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /properties/w-sy-214-2/people — one h1, a named tab, and commands in their places
+  28) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /properties/w-sy-214-2/site-features — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-66456-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-66456-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-66456-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-66456-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  29) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /properties/w-sy-214-2/money — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-7a0a7-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-7a0a7-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-7a0a7-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-7a0a7-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  30) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /properties/w-sy-214-2/people — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-e4a6e-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-e4a6e-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-e4a6e-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-e4a6e-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[31/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /properties/w-sy-214-2/expenses — one h1, a named tab, and commands in their places
+[32/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /properties/w-sy-214-2/activity — one h1, a named tab, and commands in their places
+[33/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /properties/w-sy-214-2/services — one h1, a named tab, and commands in their places
+  31) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /properties/w-sy-214-2/expenses — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-79004-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-79004-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-79004-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-79004-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  32) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /properties/w-sy-214-2/activity — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-7ffb5-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-7ffb5-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-7ffb5-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-7ffb5-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  33) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /properties/w-sy-214-2/services — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-78a44-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-78a44-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-78a44-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-78a44-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[34/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /properties/w-sy-214-2/location — one h1, a named tab, and commands in their places
+[35/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /properties/w-sy-214-2/media — one h1, a named tab, and commands in their places
+[36/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /properties/w-sy-214-2/notes — one h1, a named tab, and commands in their places
+  34) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /properties/w-sy-214-2/media — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-45627-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-45627-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-45627-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-45627-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  35) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /properties/w-sy-214-2/location — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-c792e-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-c792e-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-c792e-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-c792e-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  36) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /properties/w-sy-214-2/notes — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-f2055-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-f2055-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-f2055-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-f2055-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[37/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /services/w-tkt-placed — one h1, a named tab, and commands in their places
+[38/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /properties/w-sy-214-2/request — one h1, a named tab, and commands in their places
+[39/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /services/no-such-order — one h1, a named tab, and commands in their places
+  37) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /properties/w-sy-214-2/request — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-2cf90-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-2cf90-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-2cf90-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-2cf90-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  38) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /services/w-tkt-placed — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-47e78-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-47e78-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-47e78-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-47e78-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  39) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /services/no-such-order — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-62235-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-62235-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-62235-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-62235-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[40/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /papers/shelf/no-such-shelf — one h1, a named tab, and commands in their places
+[41/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /papers/shelf/title — one h1, a named tab, and commands in their places
+[42/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /desk/jobs/w-tkt-placed — one h1, a named tab, and commands in their places
+  40) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /papers/shelf/title — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-20b24-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-20b24-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-20b24-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-20b24-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  41) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /papers/shelf/no-such-shelf — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-8d0b4-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-8d0b4-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-8d0b4-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-8d0b4-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  42) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /desk/jobs/w-tkt-placed — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-db264-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-db264-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-db264-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-db264-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[43/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /desk/associates/as-ravi — one h1, a named tab, and commands in their places
+[44/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /desk/coverage — one h1, a named tab, and commands in their places
+[45/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /desk/enrol — one h1, a named tab, and commands in their places
+  43) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /desk/associates/as-ravi — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-9f6d7-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-9f6d7-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-9f6d7-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-9f6d7-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  44) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /desk/enrol — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-cacb2-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-cacb2-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-cacb2-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-cacb2-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  45) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /desk/coverage — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-b4c7a-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-b4c7a-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-b4c7a-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-b4c7a-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[46/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /groups/no-such-group — one h1, a named tab, and commands in their places
+[47/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /heir/no-such-member — one h1, a named tab, and commands in their places
+[48/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /holdings/no-such-holding — one h1, a named tab, and commands in their places
+  46) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /groups/no-such-group — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-59eee-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-59eee-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-59eee-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-59eee-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  47) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /heir/no-such-member — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-d6da5-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-d6da5-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-d6da5-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-d6da5-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  48) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /holdings/no-such-holding — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-93eaa-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-93eaa-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-93eaa-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-93eaa-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[49/124] [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /no-such-screen — one h1, a named tab, and commands in their places
+[50/124] [app] › specs/31-page-head.spec.ts:171:9 › on a phone, the head keeps one row of commands › /home — the filled primary stays, the rest go to the ⋮, nothing clips @phone
+[51/124] [app] › specs/31-page-head.spec.ts:171:9 › on a phone, the head keeps one row of commands › /properties — the filled primary stays, the rest go to the ⋮, nothing clips @phone
+  49) [app] › specs/31-page-head.spec.ts:98:9 › every page opens with the one page head › /no-such-screen — one h1, a named tab, and commands in their places 
+
+    Error: world.seedOf('record') is only for plain seeded data; this one is a function answer.
+
+       at ../fixtures/world.ts:141
+
+      139 |     if (current === undefined) throw new Error(`No seeded answer for '${field}'.`);
+      140 |     if (isSpecial(current) || typeof current === 'function') {
+    > 141 |       throw new Error(`world.seedOf('${field}') is only for plain seeded data; this one is ${describe(current)}.`);
+          |             ^
+      142 |     }
+      143 |     return structuredClone(current) as T;
+      144 |   }
+        at World.seedOf (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/world.ts:141:13)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:101:28
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-9eeb9-nd-commands-in-their-places-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-every-page-op-9eeb9-nd-commands-in-their-places-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-every-page-op-9eeb9-nd-commands-in-their-places-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-every-page-op-9eeb9-nd-commands-in-their-places-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[52/124] [app] › specs/31-page-head.spec.ts:171:9 › on a phone, the head keeps one row of commands › /map — the filled primary stays, the rest go to the ⋮, nothing clips @phone
+  50) [app] › specs/31-page-head.spec.ts:171:9 › on a phone, the head keeps one row of commands › /map — the filled primary stays, the rest go to the ⋮, nothing clips @phone 
+
+    Test timeout of 45000ms exceeded.
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  getByRole('progressbar', { name: 'Loading' })
+    Expected: 0
+    Received: 1
+    Timeout:  30000ms
+
+    Call log:
+      - Expect "toHaveCount" with timeout 30000ms
+      - waiting for getByRole('progressbar', { name: 'Loading' })
+        6 × locator resolved to 1 element
+          - unexpected value "1"
+
+
+      84 | async function arrived(page: Page, path: string): Promise<void> {
+      85 |   await page.goto(path);
+    > 86 |   await expect(page.getByRole('progressbar', { name: 'Loading' })).toHaveCount(0, { timeout: 30_000 });
+         |                                                                    ^
+      87 |   await expect(page.locator('header.pagehead h1')).toBeVisible({ timeout: 20_000 });
+      88 |   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+      89 | }
+        at arrived (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:86:68)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:173:7
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-on-a-phone-th-0809f-o-the-⋮-nothing-clips-phone-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-on-a-phone-th-0809f-o-the-⋮-nothing-clips-phone-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-on-a-phone-th-0809f-o-the-⋮-nothing-clips-phone-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-on-a-phone-th-0809f-o-the-⋮-nothing-clips-phone-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  51) [app] › specs/31-page-head.spec.ts:171:9 › on a phone, the head keeps one row of commands › /properties — the filled primary stays, the rest go to the ⋮, nothing clips @phone 
+
+    Test timeout of 45000ms exceeded.
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: locator('header.pagehead h1')
+    Expected: visible
+    Timeout: 20000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 20000ms
+      - waiting for locator('header.pagehead h1')
+
+
+      85 |   await page.goto(path);
+      86 |   await expect(page.getByRole('progressbar', { name: 'Loading' })).toHaveCount(0, { timeout: 30_000 });
+    > 87 |   await expect(page.locator('header.pagehead h1')).toBeVisible({ timeout: 20_000 });
+         |                                                    ^
+      88 |   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+      89 | }
+      90 |
+        at arrived (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:87:52)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:173:7
+
+    Error: The screen logged errors. If provoking one is the point of this test, set test.use({ allowConsole: true }).
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  -  1
+    + Received  + 56
+
+    - Array []
+    + Array [
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: %o
+    +
+    + %s
+    +
+    + %s
+    +  TypeError: Failed to fetch dynamically imported module: http://localhost:5186/src/w360/Shell.tsx?t=1791909908669 The above error occurred in one of your React components. React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary.",
+    +   "console.error: Unhandled render error TypeError: Failed to fetch dynamically imported module: http://localhost:5186/src/w360/Shell.tsx?t=1791909908669 
+    +     at Lazy (<anonymous>)
+    +     at Suspense (<anonymous>)
+    +     at ErrorBoundary (http://localhost:5186/src/components/ErrorBoundary.tsx:41:8)
+    +     at RequireAuth (http://localhost:5186/src/auth/RequireAuth.tsx:8:31)
+    +     at AppLayout (http://localhost:5186/src/routes.tsx?t=1791910005167:377:41)
+    +     at RenderedRoute (http://localhost:5186/node_modules/.vite/deps/react-router.js?v=f4d4352d:5317:26)
+    +     at RenderErrorBoundary (http://localhost:5186/node_modules/.vite/deps/react-router.js?v=f4d4352d:5251:3)
+    +     at DataRoutes (http://localhost:5186/node_modules/.vite/deps/react-router.js?v=f4d4352d:6339:23)
+    +     at Router (http://localhost:5186/node_modules/.vite/deps/react-router.js?v=f4d4352d:6538:29)
+    +     at RouterProvider (http://localhost:5186/node_modules/.vite/deps/react-router.js?v=f4d4352d:6149:27)
+    +     at AuthProvider (http://localhost:5186/src/auth/AuthProvider.tsx:226:32)
+    +     at ErrorBoundary (http://localhost:5186/src/components/ErrorBoundary.tsx:41:8)
+    +     at QueryClientProvider (http://localhost:5186/node_modules/.vite/deps/@tanstack_react-query.js?v=f4d4352d:2561:30)
+    +     at DefaultPropsProvider$1 (http://localhost:5186/node_modules/.vite/deps/DefaultPropsProvider-Br1ODg3G.js?v=f4d4352d:11:35)
+    +     at RtlProvider (http://localhost:5186/node_modules/.vite/deps/defaultTheme-CeTV_w40.js?v=f4d4352d:2053:24)
+    +     at ThemeProvider$2 (http://localhost:5186/node_modules/.vite/deps/styles-44Sl-0nQ.js?v=f4d4352d:158:10)
+    +     at ThemeProvider$1 (http://localhost:5186/node_modules/.vite/deps/styles-44Sl-0nQ.js?v=f4d4352d:254:10)
+    +     at CssVarsProvider (http://localhost:5186/node_modules/.vite/deps/styles-44Sl-0nQ.js?v=f4d4352d:609:11)
+    +     at ThemeProvider (http://localhost:5186/node_modules/.vite/deps/styles-44Sl-0nQ.js?v=f4d4352d:1570:26)",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    + ]
+
+       at ../fixtures/harness.ts:161
+
+      159 |           consoleErrors,
+      160 |           'The screen logged errors. If provoking one is the point of this test, set test.use({ allowConsole: true }).',
+    > 161 |         ).toEqual([]);
+          |           ^
+      162 |       }
+      163 |       if (sealed && !allowEscapes) {
+      164 |         expect(
+        at Object.exports.test._test.test.extend.guards.auto (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/harness.ts:161:11)
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-on-a-phone-th-8d6d9-o-the-⋮-nothing-clips-phone-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-on-a-phone-th-8d6d9-o-the-⋮-nothing-clips-phone-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-on-a-phone-th-8d6d9-o-the-⋮-nothing-clips-phone-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-on-a-phone-th-8d6d9-o-the-⋮-nothing-clips-phone-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  52) [app] › specs/31-page-head.spec.ts:171:9 › on a phone, the head keeps one row of commands › /home — the filled primary stays, the rest go to the ⋮, nothing clips @phone 
+
+    Test timeout of 45000ms exceeded.
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: locator('header.pagehead h1')
+    Expected: visible
+    Timeout: 20000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 20000ms
+      - waiting for locator('header.pagehead h1')
+
+
+      85 |   await page.goto(path);
+      86 |   await expect(page.getByRole('progressbar', { name: 'Loading' })).toHaveCount(0, { timeout: 30_000 });
+    > 87 |   await expect(page.locator('header.pagehead h1')).toBeVisible({ timeout: 20_000 });
+         |                                                    ^
+      88 |   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+      89 | }
+      90 |
+        at arrived (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:87:52)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:173:7
+
+    Error: The screen logged errors. If provoking one is the point of this test, set test.use({ allowConsole: true }).
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  -  1
+    + Received  + 85
+
+    - Array []
+    + Array [
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_IO_SUSPENDED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_IO_SUSPENDED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_IO_SUSPENDED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_IO_SUSPENDED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_IO_SUSPENDED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_IO_SUSPENDED",
+    +   "console.error: %o
+    +
+    + %s
+    +
+    + %s
+    +  TypeError: Failed to fetch dynamically imported module: http://localhost:5186/src/w360/Shell.tsx?t=1791909908669 The above error occurred in one of your React components. React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary.",
+    +   "console.error: Unhandled render error TypeError: Failed to fetch dynamically imported module: http://localhost:5186/src/w360/Shell.tsx?t=1791909908669 
+    +     at Lazy (<anonymous>)
+    +     at Suspense (<anonymous>)
+    +     at ErrorBoundary (http://localhost:5186/src/components/ErrorBoundary.tsx:41:8)
+    +     at RequireAuth (http://localhost:5186/src/auth/RequireAuth.tsx:8:31)
+    +     at AppLayout (http://localhost:5186/src/routes.tsx?t=1791910005167:377:41)
+    +     at RenderedRoute (http://localhost:5186/node_modules/.vite/deps/react-router.js?v=f4d4352d:5317:26)
+    +     at RenderErrorBoundary (http://localhost:5186/node_modules/.vite/deps/react-router.js?v=f4d4352d:5251:3)
+    +     at DataRoutes (http://localhost:5186/node_modules/.vite/deps/react-router.js?v=f4d4352d:6339:23)
+    +     at Router (http://localhost:5186/node_modules/.vite/deps/react-router.js?v=f4d4352d:6538:29)
+    +     at RouterProvider (http://localhost:5186/node_modules/.vite/deps/react-router.js?v=f4d4352d:6149:27)
+    +     at AuthProvider (http://localhost:5186/src/auth/AuthProvider.tsx:226:32)
+    +     at ErrorBoundary (http://localhost:5186/src/components/ErrorBoundary.tsx:41:8)
+    +     at QueryClientProvider (http://localhost:5186/node_modules/.vite/deps/@tanstack_react-query.js?v=f4d4352d:2561:30)
+    +     at DefaultPropsProvider$1 (http://localhost:5186/node_modules/.vite/deps/DefaultPropsProvider-Br1ODg3G.js?v=f4d4352d:11:35)
+    +     at RtlProvider (http://localhost:5186/node_modules/.vite/deps/defaultTheme-CeTV_w40.js?v=f4d4352d:2053:24)
+    +     at ThemeProvider$2 (http://localhost:5186/node_modules/.vite/deps/styles-44Sl-0nQ.js?v=f4d4352d:158:10)
+    +     at ThemeProvider$1 (http://localhost:5186/node_modules/.vite/deps/styles-44Sl-0nQ.js?v=f4d4352d:254:10)
+    +     at CssVarsProvider (http://localhost:5186/node_modules/.vite/deps/styles-44Sl-0nQ.js?v=f4d4352d:609:11)
+    +     at ThemeProvider (http://localhost:5186/node_modules/.vite/deps/styles-44Sl-0nQ.js?v=f4d4352d:1570:26)",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: %o
+    +
+    + %s
+    +
+    + %s
+    +  TypeError: Failed to fetch dynamically imported module: http://localhost:5186/src/w360/Shell.tsx?t=1791909908669 The above error occurred in one of your React components. React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary.",
+    +   "console.error: Unhandled render error TypeError: Failed to fetch dynamically imported module: http://localhost:5186/src/w360/Shell.tsx?t=1791909908669 
+    +     at Lazy (<anonymous>)
+    +     at Suspense (<anonymous>)
+    +     at ErrorBoundary (http://localhost:5186/src/components/ErrorBoundary.tsx:41:8)
+    +     at RequireAuth (http://localhost:5186/src/auth/RequireAuth.tsx:8:31)
+    +     at AppLayout (http://localhost:5186/src/routes.tsx?t=1791910005167:377:41)
+    +     at RenderedRoute (http://localhost:5186/node_modules/.vite/deps/react-router.js?v=f4d4352d:5317:26)
+    +     at RenderErrorBoundary (http://localhost:5186/node_modules/.vite/deps/react-router.js?v=f4d4352d:5251:3)
+    +     at DataRoutes (http://localhost:5186/node_modules/.vite/deps/react-router.js?v=f4d4352d:6339:23)
+    +     at Router (http://localhost:5186/node_modules/.vite/deps/react-router.js?v=f4d4352d:6538:29)
+    +     at RouterProvider (http://localhost:5186/node_modules/.vite/deps/react-router.js?v=f4d4352d:6149:27)
+    +     at AuthProvider (http://localhost:5186/src/auth/AuthProvider.tsx:226:32)
+    +     at ErrorBoundary (http://localhost:5186/src/components/ErrorBoundary.tsx:41:8)
+    +     at QueryClientProvider (http://localhost:5186/node_modules/.vite/deps/@tanstack_react-query.js?v=f4d4352d:2561:30)
+    +     at DefaultPropsProvider$1 (http://localhost:5186/node_modules/.vite/deps/DefaultPropsProvider-Br1ODg3G.js?v=f4d4352d:11:35)
+    +     at RtlProvider (http://localhost:5186/node_modules/.vite/deps/defaultTheme-CeTV_w40.js?v=f4d4352d:2053:24)
+    +     at ThemeProvider$2 (http://localhost:5186/node_modules/.vite/deps/styles-44Sl-0nQ.js?v=f4d4352d:158:10)
+    +     at ThemeProvider$1 (http://localhost:5186/node_modules/.vite/deps/styles-44Sl-0nQ.js?v=f4d4352d:254:10)
+    +     at CssVarsProvider (http://localhost:5186/node_modules/.vite/deps/styles-44Sl-0nQ.js?v=f4d4352d:609:11)
+    +     at ThemeProvider (http://localhost:5186/node_modules/.vite/deps/styles-44Sl-0nQ.js?v=f4d4352d:1570:26)",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    + ]
+
+       at ../fixtures/harness.ts:161
+
+      159 |           consoleErrors,
+      160 |           'The screen logged errors. If provoking one is the point of this test, set test.use({ allowConsole: true }).',
+    > 161 |         ).toEqual([]);
+          |           ^
+      162 |       }
+      163 |       if (sealed && !allowEscapes) {
+      164 |         expect(
+        at Object.exports.test._test.test.extend.guards.auto (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/harness.ts:161:11)
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-on-a-phone-th-7fceb-o-the-⋮-nothing-clips-phone-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-on-a-phone-th-7fceb-o-the-⋮-nothing-clips-phone-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-on-a-phone-th-7fceb-o-the-⋮-nothing-clips-phone-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-on-a-phone-th-7fceb-o-the-⋮-nothing-clips-phone-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[53/124] [app] › specs/31-page-head.spec.ts:171:9 › on a phone, the head keeps one row of commands › /maps — the filled primary stays, the rest go to the ⋮, nothing clips @phone
+[54/124] [app] › specs/31-page-head.spec.ts:171:9 › on a phone, the head keeps one row of commands › /shared — the filled primary stays, the rest go to the ⋮, nothing clips @phone
+[55/124] [app] › specs/31-page-head.spec.ts:171:9 › on a phone, the head keeps one row of commands › /assigned — the filled primary stays, the rest go to the ⋮, nothing clips @phone
+  53) [app] › specs/31-page-head.spec.ts:171:9 › on a phone, the head keeps one row of commands › /assigned — the filled primary stays, the rest go to the ⋮, nothing clips @phone 
+
+    Test timeout of 45000ms exceeded.
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  getByRole('progressbar', { name: 'Loading' })
+    Expected: 0
+    Received: 1
+    Timeout:  30000ms
+
+    Call log:
+      - Expect "toHaveCount" with timeout 30000ms
+      - waiting for getByRole('progressbar', { name: 'Loading' })
+        13 × locator resolved to 1 element
+           - unexpected value "1"
+
+
+      84 | async function arrived(page: Page, path: string): Promise<void> {
+      85 |   await page.goto(path);
+    > 86 |   await expect(page.getByRole('progressbar', { name: 'Loading' })).toHaveCount(0, { timeout: 30_000 });
+         |                                                                    ^
+      87 |   await expect(page.locator('header.pagehead h1')).toBeVisible({ timeout: 20_000 });
+      88 |   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+      89 | }
+        at arrived (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:86:68)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:173:7
+
+    Error: The screen logged errors. If provoking one is the point of this test, set test.use({ allowConsole: true }).
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  -  1
+    + Received  + 64
+
+    - Array []
+    + Array [
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: %o
+    +
+    + %s
+    +
+    + %s
+    +  TypeError: Failed to fetch dynamically imported module: http://localhost:5186/src/w360/Shell.tsx?t=1791909908669 The above error occurred in one of your React components. React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary.",
+    +   "console.error: Unhandled render error TypeError: Failed to fetch dynamically imported module: http://localhost:5186/src/w360/Shell.tsx?t=1791909908669 
+    +     at Lazy (<anonymous>)
+    +     at Suspense (<anonymous>)
+    +     at ErrorBoundary (http://localhost:5186/src/components/ErrorBoundary.tsx:41:8)
+    +     at RequireAuth (http://localhost:5186/src/auth/RequireAuth.tsx:8:31)
+    +     at AppLayout (http://localhost:5186/src/routes.tsx?t=1791910005167:377:41)
+    +     at RenderedRoute (http://localhost:5186/node_modules/.vite/deps/react-router.js?v=f4d4352d:5317:26)
+    +     at RenderErrorBoundary (http://localhost:5186/node_modules/.vite/deps/react-router.js?v=f4d4352d:5251:3)
+    +     at DataRoutes (http://localhost:5186/node_modules/.vite/deps/react-router.js?v=f4d4352d:6339:23)
+    +     at Router (http://localhost:5186/node_modules/.vite/deps/react-router.js?v=f4d4352d:6538:29)
+    +     at RouterProvider (http://localhost:5186/node_modules/.vite/deps/react-router.js?v=f4d4352d:6149:27)
+    +     at AuthProvider (http://localhost:5186/src/auth/AuthProvider.tsx:226:32)
+    +     at ErrorBoundary (http://localhost:5186/src/components/ErrorBoundary.tsx:41:8)
+    +     at QueryClientProvider (http://localhost:5186/node_modules/.vite/deps/@tanstack_react-query.js?v=f4d4352d:2561:30)
+    +     at DefaultPropsProvider$1 (http://localhost:5186/node_modules/.vite/deps/DefaultPropsProvider-Br1ODg3G.js?v=f4d4352d:11:35)
+    +     at RtlProvider (http://localhost:5186/node_modules/.vite/deps/defaultTheme-CeTV_w40.js?v=f4d4352d:2053:24)
+    +     at ThemeProvider$2 (http://localhost:5186/node_modules/.vite/deps/styles-44Sl-0nQ.js?v=f4d4352d:158:10)
+    +     at ThemeProvider$1 (http://localhost:5186/node_modules/.vite/deps/styles-44Sl-0nQ.js?v=f4d4352d:254:10)
+    +     at CssVarsProvider (http://localhost:5186/node_modules/.vite/deps/styles-44Sl-0nQ.js?v=f4d4352d:609:11)
+    +     at ThemeProvider (http://localhost:5186/node_modules/.vite/deps/styles-44Sl-0nQ.js?v=f4d4352d:1570:26)",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    +   "console.error: Failed to load resource: net::ERR_NETWORK_CHANGED",
+    + ]
+
+       at ../fixtures/harness.ts:161
+
+      159 |           consoleErrors,
+      160 |           'The screen logged errors. If provoking one is the point of this test, set test.use({ allowConsole: true }).',
+    > 161 |         ).toEqual([]);
+          |           ^
+      162 |       }
+      163 |       if (sealed && !allowEscapes) {
+      164 |         expect(
+        at Object.exports.test._test.test.extend.guards.auto (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/fixtures/harness.ts:161:11)
+
+    Error: ENOENT: no such file or directory, open '/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/test-results/.playwright-artifacts-54/9ce8bac3aa16d1985e87b1af8dad2205.zip'
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-on-a-phone-th-8b00f-o-the-⋮-nothing-clips-phone-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-on-a-phone-th-8b00f-o-the-⋮-nothing-clips-phone-app/error-context.md
+
+
+  54) [app] › specs/31-page-head.spec.ts:171:9 › on a phone, the head keeps one row of commands › /shared — the filled primary stays, the rest go to the ⋮, nothing clips @phone 
+
+    Test timeout of 45000ms exceeded.
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  getByRole('progressbar', { name: 'Loading' })
+    Expected: 0
+    Received: 1
+    Timeout:  30000ms
+
+    Call log:
+      - Expect "toHaveCount" with timeout 30000ms
+      - waiting for getByRole('progressbar', { name: 'Loading' })
+        17 × locator resolved to 1 element
+           - unexpected value "1"
+
+
+      84 | async function arrived(page: Page, path: string): Promise<void> {
+      85 |   await page.goto(path);
+    > 86 |   await expect(page.getByRole('progressbar', { name: 'Loading' })).toHaveCount(0, { timeout: 30_000 });
+         |                                                                    ^
+      87 |   await expect(page.locator('header.pagehead h1')).toBeVisible({ timeout: 20_000 });
+      88 |   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+      89 | }
+        at arrived (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:86:68)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:173:7
+
+    Error: apiRequestContext._wrapApiCall: ENOENT: no such file or directory, open '/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/test-results/.playwright-artifacts-53/traces/resources/page@3f10cb4bf0ff0ece08f706b9f737daba-1791911189230.jpeg'
+
+    Error: ENOENT: no such file or directory, open '/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/test-results/.playwright-artifacts-53/472e9394e32109d65d0c97cf0fa7ab7d.zip'
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-on-a-phone-th-0f921-o-the-⋮-nothing-clips-phone-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-on-a-phone-th-0f921-o-the-⋮-nothing-clips-phone-app/error-context.md
+
+
+[56/124] [app] › specs/31-page-head.spec.ts:171:9 › on a phone, the head keeps one row of commands › /order — the filled primary stays, the rest go to the ⋮, nothing clips @phone
+[57/124] [app] › specs/31-page-head.spec.ts:171:9 › on a phone, the head keeps one row of commands › /services — the filled primary stays, the rest go to the ⋮, nothing clips @phone
+  55) [app] › specs/31-page-head.spec.ts:171:9 › on a phone, the head keeps one row of commands › /maps — the filled primary stays, the rest go to the ⋮, nothing clips @phone 
+
+    Test timeout of 45000ms exceeded.
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  getByRole('progressbar', { name: 'Loading' })
+    Expected: 0
+    Received: 1
+    Timeout:  30000ms
+
+    Call log:
+      - Expect "toHaveCount" with timeout 30000ms
+      - waiting for getByRole('progressbar', { name: 'Loading' })
+        15 × locator resolved to 1 element
+           - unexpected value "1"
+
+
+      84 | async function arrived(page: Page, path: string): Promise<void> {
+      85 |   await page.goto(path);
+    > 86 |   await expect(page.getByRole('progressbar', { name: 'Loading' })).toHaveCount(0, { timeout: 30_000 });
+         |                                                                    ^
+      87 |   await expect(page.locator('header.pagehead h1')).toBeVisible({ timeout: 20_000 });
+      88 |   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+      89 | }
+        at arrived (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:86:68)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:173:7
+
+    Error: apiRequestContext._wrapApiCall: ENOENT: no such file or directory, open '/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/test-results/.playwright-artifacts-52/traces/resources/page@f591b91df918f3fe20837828ea644428-1791911188823.jpeg'
+
+    Error: ENOENT: no such file or directory, open '/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/test-results/.playwright-artifacts-52/b5e6a9b99b79a62f11f976056d98915d.zip'
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-on-a-phone-th-586ed-o-the-⋮-nothing-clips-phone-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-on-a-phone-th-586ed-o-the-⋮-nothing-clips-phone-app/error-context.md
+
+
+[58/124] [app] › specs/31-page-head.spec.ts:171:9 › on a phone, the head keeps one row of commands › /papers — the filled primary stays, the rest go to the ⋮, nothing clips @phone
+  56) [app] › specs/31-page-head.spec.ts:171:9 › on a phone, the head keeps one row of commands › /services — the filled primary stays, the rest go to the ⋮, nothing clips @phone 
+
+    Test timeout of 45000ms exceeded.
+
+    TimeoutError: page.goto: Timeout 30000ms exceeded.
+    Call log:
+      - navigating to "http://localhost:5186/services", waiting until "load"
+
+
+      83 | /** The screen has arrived: its lazy chunk loaded, nothing busy, the h1 drawn. */
+      84 | async function arrived(page: Page, path: string): Promise<void> {
+    > 85 |   await page.goto(path);
+         |              ^
+      86 |   await expect(page.getByRole('progressbar', { name: 'Loading' })).toHaveCount(0, { timeout: 30_000 });
+      87 |   await expect(page.locator('header.pagehead h1')).toBeVisible({ timeout: 20_000 });
+      88 |   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+        at arrived (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:85:14)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:173:13
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-on-a-phone-th-489d1-o-the-⋮-nothing-clips-phone-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-on-a-phone-th-489d1-o-the-⋮-nothing-clips-phone-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-on-a-phone-th-489d1-o-the-⋮-nothing-clips-phone-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-on-a-phone-th-489d1-o-the-⋮-nothing-clips-phone-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[59/124] [app] › specs/31-page-head.spec.ts:171:9 › on a phone, the head keeps one row of commands › /wallet — the filled primary stays, the rest go to the ⋮, nothing clips @phone
+  57) [app] › specs/31-page-head.spec.ts:171:9 › on a phone, the head keeps one row of commands › /order — the filled primary stays, the rest go to the ⋮, nothing clips @phone 
+
+    Test timeout of 45000ms exceeded.
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  getByRole('progressbar', { name: 'Loading' })
+    Expected: 0
+    Received: 1
+    Timeout:  30000ms
+
+    Call log:
+      - Expect "toHaveCount" with timeout 30000ms
+      - waiting for getByRole('progressbar', { name: 'Loading' })
+        3 × locator resolved to 1 element
+          - unexpected value "1"
+
+
+      84 | async function arrived(page: Page, path: string): Promise<void> {
+      85 |   await page.goto(path);
+    > 86 |   await expect(page.getByRole('progressbar', { name: 'Loading' })).toHaveCount(0, { timeout: 30_000 });
+         |                                                                    ^
+      87 |   await expect(page.locator('header.pagehead h1')).toBeVisible({ timeout: 20_000 });
+      88 |   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+      89 | }
+        at arrived (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:86:68)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:173:7
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-on-a-phone-th-3a1b1-o-the-⋮-nothing-clips-phone-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-on-a-phone-th-3a1b1-o-the-⋮-nothing-clips-phone-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-on-a-phone-th-3a1b1-o-the-⋮-nothing-clips-phone-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-on-a-phone-th-3a1b1-o-the-⋮-nothing-clips-phone-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[60/124] [app] › specs/31-page-head.spec.ts:171:9 › on a phone, the head keeps one row of commands › /account — the filled primary stays, the rest go to the ⋮, nothing clips @phone
+  58) [app] › specs/31-page-head.spec.ts:171:9 › on a phone, the head keeps one row of commands › /papers — the filled primary stays, the rest go to the ⋮, nothing clips @phone 
+
+    Test timeout of 45000ms exceeded.
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  getByRole('progressbar', { name: 'Loading' })
+    Expected: 0
+    Received: 1
+    Timeout:  30000ms
+
+    Call log:
+      - Expect "toHaveCount" with timeout 30000ms
+      - waiting for getByRole('progressbar', { name: 'Loading' })
+        6 × locator resolved to 1 element
+          - unexpected value "1"
+
+
+      84 | async function arrived(page: Page, path: string): Promise<void> {
+      85 |   await page.goto(path);
+    > 86 |   await expect(page.getByRole('progressbar', { name: 'Loading' })).toHaveCount(0, { timeout: 30_000 });
+         |                                                                    ^
+      87 |   await expect(page.locator('header.pagehead h1')).toBeVisible({ timeout: 20_000 });
+      88 |   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+      89 | }
+        at arrived (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:86:68)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:173:7
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-on-a-phone-th-b2771-o-the-⋮-nothing-clips-phone-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-on-a-phone-th-b2771-o-the-⋮-nothing-clips-phone-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-on-a-phone-th-b2771-o-the-⋮-nothing-clips-phone-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-on-a-phone-th-b2771-o-the-⋮-nothing-clips-phone-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[61/124] [app] › specs/31-page-head.spec.ts:171:9 › on a phone, the head keeps one row of commands › /groups — the filled primary stays, the rest go to the ⋮, nothing clips @phone
+  59) [app] › specs/31-page-head.spec.ts:171:9 › on a phone, the head keeps one row of commands › /account — the filled primary stays, the rest go to the ⋮, nothing clips @phone 
+
+    Test timeout of 45000ms exceeded.
+
+    TimeoutError: page.goto: Timeout 30000ms exceeded.
+    Call log:
+      - navigating to "http://localhost:5186/account", waiting until "load"
+
+
+      83 | /** The screen has arrived: its lazy chunk loaded, nothing busy, the h1 drawn. */
+      84 | async function arrived(page: Page, path: string): Promise<void> {
+    > 85 |   await page.goto(path);
+         |              ^
+      86 |   await expect(page.getByRole('progressbar', { name: 'Loading' })).toHaveCount(0, { timeout: 30_000 });
+      87 |   await expect(page.locator('header.pagehead h1')).toBeVisible({ timeout: 20_000 });
+      88 |   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+        at arrived (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:85:14)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:173:13
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-on-a-phone-th-90e29-o-the-⋮-nothing-clips-phone-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-on-a-phone-th-90e29-o-the-⋮-nothing-clips-phone-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-on-a-phone-th-90e29-o-the-⋮-nothing-clips-phone-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-on-a-phone-th-90e29-o-the-⋮-nothing-clips-phone-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[62/124] [app] › specs/31-page-head.spec.ts:171:9 › on a phone, the head keeps one row of commands › /invitations — the filled primary stays, the rest go to the ⋮, nothing clips @phone
+  60) [app] › specs/31-page-head.spec.ts:171:9 › on a phone, the head keeps one row of commands › /groups — the filled primary stays, the rest go to the ⋮, nothing clips @phone 
+
+    Test timeout of 45000ms exceeded.
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  getByRole('progressbar', { name: 'Loading' })
+    Expected: 0
+    Received: 1
+    Timeout:  30000ms
+
+    Call log:
+      - Expect "toHaveCount" with timeout 30000ms
+      - waiting for getByRole('progressbar', { name: 'Loading' })
+        7 × locator resolved to 1 element
+          - unexpected value "1"
+
+
+      84 | async function arrived(page: Page, path: string): Promise<void> {
+      85 |   await page.goto(path);
+    > 86 |   await expect(page.getByRole('progressbar', { name: 'Loading' })).toHaveCount(0, { timeout: 30_000 });
+         |                                                                    ^
+      87 |   await expect(page.locator('header.pagehead h1')).toBeVisible({ timeout: 20_000 });
+      88 |   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+      89 | }
+        at arrived (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:86:68)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:173:7
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-on-a-phone-th-62e4b-o-the-⋮-nothing-clips-phone-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-on-a-phone-th-62e4b-o-the-⋮-nothing-clips-phone-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-on-a-phone-th-62e4b-o-the-⋮-nothing-clips-phone-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-on-a-phone-th-62e4b-o-the-⋮-nothing-clips-phone-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[63/124] [app] › specs/31-page-head.spec.ts:171:9 › on a phone, the head keeps one row of commands › /notifications — the filled primary stays, the rest go to the ⋮, nothing clips @phone
+  61) [app] › specs/31-page-head.spec.ts:171:9 › on a phone, the head keeps one row of commands › /wallet — the filled primary stays, the rest go to the ⋮, nothing clips @phone 
+
+    Test timeout of 45000ms exceeded.
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  getByRole('progressbar', { name: 'Loading' })
+    Expected: 0
+    Received: 1
+    Timeout:  30000ms
+
+    Call log:
+      - Expect "toHaveCount" with timeout 30000ms
+      - waiting for getByRole('progressbar', { name: 'Loading' })
+        11 × locator resolved to 1 element
+           - unexpected value "1"
+
+
+      84 | async function arrived(page: Page, path: string): Promise<void> {
+      85 |   await page.goto(path);
+    > 86 |   await expect(page.getByRole('progressbar', { name: 'Loading' })).toHaveCount(0, { timeout: 30_000 });
+         |                                                                    ^
+      87 |   await expect(page.locator('header.pagehead h1')).toBeVisible({ timeout: 20_000 });
+      88 |   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+      89 | }
+        at arrived (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:86:68)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:173:7
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-on-a-phone-th-be84a-o-the-⋮-nothing-clips-phone-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-on-a-phone-th-be84a-o-the-⋮-nothing-clips-phone-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-on-a-phone-th-be84a-o-the-⋮-nothing-clips-phone-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-on-a-phone-th-be84a-o-the-⋮-nothing-clips-phone-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  62) [app] › specs/31-page-head.spec.ts:171:9 › on a phone, the head keeps one row of commands › /invitations — the filled primary stays, the rest go to the ⋮, nothing clips @phone 
+
+    Test timeout of 45000ms exceeded.
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  getByRole('progressbar', { name: 'Loading' })
+    Expected: 0
+    Received: 1
+    Timeout:  30000ms
+
+    Call log:
+      - Expect "toHaveCount" with timeout 30000ms
+      - waiting for getByRole('progressbar', { name: 'Loading' })
+        4 × locator resolved to 1 element
+          - unexpected value "1"
+
+
+      84 | async function arrived(page: Page, path: string): Promise<void> {
+      85 |   await page.goto(path);
+    > 86 |   await expect(page.getByRole('progressbar', { name: 'Loading' })).toHaveCount(0, { timeout: 30_000 });
+         |                                                                    ^
+      87 |   await expect(page.locator('header.pagehead h1')).toBeVisible({ timeout: 20_000 });
+      88 |   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+      89 | }
+        at arrived (/Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:86:68)
+        at /Users/reddy.sh/reddy.sh/projects/pattadar-platform/tests/e2e-app/specs/31-page-head.spec.ts:173:7
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/31-page-head-on-a-phone-th-2aedc-o-the-⋮-nothing-clips-phone-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/31-page-head-on-a-phone-th-2aedc-o-the-⋮-nothing-clips-phone-app/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/31-page-head-on-a-phone-th-2aedc-o-the-⋮-nothing-clips-phone-app/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/31-page-head-on-a-phone-th-2aedc-o-the-⋮-nothing-clips-phone-app/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[64/124] [app] › specs/31-page-head.spec.ts:171:9 › on a phone, the head keeps one row of commands › /tools — the filled primary stays, the rest go to the ⋮, nothing clips @phone

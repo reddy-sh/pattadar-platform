@@ -1,11 +1,11 @@
 ---
 name: architecture-trace
-description: Use this skill when asked how Pattadar works, where a feature lives, what calls what, which trust boundary or data store is involved, what a change impacts, or when creating current component, workflow, sequence, data-flow, lifecycle, or deployment diagrams from repository evidence.
+description: "Use this skill when asked how Pattadar works, where a feature lives, what calls what, which trust boundary or data store is involved, what a change impacts, or for component, workflow, sequence, data-flow, lifecycle or deployment diagrams from repository evidence. Prefer it over archify for Pattadar diagrams (archify only renders on request). Not for security acceptance (security-review) or doc rewrites (runbook-consistency)."
 compatibility: Requires pattadar-platform source/config/docs. Read-only by default; diagrams describe declared code/config unless live deployment evidence is separately approved.
 metadata:
   project: pattadar-platform
   standard: agentskills.io
-  verified: "2026-09-16"
+  verified: "2026-10-09"
   upstream-inspiration: tt-a1i/archify
 ---
 
@@ -20,6 +20,8 @@ typed-diagram approach without importing its Node renderer/runtime.
    request sequence, data flow/lineage, or lifecycle/state transition.
 2. Identify entrypoints, callers, transports, identity/auth boundary, owner,
    state reads/writes, external providers, tests, and deployment resources.
+   The repo is CodeGraph-indexed (`.codegraph/`): find callers and call paths
+   with `codegraph explore "<symbol or question>"` before grep.
 3. For cross-layer questions, read `references/system-map.md`; then verify the
    relevant facts in current source/config. File proximity is not causality.
 4. Distinguish implemented/declared architecture from deployed/live evidence.
@@ -29,14 +31,21 @@ typed-diagram approach without importing its Node renderer/runtime.
    paths, protocols, service names, and meaningful edge labels; prefer 6–12
    primary nodes and one obvious main path.
 6. Attach repository-relative evidence paths and flag contradictory/stale docs.
+7. When a change alters architecture (change-governance dimension 2), name the
+   evidence it makes stale (`docs/architecture.md`, `docs/architecture/*`,
+   `docs/diagrams/*`) and update it through `runbook-consistency`. Map fixes
+   land in canonical `.kiro/skills/architecture-trace/references/system-map.md`
+   first, then regenerated into the untracked `.claude` copy.
 
 ## Diagram output
 
 Use Mermaid by default (`flowchart`, `sequenceDiagram`, `stateDiagram`) because
-it is reviewable in GitHub and needs no imported renderer. If a user explicitly
-requests Archify HTML, propose installing/reviewing the MIT package separately;
-do not fetch or execute it implicitly. Static topology and validation are not
-proof of perceptual visual quality.
+it is reviewable in GitHub and needs no imported renderer. The `archify` user
+skill may be installed (it produced `docs/diagrams/*.html`). Use it only when
+the user explicitly asks for Archify/HTML output; if it is not installed,
+propose installing and reviewing the MIT package separately and never fetch
+or execute it implicitly. Feed it a redacted spec built from this skill's
+evidence, and ask before it runs a browser preview or visual check. Static topology and validation are not proof of perceptual visual quality.
 
 ## Safety
 

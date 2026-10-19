@@ -180,7 +180,7 @@ export function FamiliesGroupsPage() {
                           sx={{ ml: 'auto', whiteSpace: 'nowrap' }}
                           onClick={(e) => {
                             e.stopPropagation();
-                            navigate(`/app/parcels?group=${g.id}`);
+                            navigate(`/legacy/parcels?group=${g.id}`);
                           }}
                         >
                           View holdings ›

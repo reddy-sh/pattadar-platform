@@ -1,0 +1,30 @@
+{
+  "approved": true,
+  "findings": [
+    {
+      "severity": "low",
+      "blocking": false,
+      "confidence": "confirmed",
+      "title": "Strawberry coercion-error log echoes submitted values",
+      "detail": "A hand-crafted anonymous registerNetworkInterest request with a wrongly typed variable (e.g. phone as int) or inline literal values is rejected by GraphQL coercion/validation, and Strawberry's default process_errors logs the message including the invalid value (and, for inline literals, the source line with the name). Spot-checked against the installed api-venv Strawberry/graphql-core. The shipped web form uses typed variables and cannot trigger it.",
+      "fix": "Override Schema.process_errors (or filter the strawberry.execution logger) to log value-free lines for validation/coercion errors, at least for registerNetworkInterest; add a caplog test with an int phone and an inline-literal document asserting the digits and name are absent. Close before production per AC 18."
+    },
+    {
+      "severity": "info",
+      "blocking": false,
+      "confidence": "confirmed",
+      "title": "Global hourly ceiling is the only abuse control",
+      "detail": "A script can fill the 200/hour cap with junk new contacts and lock out real registrations; accepted by Reddy for v1 (D2/D3/D7, D8).",
+      "fix": "Treat the network.interest_ceiling WARNING as an alarm candidate; revisit per-IP/WAF limits if it fires."
+    },
+    {
+      "severity": "info",
+      "blocking": false,
+      "confidence": "confirmed",
+      "title": "D4 consent wording is still a draft",
+      "detail": "CONSENT_VERSION 2026-10-03 and the en/te privacy text are flagged DRAFT in network.py, landingContent.ts, PrivacyPage.tsx and docs/specs/TODO-pattadar-network.md.",
+      "fix": "Obtain Reddy's explicit approval of the wording before any production release."
+    }
+  ],
+  "reviewDoc": "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/.worktrees/landing-pattadar-network/.agents/tasks/landing-pattadar-network/security-review.md"
+}

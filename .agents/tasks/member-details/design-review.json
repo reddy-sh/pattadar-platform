@@ -1,0 +1,16 @@
+{
+  "verdict": "CHANGES_REQUESTED",
+  "findings": [
+    {"id": 1, "severity": "MEDIUM", "where": "§4.2 open/close, AC 17, AC 23", "title": "Deep link, then a Family link, then ✕ (or Remove) re-opens the drawer, because navigate(-1) lands on the deep-link entry that still has m", "fix": "Carry baseHasM in the pushed state. On close, navigate(-d) and then strip m with replace once the pop lands. Add AC 24."},
+    {"id": 2, "severity": "MEDIUM", "where": "§4.3 item 1 guard, F8, AC 21", "title": "Esc on a kebab opened with the mouse closes the whole drawer: focus is still inside the panel, so the activeElement-in-menu guard does not fire", "fix": "Step aside for non-Tab keys whenever a .w360 .menu-list [role=menu] is mounted. Add a mouse variant of AC 21 in Chromium and WebKit."},
+    {"id": 3, "severity": "MEDIUM", "where": "§4.2 / §4.3 Remove success, AC 11", "title": "After Remove, setRemoving(null) re-mounts the drawer before the async navigate(-d) pop lands. The seal inerts the page, so the rAF focus on Add a person can do nothing", "fix": "Add closingId state set in close() and excluded from drawerShown. Call close() before setRemoving(null) in the same batch. AC 11 asserts the drawer never re-appears."},
+    {"id": 4, "severity": "MEDIUM", "where": "§4.3 item 1, §4.4, D10", "title": "The Menu list is portalled to .w360, outside the aria-modal drawer, so VoiceOver may not reach or announce its items", "fix": "Either portal Menu into the closest [role=dialog] (no transform on .drawer, so position: fixed still works), plus a manual VoiceOver check, or choose D10's text-button alternative."},
+    {"id": 5, "severity": "NIT", "where": "§4.1 tr onClick", "title": "A click on the portalled .menuhead bubbles through React to the row and opens the drawer", "fix": "Start the handler with: if (!e.currentTarget.contains(e.target)) return."},
+    {"id": 6, "severity": "NIT", "where": "§4.2", "title": "'A deep link or reload has no state' is wrong: history.state survives a reload", "fix": "Reword to cover new-tab and pasted links only, and note that a reload keeps the depth (still correct behaviour)."},
+    {"id": 7, "severity": "NIT", "where": "§9 Dialog.tsx bullet, §5.2", "title": "The sentence placing useStorageNode is in the Dialog.tsx bullet, and isRefusal has no typed status to read", "fix": "Move the sentence to the groupsData.ts bullet. Throw an Error carrying status, and isRefusal checks status 403 or 404."},
+    {"id": 8, "severity": "NIT", "where": "§2 ACs, §11.2 D2", "title": "The spec does not say which ACs depend on D2", "fix": "List them: AC 6 note, 7, 13, 18 and the card parts of F9/F10 need D2; AC 12 changes under the fallback; the rest are unchanged."},
+    {"id": 9, "severity": "NIT", "where": "§12", "title": "The PersonDialog/linkAadhaarCard invalidation item is now verifiable from source", "fix": "Mark it verified: the link happens before save, and the save invalidates GROUPS. Note the scan-then-Cancel orphan card as out of scope."},
+    {"id": 10, "severity": "NIT", "where": "§10 leak test", "title": "A base64 photo data URL in person can contain a 12-digit run", "fix": "Use photo '' in the fixture, or strip data: URLs before scanning."}
+  ],
+  "reviewDoc": "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/.agents/tasks/member-details/design-review.md"
+}

@@ -1,5 +1,5 @@
 /**
- * W05 + W14 — the photos hanger, /app/records/:id/photos.
+ * W05 + W14 — the photos hanger, /properties/:id/media.
  *
  * One route, two screens. Scoped to the record it is the gallery: a strip of
  * every photo, a caption you can type into, a cover to choose, tags, download
@@ -49,7 +49,7 @@ import { test, expect, World, BLANK_JPEG } from '../fixtures/harness';
 import { ID, PHOTO, FEATURE } from '../fixtures/ids';
 import { PHOTOS } from '../fixtures/seed';
 
-const GALLERY = (suffix = '') => `/app/records/${ID.parcel}/photos${suffix}`;
+const GALLERY = (suffix = '') => `/properties/${ID.parcel}/media${suffix}`;
 
 /** A storage node id — `isStorageRef` only believes a UUID, and the whole
  *  bytes half of this screen is behind that guard. */
@@ -93,6 +93,30 @@ function list(rows: Row[], over: Record<string, unknown> = {}) {
  *  the only handle. `.stamp`, `.side` and `.checks` below are the same case. */
 const strip = (page: import('@playwright/test').Page) => page.locator('.photostrip button');
 const side = (page: import('@playwright/test').Page) => page.locator('aside.side');
+/** Select and Compare live in the head's More menu (Reddy, 13/10/2026). */
+const moreMedia = (page: import('@playwright/test').Page) =>
+  page.getByRole('button', { name: /^More actions for Media/ });
+async function mediaMenu(page: import('@playwright/test').Page, item: string) {
+  await moreMedia(page).click();
+  await page.getByRole('menuitem', { name: item, exact: true }).click();
+}
+/** The kinds are a group in the band's one filter (FacetFilter): "+ Filter"
+ *  opens a panel whose options count the gallery — "Photos 2", "Videos 1"
+ *  (RecordPhotos.tsx, "Filter media type"). */
+const kinds = (page: import('@playwright/test').Page) =>
+  page.getByRole('group', { name: 'Filter media type' });
+async function openKinds(page: import('@playwright/test').Page) {
+  const trigger = page.getByRole('button', { name: '+ Filter' });
+  if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.click();
+  return kinds(page);
+}
+/** The band's tally: "N of M shown". */
+const tally = (page: import('@playwright/test').Page) => page.locator('.filterbar .tally');
+/** The shared floating selection bar ("N items selected", its actions, Clear). */
+const bar = (page: import('@playwright/test').Page) =>
+  page.getByRole('group', { name: 'Act on the selected media' });
+/** "Photo 1 of 3" over the stage: which item, of how many the strip shows. */
+const position = (page: import('@playwright/test').Page) => page.locator('.lightbox .stage .eyebrow');
 
 /** A file the picker will accept, sized to order. Its bytes are filler, so
  *  `probe()` cannot read a width out of it — see PNG_8x4 for the one test
@@ -106,12 +130,12 @@ type Picked = { name: string; mimeType: string; buffer: Buffer };
  *  fires a file picker directly, and it no longer relabels itself while a pick
  *  goes up, because the panel's own primary reports that now. */
 const addTrigger = (page: import('@playwright/test').Page) =>
-  page.getByRole('button', { name: 'Add photos or video' });
+  page.getByRole('button', { name: 'Add photos, videos or recordings' });
 
 /** The panel that files a pick (RecordPhotos.PhotoDrawer over the shared
  *  Drawer.tsx). Its heading counts the pick once there is more than one file. */
 const photoDrawer = (page: import('@playwright/test').Page) =>
-  page.getByRole('dialog', { name: /^Add (photos or video|\d+ files)$/ });
+  page.getByRole('dialog', { name: /^Add (photos, videos or recordings|\d+ files)$/ });
 
 /** The panel's primary. It reads "Uploading…" while the bytes are going, which
  *  is where the header button's old "Uploading…" went. */
@@ -139,7 +163,7 @@ async function pick(page: import('@playwright/test').Page, files: Picked | Picke
   await expect(addTrigger(page)).toBeEnabled();
   await addTrigger(page).click();
   await expect(photoDrawer(page)).toBeVisible();
-  await page.getByLabel('Upload a photo or video to this record').setInputFiles(files);
+  await page.getByLabel('Upload media').setInputFiles(files);
 }
 
 /** Pick and send — what handing the input files used to do on its own. */
@@ -186,7 +210,7 @@ test.describe('the gallery', () => {
       row(PHOTO.cover, { id: 'compare-third', caption: 'South boundary after rain', isCover: false }),
     ]));
     await page.goto(GALLERY());
-    await page.getByRole('button', { name: 'Compare', exact: true }).click();
+    await mediaMenu(page, 'Compare');
     await expect(page.getByText('Comparing two items')).toBeVisible();
     const panes = page.locator('.compare-pane');
     await expect(panes).toHaveCount(2);
@@ -195,7 +219,7 @@ test.describe('the gallery', () => {
     await expect(panes.nth(1).locator('h3')).toHaveText(before || '');
     await page.getByRole('button', { name: /South boundary after rain/ }).click();
     await expect(panes.nth(1)).toContainText('South boundary after rain');
-    await page.getByRole('button', { name: 'Exit compare' }).click();
+    await mediaMenu(page, 'Exit compare');
     await expect(page.getByText('Comparing two items')).toHaveCount(0);
   });
 
@@ -206,7 +230,7 @@ test.describe('the gallery', () => {
       row(PHOTO.well),
     ]));
     await page.goto(GALLERY());
-    await page.getByRole('button', { name: 'Select', exact: true }).click();
+    await mediaMenu(page, 'Select');
     await strip(page).nth(0).click();
 
     const viewport = await page.evaluate(() => ({
@@ -221,16 +245,25 @@ test.describe('the gallery', () => {
     expect(rail).not.toBeNull();
     expect(rail!.x).toBeGreaterThanOrEqual(stage!.x + stage!.width - 1);
     expect(rail!.x + rail!.width).toBeLessThanOrEqual(viewport.innerWidth + 1);
-    await expect(side(page).getByRole('button', { name: 'Download as .zip' })).toBeVisible();
+    await expect(bar(page).getByRole('button', { name: 'Download as .zip' })).toBeVisible();
   });
 
-  test('every photo the record holds is in the strip, and the line above it counts the same photos', async ({ page, world }) => {
+  test('every photo the record holds is in the strip, and the kind chips count the same photos', async ({ page, world }) => {
     await page.goto(GALLERY());
 
-    await expect(page.getByText('Sy 214/2 · Photos')).toBeVisible();
-    await expect(page.getByText('3 photos · 1 video · 4 site visits')).toBeVisible();
+    // The tab's own noun heads it under the property's h1, and the counts are
+    // the kind chips (one word per kind: photo, video — design.md § Property
+    // tabs). The old "N photos · N video · N site visits" line is gone.
+    await expect(page.getByRole('heading', { level: 1, name: 'Sy 214/2' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Media', exact: true })).toBeVisible();
+    await expect(tally(page)).toHaveText('3 of 3 shown');
+    // The tab counts what the tab lists — the clip too — so it agrees with
+    // the tally beneath it (mediaCount, not the stills-only photoCount).
+    await expect(page.getByRole('navigation', { name: 'This property' }).getByRole('link', { name: /^Media/ }))
+      .toHaveText('Media3');
+    await expect((await openKinds(page)).getByRole('button')).toHaveText([/^Photos\s*2$/, /^Videos\s*1$/]);
     await expect(strip(page)).toHaveCount(3);
-    await expect(page.getByText('Photo 1 of 3')).toBeVisible();
+    await expect(position(page)).toHaveText('Photo 1 of 3');
     expect(world.lastVars('photos')).toMatchObject({ id: ID.parcel, featureId: null });
   });
 
@@ -282,7 +315,11 @@ test.describe('the gallery', () => {
     await expect(strip(page).nth(2)).toHaveAttribute('aria-label', 'Walking the eastern edge, not verified');
     await strip(page).nth(2).click();
 
-    await expect(page.getByRole('button', { name: 'Play this clip' })).toBeVisible();
+    // The stage names it a video, and with no stored bytes behind it the frame
+    // stands in with the file it is for (a stored clip's player is the test
+    // below; its button is named by the caption, PhotoImg in ui.tsx).
+    await expect(position(page)).toHaveText('Video 3 of 3');
+    await expect(page.locator('.frame')).toContainText('east-walk.mp4');
   });
 
   test('a clip with no caption is still named a video in the strip', async ({ page, world }) => {
@@ -303,14 +340,15 @@ test.describe('the gallery', () => {
       '.photostrip .video-thumb > img, .photostrip .video-thumb-frame.ready',
     )).toHaveCount(1);
 
-    await page.getByRole('button', { name: 'Select', exact: true }).click();
+    await mediaMenu(page, 'Select');
     await strip(page).click();
     await expect(side(page).locator(
       '.selection-preview .video-thumb > img, .selection-preview .video-thumb-frame.ready',
     )).toHaveCount(1);
-    await page.getByRole('button', { name: 'Done', exact: true }).click();
+    await mediaMenu(page, 'Done selecting');
 
-    await page.locator('.frame').getByRole('button', { name: 'Walking the eastern edge' }).click();
+    // The play button is named with its verb, not by the caption alone.
+    await page.locator('.frame').getByRole('button', { name: 'Play Walking the eastern edge', exact: true }).click();
     const video = page.locator('.frame video[controls]');
     await expect(video).toHaveAttribute('aria-label', 'Walking the eastern edge');
     await expect(video).toHaveJSProperty('controls', true);
@@ -328,14 +366,24 @@ test.describe('the gallery', () => {
     await expect(page.getByRole('img', { name: 'The well from the gate' })).toBeVisible();
     // Distinct, not every call: the dev server runs React in StrictMode, which
     // mounts each effect twice, so every ref is fetched twice in this build.
+    // The bare read ('') is the original, fetched once for the Details panel's
+    // camera facts (photoExif.ts useExif) — not a second rendition of the frame.
     await expect.poll(() => [...new Set(world.restCalls(/\/content/).map((c) => new URL(c.url).search))].sort())
-      .toEqual(['?format=web&thumb=1024', '?format=web&thumb=128']);
+      .toEqual(['', '?format=web&thumb=1024', '?format=web&thumb=128']);
   });
 
   test('a photo with no bytes behind it says which file it is standing in for', async ({ page }) => {
     await page.goto(GALLERY());
 
     await expect(page.getByText('photo placeholder · well-gate.jpg · 1600 × 1200')).toBeVisible();
+  });
+
+  test('a clip with no bytes behind it is called a video, not a photo', async ({ page }) => {
+    await page.goto(GALLERY());
+    await strip(page).nth(2).click();
+
+    await expect(page.getByText('video placeholder · east-walk.mp4 · 1080 × 1920')).toBeVisible();
+    await expect(page.getByText(/photo placeholder · east-walk\.mp4/)).toHaveCount(0);
   });
 
   test('a photo whose size could not be read stands in for it without inventing one', async ({ page, world }) => {
@@ -411,40 +459,44 @@ test.describe('the gallery', () => {
     await page.goto(GALLERY());
 
     await expect(page.locator('.stamp')).toContainText('15.7408° N 79.2697° E ±4 m');
-    await expect(page.getByText('Verified on site')).toBeVisible();
+    await expect(page.locator('.frame').getByText('Verified on site')).toBeVisible();
   });
 
   test('a photo that carries no coordinates gets no stamp at all', async ({ page, world }) => {
     world.set('photos', list([row(PHOTO.clip)]));
     await page.goto(GALLERY());
 
-    await expect(page.getByRole('button', { name: 'Play this clip' })).toBeVisible();
+    await expect(position(page)).toHaveText('Video 1 of 1');
     await expect(page.locator('.stamp')).toHaveCount(0);
-    await expect(page.getByText('Verified on site')).toHaveCount(0);
+    await expect(page.locator('.frame').getByText('Verified on site')).toHaveCount(0);
   });
 
-  test('paging back to an older visit re-dates the line under the strip', async ({ page }) => {
+  // The "Grouped by visit · date · N photos" line under the strip is gone; the
+  // date of the item on the stage is the panel's Taken row.
+  test('paging to an older item re-dates the panel beside it', async ({ page }) => {
     await page.goto(GALLERY());
-    await expect(page.getByText(/Grouped by visit · 12\/08\/2026 · 2 photos/)).toBeVisible();
+    await expect(side(page)).toContainText('12/08/2026');
 
     await strip(page).nth(2).click();
 
-    await expect(page.getByText(/Grouped by visit · 02\/06\/2026 · 1 photo$/)).toBeVisible();
-    await expect(page.getByText('Photo 3 of 3')).toBeVisible();
+    await expect(side(page)).toContainText('02/06/2026');
+    await expect(position(page)).toHaveText('Video 3 of 3');
   });
 
   test('the chevrons walk the strip and stop at both ends', async ({ page }) => {
     await page.goto(GALLERY());
-    const back = page.getByRole('button', { name: 'Previous photo' });
-    const on = page.getByRole('button', { name: 'Next photo' });
+    // At an end the arrow is hidden rather than greyed (visibility, so the
+    // frame does not shift), and each arrow names the kind it leads to.
+    const back = page.getByRole('button', { name: /^Previous (photo|video)$/ });
+    const on = page.getByRole('button', { name: /^Next (photo|video)$/ });
 
-    await expect(back).toBeDisabled();
-    await on.click();
-    await expect(page.getByText('Photo 2 of 3')).toBeVisible();
-    await expect(back).toBeEnabled();
-    await on.click();
-    await expect(on).toBeDisabled();
-    await expect(page.getByText('Photo 3 of 3')).toBeVisible();
+    await expect(back).toBeHidden();
+    await page.getByRole('button', { name: 'Next photo' }).click();
+    await expect(position(page)).toHaveText('Photo 2 of 3');
+    await expect(back).toBeVisible();
+    await page.getByRole('button', { name: 'Next video' }).click();
+    await expect(position(page)).toHaveText('Video 3 of 3');
+    await expect(on).toBeHidden();
   });
 
   test('the arrow keys page the gallery', async ({ page }) => {
@@ -469,7 +521,7 @@ test.describe('the gallery', () => {
   test('unverified media carries no global geo or visit claims', async ({ page, world }) => {
     world.set('photos', list([row(PHOTO.clip)]));
     await page.goto(GALLERY());
-    await expect(page.getByRole('button', { name: 'Play this clip' })).toBeVisible();
+    await expect(position(page)).toHaveText('Video 1 of 1');
 
     await expect(page.getByText('geo-stamped')).toHaveCount(0);
     await expect(page.getByText('from a Pattadar visit')).toHaveCount(0);
@@ -478,22 +530,66 @@ test.describe('the gallery', () => {
   test('Taken prints the capture stamp as a date a person reads', async ({ page }) => {
     await page.goto(GALLERY());
 
-    await expect(side(page).getByText(/^12\/08\/2026 /)).toBeVisible();
+    // In the owner's own clock (the suite runs in Asia/Kolkata): 06:40 UTC is
+    // 12:10 IST, printed the way Activity and Notes print a time.
+    await expect(side(page).getByText(/^12\/08\/2026, 12:10$/)).toBeVisible();
     await expect(side(page).getByText(/T\d\d:\d\d:\d\dZ/)).toHaveCount(0);
+    await expect(side(page).getByText(/UTC/)).toHaveCount(0);
   });
 });
 
 // ── The search ─────────────────────────────────────────────────────────
 
 test.describe('searching the strip', () => {
+  test('the search and the kinds sit in one band under the head, 24px from it and from the stage', async ({ page }) => {
+    await page.goto(GALLERY());
+    const head = page.locator('header.sechead').filter({ has: page.getByRole('heading', { level: 2, name: 'Media', exact: true }) });
+    const band = page.locator('.filterbar');
+    // A head holds commands only (design.md § Page head slot 5, SC-H6).
+    await expect(head.getByRole('textbox')).toHaveCount(0);
+    await expect(band.getByLabel('Search photos')).toBeVisible();
+    await expect(band.getByRole('button', { name: '+ Filter' })).toBeVisible();
+    const [h, b, stage] = await Promise.all([head.boundingBox(), band.boundingBox(), page.locator('.lightbox').boundingBox()]);
+    expect(Math.round(b!.y - (h!.y + h!.height))).toBe(24);
+    expect(Math.round(stage!.y - (b!.y + b!.height))).toBe(24);
+  });
+
+  test('a kind narrows the strip and the tally, and its chip lets it go', async ({ page }) => {
+    await page.goto(GALLERY());
+    await (await openKinds(page)).getByRole('button', { name: /^Videos/ }).click();
+    await expect(strip(page)).toHaveCount(1);
+    await expect(tally(page)).toHaveText('1 of 3 shown');
+    await page.getByRole('button', { name: 'Remove filter Kind Videos' }).click();
+    await expect(strip(page)).toHaveCount(3);
+    await expect(tally(page)).toHaveText('3 of 3 shown');
+  });
+
+  test('@phone the band is one row and the search is an icon, not a ⋮ item', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(GALLERY());
+    const band = page.locator('.filterbar');
+    await expect(band.getByRole('textbox')).toHaveCount(0);
+    const icon = band.getByRole('button', { name: 'Search photos' });
+    const [f, i] = await Promise.all([band.getByRole('button', { name: '+ Filter' }).boundingBox(), icon.boundingBox()]);
+    expect(Math.abs(f!.y + f!.height / 2 - (i!.y + i!.height / 2))).toBeLessThanOrEqual(4);
+    await moreMedia(page).click();
+    await expect(page.getByRole('menuitem', { name: 'Search', exact: true })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await icon.click();
+    await page.getByRole('textbox', { name: 'Search photos' }).fill('boundary');
+    await expect(strip(page)).toHaveCount(1);
+  });
+
   test('the search narrows the strip, and the count says how much of the gallery is left', async ({ page }) => {
     await page.goto(GALLERY());
 
     await page.getByLabel('Search photos').fill('boundary');
 
+    // The position counts what the search left; the band's tally says how
+    // much of the whole gallery that is.
     await expect(strip(page)).toHaveCount(1);
-    await expect(page.getByText('1 of 3 items')).toBeVisible();
-    await expect(page.getByText('Photo 1 of 1')).toBeVisible();
+    await expect(position(page)).toHaveText('Photo 1 of 1');
+    await expect(tally(page)).toHaveText('1 of 3 shown');
   });
 
   test('the search reads a capture date in the form the screen prints it', async ({ page }) => {
@@ -502,7 +598,7 @@ test.describe('searching the strip', () => {
     await page.getByLabel('Search photos').fill('12/08/2026');
 
     await expect(strip(page)).toHaveCount(2);
-    await expect(page.getByText('2 of 3 photos')).toBeVisible();
+    await expect(position(page)).toHaveText('Photo 1 of 2');
   });
 
   test('the search reads a tag, which is what the box says it is for', async ({ page }) => {
@@ -517,15 +613,14 @@ test.describe('searching the strip', () => {
     await expect(page.getByLabel('Title', { exact: true })).toHaveValue('The well from the gate');
   });
 
-  test('the visit line under the strip counts what the search left, not the whole visit', async ({ page }) => {
+  test('the count over the stage counts what the search left, not the whole gallery', async ({ page }) => {
     await page.goto(GALLERY());
-    // Two photos were taken on 12/08/2026; the search leaves one of them.
-    await expect(page.getByText(/Grouped by visit · 12\/08\/2026 · 2 photos/)).toBeVisible();
+    await expect(position(page)).toHaveText('Photo 1 of 3');
 
     await page.getByLabel('Search photos').fill('well-gate');
 
     await expect(strip(page)).toHaveCount(1);
-    await expect(page.getByText(/Grouped by visit · 12\/08\/2026 · 1 photo$/)).toBeVisible();
+    await expect(position(page)).toHaveText('Photo 1 of 1');
   });
 
   test('the search reads a file name too', async ({ page }) => {
@@ -534,7 +629,7 @@ test.describe('searching the strip', () => {
     await page.getByLabel('Search photos').fill('east-walk');
 
     await expect(strip(page)).toHaveCount(1);
-    await expect(page.getByRole('button', { name: 'Play this clip' })).toBeVisible();
+    await expect(position(page)).toHaveText('Video 1 of 1');
   });
 
   test('a search that matches nothing says what it looked in, and offers the way back', async ({ page }) => {
@@ -543,7 +638,6 @@ test.describe('searching the strip', () => {
     await page.getByLabel('Search photos').fill('mangoes');
 
     await expect(page.getByText(/No photo matches .mangoes./)).toBeVisible();
-    await expect(page.getByText('The search reads captions, tags, file names and capture dates.')).toBeVisible();
     await expect(strip(page)).toHaveCount(0);
 
     // Two controls carry this name at once — the pill inside the search box and
@@ -554,15 +648,15 @@ test.describe('searching the strip', () => {
     await expect(page.getByLabel('Search photos')).toHaveValue('');
   });
 
-  test('the pill in the search box clears it', async ({ page }) => {
+  test('emptying the band search puts the whole strip back', async ({ page }) => {
     await page.goto(GALLERY());
     await page.getByLabel('Search photos').fill('boundary');
     await expect(strip(page)).toHaveCount(1);
 
-    await page.getByRole('button', { name: 'Clear the search' }).click();
+    await page.getByLabel('Search photos').fill('');
 
     await expect(strip(page)).toHaveCount(3);
-    await expect(page.getByText('3 photos · 1 video · 4 site visits')).toBeVisible();
+    await expect(position(page)).toHaveText('Photo 1 of 3');
   });
 });
 
@@ -765,26 +859,26 @@ test.describe('selecting media', () => {
       delayMs: 500, contentType: 'image/jpeg', body: BLANK_JPEG,
     }));
     await page.goto(GALLERY());
-    await page.getByRole('button', { name: 'Select', exact: true }).click();
+    await mediaMenu(page, 'Select');
     await strip(page).nth(0).click();
     await strip(page).nth(1).click();
 
     const started = page.waitForEvent('download');
-    await side(page).getByRole('button', { name: 'Download as .zip' }).click();
+    await bar(page).getByRole('button', { name: 'Download as .zip' }).click();
 
-    await expect(side(page).getByRole('button', { name: /Preparing \d+ of 2…/ })).toBeDisabled();
+    await expect(bar(page).getByRole('button', { name: /Preparing \d+ of 2…/ })).toBeDisabled();
     expect((await started).suggestedFilename()).toMatch(/^pattadar-media-\d{4}-\d{2}-\d{2}\.zip$/);
-    await expect(side(page).getByRole('button', { name: 'Download as .zip' })).toBeEnabled();
+    await expect(bar(page).getByRole('button', { name: 'Download as .zip' })).toBeEnabled();
   });
 
   test('selected rows without stored originals report the refusal', async ({ page }) => {
     await page.goto(GALLERY());
-    await page.getByRole('button', { name: 'Select', exact: true }).click();
+    await mediaMenu(page, 'Select');
     await strip(page).nth(0).click();
 
-    await side(page).getByRole('button', { name: 'Download as .zip' }).click();
+    await bar(page).getByRole('button', { name: 'Download as .zip' }).click();
 
-    await expect(side(page).getByRole('alert').filter({
+    await expect(page.getByRole('alert').filter({
       hasText: 'None of the selected originals could be downloaded.',
     })).toBeVisible();
   });
@@ -798,50 +892,50 @@ test.describe('selecting media', () => {
     });
     await page.goto(GALLERY());
 
-    await expect(side(page).getByText('They archive for 30 days before permanent deletion.')).toHaveCount(0);
-    await page.getByRole('button', { name: 'Select', exact: true }).click();
-    await expect(side(page).getByRole('heading', { name: 'Nothing selected' })).toBeVisible();
+    await expect(page.getByText('They are kept for 30 days, then deleted for good.')).toHaveCount(0);
+    await mediaMenu(page, 'Select');
+    // The shared floating bar, as on every table: only while something is ticked.
+    await expect(bar(page)).toHaveCount(0);
 
     await strip(page).nth(0).click();
     await strip(page).nth(2).click();
     await expect(strip(page).nth(0)).toHaveAttribute('aria-pressed', 'true');
     await expect(strip(page).nth(2)).toHaveAttribute('aria-pressed', 'true');
-    await expect(side(page).getByRole('heading', { name: '2 items selected' })).toBeVisible();
-    const counts = side(page).locator('.kv > div');
-    await expect(counts.nth(0)).toContainText('Photos');
-    await expect(counts.nth(0)).toContainText('1');
-    await expect(counts.nth(1)).toContainText('Videos');
-    await expect(counts.nth(1)).toContainText('1');
-    await expect(counts.nth(2)).toContainText('Recordings');
-    await expect(counts.nth(2)).toContainText('0');
+    await expect(bar(page).getByRole('status')).toHaveText('2 items selected');
+    await expect(bar(page).getByRole('button')).toHaveText(['Download as .zip', 'Delete selected', 'Clear']);
 
-    await side(page).getByRole('button', { name: 'Delete selected' }).click();
-    await expect(side(page).getByText('They archive for 30 days before permanent deletion.')).toBeVisible();
+    await bar(page).getByRole('button', { name: 'Delete selected' }).click();
+    await expect(page.getByText('They are kept for 30 days, then deleted for good.')).toBeVisible();
     expect(world.calls('deletePhoto')).toHaveLength(0);
-    await side(page).getByRole('button', { name: 'Cancel', exact: true }).click();
-    await expect(side(page).getByRole('heading', { name: '2 items selected' })).toBeVisible();
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(bar(page).getByRole('status')).toHaveText('2 items selected');
 
-    await side(page).getByRole('button', { name: 'Clear selection' }).click();
-    await expect(side(page).getByRole('heading', { name: 'Nothing selected' })).toBeVisible();
+    await bar(page).getByRole('button', { name: 'Clear', exact: true }).click();
+    await expect(bar(page)).toHaveCount(0);
     await strip(page).nth(0).click();
-    await page.getByRole('button', { name: 'Videos 1', exact: true }).click();
-    await expect(side(page).getByRole('heading', { name: 'Nothing selected' })).toBeVisible();
-    await page.getByRole('button', { name: 'All 3', exact: true }).click();
+    await (await openKinds(page)).getByRole('button', { name: /^Videos/ }).click();
+    await expect(bar(page)).toHaveCount(0);
+    await page.getByRole('button', { name: 'Clear all' }).click();
+    await page.keyboard.press('Escape');
     await strip(page).nth(0).click();
-    await page.getByRole('button', { name: 'Done', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Select', exact: true })).toBeVisible();
+    await mediaMenu(page, 'Done selecting');
+    await moreMedia(page).click();
+    await expect(page.getByRole('menuitem', { name: 'Select', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
     await expect(strip(page).nth(0)).not.toHaveAttribute('aria-pressed');
 
-    await page.getByRole('button', { name: 'Select', exact: true }).click();
+    await mediaMenu(page, 'Select');
     await strip(page).nth(0).click();
     await strip(page).nth(2).click();
-    await side(page).getByRole('button', { name: 'Delete selected' }).click();
-    await side(page).getByRole('button', { name: 'Delete', exact: true }).click();
+    await bar(page).getByRole('button', { name: 'Delete selected' }).click();
+    await page.getByRole('button', { name: 'Delete', exact: true }).click();
 
     await expect.poll(() => world.calls('deletePhoto').map((call) => call.vars.photoId))
       .toEqual([PHOTO.cover, PHOTO.clip]);
     await expect(strip(page)).toHaveCount(1);
-    await expect(page.getByRole('button', { name: 'Select', exact: true })).toBeVisible();
+    await moreMedia(page).click();
+    await expect(page.getByRole('menuitem', { name: 'Select', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
   });
 });
 
@@ -888,10 +982,10 @@ test.describe('deleting a photo', () => {
 
   test('the thirty-day retention appears only after Delete is chosen', async ({ page }) => {
     await page.goto(GALLERY());
-    await expect(side(page).getByText('It archives for 30 days before permanent deletion.')).toHaveCount(0);
+    await expect(side(page).getByText('It is kept for 30 days, then deleted for good.')).toHaveCount(0);
 
     await page.getByRole('button', { name: 'Delete The well from the gate' }).click();
-    await expect(side(page).getByText('It archives for 30 days before permanent deletion.')).toBeVisible();
+    await expect(side(page).getByText('It is kept for 30 days, then deleted for good.')).toBeVisible();
   });
 
   test('a delete in flight says so, and the confirm closes itself once it lands', async ({ page, world }) => {
@@ -910,17 +1004,17 @@ test.describe('deleting a photo', () => {
     await expect(side(page).getByRole('button', { name: 'Delete', exact: true })).toHaveCount(0);
   });
 
-  test('a delete the server never answers about is reported as a failed write', async ({ page, world }) => {
+  test('a delete the server never answers about is reported once, in the confirmation', async ({ page, world }) => {
     world.set('deletePhoto', World.gqlError('that photo is held by an open dispute'));
     await page.goto(GALLERY());
 
     await page.getByRole('button', { name: 'Delete The well from the gate' }).click();
     await page.getByRole('button', { name: 'Delete', exact: true }).click();
 
-    await expect(page.getByRole('alert').filter({
-      hasText: 'Deleting that photo could not be saved. Nothing has changed.',
-    })).toBeVisible();
-    await expect(page.getByText('that photo is held by an open dispute')).toBeVisible();
+    await expect(page.getByRole('dialog').getByText('This item could not be deleted. It is still here.')).toBeVisible();
+    // One report, in owner words: no second toast and no server text.
+    await expect(page.getByText('Deleting that photo could not be saved. Nothing has changed.')).toHaveCount(0);
+    await expect(page.getByText('that photo is held by an open dispute')).toHaveCount(0);
     await expect(strip(page)).toHaveCount(3);
   });
 
@@ -1031,10 +1125,12 @@ test.describe('what the panel says about the file', () => {
   test('a photo that came in on no order gets no order row invented for it', async ({ page }) => {
     await page.goto(GALLERY());
 
-    // The whole row list, not just the absence of a link: every row here is
-    // conditional (RecordPhotos.tsx:638-657) and a screen that invents one is
-    // the failure this asserts against. `.kv .k` has no role of its own.
-    await expect(side(page).locator('.kv .k')).toHaveText(['Taken', 'Your time', 'By', 'Where']);
+    // Every row is drawn now, and a value the photo does not hold reads
+    // "not set" (design.md § Property tabs, "Missing reads as missing"). The
+    // order rows say so rather than inventing one. `.kv` has no role of its own.
+    const rowOf = (k: string) => side(page).locator('.kv > div').filter({ has: page.locator('.k', { hasText: new RegExp(`^${k}$`) }) });
+    await expect(rowOf('Visit')).toContainText('not set');
+    await expect(rowOf('Service order')).toContainText('not set');
     await expect(side(page).getByRole('link', { name: /ORD-/ })).toHaveCount(0);
   });
 
@@ -1042,9 +1138,10 @@ test.describe('what the panel says about the file', () => {
     world.set('photos', list([row(PHOTO.clip)]));
     await page.goto(GALLERY());
 
-    // The clip carries no coordinates, so there is no Where row rather than a
-    // row reading 0.0000, 0.0000 as if it were a place.
-    await expect(side(page).locator('.kv .k')).toHaveText(['Taken', 'Your time', 'By']);
+    // The clip carries no coordinates, so Where says "not set" rather than
+    // 0.0000, 0.0000 as if it were a place.
+    const where = side(page).locator('.kv > div').filter({ has: page.locator('.k', { hasText: /^Where$/ }) });
+    await expect(where).toContainText('not set');
     await expect(side(page).getByText('0.0000')).toHaveCount(0);
   });
 
@@ -1053,7 +1150,7 @@ test.describe('what the panel says about the file', () => {
 
     await expect(side(page).locator('.kv .v').filter({ hasText: '15.7408, 79.2697' })).toBeVisible();
     await expect(side(page).getByText('Shankar Reddy', { exact: true })).toBeVisible();
-    await expect(side(page).getByText('12 Aug 2026, 12:10 pm')).toBeVisible();
+    await expect(side(page).getByText('12/08/2026, 12:10').first()).toBeVisible();
   });
 
   test('a photo that came in on an order links to where that order is printed', async ({ page, world }) => {
@@ -1062,31 +1159,31 @@ test.describe('what the panel says about the file', () => {
 
     const link = side(page).getByRole('link', { name: 'ORD-2291 ›' });
     await expect(link).toBeVisible();
-    await expect(link).toHaveAttribute('href', `/app/records/${ID.parcel}/services`);
+    await expect(link).toHaveAttribute('href', `/properties/${ID.parcel}/services`);
   });
 });
 
 // ── Upload ─────────────────────────────────────────────────────────────
 
 test.describe('adding a photo', () => {
-  test('the picker lives in the panel, and takes video as well as stills', async ({ page }) => {
+  test('the picker lives in the panel, and takes video and recordings as well as stills', async ({ page }) => {
     // The input used to be mounted on the page at all times, because handing it
     // files WAS the upload. It is inside the panel now, so there is nothing on
     // the page to hand a file to until somebody has asked to add one — and the
     // limit is stated in there, beside the drop zone, where the choosing happens.
     await page.goto(GALLERY());
 
-    await expect(page.getByLabel('Upload a photo or video to this record')).toHaveCount(0);
+    await expect(page.getByLabel('Upload media')).toHaveCount(0);
     await addTrigger(page).click();
 
     const panel = photoDrawer(page);
     await expect(panel).toBeVisible();
     await expect(panel.locator('.eyebrow')).toHaveText('Sy 214/2 · Media');
-    await expect(panel).toContainText('Photos or video, up to 15.0 MB each.');
+    await expect(panel).toContainText('Photos up to 15.0 MB; videos and recordings up to 50.0 MB.');
 
-    const picker = page.getByLabel('Upload a photo or video to this record');
+    const picker = page.getByLabel('Upload media');
     await expect(picker).toHaveCount(1);
-    await expect(picker).toHaveAttribute('accept', 'image/*,video/*');
+    await expect(picker).toHaveAttribute('accept', 'image/*,video/*,audio/*');
     await expect(picker).toHaveAttribute('multiple', '');
     // Nothing picked, so there is nothing to send.
     await expect(addButton(page)).toBeDisabled();
@@ -1104,9 +1201,7 @@ test.describe('adding a photo', () => {
     const panel = photoDrawer(page);
     await expect(panel.locator('.rows.boxed > div').filter({ hasText: 'east-field.jpg' }))
       .toContainText('16.0 MB · over the 15.0 MB limit');
-    await expect(panel.getByRole('alert')).toContainText(
-      'Take that one out to upload the rest — nothing is sent while anything in the list'
-      + ' is over the limit.');
+    await expect(panel.getByRole('alert')).toContainText('Remove that one to upload the rest.');
     await expect(addButton(page)).toBeDisabled();
     expect(world.restCalls(/storage/)).toHaveLength(0);
     expect(world.calls('addPhoto')).toHaveLength(0);
@@ -1125,7 +1220,7 @@ test.describe('adding a photo', () => {
     const rows = photoDrawer(page).locator('.rows.boxed > div');
     await expect(rows.filter({ hasText: 'east-field.jpg' })).toContainText('16.0 MB · over the');
     await expect(rows.filter({ hasText: 'north-field.jpg' })).toContainText('17.0 MB · over the');
-    await expect(photoDrawer(page).getByRole('alert')).toContainText('Take those out');
+    await expect(photoDrawer(page).getByRole('alert')).toContainText('Remove those to upload the rest.');
     expect(world.restCalls(/storage/)).toHaveLength(0);
   });
 
@@ -1264,7 +1359,7 @@ test.describe('adding a photo', () => {
     // the shortest path there is from a camera roll to a filed, dated
     // photograph. It replaced six near-identical tiles that all did this same
     // thing; one action belongs on the screen once, not six times.
-    await page.goto(`/app/records/${ID.plot}/photos`);
+    await page.goto(`/properties/${ID.plot}/media`);
 
     const tiles = page.locator('.droptile');
     // Exactly one drop zone — not six near-identical tiles that all did this
@@ -1272,10 +1367,10 @@ test.describe('adding a photo', () => {
     // second way of filing), and the picker is in there with it.
     await expect(tiles).toHaveCount(1);
     await expect(tiles.first()).toHaveAttribute('aria-haspopup', 'dialog');
-    await expect(page.getByLabel('Upload a photo or video to this record')).toHaveCount(0);
+    await expect(page.getByLabel('Upload media')).toHaveCount(0);
     await tiles.first().click();
     await expect(photoDrawer(page)).toBeVisible();
-    await expect(page.getByLabel('Upload a photo or video to this record')).toHaveCount(1);
+    await expect(page.getByLabel('Upload media')).toHaveCount(1);
   });
 
   test('files dropped onto the zone arrive in the panel already picked, not thrown away', async ({ page, world }) => {
@@ -1286,7 +1381,7 @@ test.describe('adding a photo', () => {
     world.route(/\/api\/gateway\/storage\/files\?/, () => ({
       json: { id: STORED, name: 'north-bund.jpg', sizeBytes: 2048, mimeType: 'image/jpeg' },
     }));
-    await page.goto(`/app/records/${ID.plot}/photos`);
+    await page.goto(`/properties/${ID.plot}/media`);
     const tile = page.locator('.droptile').first();
     await expect(tile).toBeVisible();
 
@@ -1389,7 +1484,7 @@ test.describe('adding a photo', () => {
     await upload(page, file('gate.jpg', 'image/jpeg', 2048));
 
     await expect(page.getByRole('alert').filter({
-      hasText: 'The photo was uploaded but could not be filed against this record.',
+      hasText: 'The photo was uploaded but could not be added to this property.',
     })).toBeVisible();
   });
 
@@ -1415,6 +1510,39 @@ test.describe('adding a photo', () => {
     await expect(page.getByText('Photo 5 of 5')).toBeVisible();
     expect(world.calls('addPhoto').map((c) => c.vars.fileName)).toEqual(['gate.jpg', 'fence.jpg']);
     expect(world.restCalls(/\/api\/gateway\/storage\/files\?/)).toHaveLength(2);
+  });
+
+  test('a pick that stops partway says how far it got and keeps only the files still to send', async ({ page, world }) => {
+    const rows = [row(PHOTO.cover), row(PHOTO.well), row(PHOTO.clip)];
+    world.set('photos', () => list(rows));
+    takesUploads(world);
+    let refused = false;
+    world.set('addPhoto', (vars) => {
+      // The second file is refused once, then filed when it is sent again.
+      if (vars.fileName === 'fence.jpg' && !refused) { refused = true; return ''; }
+      const id = `w-photo-${String(vars.fileName)}`;
+      rows.push(row(PHOTO.cover, {
+        id, caption: '', isCover: false, fileRef: '', fileName: String(vars.fileName), tags: [],
+      }));
+      return id;
+    });
+    await page.goto(GALLERY());
+
+    await upload(page, [
+      file('gate.jpg', 'image/jpeg', 2048),
+      file('fence.jpg', 'image/jpeg', 4096),
+    ]);
+
+    await expect(photoDrawer(page).getByRole('alert')).toContainText(
+      '1 of 2 files were added. The photo was uploaded but could not be added to this property.');
+    await expect(photoDrawer(page).getByText('gate.jpg')).toHaveCount(0);
+    await expect(photoDrawer(page).getByText('fence.jpg')).toBeVisible();
+
+    await addButton(page).click();
+
+    await expect(photoDrawer(page)).toHaveCount(0);
+    expect(world.calls('addPhoto').map((c) => c.vars.fileName)).toEqual(['gate.jpg', 'fence.jpg', 'fence.jpg']);
+    await expect(strip(page)).toHaveCount(5);
   });
 
   test('the size filed with a photo is the photo’s own, read off the file before it goes up', async ({ page, world }) => {
@@ -1464,7 +1592,7 @@ test.describe('adding a photo', () => {
       }));
       return 'w-photo-first';
     });
-    await page.goto(`/app/records/${ID.plot}/photos`);
+    await page.goto(`/properties/${ID.plot}/media`);
     // One dashed drop zone stands in for the gallery on a record with nothing
     // filed — not a grey sentence, and not the six near-identical tiles it
     // replaced, all of which opened this same drawer.
@@ -1487,7 +1615,11 @@ test.describe('adding a photo', () => {
 
     await upload(page, file('gate.jpg', 'image/jpeg', 2048));
 
-    await expect(page.getByRole('alert').filter({ hasText: 'That photo could not be saved. Nothing has changed.' })).toBeVisible();
+    // The pick reports once, in the drawer, which stays open with the file.
+    await expect(page.getByRole('alert').filter({
+      hasText: 'The photo was uploaded but could not be added to this property.',
+    })).toBeVisible();
+    await expect(page.getByText('That photo could not be saved. Nothing has changed.')).toHaveCount(0);
   });
 });
 
@@ -1497,7 +1629,8 @@ test.describe('an upload storage refuses', () => {
   test.use({ allowConsole: true });
 
   test('an upload the storage refuses tells the owner what happened to their file', async ({ page, world }) => {
-    // DEFECT · filePhotos.ts:77-80. `uploadToDrive` THROWS on a refusal
+    // Was a DEFECT (test.fail) — fixed: the refusal is caught and said. The
+    // original diagnosis is kept below for the record. filePhotos.ts:77-80. `uploadToDrive` THROWS on a refusal
     // (storage.ts:58-65) and never returns null, so the `if (!node)` guard on
     // line 80 is dead code and the throw escapes `file()` — which the caller
     // invokes as `void onPick(picked)` (RecordPhotos.tsx:404). The spinner
@@ -1507,7 +1640,6 @@ test.describe('an upload storage refuses', () => {
     // every other refusal on this screen gets — STORAGE_OFFLINE_MSG, or the
     // gateway's own sentence — and it has to name the upload, because from
     // where the owner is sitting nothing at all happened.
-    test.fail();
     world.route(/\/api\/gateway\/storage\/files\?/, () => ({ status: 503, json: { error: 'storage is down' } }));
     await page.goto(GALLERY());
 
@@ -1548,7 +1680,7 @@ test.describe('taking a copy', () => {
       await page.getByRole('button', { name: 'Download' }).click();
 
       await expect(page.getByRole('alert').filter({
-        hasText: 'That photo could not be downloaded — the file storage could not be reached. The photo itself is untouched.',
+        hasText: 'That file could not be downloaded. Storage could not be reached.',
       })).toBeVisible();
       // The photo is still on the stage: nothing about it was changed by a
       // failed copy.
@@ -1604,33 +1736,34 @@ test.describe('taking a copy', () => {
 // ── What this screen does not do ───────────────────────────────────────
 
 test.describe('what this screen says it cannot do', () => {
-  test('it says where sharing and pinning live instead of drawing buttons that answer nothing', async ({ page }) => {
+  // The explanatory sentences that stood in for unbuilt controls are gone with
+  // the panel's redesign (no dead controls, and none explained in their place —
+  // RecordPhotos.tsx, the note where "Set their place by hand" stood). What is
+  // still owed is that the dead controls stay gone.
+  test('it draws no buttons for sharing or pinning that answer nothing', async ({ page }) => {
     await page.goto(GALLERY());
 
-    await expect(side(page).getByText(/Where a photo was taken comes from the app that took it/)).toBeVisible();
-    await expect(side(page).getByText(/placing one by hand is not built yet/)).toBeVisible();
-    await expect(side(page).getByRole('link', { name: 'Papers tab' }))
-      .toHaveAttribute('href', `/app/records/${ID.parcel}`);
-    // The dead controls those two sentences replaced are gone, not disabled.
-    await expect(side(page).getByRole('button', { name: /Pin on map|Share|Select/ })).toHaveCount(0);
+    await expect(side(page).getByLabel('Title', { exact: true })).toBeVisible();
+    await expect(side(page).getByRole('button', { name: /Pin on map|^Share/ })).toHaveCount(0);
   });
 
-  test('it says the actions are about the photo in front of me, not the whole strip', async ({ page }) => {
+  test('the panel’s actions name the photo in front of me, not the whole strip', async ({ page }) => {
     await page.goto(GALLERY());
 
-    await expect(side(page).getByText(
-      /Tags, download and delete apply to the photo you are looking at/,
-    )).toBeVisible();
+    await expect(side(page).getByRole('button', { name: 'Delete The well from the gate' })).toBeVisible();
   });
 });
 
 test.describe('leaving', () => {
-  test('the arrow beside the title takes me back to the record', async ({ page }) => {
+  // Media is a tab of the property's frame now (RecordHead.tsx TABS: the
+  // full-bleed gallery with its own back arrow "dropped you out of the
+  // record"), so the way back is the frame's breadcrumb.
+  test('the breadcrumb takes me back to the property', async ({ page }) => {
     await page.goto(GALLERY());
 
-    await page.getByRole('link', { name: 'Back to the record' }).click();
+    await page.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('link', { name: 'Sy 214/2' }).click();
 
-    await expect(page).toHaveURL(new RegExp(`/app/records/${ID.parcel}$`));
+    await expect(page).toHaveURL(new RegExp(`/properties/${ID.parcel}$`));
   });
 });
 
@@ -1638,20 +1771,27 @@ test.describe('leaving', () => {
 
 test.describe('a record with nothing photographed', () => {
   test('says so, and still offers the first upload', async ({ page }) => {
-    await page.goto(`/app/records/${ID.plot}/photos`);
+    await page.goto(`/properties/${ID.plot}/media`);
 
-    await expect(page.getByText('No photos on this record yet.')).toBeVisible();
-    await expect(page.getByText('Sy 88 · Photos')).toBeVisible();
+    // One drop zone stands in for the gallery (the empty state), under the
+    // tab's own heading.
+    await expect(page.getByRole('button', { name: /^Drop photos, videos or recordings here/ })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Media', exact: true })).toBeVisible();
     // The header control is named for what it does rather than for the machinery
     // behind it, and what it does now is open the panel.
     await expect(addTrigger(page)).toBeEnabled();
     await expect(strip(page)).toHaveCount(0);
   });
 
-  test('counts nothing rather than leaving the line blank', async ({ page }) => {
-    await page.goto(`/app/records/${ID.plot}/photos`);
+  test('counts nothing rather than leaving the count blank', async ({ page }) => {
+    await page.goto(`/properties/${ID.plot}/media`);
 
-    await expect(page.getByText('0 photos · 0 site visits')).toBeVisible();
+    // The tab strip prints 0 (RecordHead.tsx); a filter or search over
+    // nothing would lead nowhere, so no band is drawn.
+    await expect(page.getByRole('navigation', { name: 'This property' }).getByRole('link', { name: /^Media/ }))
+      .toHaveText('Media0');
+    await expect(page.getByRole('button', { name: '+ Filter' })).toHaveCount(0);
+    await expect(page.getByLabel('Search photos')).toHaveCount(0);
   });
 });
 
@@ -1666,15 +1806,15 @@ test.describe('while and when the read fails', () => {
     // whether THIS screen held its shape.
     const waiting = page.locator('main').getByRole('status');
     await expect(waiting).toBeVisible();
-    await expect(waiting).toContainText('Loading…');
+    await expect(waiting).toHaveAttribute('aria-label', 'Loading these photos');
     // and it must not claim the record is empty while it is still asking
-    await expect(page.getByText('No photos on this record yet.')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^Drop photos, videos or recordings here/ })).toHaveCount(0);
   });
 
   test('a slow list arrives rather than giving up', async ({ page, world }) => {
     world.set('photos', World.slow(1200, seeded()));
     await page.goto(GALLERY());
-    await expect(page.getByText('Loading…')).toBeVisible();
+    await expect(page.locator('main [role="status"][aria-busy="true"][aria-label="Loading these photos"]')).toBeVisible();
 
     await expect(strip(page)).toHaveCount(3);
   });
@@ -1699,28 +1839,17 @@ test.describe('while and when the read fails', () => {
     await page.getByRole('button', { name: 'Try again' }).click();
 
     await expect(strip(page)).toHaveCount(3);
-    await expect(page.getByText('3 photos · 1 video · 4 site visits')).toBeVisible();
+    await expect(tally(page)).toHaveText('3 of 3 shown');
     expect(world.calls('photos').length).toBeGreaterThan(asked);
   });
 
   test('the wait says which of this screen’s things has not arrived', async ({ page, world }) => {
-    // DEFECT · RecordPhotos.tsx:251. `<Loading h="80vh" />` is passed no `what`,
-    // so four fifths of a screen go grey under the single word "Loading…",
-    // while the failure that replaces it two seconds later is specific —
-    // "These photos did not load" (RecordPhotos.tsx:252). ui.tsx:646-647 asks
-    // for exactly the opposite in writing: "`what` names the thing being
-    // fetched and should match the noun the same screen gives `Failed what=`,
-    // so the waiting word and the failure word agree." Dashboard.tsx:181,
-    // Shared.tsx:53, RecordBoundary.tsx:565 and Vault.tsx:419 all pass one;
-    // this screen, Money, Expenses and the Reader do not, so this test.fail
-    // is one instance of a habit rather than a one-off. Owed here:
-    // `<Loading h="80vh" what="these photos" />` — the same noun, so a slow
-    // screen and a failed screen are recognisably about the same thing.
-    test.fail();
+    // Was a DEFECT (test.fail) — fixed: the skeleton's status region is named
+    // for the photos, the same noun the failure uses ("These photos did not load").
     world.set('photos', World.never());
     await page.goto(GALLERY());
 
-    await expect(page.locator('main').getByRole('status')).toContainText(/photos/i);
+    await expect(page.locator('main').getByRole('status', { name: /photos/i })).toBeVisible();
   });
 
   test.describe('and the failure is the transport rather than the answer', () => {
@@ -1741,27 +1870,29 @@ test.describe('while and when the read fails', () => {
 // ── Scoped to a feature: W14 ───────────────────────────────────────────
 
 test.describe('scoped to a feature', () => {
-  const FEATURE_URL = `/app/records/${ID.parcel}/photos?feature=${FEATURE.well}`;
+  const FEATURE_URL = `/properties/${ID.parcel}/media?feature=${FEATURE.well}`;
 
   test('the screen counts only that feature’s photos, and says which ones are proven', async ({ page, world }) => {
     await page.goto(FEATURE_URL);
 
     await expect.poll(() => world.asked('photos')).toBe(true);
     expect(world.lastVars('photos')).toMatchObject({ id: ID.parcel, featureId: FEATURE.well });
-    await expect(page.getByText('1 photo across 4 visits')).toBeVisible();
-    await expect(page.getByText('1 verified on site')).toBeVisible();
-    await expect(page.getByText('0 unproven')).toBeVisible();
+    // The heading names the feature and its line counts its items; which are
+    // proven is said per item, in each thumbnail's name.
+    await expect(page.getByRole('heading', { level: 2, name: /^Media of / })).toBeVisible();
+    await expect(page.locator('header.sechead p.note')).toHaveText('1 item');
     await expect(strip(page)).toHaveCount(1);
+    await expect(strip(page).nth(0)).toHaveAttribute('aria-label', /, verified on site$/);
   });
 
   test('a verified photo says how far from the pin it was taken', async ({ page }) => {
     await page.goto(FEATURE_URL);
 
     await expect(page.getByRole('heading', { name: 'Why this is Sy 214/2' })).toBeVisible();
-    await expect(page.getByRole('img', { name: 'Photo location and saved pin' })).toBeVisible();
-    await expect(page.getByText('12 m apart · inside the boundary')).toBeVisible();
-    await expect(page.getByText(/coordinates land 12 m from where sy 214\/2 is pinned/)).toBeVisible();
-    await expect(page.getByText(/Anything beyond 50 m is flagged for you to look at/)).toBeVisible();
+    // The drawing's name is the same verdict the Location check gives, with the
+    // distance measured from the saved pin (RecordPhotos.tsx WhereDrawing).
+    await expect(page.getByRole('img', { name: /^Where the photo was taken: Inside the boundary · \d+ m from the saved pin$/ }))
+      .toBeVisible();
   });
 
   test('the checklist says who took it and whether the clock agreed, and only what holds', async ({ page }) => {
@@ -1775,15 +1906,15 @@ test.describe('scoped to a feature', () => {
     await page.goto(FEATURE_URL);
 
     const checks = page.locator('.checks');
-    await expect(checks).toContainText("The device clock matched Pattadar's server");
+    await expect(checks).toContainText("Time stamp matches Pattadar's clock");
     await expect(checks).toContainText('Taken by Shankar Reddy');
     // A file hash proves the file is unchanged since it was filed.
-    await expect(checks).toContainText('Unchanged since it was filed · sha256 a1b2…b2c3');
+    await expect(checks).toContainText('Not changed since it was added');
     await expect(checks.locator(':scope > div')).toHaveCount(3);
 
     // The seeded well photo came from a phone upload, not the app's camera,
     // and on no order — so neither line is drawn, rather than drawn grey.
-    await expect(checks).not.toContainText('Shot in the Pattadar app');
+    await expect(checks).not.toContainText('Taken in the Pattadar app');
     await expect(checks).not.toContainText('service order');
     for (const unbacked of ['ID verified', 'caretaker', 'paid']) {
       await expect(checks).not.toContainText(unbacked);
@@ -1824,7 +1955,7 @@ test.describe('scoped to a feature', () => {
     const checks = page.locator('.checks');
     await expect(checks).toContainText('Taken by Shankar Reddy');
     await expect(checks).not.toContainText('device clock');
-    await expect(checks).not.toContainText('Shot in the Pattadar app');
+    await expect(checks).not.toContainText('Taken in the Pattadar app');
     await expect(checks).not.toContainText('sha256');
   });
 
@@ -1839,58 +1970,57 @@ test.describe('scoped to a feature', () => {
     await expect(page.getByRole('heading', { name: '1 photo here proves nothing' })).toBeVisible();
     await expect(page.getByText(/from outside the app/)).toHaveCount(0);
     await expect(page.getByText('Dated 12/08/2026. Not checked against the saved pin.')).toBeVisible();
-    await expect(page.locator('.checks')).toContainText('Shot in the Pattadar app, not picked from a gallery');
+    await expect(page.locator('.checks')).toContainText('Taken in the Pattadar app, not picked from a gallery');
   });
 
   test('a photo that came in on no order is not said to be evidence on one', async ({ page }) => {
     await page.goto(FEATURE_URL);
 
-    await expect(side(page).getByText(
-      /It is Sy 214\/2’s current condition on the Features tab, and one of this record’s photos/,
-    )).toBeVisible();
+    // The checklist claims an order only when the row carries one.
+    await expect(page.getByRole('heading', { name: 'Why this is Sy 214/2' })).toBeVisible();
+    await expect(side(page).getByText(/Came in on service order/)).toHaveCount(0);
     await expect(side(page).getByText(/the evidence on order/)).toHaveCount(0);
   });
 
   test('an unproven photo claims nothing, and says exactly why', async ({ page, world }) => {
-    world.set('photos', list([row(PHOTO.clip, { featureId: FEATURE.well })]));
+    // A still, not the clip: location checks do not apply to a video, so the
+    // provenance panel is drawn only for a photo (RecordPhotos.tsx).
+    world.set('photos', list([row(PHOTO.well, { featureId: FEATURE.well, verified: false, source: 'upload' })]));
     await page.goto(FEATURE_URL);
 
-    await expect(page.getByRole('img', { name: 'Photo location and saved pin' })).toHaveCount(0);
+    await expect(page.getByRole('img', { name: /^Where the photo was taken/ })).toHaveCount(0);
     await expect(page.getByText(/Not checked against the saved pin/).first()).toBeVisible();
-    await expect(page.getByText('0 verified on site')).toBeVisible();
-    await expect(page.getByText('1 unproven')).toBeVisible();
+    await expect(strip(page).nth(0)).toHaveAttribute('aria-label', /, not verified$/);
   });
 
   test('a forwarded photo is named as forwarded rather than lumped in with the rest', async ({ page, world }) => {
-    world.set('photos', list([row(PHOTO.clip, { featureId: FEATURE.well, source: 'forwarded' })]));
+    world.set('photos', list([row(PHOTO.well, { featureId: FEATURE.well, verified: false, source: 'forwarded' })]));
     await page.goto(FEATURE_URL);
 
-    await expect(page.getByText(/This photo was forwarded in rather than shot here, so nothing has checked it/)).toBeVisible();
+    await expect(side(page).getByText('Forwarded, not shot here. Not checked against the saved pin.')).toBeVisible();
   });
 
   test('the advisory card reads the rows rather than the comp it was drawn from', async ({ page, world }) => {
-    world.set('photos', list([row(PHOTO.clip, { featureId: FEATURE.well })]));
+    world.set('photos', list([row(PHOTO.well, { featureId: FEATURE.well, verified: false, source: 'upload' })]));
     await page.goto(FEATURE_URL);
 
     await expect(page.getByRole('heading', { name: '1 photo here proves nothing' })).toBeVisible();
-    await expect(page.getByText(/Filed from outside the app, dated 02\/06\/2026/)).toBeVisible();
-    await expect(page.getByText(/It is kept as a picture but never used as evidence — not in a dispute, not in a listing, not for a bank/)).toBeVisible();
+    await expect(page.getByText('Filed from outside the app, dated 12/08/2026. Not checked against the saved pin.')).toBeVisible();
   });
 
   test('two forwarded photos are described as forwarded, across the days they were taken', async ({ page, world }) => {
     world.set('photos', list([
-      row(PHOTO.clip, { featureId: FEATURE.well, source: 'forwarded' }),
+      row(PHOTO.well, { featureId: FEATURE.well, verified: false, source: 'forwarded', capturedAt: '2026-06-02T05:10:00Z' }),
       row(PHOTO.well, { id: 'w-photo-fwd', featureId: FEATURE.well, verified: false, source: 'forwarded', capturedAt: '2026-07-04T05:00:00Z' }),
     ]));
     await page.goto(FEATURE_URL);
 
     await expect(page.getByRole('heading', { name: '2 photos here prove nothing' })).toBeVisible();
-    await expect(page.getByText(/Forwarded in rather than shot here, dated 02\/06\/2026 – 04\/07\/2026/)).toBeVisible();
-    await expect(page.getByText(/They are kept as pictures but never used as evidence/)).toBeVisible();
+    await expect(page.getByText(/^Forwarded, not shot here, dated 02\/06\/2026 – 04\/07\/2026\. Not checked against the saved pin\.$/)).toBeVisible();
   });
 
   test('Leave as is puts the advisory away for this visit, and not for good', async ({ page, world }) => {
-    world.set('photos', list([row(PHOTO.clip, { featureId: FEATURE.well })]));
+    world.set('photos', list([row(PHOTO.well, { featureId: FEATURE.well, verified: false, source: 'upload' })]));
     await page.goto(FEATURE_URL);
     await expect(page.getByRole('heading', { name: '1 photo here proves nothing' })).toBeVisible();
 
@@ -1901,20 +2031,25 @@ test.describe('scoped to a feature', () => {
     await expect(page.getByRole('heading', { name: '1 photo here proves nothing' })).toBeVisible();
   });
 
-  test('placing a photo by hand is not built, and the screen says so instead of pretending', async ({ page, world }) => {
-    world.set('photos', list([row(PHOTO.clip, { featureId: FEATURE.well })]));
+  // "Set their place by hand" was a disabled control for something the app
+  // cannot do; it is not drawn until it can (RecordPhotos.tsx, the note where
+  // it stood; web zero-state standard: no dead controls). Its test went with it.
+  test('no control is drawn for placing a photo by hand, which is not built', async ({ page, world }) => {
+    world.set('photos', list([row(PHOTO.well, { featureId: FEATURE.well, verified: false, source: 'upload' })]));
     await page.goto(FEATURE_URL);
+    await expect(page.getByRole('heading', { name: '1 photo here proves nothing' })).toBeVisible();
 
-    await expect(page.getByRole('button', { name: 'Set their place by hand' })).toBeDisabled();
-    await expect(page.getByText(/Placing a photo by hand is not built yet. Until it is, a photo’s place comes from the app that took it/)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Set their place by hand' })).toHaveCount(0);
   });
 
   /** The header's one control into the order flow. Everything the flow needs
    *  to open on the service already chosen rides in the query string: the
    *  service key, the step, the brief this screen used to compose as `params`,
-   *  and the provenance it used to compose as `note` (RecordPhotos.tsx:343). */
-  const ASK_HREF = `/app/records/${ID.parcel}/order`
-    + '?service=site_visit&step=pick&a.check=General+condition&why=photos';
+   *  and the provenance it used to compose as `note` — built by orderHref, the
+   *  one way into ordering, so it opens on the services step with this
+   *  property already chosen. */
+  const ASK_HREF = `/order?for=${ID.parcel}&step=services`
+    + '&service=site_visit&a.check=General+condition&why=photos';
 
   test('asking for a fresh photo takes me into the order flow with the visit, the brief and the reason already stated', async ({ page }) => {
     await page.goto(FEATURE_URL);
@@ -1929,7 +2064,8 @@ test.describe('scoped to a feature', () => {
 
     await page.getByRole('link', { name: 'Ask for a fresh photo' }).click();
 
-    await expect(page).toHaveURL(ASK_HREF);
+    // Straight into the one order flow, this property already chosen.
+    await expect(page).toHaveURL(/\/order\?for=w-sy-214-2&step=services&service=site_visit&a\.check=General\+condition&why=photos$/);
     // The mutation went, and with it the pending label, the "Visit ordered"
     // state that outlived the feature it was ordered for, and the two
     // sentences a refusal needed. A link cannot be refused.
@@ -1938,31 +2074,31 @@ test.describe('scoped to a feature', () => {
   });
 
   test('following it opens the order flow on the site visit, with what to check already answered', async ({ page, world }) => {
+    world.set('orders', []);
     await page.goto(FEATURE_URL);
 
     await page.getByRole('link', { name: 'Ask for a fresh photo' }).click();
 
-    await expect(page.getByRole('heading', { name: 'What do you want done on this land?' })).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Site visit/ })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByRole('heading', { name: 'Choose the services' })).toBeVisible();
+    await expect(page.getByRole('checkbox', { name: 'Choose Site visit' })).toBeChecked();
 
     // `a.check` is the answer this header used to post as params. The flow
-    // prefills the service's own field with it, so the owner arrives at the
-    // questions with the one this screen knows the answer to already filled.
-    await page.getByRole('button', { name: 'Answer what it needs' }).click();
+    // prefills the service's own field with it.
+    await page.getByRole('button', { name: 'Next: review' }).click();
 
-    await expect(page.getByRole('heading', { name: 'What we need to know' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Review and place' })).toBeVisible();
     await expect(page.getByLabel('What to check')).toHaveValue('General condition');
     expect(world.calls('orderService')).toHaveLength(0);
   });
 
   test('a feature with nothing photographed says so without calling the whole record empty', async ({ page }) => {
-    await page.goto(`/app/records/${ID.parcel}/photos?feature=${FEATURE.fence}`);
+    await page.goto(`/properties/${ID.parcel}/media?feature=${FEATURE.fence}`);
 
     await expect(page.getByText('No photos of Sy 214/2 yet')).toBeVisible();
-    await expect(page.getByText(/The record’s other photos are filed against the record itself or another feature/)).toBeVisible();
-    await expect(page.getByRole('link', { name: 'All photos on this record' }))
-      .toHaveAttribute('href', `/app/records/${ID.parcel}/photos`);
-    await expect(page.getByText('No photos on this record yet.')).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'All photos on this property' }))
+      .toHaveAttribute('href', `/properties/${ID.parcel}/media`);
+    // Not the whole property's empty state: that is the drop zone.
+    await expect(page.getByRole('button', { name: /^Drop photos, videos or recordings here/ })).toHaveCount(0);
   });
 
   test('an unlabelled feature gets a headline rather than a hole', async ({ page, world }) => {
@@ -1970,7 +2106,7 @@ test.describe('scoped to a feature', () => {
     await page.goto(FEATURE_URL);
 
     await expect(page.getByRole('heading', { name: 'Why this is evidence' })).toBeVisible();
-    await expect(page.getByText('This feature · photos')).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Media of this feature' })).toBeVisible();
   });
 
   test('an unlabelled feature with nothing filed still names what is empty', async ({ page, world }) => {
@@ -1980,23 +2116,32 @@ test.describe('scoped to a feature', () => {
     await expect(page.getByText('No photos of this feature yet')).toBeVisible();
   });
 
-  test('the panel says out loud that one file is doing three jobs', async ({ page, world }) => {
+  test('deleting a photo that is doing three jobs names every one of them first', async ({ page, world }) => {
+    // W14: one file is the cover, the well's current condition and the
+    // evidence on an order. delete_photo removes the row, so all three go —
+    // said in the confirmation, before anything is taken (photoUses.ts).
     world.set('photos', list([row(PHOTO.cover, { orderRef: 'ORD-2291' })]));
-    await page.goto(FEATURE_URL);
+    await page.goto(GALLERY());
 
-    await expect(page.getByRole('heading', { name: 'This photo is doing three jobs' })).toBeVisible();
-    await expect(page.getByText(/It is Sy 214\/2’s current condition on the Features tab, the evidence on order ORD-2291, and one of this record’s photos/)).toBeVisible();
-    await expect(page.getByText(/deleting it from one does not remove it from the others/)).toBeVisible();
+    await page.getByRole('button', { name: 'Delete The well from the gate' }).click();
+    const confirm = page.getByRole('dialog', { name: 'Delete this photo?' });
+    await expect(confirm).toContainText(
+      'This photo is also this property’s cover, a feature’s current condition on the Site features tab and the evidence on order ORD-2291.');
+    await expect(confirm).toContainText('deleting it here takes it off all of them too');
+    expect(world.calls('deletePhoto')).toHaveLength(0);
   });
 
-  test('the strip legend explains its own dots when the scope is a feature', async ({ page }) => {
+  // The visual legend under the strip is gone; each dot is a ✓ glyph or
+  // nothing, and what it means is said in words in its thumbnail's name.
+  test('the strip says in words what its dots mean when the scope is a feature', async ({ page, world }) => {
+    world.set('photos', list([row(PHOTO.cover, { featureId: FEATURE.well }), row(PHOTO.well, { featureId: FEATURE.well, verified: false, source: 'upload' })]));
     await page.goto(FEATURE_URL);
 
-    await expect(page.getByText(/taken here, in the app/)).toBeVisible();
-    await expect(page.getByText(/uploaded, location unproven/)).toBeVisible();
+    await expect(strip(page).nth(0)).toHaveAttribute('aria-label', /, verified on site$/);
+    await expect(strip(page).nth(1)).toHaveAttribute('aria-label', /, not verified$/);
   });
 
-  test('the dots in the strip are the ones the legend just described', async ({ page, world }) => {
+  test('the dots in the strip are the ones the names describe', async ({ page, world }) => {
     world.set('photos', list([
       row(PHOTO.cover, { featureId: FEATURE.well }),
       row(PHOTO.clip, { featureId: FEATURE.well }),
@@ -2008,8 +2153,8 @@ test.describe('scoped to a feature', () => {
     // no` is the whole of what they are, so the class is the assertion.
     await expect(strip(page).nth(0).locator('.src')).not.toHaveClass(/\bno\b/);
     await expect(strip(page).nth(1).locator('.src')).toHaveClass(/\bno\b/);
-    await expect(page.getByText('1 verified on site')).toBeVisible();
-    await expect(page.getByText('1 unproven')).toBeVisible();
+    await expect(strip(page).nth(0)).toHaveAttribute('aria-label', /, verified on site$/);
+    await expect(strip(page).nth(1)).toHaveAttribute('aria-label', /, not verified$/);
   });
 
   test('the feature scope offers no search box, because the strip is already the feature', async ({ page }) => {

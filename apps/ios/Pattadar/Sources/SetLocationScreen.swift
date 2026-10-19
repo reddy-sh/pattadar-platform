@@ -351,7 +351,7 @@ struct SetLocationScreen: View {
                     // for a problem the person does not have.
                     aimNote = attempt == 0
                         ? "Found something near \(placeLabel) but not the village itself. Move the map to the land."
-                        : "Couldn’t find \(placeLabel) exactly — showing \(parts[0]). Move the map to the land."
+                        : "Could not find \(placeLabel) exactly — showing \(parts[0]). Move the map to the land."
                 }
                 if saved == nil {
                     // A coarse aim is NOT an aim: the person must still place
@@ -368,7 +368,7 @@ struct SetLocationScreen: View {
             attempt += 1
         }
         if saved == nil {
-            aimNote = "Couldn’t find \(placeLabel) on the map — search for it, or move the map to the land."
+            aimNote = "Could not find \(placeLabel) on the map — search for it, or move the map to the land."
         }
     }
 
@@ -420,7 +420,7 @@ struct SetLocationScreen: View {
     /// has always claimed this was possible. Until now it was not.
     private func useMyLocation() async {
         guard let here = await locator.current() else {
-            aimNote = "Location isn’t available — allow it in Settings, or move the map by hand."
+            aimNote = "Location is not available — allow it in Settings, or move the map by hand."
             return
         }
         move(to: here, span: 0.004, aimedByUser: true)
@@ -476,7 +476,7 @@ struct SetLocationScreen: View {
                 aimNote = ""
                 move(to: loc.coordinate, span: 0.01, aimedByUser: true)
             } else {
-                aimNote = "Couldn’t find “\(term)”."
+                aimNote = "Could not find “\(term)”."
             }
         }
     }

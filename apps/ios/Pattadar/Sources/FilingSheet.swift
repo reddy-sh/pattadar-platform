@@ -63,7 +63,7 @@ struct FilingSheet: View {
                         Text("What are you filing?")
                             .font(.system(.title, design: .serif).weight(.semibold))
                         Text(destinationName.map { "Going to \($0)." }
-                             ?? "Name the paper and it goes to the right place.")
+                             ?? "Name the document and it goes to the right place.")
                             .font(.subheadline).foregroundStyle(.secondary)
                     }
                     .padding(.top, Space.xs)
@@ -79,7 +79,7 @@ struct FilingSheet: View {
                     // belongs on this sheet because "what do I need to happen"
                     // is the same moment as "what am I filing".
                     VStack(alignment: .leading, spacing: Space.sm) {
-                        Text("Or ask someone to do it")
+                        Text("Or ask for it to be done")
                             .font(.system(.headline, design: .serif))
                         Text("A surveyor, an advocate, an errand at the office. Recorded and tracked — nobody is dispatched or paid from here.")
                             .font(.caption).foregroundStyle(.secondary)

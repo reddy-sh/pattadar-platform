@@ -376,7 +376,7 @@ export function PassbookDetailPage() {
       </>
     );
   const pb = data.passbook;
-  if (!pb) return <NotFoundCard what="Passbook" backTo="/app/passbooks" backLabel="Back to Passbooks" />;
+  if (!pb) return <NotFoundCard what="Passbook" backTo="/properties?kind=parcel" backLabel="Back to Passbooks" />;
 
   const address = [pb.village, pb.mandal, pb.district, pb.state].filter(Boolean).join(', ') || '—';
 
@@ -498,7 +498,7 @@ export function PassbookDetailPage() {
                   return (
                     <TableRow key={r.id} hover>
                       <TableCell>
-                        <Link component={RouterLink} to={`/app/parcels/${r.id}`} underline="hover" sx={{ fontWeight: 700 }}>
+                        <Link component={RouterLink} to={`/properties/${r.id}`} underline="hover" sx={{ fontWeight: 700 }}>
                           {r.surveyNo}
                           {r.subdivision ? '/' + r.subdivision : ''}
                         </Link>
@@ -526,10 +526,10 @@ export function PassbookDetailPage() {
       </Card>
 
       <Box sx={{ mt: 2, display: 'flex', gap: 2 }}>
-        <Link component="button" variant="body2" onClick={() => navigate('/app/passbooks')}>
+        <Link component="button" variant="body2" onClick={() => navigate('/properties?kind=parcel')}>
           ← Back to Passbooks
         </Link>
-        <Link component="button" variant="body2" onClick={() => navigate(`/app/parcels?pb=${id}`)}>
+        <Link component="button" variant="body2" onClick={() => navigate(`/legacy/parcels?pb=${id}`)}>
           Open land parcels ›
         </Link>
       </Box>

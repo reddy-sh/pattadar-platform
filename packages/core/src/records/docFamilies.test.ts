@@ -91,19 +91,19 @@ describe('the shelves themselves', () => {
     // Copied from familyLabel in DocSpine.swift. A mismatch here means the two
     // apps are naming the same shelf differently.
     expect(DOC_FAMILIES.map(familyLabel)).toEqual([
-      'Title',
-      'Revenue record',
+      'Title deeds',
+      'Revenue records',
       'Map',
       'Identity',
-      'Search & tax',
-      'Old record',
-      'Photos',
-      'Unsorted',
+      'EC & tax receipts',
+      'Old records',
+      'Photos & video',
+      'Not sorted yet',
     ]);
   });
 
   test('an unrecognised family degrades to unsorted rather than blank', () => {
-    expect(familyLabel('nonsense')).toBe('Unsorted');
+    expect(familyLabel('nonsense')).toBe('Not sorted yet');
     expect(familyTint('nonsense')).toBe('gray');
   });
 });

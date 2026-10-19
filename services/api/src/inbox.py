@@ -4,7 +4,7 @@ Why this exists: a document reading takes a minute or more, and the Add
 property drawer was the only thing waiting for it. Close the drawer and the
 server still finished the reading — durably, in `document_read_jobs` — but
 nothing ever told the owner. Now the worker that finishes a reading writes one
-row here, the web shows it in the bell and on /app/notifications, and a
+row here, the web shows it in the bell and on /notifications, and a
 browser that opted in gets a push.
 
 Cost: no new service. Rows are written by the reading worker that already runs
@@ -105,7 +105,7 @@ async def reading_finished(conn, job: dict, ok: bool) -> bool:
             " VALUES (%s,%s,'reading',%s,%s,%s,%s)"
             " ON CONFLICT (owner_user_id, job_id) WHERE job_id <> '' DO NOTHING RETURNING id",
             (uuid.uuid4().hex, job["owner_user_id"],
-             "Document read" if ok else "Document couldn't be read",
+             "Document read" if ok else "Document could not be read",
              (job.get("filename") or "")[:200], job["id"], ok))
         wrote = await cur.fetchone() is not None
     except Exception:  # noqa: BLE001

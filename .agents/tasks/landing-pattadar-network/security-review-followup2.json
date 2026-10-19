@@ -1,0 +1,24 @@
+{
+  "approved": true,
+  "findings": [
+    {
+      "severity": "info",
+      "blocking": false,
+      "confidence": "possible",
+      "title": "Shared masker context fallback",
+      "file": "services/api/src/main.py",
+      "detail": "MaskUnexpectedErrors() is passed as an instance, so Strawberry 0.323.2 reuses it and overwrites self.execution_context per request; under concurrency the anonymise_error fallback can read another request's query. The primary error.source.body check is set for every value-bearing error on this path (located resolver errors and variable-coercion errors), so no leak path was found. Concurrent interleaving is untested.",
+      "fix": "Pass MaskUnexpectedErrors as a class/factory (no instance) so each request gets its own context; also clears Strawberry's shared-instance deprecation."
+    },
+    {
+      "severity": "info",
+      "blocking": false,
+      "confidence": "confirmed",
+      "title": "Traceback dropped for unexpected faults on this root",
+      "file": "services/api/src/main.py",
+      "detail": "For registerNetworkInterest requests, unexpected non-psycopg resolver faults now log only ref, field and class name, with no message or stack. Debuggability only; not a security issue.",
+      "fix": "If diagnosis needs more, log a stack without the exception message or frame locals, or rely on ref plus local reproduction."
+    }
+  ],
+  "reviewDoc": "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/.worktrees/landing-pattadar-network/.agents/tasks/landing-pattadar-network/security-review-followup2.md"
+}

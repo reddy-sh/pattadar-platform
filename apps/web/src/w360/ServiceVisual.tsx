@@ -2,8 +2,10 @@ import type { ServiceVisual as ServiceVisualData } from './api';
 
 const SAFE_ASSET = /^[a-z0-9_-]{1,80}$/;
 
+const FALLBACK_SRC = '/service-visuals/site_visit.webp';
+
 export function serviceVisualSrc(assetKey: string): string {
-  return `/service-visuals/${SAFE_ASSET.test(assetKey) ? assetKey : 'site_visit'}.webp`;
+  return SAFE_ASSET.test(assetKey) ? `/service-visuals/${assetKey}.webp` : FALLBACK_SRC;
 }
 
 export function ServiceVisual({
@@ -17,7 +19,7 @@ export function ServiceVisual({
   serviceKey: string;
   label?: string;
   visual?: ServiceVisualData | null;
-  variant?: 'thumb' | 'card' | 'admin';
+  variant?: 'thumb' | 'admin';
   showCaption?: boolean;
   eager?: boolean;
 }) {
@@ -32,6 +34,9 @@ export function ServiceVisual({
         alt={alt}
         loading={eager ? 'eager' : 'lazy'}
         decoding="async"
+        // shortcut: a service with no bundled image yet (the bore point has none) shows the
+        // generic visit image instead of a broken one; draw its own .webp to replace it.
+        onError={(e) => { if (!e.currentTarget.src.endsWith(FALLBACK_SRC)) e.currentTarget.src = FALLBACK_SRC; }}
       />
       {showCaption && <figcaption>{caption}</figcaption>}
     </figure>

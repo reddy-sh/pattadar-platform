@@ -1,0 +1,10 @@
+{
+  "verdict": "APPROVED",
+  "findings": [
+    {"severity": "non-blocking", "confidence": "likely", "label": "New button lands without guidance", "detail": "'+ New combined view' links to /app/properties with no arrival hint about select-and-Combine; consider the planned ?combine=1 hand-off or an on-arrival hint as a follow-up."},
+    {"severity": "non-blocking", "confidence": "confirmed", "label": "Filtered-empty panel thinner than Properties", "detail": "Combined's emptypanel omits the explanatory note paragraph Properties shows under the heading; add a short note for parity."},
+    {"severity": "non-blocking", "confidence": "confirmed", "label": "Unrelated edits in touched files", "detail": "Vault head ⓘ/file-count change, CombinedProperty .stack lg and button-row change, Properties subtitle marginTop tweak are not part of this task; stage only this task's hunks or confirm ownership."},
+    {"severity": "informational", "confidence": "confirmed", "label": "CSV filename tied to noun", "detail": "Export filename stem derives from COMBINED_WORD.many, so a rename also renames exports; add to the rename checklist."}
+  ],
+  "reviewDoc": "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/.agents/tasks/pattadar-platform-combined-views-standardize-2026-10-27//review.md"
+}

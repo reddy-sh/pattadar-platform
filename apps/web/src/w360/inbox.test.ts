@@ -9,8 +9,8 @@ const originalFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = originalFetch; setAccessTokenProvider(async () => null); });
 
 test('a notice opens Add property filled from its own reading', () => {
-  expect(reviewPath('abc')).toBe('/app/properties?reading=abc');
-  expect(reviewPath('a/b?c')).toBe('/app/properties?reading=a%2Fb%3Fc');
+  expect(reviewPath('abc')).toBe('/properties?reading=abc');
+  expect(reviewPath('a/b?c')).toBe('/properties?reading=a%2Fb%3Fc');
 });
 
 test('a watched reading is not announced, and the file stays with its job for the tab', () => {

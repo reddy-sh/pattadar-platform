@@ -19,19 +19,19 @@ export function gapsOf(r: RecordCard): Gap[] {
   // _located() already falls back to the boundary's centre, so 0,0 here means
   // neither a pin nor a boundary.
   if (!r.lat && !r.lon) {
-    out.push({ label: 'Not on the map', fix: 'Set location', to: `/app/records/${r.id}/map` });
+    out.push({ label: 'Not on the map', fix: 'Set location', to: `/properties/${r.id}/location` });
   } else if (land && r.ring.length < 6) {
-    out.push({ label: 'No boundary', fix: 'Draw boundary', to: `/app/records/${r.id}/map` });
+    out.push({ label: 'No boundary', fix: 'Draw boundary', to: `/properties/${r.id}/location` });
   }
   // Not "Add document": that is the Add document shortcut's label, and the
-  // shortcut's add flow (/app/papers?do=add) cannot be opened for one property
+  // shortcut's add flow (/papers?do=add) cannot be opened for one property
   // — no route mounts the property's own add drawer. Not "Open Documents"
   // either: on Home that already opens the Documents page (the shared-link
   // reminder, whereTo in Dashboard.tsx), and one label must not lead to two
-  // places in one card. "Open record" is Home's word for this destination;
-  // the record opens on its Documents tab.
+  // places in one card. "Open property" is Home's word for this destination;
+  // the property opens on its Documents tab.
   if (r.paperCount === 0) {
-    out.push({ label: 'No documents', fix: 'Open record', to: `/app/records/${r.id}` });
+    out.push({ label: 'No documents', fix: 'Open property', to: `/properties/${r.id}/documents` });
   }
   return out;
 }

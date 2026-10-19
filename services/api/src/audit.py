@@ -122,6 +122,9 @@ def _spec(action, data_class, resource="", retention=DEFAULT_RETENTION,
 # document contents. Where a human label is genuinely useful (e.g. a record
 # title) it is passed as a bounded, redacted value by the producer, not lifted
 # from arbitrary user input.
+_CREATED_FROM = ("origin", "source_ref", "source_kind", "file_name", "document_id",
+                 "reading_job_id", "content_hash", "rid", "s_no")
+
 _SPECS: dict = {s.action: s for s in [
     # Identity / KYC — the sharpest security events.
     _spec("reveal_aadhaar", CLASS_SECURITY, "person", "security", security=True,
@@ -138,6 +141,11 @@ _SPECS: dict = {s.action: s for s in [
     # one role reading across every owner's data.
     _spec("desk_read", CLASS_SECURITY, "scope", "security", security=True,
           metadata_keys=("scope", "detail")),
+    # Which AI provider reads every owner's documents, and its credentials.
+    # `credentials` names the ones replaced or removed, never a value.
+    _spec("intelligence_settings.update", CLASS_OPERATIONAL, "platform_setting", "security",
+          security=True, metadata_keys=("change", "provider", "model", "ocr_enabled",
+                                        "credentials")),
 
     # Documents.
     _spec("upload_document", CLASS_PERSONAL, "document",
@@ -182,7 +190,8 @@ _SPECS: dict = {s.action: s for s in [
     _spec("remove_member", CLASS_PERSONAL, "person"),
     _spec("invite_member", CLASS_PERSONAL, "person", metadata_keys=("channel",)),
     _spec("create_group", CLASS_PERSONAL, "group", metadata_keys=("kind",)),
-    _spec("update_group", CLASS_PERSONAL, "group"),
+    # `fields` names the facts that changed (keys only, never values).
+    _spec("update_group", CLASS_PERSONAL, "group", metadata_keys=("fields",)),
     _spec("delete_group", CLASS_PERSONAL, "group"),
     _spec("assign_land_to_group", CLASS_PERSONAL, "passbook", metadata_keys=("set",)),
     _spec("assign_property_to_group", CLASS_PERSONAL, "property", metadata_keys=("set",)),
@@ -191,10 +200,29 @@ _SPECS: dict = {s.action: s for s in [
     # Passbooks / parcels / properties CRUD.
     _spec("create_passbook", CLASS_PERSONAL, "passbook"),
     _spec("delete_passbook", CLASS_PERSONAL, "passbook"),
-    _spec("create_parcel", CLASS_PERSONAL, "parcel"),
+    # `origin` says which surface created it ("assistant" | "drawer") and
+    # `source_ref` which public deed it was copied from ("pr:<rid>:<s_no>") —
+    # a registry document id, never a party's name.
+    # The creating source (Reddy, 12/10/2026, D2): `source_kind` (public_record,
+    # deed_reading, passbook_reading, manual), the reading's job id, the file's
+    # name and content hash, or the public record's RID and schedule — so
+    # "created from what" outlives the 7-day reading. The file name is the
+    # only personal-ish value, and it is the owner's own label for the paper.
+    _spec("create_parcel", CLASS_PERSONAL, "parcel", metadata_keys=_CREATED_FROM),
     _spec("add_parcel", CLASS_PERSONAL, "parcel"),
+    # The root API's create-from-a-registered-deed (iOS/Expo): the same trace.
+    _spec("parcel_from_document", CLASS_PERSONAL, "parcel", metadata_keys=_CREATED_FROM),
     _spec("delete_parcel", CLASS_PERSONAL, "parcel"),
-    _spec("create_property", CLASS_PERSONAL, "property"),
+    _spec("create_property", CLASS_PERSONAL, "property", metadata_keys=_CREATED_FROM),
+    # A deed reading bound to the paper it was filed with (B7): the same trace.
+    _spec("record.source_bound", CLASS_PERSONAL, "record", metadata_keys=_CREATED_FROM),
+    # A property moved between the plot and farmland registers (D1): kinds and
+    # extents only ("63162 sq.yd" → "13.05 ac"), never a name; which column the
+    # value came from; and, when an operator's script applied the owner's
+    # decision, that it did and the approval it ran under.
+    _spec("record.kind_changed", CLASS_PERSONAL, "record",
+          metadata_keys=("from_kind", "to_kind", "from_extent", "to_extent",
+                         "market_value_from", "applied_by", "approval_ref")),
     _spec("delete_property", CLASS_PERSONAL, "property"),
     _spec("archive_record", CLASS_PERSONAL, "record"),
     _spec("tag_record", CLASS_OPERATIONAL, "record", "short"),
@@ -601,6 +629,17 @@ DDL = [
         BEFORE UPDATE OR DELETE ON audit_events_v2
         FOR EACH ROW EXECUTE FUNCTION audit_events_v2_append_only()
     """,
+    # A property whose id was rewritten (scripts/migrate-property-ids-uuid7.py)
+    # keeps its chained events under the old id, which can never be edited, so
+    # the record trail reads the old ids through this map.
+    """
+    CREATE TABLE IF NOT EXISTS record_id_aliases (
+        old_id      TEXT PRIMARY KEY,
+        new_id      TEXT NOT NULL,
+        migrated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS record_id_aliases_new ON record_id_aliases(new_id)",
 ]
 
 # The session flag the reviewed maintenance paths set before deleting.

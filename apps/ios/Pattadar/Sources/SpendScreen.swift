@@ -87,14 +87,14 @@ struct SpendScreen: View {
                         }
                         .swipeActions {
                             Button(role: .destructive) { Task { await remove(e) } } label: {
-                                Label("Remove", systemImage: "trash")
+                                Label("Delete", systemImage: "trash")
                             }
                         }
                     }
                 }
             }
         }
-        .navigationTitle("Spend")
+        .navigationTitle("Expenses")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -164,7 +164,7 @@ struct AddExpenseSheet: View {
                         }
                     }
                 } footer: {
-                    Text("Or type your own — it stays on your records.")
+                    Text("Or type your own — it stays with your expenses.")
                 }
 
                 if !problem.isEmpty {

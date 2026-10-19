@@ -88,7 +88,7 @@ export default defineConfig({
       // ships, not the dev server. strictPort in vite.config guards drift.
       command: `${BUN} x vite build --outDir ${BUILD_DIR} --emptyOutDir && ${BUN} x vite preview --outDir ${BUILD_DIR} --port ${WEB_PORT} --strictPort`,
       cwd: path.join(PLATFORM_DIR, 'apps/web'),
-      url: `${WEB_URL}/app`,
+      url: `${WEB_URL}/home`,
       reuseExistingServer: false,
       timeout: 180_000,
       env: {

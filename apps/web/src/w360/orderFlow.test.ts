@@ -1,16 +1,25 @@
 import { describe, expect, test } from 'bun:test';
 
-import type { Order } from './api';
+import type { Order, ServiceOffer } from './api';
 import { openSameJob, serviceKeyOf } from './orderFlow';
 
 const job = (kind: string, serviceKey = '') => ({
   id: `job-${kind}`, kind, serviceKey,
 } as Order);
 
-describe('active service request identity', () => {
-  test('legacy request names match their catalogue service', () => {
-    expect(openSameJob([job('visit')], 'site_visit')?.id).toBe('job-visit');
-    expect(openSameJob([job('opinion')], 'title_opinion')?.id).toBe('job-opinion');
+// Only what the identity rules read: the catalogue's legacy aliases.
+const OFFERS = [
+  { key: 'site_visit', aliases: ['visit'] },
+  { key: 'title_opinion', aliases: ['opinion'] },
+  { key: 'survey', aliases: [] },
+] as unknown as ServiceOffer[];
+
+describe('active service order identity', () => {
+  test('legacy kinds match their catalogue service through its aliases', () => {
+    expect(openSameJob([job('visit')], 'site_visit', OFFERS)?.id).toBe('job-visit');
+    expect(openSameJob([job('opinion')], 'title_opinion', OFFERS)?.id).toBe('job-opinion');
+    expect(openSameJob([job('site_visit', 'site_visit')], 'visit', OFFERS)?.id).toBe('job-site_visit');
+    expect(serviceKeyOf(job('visit'), OFFERS)).toBe('site_visit');
   });
 
   test('the persisted stable key wins over a workflow kind', () => {
@@ -21,6 +30,6 @@ describe('active service request identity', () => {
   });
 
   test('different active services remain selectable', () => {
-    expect(openSameJob([job('survey', 'survey')], 'site_visit')).toBeUndefined();
+    expect(openSameJob([job('survey', 'survey')], 'site_visit', OFFERS)).toBeUndefined();
   });
 });

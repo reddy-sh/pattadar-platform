@@ -1,5 +1,5 @@
 /**
- * Invitations, drawn in the current design and mounted at /app/invitations.
+ * Invitations, drawn in the current design and mounted at /invitations.
  *
  * This replaces two things: the "still in the previous version" signpost
  * (w360/pages/Section.tsx, deleted) and the MUI screen it pointed at
@@ -23,6 +23,7 @@
  */
 import { useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
+import { useSearchParams } from 'react-router';
 
 import AddOutlined from '@mui/icons-material/AddOutlined';
 import ContentCopyOutlined from '@mui/icons-material/ContentCopyOutlined';
@@ -41,7 +42,12 @@ import {
   useSetInvitationStatus,
 } from '../invitationsData';
 import type { InvitationRow, NewInvitation, SentInvitation } from '../invitationsData';
-import { Empty, Failed, Loading, Menu, PageHead, StatusChip, csvCell, ddmmyyyy, plural } from '../ui';
+import {
+  Card, Empty, Failed, Menu, PageHead, SelectAllBox, SelectCell, SelectionBar, StatusChip, TablePager, Th,
+  ToolbarBand, ViewToggle, ddmmyyyy, downloadCsv, num, plural, sortBy, usePaged, useRowSelection,
+} from '../ui';
+import type { HeadActions, MenuItem, SortState } from '../ui';
+import { Sk, SkGrid, SkTable } from '../skeletons';
 
 const ROLES: { key: string; label: string }[] = [
   { key: 'view', label: 'View' },
@@ -55,8 +61,9 @@ const DURATIONS = [7, 30, 90, 365];
 
 /** The invitation's scope, in the owner's words. */
 const SCOPE_WORD: Record<string, string> = {
-  parcel: 'Parcel', passbook: 'Whole khata', beneficiary: 'Heir verification', family: 'Family record',
+  parcel: 'Parcel', passbook: 'Whole khata', beneficiary: 'Heir verification', family: 'Family',
 };
+const INV = ['invitation', 'invitations'] as const;
 const roleWord = (k: string) => ROLES.find((r) => r.key === k)?.label ?? (k || '—');
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
@@ -123,8 +130,28 @@ export function Invitations() {
     || (inv.scopeType === 'beneficiary' || inv.scopeType === 'family' ? 'Family and heirs' : humanEntity(inv.scopeId))
     || '—';
   const pending = rows.filter((r) => effectiveStatus(r) === 'pending').length;
+  // The dates sort on their stored ISO value; they print DD/MM/YYYY.
+  const [sort, setSort] = useState<SortState<'expiry' | 'sent'>>(null);
+  const sorted = useMemo(() => sortBy(rows, sort, {
+    expiry: (r) => r.expiry ?? '', sent: (r) => r.createdAt ?? '',
+  }), [rows, sort]);
+  const paged = usePaged(sorted, {
+    resetKey: `${sort?.key ?? ''}${sort?.dir ?? ''}`, storeKey: 'pattadar.table.invitations',
+  });
+
+  // No filter narrows this list, so the selection only ends on Clear.
+  const sel = useRowSelection(rows, (r) => r.id);
 
   const [sent, setSent] = useState<(SentInvitation & { to: string }) | null>(null);
+
+  // Table is this page's default; ?view=grid is the card view (design.md § Tables).
+  const [params, setParams] = useSearchParams();
+  const view = params.get('view') === 'grid' ? 'grid' : 'table';
+  const setView = (v: 'grid' | 'table') => {
+    const next = new URLSearchParams(params);
+    if (v === 'grid') next.set('view', 'grid'); else next.delete('view');
+    setParams(next, { replace: true });
+  };
 
   const revoke = async (inv: InvitationRow) => {
     try {
@@ -135,23 +162,34 @@ export function Invitations() {
     }
   };
 
-  const download = () => {
-    const head = ['Invitee', 'Access to', 'Scope', 'Scope ID', 'Role', 'Status', 'Expires', 'Sent'];
-    const lines = rows.map((r) => [
+  /** One invitation's kebab, the same in the table and on its card. */
+  const menuFor = (inv: InvitationRow): MenuItem[] => {
+    const live = inv.status === 'pending' || inv.status === 'accepted';
+    return [
+      ...(live ? [{ label: 'Revoke', onClick: () => void revoke(inv) }] : []),
+      { label: 'Delete', danger: true, rule: live, onClick: () => setDeleting(inv) },
+    ];
+  };
+
+  const download = (list: readonly InvitationRow[] = rows) => downloadCsv(`pattadar-invitations-${todayIso()}.csv`, [
+    ['Invitee', 'Access to', 'Scope', 'Scope ID', 'Role', 'Status', 'Expires', 'Sent'],
+    ...list.map((r) => [
       r.inviteeContact, nameOf(r), r.scopeType, r.scopeId, roleWord(r.role),
       STATUS[effectiveStatus(r)]?.word ?? r.status, ddmmyyyy(r.expiry), ddmmyyyy(r.createdAt),
-    ].map(csvCell).join(','));
-    const blob = new Blob(['\uFEFF' + [head.map(csvCell).join(','), ...lines].join('\n')],
-      { type: 'text/csv;charset=utf-8' });
-    // In the document, revoked a beat later — see RecordMoney's cost sheet.
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `pattadar-invitations-${todayIso()}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    ]),
+  ]);
+
+  // "Export", the one word every list's CSV goes by (design.md § Page head,
+  // "Actions"). Drawn only once there is something: the first-run empty card
+  // carries the one "Invite someone".
+  const headActions: HeadActions = {
+    secondaries: [{
+      label: 'Export', icon: <FileDownloadOutlined sx={{ fontSize: 16 }} aria-hidden />, onClick: () => download(),
+    }],
+    primary: {
+      label: 'Invite someone', icon: <AddOutlined sx={{ fontSize: 16 }} aria-hidden />,
+      onClick: () => setSending(true),
+    },
   };
 
   return (
@@ -159,27 +197,22 @@ export function Invitations() {
       <PageHead
         title="Invitations"
         info="People you have invited to see or manage a parcel or a khata. An invitation ends when it is revoked, deleted or expires."
-        actions={
-          rows.length > 0 ? (
-            <>
-              <button type="button" className="btn" onClick={download}>
-                <FileDownloadOutlined sx={{ fontSize: 16 }} aria-hidden /> Download CSV
-              </button>
-              <button type="button" className="btn primary" onClick={() => setSending(true)}>
-                <AddOutlined sx={{ fontSize: 16 }} aria-hidden /> Invite someone
-              </button>
-            </>
-          ) : undefined
-        }
-      >
-        {rows.length > 0 && (
-          <p className="note" style={{ margin: 0 }}>
-            {pending ? `${plural(pending, 'invitation')} waiting for a response` : 'Nothing is waiting for a response'}
-          </p>
-        )}
-      </PageHead>
+        actions={rows.length > 0 ? headActions : undefined}
+        // Figures: every invitation, and how many still await an answer —
+        // the table's own "Pending" word; "0 pending" is not a fact to draw.
+        summary={q.isPending ? <Sk w="18rem" h="1rem" r="var(--radius-xs)" />
+          : rows.length > 0 ? [
+            plural(rows.length, 'invitation'),
+            pending > 0 ? `${num(pending)} pending` : '',
+          ].filter(Boolean).join(' · ') : undefined}
+      />
 
-      {q.isPending && <Loading h="16rem" what="your invitations" />}
+      {/* First read: the chosen view's own shape (design.md § Loading). */}
+      {q.isPending && (view === 'grid'
+        ? <SkGrid label="Loading your invitations" facts={3} />
+        : <SkTable label="Loading your invitations"
+                   cols={[{ head: 'Invitee' }, { head: 'Access to' }, { head: 'Role' }, { head: 'Status' },
+                          { head: 'Expires' }, { head: 'Sent' }, { head: '', w: '1rem' }]} />)}
 
       {q.isError && !q.data && (
         <Failed what="Your invitations" error={q.error} onRetry={() => q.refetch()} boxed h="16rem" />
@@ -202,59 +235,90 @@ export function Invitations() {
       )}
 
       {rows.length > 0 && (
-        <div className="datatable-wrap">
-          <div className="scroll-x">
-            <table className="datatable static" style={{ minWidth: '44rem' }}>
-              <thead>
-                <tr>
-                  <th>Invitee</th>
-                  <th>Access to</th>
-                  <th>Role</th>
-                  <th>Status</th>
-                  <th>Expires</th>
-                  <th>Sent</th>
-                  <th className="menucol" aria-label="Actions" />
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((inv) => {
-                  const st = STATUS[effectiveStatus(inv)] ?? STATUS.pending;
-                  const live = inv.status === 'pending' || inv.status === 'accepted';
-                  return (
-                    <tr key={inv.id}>
-                      <td><strong style={{ overflowWrap: 'anywhere' }}>{inv.inviteeContact || '—'}</strong></td>
-                      <td>
-                        {nameOf(inv)}
-                        <span className="note" style={{ display: 'block' }}>
-                          {SCOPE_WORD[inv.scopeType] ?? inv.scopeType}
-                        </span>
-                      </td>
-                      <td>{roleWord(inv.role)}</td>
-                      <td>
-                        <StatusChip state={st.state}>{st.word}</StatusChip>
-                        {inv.status === 'pending' && inv.deliveryStatus === 'failed' && (
-                          <span className="note" style={{ display: 'block' }}>Not delivered</span>
-                        )}
-                      </td>
-                      <td style={{ whiteSpace: 'nowrap' }}>{inv.expiry ? ddmmyyyy(inv.expiry) : '—'}</td>
-                      <td style={{ whiteSpace: 'nowrap' }}>{inv.createdAt ? ddmmyyyy(inv.createdAt) : '—'}</td>
-                      <td className="menucol">
-                        <Menu
-                          label={`Actions for the invitation to ${inv.inviteeContact}`}
-                          header={inv.inviteeContact}
-                          items={[
-                            ...(live ? [{ label: 'Revoke', onClick: () => void revoke(inv) }] : []),
-                            { label: 'Delete', danger: true, rule: live, onClick: () => setDeleting(inv) },
-                          ]}
-                        />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <ToolbarBand tally={plural(rows.length, ...INV)}
+                     view={<ViewToggle views={['grid', 'table']} value={view} onChange={setView} />} />
+      )}
+
+      {rows.length > 0 && view === 'grid' && (
+        <InvitationGrid rows={sorted} sel={sel} nameOf={nameOf} menuFor={menuFor} />
+      )}
+
+      {rows.length > 0 && view === 'table' && (
+        <>
+        <Card flush className="scroll-x edgefade">
+          <table className="rectable" aria-label="Invitations" style={{ minWidth: '44rem' }}>
+            <thead>
+              <tr>
+                <th className="selcol">
+                  <SelectAllBox total={rows.length} picked={sel.picked.length} noun={INV} onToggle={sel.toggleAll} />
+                </th>
+                <th>Invitee</th>
+                <th>Access to</th>
+                <th>Role</th>
+                <th>Status</th>
+                <Th k="expiry" label="Expires" sort={sort} setSort={setSort} />
+                <Th k="sent" label="Sent" sort={sort} setSort={setSort} />
+                <th className="menucol" aria-label="Actions" />
+              </tr>
+            </thead>
+            <tbody>
+              {paged.shown.map((inv) => {
+                const st = STATUS[effectiveStatus(inv)] ?? STATUS.pending;
+                return (
+                  <tr key={inv.id} className={sel.selected.has(inv.id) ? 'selected' : undefined}>
+                    <SelectCell checked={sel.selected.has(inv.id)} label={`Select ${inv.inviteeContact || 'this invitation'}`}
+                                onToggle={() => sel.toggle(inv.id)} />
+                    <td><strong style={{ overflowWrap: 'anywhere' }}>{inv.inviteeContact || '—'}</strong></td>
+                    <td>
+                      {nameOf(inv)}
+                      <span className="note" style={{ display: 'block' }}>
+                        {SCOPE_WORD[inv.scopeType] ?? inv.scopeType}
+                      </span>
+                    </td>
+                    <td>{roleWord(inv.role)}</td>
+                    <td>
+                      <StatusChip state={st.state}>{st.word}</StatusChip>
+                      {inv.status === 'pending' && inv.deliveryStatus === 'failed' && (
+                        <span className="note" style={{ display: 'block' }}>Not delivered</span>
+                      )}
+                    </td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{inv.expiry ? ddmmyyyy(inv.expiry) : '—'}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{inv.createdAt ? ddmmyyyy(inv.createdAt) : '—'}</td>
+                    <td className="menucol">
+                      <Menu
+                        label={`Actions for the invitation to ${inv.inviteeContact}`}
+                        header={inv.inviteeContact}
+                        items={menuFor(inv)}
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            {/* Nothing here sums; the count of what is ticked is the point. */}
+            <tfoot>
+              <tr>
+                <td className="selcol" />
+                <th scope="row" colSpan={7}>
+                  {sel.picked.length > 0
+                    ? `${plural(sel.picked.length, ...INV)} selected`
+                    : `Total · ${plural(rows.length, ...INV)}`}
+                </th>
+              </tr>
+            </tfoot>
+          </table>
+        </Card>
+        <TablePager {...paged} onSize={paged.setSize} label="Invitation pages" />
+        </>
+      )}
+
+      {/* Ticking covers every invitation, in either view. */}
+      {rows.length > 0 && (
+        <SelectionBar count={sel.picked.length} noun={INV} label="Act on the selected invitations" onClear={sel.clear}>
+          <button type="button" className="btn sm" onClick={() => download(sel.picked)}>
+            <FileDownloadOutlined sx={{ fontSize: 15 }} aria-hidden /> Export
+          </button>
+        </SelectionBar>
       )}
 
       {sending && (
@@ -269,6 +333,59 @@ export function Invitations() {
       {sent && <SentDialog sent={sent} onClose={() => setSent(null)} />}
       {deleting && <DeleteDialog inv={deleting} onClose={() => setDeleting(null)} />}
     </main>
+  );
+}
+
+/** The Grid view: a card per invitation, ticked from the same selection as
+ *  the table, so switching views keeps what is picked (design.md § Tables).
+ *  The row opens nothing, so the card has no stretched link. */
+function InvitationGrid({ rows, sel, nameOf, menuFor }: {
+  rows: InvitationRow[];
+  sel: ReturnType<typeof useRowSelection<InvitationRow>>;
+  nameOf: (inv: InvitationRow) => string;
+  menuFor: (inv: InvitationRow) => MenuItem[];
+}) {
+  const paged = usePaged(rows, { storeKey: 'pattadar.grid.invitations' });
+  return (
+    <>
+      <div className={`cards${sel.picked.length > 0 ? ' selecting' : ''}`}>
+        {paged.shown.map((inv) => {
+          const on = sel.selected.has(inv.id);
+          const st = STATUS[effectiveStatus(inv)] ?? STATUS.pending;
+          const who = inv.inviteeContact || '—';
+          return (
+            <div key={inv.id} className={`rec groupcard invitationcard${on ? ' selected' : ''}`}>
+              <div className="meat">
+                <div className="groupcard-top">
+                  <span className="sel">
+                    <input type="checkbox" checked={on} aria-label={`Select ${inv.inviteeContact || 'this invitation'}`}
+                           onChange={() => sel.toggle(inv.id)} />
+                  </span>
+                  <span className="groupcard-title">
+                    <h3 style={{ overflowWrap: 'anywhere' }}>{who}</h3>
+                    <span className="note">{nameOf(inv)} · {SCOPE_WORD[inv.scopeType] ?? inv.scopeType}</span>
+                  </span>
+                  <Menu className="groupcard-menu" label={`Actions for the invitation to ${inv.inviteeContact}`}
+                        header={inv.inviteeContact} items={menuFor(inv)} />
+                </div>
+                <span className="row tight" style={{ flexWrap: 'wrap' }}>
+                  <StatusChip state={st.state}>{st.word}</StatusChip>
+                  {inv.status === 'pending' && inv.deliveryStatus === 'failed' && (
+                    <span className="note">Not delivered</span>
+                  )}
+                </span>
+                <dl className="groupcard-facts">
+                  <div><dt>Role</dt><dd>{roleWord(inv.role)}</dd></div>
+                  <div><dt>Sent</dt><dd className="num">{inv.createdAt ? ddmmyyyy(inv.createdAt) : '—'}</dd></div>
+                  <div><dt>Expires</dt><dd className="num">{inv.expiry ? ddmmyyyy(inv.expiry) : '—'}</dd></div>
+                </dl>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <TablePager {...paged} onSize={paged.setSize} label="Invitation pages" />
+    </>
   );
 }
 
@@ -339,10 +456,10 @@ function SendDialog({ options, landLoading, landFailed, onClose, onSent }: {
               around it; it names the radiogroup, not an input. */}
           <label id="inv-scope-l">Invite them to</label>
           {landLoading ? (
-            <p className="note" style={{ margin: 0 }}>Loading your land…</p>
+            <p className="note" style={{ margin: 0 }}>Loading your properties…</p>
           ) : landFailed ? (
             <p className="note" role="alert" style={{ margin: 0, color: 'var(--w-danger)' }}>
-              Your land did not load. Close this and try again.
+              Your properties did not load. Close this and try again.
             </p>
           ) : options.length === 0 ? (
             <p className="note" style={{ margin: 0 }}>
@@ -412,7 +529,7 @@ function SentDialog({ sent, onClose }: { sent: SentInvitation & { to: string }; 
           <ContentCopyOutlined sx={{ fontSize: 16 }} aria-hidden /> Copy link
         </button>
         <a className="btn" target="_blank" rel="noopener noreferrer"
-           href={`https://wa.me/?text=${encodeURIComponent(`You're invited to my land records on Pattadar: ${link}`)}`}>
+           href={`https://wa.me/?text=${encodeURIComponent(`You're invited to my properties on Pattadar: ${link}`)}`}>
           <WhatsApp sx={{ fontSize: 16 }} aria-hidden /> Share on WhatsApp
         </a>
       </div>
@@ -439,7 +556,7 @@ function DeleteDialog({ inv, onClose }: { inv: InvitationRow; onClose: () => voi
       busy={del.isPending}
       footer={
         <>
-          <button type="button" className="btn" disabled={del.isPending} onClick={onClose}>Keep it</button>
+          <button type="button" className="btn" disabled={del.isPending} onClick={onClose}>Cancel</button>
           <button type="button" className="btn danger" disabled={del.isPending} onClick={() => void run()}>
             {del.isPending ? 'Deleting…' : 'Delete invitation'}
           </button>

@@ -28,7 +28,7 @@ struct OnboardingScreen: View {
             body: "Passbooks, sale deeds, plots and flats — khata numbers, survey numbers, extents and boundaries. The papers in the almirah at home, on the phone in your pocket."),
         Slide(
             icon: "camera.viewfinder",
-            title: "Photograph it.\nIt reads itself.",
+            title: "Take a photo.\nIt reads itself.",
             body: "A deed or a 1-B is read for you — who sold to whom, how much land, the four boundaries, the prior deed behind it. Twenty survey numbers become twenty entries. Nothing is saved until you have checked it against the paper."),
         Slide(
             icon: "person.2.badge.key",

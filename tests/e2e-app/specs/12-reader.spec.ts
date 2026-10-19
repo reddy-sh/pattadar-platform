@@ -1,5 +1,5 @@
 /**
- * The Reader — /app/papers/:id, the screen an owner opens a deed on.
+ * The Reader — /papers/:id, the screen an owner opens a deed on.
  *
  * Two halves that must never blur together, and this file asserts the seam
  * between them: the SCAN on the left is evidence and is never invented, and
@@ -65,8 +65,9 @@ import { test, expect, World } from '../fixtures/harness';
 import { ID, PAPER } from '../fixtures/ids';
 
 /** Where a paper filed under Sy 214/2 goes back to. There is no
- *  `/app/records/:id/papers` child route — the papers ARE the index. */
-const RECORD_HOME = `/app/records/${ID.parcel}`;
+ *  `/properties/:id/papers` child route — the papers ARE the index. */
+// The paper's home on its record: the record's Documents tab.
+const RECORD_HOME = `/properties/${ID.parcel}/documents`;
 
 /** A storage node id, shaped the way the gateway issues them. Anything that is
  *  not this shape is a legacy ref and never reaches the file store. */
@@ -156,11 +157,11 @@ function onlyRefusals(errors: string[]): void {
 // ── what the screen says this paper is ─────────────────────────────────
 
 test('the Reader names the paper, the record it is filed under, its shelf, its page count and its size', async ({ page, world }) => {
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
 
   const bar = page.locator('header.rd-bar');
   await expect(bar.getByText('Sale deed 4412 of 1998')).toBeVisible();
-  await expect(bar.getByText('Sy 214/2 · Title · 14 pages · 2.4 MB')).toBeVisible();
+  await expect(bar.getByText('Sy 214/2 · Title deeds · 14 pages · 2.4 MB')).toBeVisible();
   // And again as the heading over the reading, which is the half of the screen
   // an owner reads rather than scans.
   await expect(page.getByRole('heading', { name: 'Sale deed 4412 of 1998', level: 2 })).toBeVisible();
@@ -169,7 +170,7 @@ test('the Reader names the paper, the record it is filed under, its shelf, its p
 });
 
 test('the shelf and the paper’s own tags are named beside the reading', async ({ page }) => {
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   const side = page.locator('aside.rd-side');
   await expect(side.getByText('● Title')).toBeVisible();
   await expect(side.getByText('original')).toBeVisible();
@@ -177,7 +178,7 @@ test('the shelf and the paper’s own tags are named beside the reading', async 
 
 test('a paper carrying a boundary dispute wears it as an alert, not as one tag among others', async ({ page, world }) => {
   world.set('document', paper({ tags: ['original', 'boundary dispute'] }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   // The tone is the whole message here and it is carried by a class — there is
   // no role or accessible name that separates an alert tag from a plain one.
   await expect(page.locator('aside.rd-side .tag.alert')).toHaveText('boundary dispute');
@@ -191,7 +192,7 @@ test('a one-page sketch does not tell the owner it has 1 pages', async ({ page, 
     id: PAPER.map, title: 'FMB sketch', shelf: 'map', pageCount: 1,
     readerSummary: '', readerFlag: '', readerFlagPage: 0, tags: [], shared: false, link: null,
   }));
-  await page.goto(`/app/papers/${PAPER.map}`);
+  await page.goto(`/papers/${PAPER.map}`);
   await expect(page.locator('header.rd-bar').getByText('Sy 214/2 · Map · 1 page · 2.4 MB')).toBeVisible();
 });
 
@@ -205,7 +206,7 @@ test('a paper whose filing counted no pages says nothing about pages at all', as
   // one thing this screen's own header comment says it refuses to do.
   world.set('document', paper({ pageCount: 0 }));
   serveBytes(world, 'pdf');
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
 
   await expect(page.getByText('1 / 1')).toHaveCount(0);
   await expect(page.getByRole('navigation', { name: 'Pages' })).toHaveCount(0);
@@ -214,10 +215,10 @@ test('a paper whose filing counted no pages says nothing about pages at all', as
 
 test('a paper whose size nobody recorded says the rest of its line with no dot hanging off the end', async ({ page, world }) => {
   world.set('document', paper({ sizeLabel: '' }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   // The line is filter(Boolean).join(' · '), so a fact the filing does not
   // hold has to leave no separator behind it either.
-  await expect(page.locator('header.rd-bar .note')).toHaveText('Sy 214/2 · Title · 14 pages');
+  await expect(page.locator('header.rd-bar .note')).toHaveText('Sy 214/2 · Title deeds · 14 pages');
 });
 
 test('a paper on a shelf this build has never heard of is still named, not left blank', async ({ page, world }) => {
@@ -229,14 +230,14 @@ test('a paper on a shelf this build has never heard of is still named, not left 
   // that is a smaller thing than a Save that refiles the paper, so it is noted
   // here rather than held as its own failure.)
   world.set('document', paper({ shelf: 'mortgage', shared: false, link: null }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await expect(page.locator('aside.rd-side').getByText('● mortgage')).toBeVisible();
 
   await page.getByRole('button', { name: 'Actions for Sale deed 4412 of 1998' }).click();
-  await page.getByRole('menuitem', { name: 'Rename or move to another shelf' }).click();
-  const shelf = page.getByLabel('Shelf');
+  await page.getByRole('menuitem', { name: 'Edit details' }).click();
+  const shelf = page.getByRole('dialog', { name: 'Edit details' }).getByLabel('Type');
   await expect(shelf).toHaveValue('mortgage');
-  await expect(shelf.getByRole('option')).toHaveCount(8);
+  await expect(shelf.getByRole('option')).toHaveCount(9);
 });
 
 test('the detail read off the paper is on the screen, not only in the query', async ({ page, world }) => {
@@ -244,14 +245,14 @@ test('the detail read off the paper is on the screen, not only in the query', as
   // Reader used to draw it nowhere. For an EC that subtitle — "1985 to 2026 ·
   // clear" — is the single most useful fact the vault holds about the paper.
   world.set('document', PLAIN);
-  await page.goto(`/app/papers/${PAPER.ec}`);
+  await page.goto(`/papers/${PAPER.ec}`);
   await expect(page.getByText('1985 to 2026 · clear')).toBeVisible();
 });
 
 // ── the way back ───────────────────────────────────────────────────────
 
 test('Back goes to the record the paper is filed under, which is the record’s own papers', async ({ page }) => {
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   const back = page.getByRole('link', { name: 'Back' });
   await expect(back).toHaveAttribute('href', RECORD_HOME);
   await back.click();
@@ -260,26 +261,26 @@ test('Back goes to the record the paper is filed under, which is the record’s 
 
 test('an unfiled paper has no record to go back to, so Back goes to the vault', async ({ page, world }) => {
   world.set('document', paper({ recordId: '', recordTitle: '' }));
-  await page.goto(`/app/papers/${PAPER.unsorted}`);
-  await expect(page.getByRole('link', { name: 'Back' })).toHaveAttribute('href', '/app/papers');
-  await expect(page.locator('header.rd-bar').getByText('Title · 14 pages · 2.4 MB')).toBeVisible();
+  await page.goto(`/papers/${PAPER.unsorted}`);
+  await expect(page.getByRole('link', { name: 'Back' })).toHaveAttribute('href', '/papers');
+  await expect(page.locator('header.rd-bar').getByText('Title deeds · 14 pages · 2.4 MB')).toBeVisible();
 });
 
 test('an unfiled paper says sharing needs a record instead of offering a button that cannot work', async ({ page, world }) => {
   world.set('document', paper({ recordId: '', recordTitle: '' }));
-  await page.goto(`/app/papers/${PAPER.unsorted}`);
+  await page.goto(`/papers/${PAPER.unsorted}`);
   await expect(page.getByRole('button', { name: 'Share securely' })).toHaveCount(0);
   await expect(page.getByText('File this document under a property to share it.')).toBeVisible();
 
   await page.getByRole('button', { name: 'Actions for Sale deed 4412 of 1998' }).click();
-  await expect(page.getByRole('menuitem', { name: 'Rename or move to another shelf' })).toBeVisible();
-  await expect(page.getByRole('menuitem', { name: 'Open the record it is filed under' })).toHaveCount(0);
+  await expect(page.getByRole('menuitem', { name: 'Rename' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Open the property it is filed under' })).toHaveCount(0);
 });
 
-test('the kebab opens the record this paper is filed under', async ({ page }) => {
-  await page.goto(`/app/papers/${PAPER.deed}`);
+test('the kebab opens the property this paper is filed under', async ({ page }) => {
+  await page.goto(`/papers/${PAPER.deed}`);
   await page.getByRole('button', { name: 'Actions for Sale deed 4412 of 1998' }).click();
-  await page.getByRole('menuitem', { name: 'Open the record it is filed under' }).click();
+  await page.getByRole('menuitem', { name: 'Open the property it is filed under' }).click();
   await expect(page).toHaveURL(new RegExp(`${RECORD_HOME}$`));
 });
 
@@ -290,7 +291,7 @@ test('a registered deed states the office, the date, both parties and what was p
   // what `registered_on` holds (services/api/src/web360.py:3375 is free text
   // off the extraction), so the world answers in that shape.
   world.set('document', DEED);
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   const kv = page.locator('aside.rd-side .kv');
   await expect(kv.getByText('Registered')).toBeVisible();
   await expect(kv.getByText('04/03/1998')).toBeVisible();
@@ -303,16 +304,18 @@ test('a registered deed states the office, the date, both parties and what was p
 
 test('a paper with nothing read off it draws no register at all rather than a row of dashes', async ({ page, world }) => {
   world.set('document', PLAIN);
-  await page.goto(`/app/papers/${PAPER.ec}`);
+  await page.goto(`/papers/${PAPER.ec}`);
   await expect(page.getByRole('heading', { name: 'Encumbrance certificate', level: 2 })).toBeVisible();
   await expect(page.locator('aside.rd-side .kv')).toHaveCount(0);
-  await expect(page.getByText('Registered')).toHaveCount(0);
-  await expect(page.getByText('Consideration')).toHaveCount(0);
+  // Scoped to the page and exact: the shell's hidden assistant suggestions say
+  // "Every registered sale…", which is not a register row.
+  await expect(page.getByRole('main').getByText('Registered', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('main').getByText('Consideration', { exact: true })).toHaveCount(0);
 });
 
 test('a deed read only as far as its date keeps the rows it has and drops the ones it does not', async ({ page, world }) => {
   world.set('document', paper({ buyer: '', seller: '', consideration: 0 }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   const kv = page.locator('aside.rd-side .kv');
   await expect(kv.getByText('Registered')).toBeVisible();
   await expect(kv.getByText('Office')).toBeVisible();
@@ -326,7 +329,7 @@ test('a paper that names a seller and a price still shows them when nobody read 
   // release deed read as seller + consideration + office — every field below
   // the gate — rendered NOTHING. The gate is "any row has a value" now.
   world.set('document', paper({ registeredOn: '', buyer: '' }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await expect(page.locator('aside.rd-side .kv').getByText('Chenna Reddy')).toBeVisible();
   await expect(page.locator('aside.rd-side .kv').getByText('₹18,50,000')).toBeVisible();
 });
@@ -334,14 +337,14 @@ test('a paper that names a seller and a price still shows them when nobody read 
 // ── the reading, and the page it is unsure about ───────────────────────
 
 test('the reading is labelled a reading, and says what it found', async ({ page }) => {
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   const card = page.locator('section.card').filter({ hasText: 'What the reader found' });
   await expect(card.getByText('TEXT_')).toBeVisible();
   await expect(card.getByText('A sale of 4 acres 12 guntas in Sy 214/2, Katragunta, for ₹18,50,000.')).toBeVisible();
 });
 
 test('the reading says out loud where it was unsure, and Go to it turns to that page', async ({ page }) => {
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await expect(page.getByText('The extent on page 3 is written in guntas and in acres, and the two do not agree.')).toBeVisible();
   await expect(page.getByText('1 / 14')).toBeVisible();
 
@@ -354,7 +357,7 @@ test('the reading says out loud where it was unsure, and Go to it turns to that 
 
 test('the flagged page is marked in the rail, however far down the rail it is', async ({ page, world }) => {
   world.set('document', paper({ pageCount: 14, readerFlagPage: 11 }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   const rail = page.getByRole('navigation', { name: 'Pages' });
   // The dot is decoration with no accessible name — the marker itself is the
   // only thing on the page that says "the reader stopped here".
@@ -371,7 +374,7 @@ test('a reading that found nothing to summarise still says out loud where it was
   // on screen whenever there is either half of a reading to put in it.
   test.fail();
   world.set('document', paper({ readerSummary: '' }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await expect(page.getByText('The extent on page 3 is written in guntas and in acres, and the two do not agree.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Go to it' })).toBeVisible();
 });
@@ -386,7 +389,7 @@ test('Go to it must not send the owner to page 20 of a fourteen-page deed', asyn
   // is owed a page the deed actually has.
   test.fail();
   world.set('document', paper({ readerFlagPage: 20 }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await page.getByRole('button', { name: 'Go to it' }).click();
   // Whichever way it is fixed — clamped to the last page, or refusing to move
   // at all — the readout must never name a page beyond the count beside it.
@@ -401,7 +404,7 @@ test('the rail follows the reading to the page it flagged, so the mark is somewh
   // nobody ever sees. `scrollTop` is the only thing this leaves behind, and it
   // is enough (Reader.tsx:174).
   world.set('document', paper({ readerFlagPage: 14 }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   const rail = page.getByRole('navigation', { name: 'Pages' });
   await expect(rail.getByRole('button')).toHaveCount(14);
   expect(await rail.evaluate((el) => el.scrollTop)).toBe(0);
@@ -414,7 +417,7 @@ test('the rail follows the reading to the page it flagged, so the mark is somewh
 
 test('a reading with no page behind its doubt sends the owner to page one rather than nowhere', async ({ page, world }) => {
   world.set('document', paper({ readerFlagPage: 0 }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await page.getByRole('button', { name: 'Next page' }).click();
   await expect(page.getByText('2 / 14')).toBeVisible();
   await page.getByRole('button', { name: 'Go to it' }).click();
@@ -423,21 +426,21 @@ test('a reading with no page behind its doubt sends the owner to page one rather
 
 test('a reading that found no doubt offers nothing to go to', async ({ page, world }) => {
   world.set('document', paper({ readerFlag: '', readerFlagPage: 0 }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await expect(page.getByText('What the reader found')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Go to it' })).toHaveCount(0);
 });
 
 test('a paper nothing has read shows no reading card, rather than an empty one', async ({ page, world }) => {
   world.set('document', PLAIN);
-  await page.goto(`/app/papers/${PAPER.ec}`);
+  await page.goto(`/papers/${PAPER.ec}`);
   await expect(page.getByText('What the reader found')).toHaveCount(0);
 });
 
 // ── the page rail ──────────────────────────────────────────────────────
 
 test('every page of a fourteen-page deed is in the rail, not the first six', async ({ page }) => {
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   const rail = page.getByRole('navigation', { name: 'Pages' });
   await expect(rail.getByRole('button')).toHaveCount(14);
   await expect(rail.getByText('+6')).toHaveCount(0);
@@ -451,7 +454,7 @@ test('every page of a fourteen-page deed is in the rail, not the first six', asy
 });
 
 test('the paging arrows stop at the first page and at the last one', async ({ page }) => {
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   // They used to clamp silently: both arrows stayed enabled on the first and
   // last page, so a keyboard stopped on a control that did nothing and a
   // screen reader was told it was available. The clamp is still there; the
@@ -468,7 +471,7 @@ test('the paging arrows stop at the first page and at the last one', async ({ pa
 // ── the bytes: five outcomes, five different sentences ─────────────────
 
 test('a paper filed under an old reference says so, and does not offer to try again', async ({ page, world }) => {
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
 
   await expect(page.getByText("This document's file is filed under an old reference")).toBeVisible();
   await expect(page.getByText('Upload the scan again to restore it.')).toBeVisible();
@@ -477,18 +480,18 @@ test('a paper filed under an old reference says so, and does not offer to try ag
   expect(world.restCalls(/storage\/files/)).toEqual([]);
 });
 
-test('a paper with no file at all says the page count came from the filing, not from a scan', async ({ page, world }) => {
+test('a paper with no file at all says the scan was never filed, and asks for no bytes', async ({ page, world }) => {
   world.set('document', paper({ fileRef: '' }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await expect(page.getByText('No file is attached to this document')).toBeVisible();
-  await expect(page.getByText('The page count below comes from the filing, not from anything on this screen.')).toBeVisible();
+  await expect(page.getByText('The details read from it are kept, but the scan was never filed.')).toBeVisible();
   expect(world.restCalls(/storage\/files/)).toEqual([]);
 });
 
 test('the scan on screen is the stored bytes, fetched in a format a browser can show', async ({ page, world }) => {
   serveBytes(world, 'image');
   world.set('document', paper({ fileRef: REF, mimeType: 'image/jpeg' }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
 
   const scan = page.getByRole('img', { name: 'Sale deed 4412 of 1998, page 1 of 14' });
   await expect(scan).toBeVisible();
@@ -502,7 +505,7 @@ test('the scan on screen is the stored bytes, fetched in a format a browser can 
 test('a PDF is handed to the browser’s own viewer, and the rail moves the document', async ({ page, world }) => {
   serveBytes(world, 'pdf');
   world.set('document', paper({ fileRef: REF }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
 
   const frame = page.locator('iframe[title="Sale deed 4412 of 1998"]');
   await expect(frame).toHaveAttribute('src', /^blob:.*#page=1$/);
@@ -513,21 +516,21 @@ test('a PDF is handed to the browser’s own viewer, and the rail moves the docu
 test('while the bytes are in flight the reader says it is fetching the scan', async ({ page, world }) => {
   serveBytes(world, 'image', 2_000);
   world.set('document', paper({ fileRef: REF, mimeType: 'image/jpeg' }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
 
-  await expect(page.getByText('Loading the scan…')).toBeVisible();
+  await expect(page.getByRole('status', { name: 'Loading the scan' })).toBeVisible();
   // The reading beside it is already there — the paper loaded, the bytes did not.
   await expect(page.getByText('What the reader found')).toBeVisible();
   await expect(page.getByRole('img', { name: /page 1 of 14/ })).toBeVisible();
-  await expect(page.getByText('Loading the scan…')).toHaveCount(0);
+  await expect(page.getByRole('status', { name: 'Loading the scan' })).toHaveCount(0);
 });
 
 test('while the bytes are in flight there is nothing to zoom, but the original can still be saved', async ({ page, world }) => {
   serveBytes(world, 'image', 2_500);
   world.set('document', paper({ fileRef: REF, mimeType: 'image/jpeg' }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
 
-  await expect(page.getByText('Loading the scan…')).toBeVisible();
+  await expect(page.getByRole('status', { name: 'Loading the scan' })).toBeVisible();
   // Zoom, rotate and print act on a scan that is not on screen yet, so they
   // are not drawn at all rather than drawn dead (Reader.tsx:326).
   await expect(page.getByRole('group', { name: 'Zoom' })).toHaveCount(0);
@@ -550,7 +553,7 @@ test.describe('bytes that do not arrive', () => {
   test('bytes the file store refuses are named as a refusal, and can be asked for again', async ({ page, world, consoleErrors }) => {
     world.route(/\/api\/gateway\/storage\/files\/[^/]+\/content/, () => ({ status: 500, body: 'no' }));
     world.set('document', paper({ fileRef: REF }));
-    await page.goto(`/app/papers/${PAPER.deed}`);
+    await page.goto(`/papers/${PAPER.deed}`);
 
     await expect(page.getByText("This document's scan did not load")).toBeVisible();
     // The reason, verbatim, for whoever is being asked "what does it say?".
@@ -567,7 +570,7 @@ test.describe('bytes that do not arrive', () => {
   test('a refused scan is never dressed as paper — nothing is drawn where the deed should be', async ({ page, world, consoleErrors }) => {
     world.route(/\/api\/gateway\/storage\/files\/[^/]+\/content/, () => ({ status: 403, body: 'no' }));
     world.set('document', paper({ fileRef: REF }));
-    await page.goto(`/app/papers/${PAPER.deed}`);
+    await page.goto(`/papers/${PAPER.deed}`);
 
     // A refusal is a settled answer, so it does not borrow the shared "did not
     // load / nothing has been lost / try again" box, whose every clause is
@@ -589,7 +592,7 @@ test.describe('bytes that do not arrive', () => {
     // preview, are correctly gone.
     world.route(/\/api\/gateway\/storage\/files\/[^/]+\/content/, () => ({ status: 500, body: 'no' }));
     world.set('document', paper({ fileRef: REF, mimeType: 'image/jpeg' }));
-    await page.goto(`/app/papers/${PAPER.deed}`);
+    await page.goto(`/papers/${PAPER.deed}`);
 
     await expect(page.getByText("This document's scan did not load")).toBeVisible();
     await expect(page.getByRole('button', { name: 'Download' })).toBeVisible();
@@ -600,7 +603,7 @@ test.describe('bytes that do not arrive', () => {
 
   test('a read that never got out of the browser says it did not load, and can be tried again', async ({ page, world, consoleErrors }) => {
     world.set('document', World.httpError(503));
-    await page.goto(`/app/papers/${PAPER.deed}`);
+    await page.goto(`/papers/${PAPER.deed}`);
 
     await expect(page.getByText('This document did not load')).toBeVisible();
     await expect(page.getByText('GraphQL HTTP 503')).toBeVisible();
@@ -617,7 +620,7 @@ test.describe('bytes that do not arrive', () => {
 test('zoom moves the scan, and the readout says by how much', async ({ page, world }) => {
   serveBytes(world, 'image');
   world.set('document', paper({ fileRef: REF, mimeType: 'image/jpeg' }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
 
   const zoom = page.getByRole('group', { name: 'Zoom' });
   const readout = zoom.getByRole('status');
@@ -637,7 +640,7 @@ test('zoom moves the scan, and the readout says by how much', async ({ page, wor
 test('zoom stops at 50% and at 400% instead of running off either end', async ({ page, world }) => {
   serveBytes(world, 'image');
   world.set('document', paper({ fileRef: REF, mimeType: 'image/jpeg' }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
 
   const zoom = page.getByRole('group', { name: 'Zoom' });
   const readout = zoom.getByRole('status');
@@ -650,7 +653,7 @@ test('zoom stops at 50% and at 400% instead of running off either end', async ({
 test('the zoom readout is a value, not a tab stop that leads nowhere', async ({ page, world }) => {
   serveBytes(world, 'image');
   world.set('document', paper({ fileRef: REF, mimeType: 'image/jpeg' }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
 
   const zoom = page.getByRole('group', { name: 'Zoom' });
   await expect(zoom.getByRole('button')).toHaveCount(2);
@@ -661,7 +664,7 @@ test('the zoom readout is a value, not a tab stop that leads nowhere', async ({ 
 test('rotate turns an image a quarter at a time and comes back round', async ({ page, world }) => {
   serveBytes(world, 'image');
   world.set('document', paper({ fileRef: REF, mimeType: 'image/jpeg' }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
 
   const scan = page.getByRole('img', { name: /page 1 of 14/ });
   const rotate = page.getByRole('button', { name: 'Rotate' });
@@ -679,7 +682,7 @@ test('rotate turns an image a quarter at a time and comes back round', async ({ 
 test('a quarter turn lays the scan against the other side of the pane instead of out of it', async ({ page, world }) => {
   serveBytes(world, 'image');
   world.set('document', paper({ fileRef: REF, mimeType: 'image/jpeg' }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
 
   const scan = page.getByRole('img', { name: /page 1 of 14/ });
   await expect(scan).toHaveAttribute('style', /max-width: min\(124%/);
@@ -698,7 +701,7 @@ test('a quarter turn lays the scan against the other side of the pane instead of
 test('a scan turned on screen is printed the way it was filed, not sideways and clipped', async ({ page, world }) => {
   serveBytes(world, 'image');
   world.set('document', paper({ fileRef: REF, mimeType: 'image/jpeg' }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
 
   const scan = page.getByRole('img', { name: /page 1 of 14/ });
   await page.getByRole('button', { name: 'Rotate' }).click();
@@ -712,20 +715,16 @@ test('a scan turned on screen is printed the way it was filed, not sideways and 
   await expect(scan).toHaveCSS('transform', 'none');
 });
 
-test('zoom is not a dead control on a PDF — it widens and narrows the viewer', async ({ page, world }) => {
+test('a PDF is offered no zoom of ours, because its own viewer zooms it', async ({ page, world }) => {
+  // Reader.tsx draws the Zoom pill for images only: on a PDF it stretched the
+  // <iframe>'s box while the browser's viewer kept its own scale — two zoom
+  // controls disagreeing over one page. The native viewer owns PDF zoom.
   serveBytes(world, 'pdf');
   world.set('document', paper({ fileRef: REF }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
 
-  const frame = page.locator('iframe[title="Sale deed 4412 of 1998"]');
-  const zoom = page.getByRole('group', { name: 'Zoom' });
-  const wide = (await frame.boundingBox())!.width;
-
-  // The frame is capped at 44rem, so the first few steps down change nothing
-  // visible: the readout has to go well under the cap before the viewer moves.
-  for (let i = 0; i < 6; i += 1) await zoom.getByRole('button', { name: 'Zoom out' }).click();
-  await expect(zoom.getByRole('status')).toHaveText('52%');
-  await expect.poll(async () => (await frame.boundingBox())!.width).toBeLessThan(wide);
+  await expect(page.locator('iframe[title="Sale deed 4412 of 1998"]')).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Zoom' })).toHaveCount(0);
 });
 
 test('a PDF whose viewer is not there yet says so rather than printing an empty frame', async ({ page, world }) => {
@@ -739,7 +738,7 @@ test('a PDF whose viewer is not there yet says so rather than printing an empty 
       configurable: true, get: () => null,
     });
   });
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
 
   await page.getByRole('button', { name: 'Print' }).click();
   await expect(page.getByText('This document has not finished loading, so it cannot be printed yet.')).toBeVisible();
@@ -748,15 +747,15 @@ test('a PDF whose viewer is not there yet says so rather than printing an empty 
 test('a PDF is not offered a rotate button, because its own viewer has one', async ({ page, world }) => {
   serveBytes(world, 'pdf');
   world.set('document', paper({ fileRef: REF }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
 
-  await expect(page.getByRole('group', { name: 'Zoom' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Rotate' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Print' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Rotate' })).toHaveCount(0);
+  await expect(page.getByRole('group', { name: 'Zoom' })).toHaveCount(0);
 });
 
 test('a paper with no scan is offered no zoom, no rotate and no print', async ({ page }) => {
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await expect(page.getByText("This document's file is filed under an old reference")).toBeVisible();
   await expect(page.getByRole('group', { name: 'Zoom' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Rotate' })).toHaveCount(0);
@@ -770,7 +769,7 @@ test('the toolbar carries no search box, because nothing behind this screen can 
   // searched. A permanent present-progressive label reads as work in progress.
   serveBytes(world, 'image');
   world.set('document', paper({ fileRef: REF, mimeType: 'image/jpeg' }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
 
   const bar = page.locator('header.rd-bar');
   await expect(bar.getByRole('searchbox')).toHaveCount(0);
@@ -787,7 +786,7 @@ test('Print sends an image scan to the printer', async ({ page, world }) => {
     (window as unknown as { __prints: number }).__prints = 0;
     window.print = () => { (window as unknown as { __prints: number }).__prints += 1; };
   });
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
 
   await page.getByRole('button', { name: 'Print' }).click();
   await expect.poll(() => page.evaluate(() => (window as unknown as { __prints: number }).__prints)).toBe(1);
@@ -800,7 +799,7 @@ test('printing a PDF prints the document, not the screen around it', async ({ pa
     (window as unknown as { __prints: number }).__prints = 0;
     window.print = () => { (window as unknown as { __prints: number }).__prints += 1; };
   });
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
 
   await page.getByRole('button', { name: 'Print' }).click();
   // The page's own print() would hand the printer an empty frame where the
@@ -818,7 +817,7 @@ test('printing a PDF prints the document, not the screen around it', async ({ pa
 test('on paper, only the scan is printed — the toolbar, the rail and the reading are not', async ({ page, world }) => {
   serveBytes(world, 'image');
   world.set('document', paper({ fileRef: REF, mimeType: 'image/jpeg' }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await expect(page.getByRole('img', { name: /page 1 of 14/ })).toBeVisible();
 
   await page.emulateMedia({ media: 'print' });
@@ -835,7 +834,7 @@ test('Download saves the stored original under the paper’s own name', async ({
   // a second download event that has nothing to do with this button.
   serveBytes(world, 'image');
   world.set('document', paper({ fileRef: REF, mimeType: 'image/jpeg' }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await expect(page.getByRole('img', { name: /page 1 of 14/ })).toBeVisible();
 
   const started = page.waitForEvent('download');
@@ -870,7 +869,7 @@ test('bytes the file store will not name do not land in Downloads as a file noth
       ? { contentType: 'image/jpeg', body: PIXEL }
       : { contentType: 'application/octet-stream', body: PIXEL }));
   world.set('document', paper({ fileRef: REF, mimeType: 'image/jpeg' }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await expect(page.getByRole('img', { name: /page 1 of 14/ })).toBeVisible();
 
   const started = page.waitForEvent('download');
@@ -888,7 +887,7 @@ test('what lands in Downloads is named off the bytes, not off the row they are f
       ? { contentType: 'image/jpeg', body: PIXEL }
       : { contentType: 'application/pdf', body: TINY_PDF }));
   world.set('document', paper({ fileRef: REF, mimeType: 'image/jpeg' }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await expect(page.getByRole('img', { name: /page 1 of 14/ })).toBeVisible();
 
   const started = page.waitForEvent('download');
@@ -902,7 +901,7 @@ test('a survey number in a title does not become a folder on the way to Download
     id: PAPER.map, title: 'FMB 214/2 sketch', shelf: 'map', fileRef: REF,
     mimeType: 'image/jpeg', shared: false, link: null,
   }));
-  await page.goto(`/app/papers/${PAPER.map}`);
+  await page.goto(`/papers/${PAPER.map}`);
   await expect(page.getByRole('img', { name: /page 1 of 14/ })).toBeVisible();
 
   const started = page.waitForEvent('download');
@@ -923,7 +922,7 @@ test.describe('a download the file store refuses', () => {
         ? { contentType: 'image/jpeg', body: PIXEL }
         : { status: 502, body: 'no' }));
     world.set('document', paper({ fileRef: REF, mimeType: 'image/jpeg' }));
-    await page.goto(`/app/papers/${PAPER.deed}`);
+    await page.goto(`/papers/${PAPER.deed}`);
     await expect(page.getByRole('img', { name: /page 1 of 14/ })).toBeVisible();
 
     await page.getByRole('button', { name: 'Download' }).click();
@@ -940,7 +939,7 @@ test.describe('a download the file store refuses', () => {
 
 test('a paper filed under an old reference is offered no Download, because there are no bytes to fetch', async ({ page, world }) => {
   world.set('document', paper({ fileRef: 'file-deed' }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await expect(page.getByRole('button', { name: 'Download' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Share securely' })).toBeVisible();
 });
@@ -949,7 +948,7 @@ test('a paper filed under an old reference is offered no Download, because there
 
 test('sharing one paper makes a link, and the dialog says the link carries only that paper', async ({ page, world }) => {
   world.set('createShareLink', '/share/7Kq2x');
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
 
   await page.getByRole('button', { name: 'Share securely' }).click();
   const dialog = page.getByRole('dialog', { name: 'Share securely' });
@@ -973,7 +972,7 @@ test('sharing one paper makes a link, and the dialog says the link carries only 
 
 test('the recipient is sent as typed, without the spaces either side of the name', async ({ page, world }) => {
   world.set('createShareLink', '/share/7Kq2x');
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await page.getByRole('button', { name: 'Share securely' }).click();
   await page.getByLabel('Who is it for').fill('  Union Bank, Markapur  ');
   await page.getByRole('button', { name: 'Share', exact: true }).click();
@@ -985,7 +984,7 @@ test('the recipient is sent as typed, without the spaces either side of the name
 });
 
 test('a name made only of spaces is not a name, and Enter does not make a link out of it', async ({ page, world }) => {
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await page.getByRole('button', { name: 'Share securely' }).click();
   const who = page.getByLabel('Who is it for');
   await who.fill('   ');
@@ -1000,7 +999,7 @@ test('a name made only of spaces is not a name, and Enter does not make a link o
 
 test('while the link is being made the dialog says so, and will not make a second one', async ({ page, world }) => {
   world.set('createShareLink', World.slow(1_500, '/share/7Kq2x'));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await page.getByRole('button', { name: 'Share securely' }).click();
   await page.getByLabel('Who is it for').fill('Union Bank, Markapur');
   await page.getByRole('button', { name: 'Share', exact: true }).click();
@@ -1017,7 +1016,7 @@ test('while the link is being made the dialog says so, and will not make a secon
 
 test('nothing on the screen changes when the link is made, so the Reader says it out loud', async ({ page, world }) => {
   world.set('createShareLink', '/share/7Kq2x');
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await page.getByRole('button', { name: 'Share securely' }).click();
   await page.getByLabel('Who is it for').fill('Union Bank, Markapur');
   await page.getByRole('button', { name: 'Share', exact: true }).click();
@@ -1033,7 +1032,7 @@ test('the shared paper then says it is shared, and who has opened it', async ({ 
     shared: true,
     link: { ...(DEED.link as Row), audience: 'Union Bank, Markapur', openedCount: 0, lastOpenedAt: '13/09/2026', daysLeft: 30 },
   }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await expect(page.locator('aside.rd-side').getByText('shared', { exact: true })).toBeVisible();
   await expect(page.getByText('Union Bank, Markapur has opened this 0 times')).toBeVisible();
   await expect(page.getByText('Last 13/09/2026 · 30 days left')).toBeVisible();
@@ -1050,7 +1049,7 @@ test('a link the buyer has opened once has not been opened “1 times”', async
   world.set('document', paper({
     link: { ...(DEED.link as Row), audience: 'Prospective buyer', openedCount: 1 },
   }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await expect(page.getByText('Prospective buyer has opened this 1 time', { exact: true })).toBeVisible();
 });
 
@@ -1067,7 +1066,7 @@ test('a link nobody has opened yet does not claim a last time it was opened', as
       lastOpenedAt: '', daysLeft: 18,
     },
   }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
 
   await expect(page.getByText('Surveyor has opened this 0 times')).toBeVisible();
   const line = page.locator('aside.rd-side .note').filter({ hasText: 'days left' });
@@ -1077,7 +1076,7 @@ test('a link nobody has opened yet does not claim a last time it was opened', as
 
 test('a paper that is not out on a link says nothing about one', async ({ page, world }) => {
   world.set('document', PLAIN);
-  await page.goto(`/app/papers/${PAPER.ec}`);
+  await page.goto(`/papers/${PAPER.ec}`);
   await expect(page.locator('aside.rd-side').getByText('shared', { exact: true })).toHaveCount(0);
   await expect(page.getByText('has opened this')).toHaveCount(0);
 });
@@ -1097,7 +1096,7 @@ test('the Reader must not tell the owner a link that lapsed last month expires t
       lastOpenedAt: '02/07/2026', expiresOn: '01/08/2026', daysLeft: 0,
     },
   }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
 
   await expect(page.getByText('Surveyor has opened this 0 times')).toBeVisible();
   await expect(page.getByText('link expires tomorrow')).toHaveCount(0);
@@ -1108,13 +1107,13 @@ test('a link that really does run out tomorrow says exactly that', async ({ page
   world.set('document', paper({
     link: { ...(DEED.link as Row), daysLeft: 1, expiresOn: '14/09/2026' },
   }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await expect(page.getByText('link expires tomorrow')).toBeVisible();
 });
 
 test('a share the server quietly refuses is not reported as a link', async ({ page, world }) => {
   world.set('createShareLink', '');
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await page.getByRole('button', { name: 'Share securely' }).click();
   await page.getByLabel('Who is it for').fill('Union Bank, Markapur');
   await page.getByRole('button', { name: 'Share', exact: true }).click();
@@ -1126,7 +1125,7 @@ test('a share the server quietly refuses is not reported as a link', async ({ pa
 
 test('a share the server refuses outright keeps the dialog open with the name still typed in it', async ({ page, world }) => {
   world.set('createShareLink', World.gqlError('share links are switched off on this build'));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await page.getByRole('button', { name: 'Share securely' }).click();
   await page.getByLabel('Who is it for').fill('Union Bank, Markapur');
   await page.getByRole('button', { name: 'Share', exact: true }).click();
@@ -1137,7 +1136,7 @@ test('a share the server refuses outright keeps the dialog open with the name st
 });
 
 test('a stray click outside the share dialog does not throw away the name typed into it', async ({ page }) => {
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await page.getByRole('button', { name: 'Share securely' }).click();
   await page.getByLabel('Who is it for').fill('Union Bank, Markapur');
   // The scrim is the only thing outside the dialog box that can be clicked.
@@ -1147,7 +1146,7 @@ test('a stray click outside the share dialog does not throw away the name typed 
 });
 
 test('Cancel closes the share dialog and makes no link', async ({ page, world }) => {
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await page.getByRole('button', { name: 'Share securely' }).click();
   await page.getByRole('button', { name: 'Cancel' }).click();
   await expect(page.getByRole('dialog', { name: 'Share securely' })).toHaveCount(0);
@@ -1157,7 +1156,7 @@ test('Cancel closes the share dialog and makes no link', async ({ page, world })
 test('the recipient link can be copied, and the screen says it was', async ({ page, context, world }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   world.set('createShareLink', '/share/7Kq2x');
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await page.getByRole('button', { name: 'Share securely' }).click();
   await page.getByLabel('Who is it for').fill('Union Bank, Markapur');
   await page.getByRole('button', { name: 'Share', exact: true }).click();
@@ -1165,20 +1164,21 @@ test('the recipient link can be copied, and the screen says it was', async ({ pa
   await page.getByRole('button', { name: 'Copy link' }).click();
   // A live region, not a line of text: the owner has just pressed a button and
   // needs to be told it worked without going looking for the news.
-  await expect(page.getByRole('dialog').getByRole('status')).toHaveText('Copied.');
+  // "Link ready" is a status of its own above it, so the news is the one that says Copied.
+  await expect(page.getByRole('dialog').getByRole('status').filter({ hasNotText: 'Link ready' })).toHaveText('Copied.');
   expect(await page.evaluate(() => navigator.clipboard.readText()))
     .toBe('http://localhost:5173/share/7Kq2x');
 });
 
 test('the finished dialog says plainly what the link lets a stranger do, and the link cannot be typed over', async ({ page, world }) => {
   world.set('createShareLink', '/share/7Kq2x');
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await page.getByRole('button', { name: 'Share securely' }).click();
   await page.getByLabel('Who is it for').fill('Union Bank, Markapur');
   await page.getByRole('button', { name: 'Share', exact: true }).click();
 
   const dialog = page.getByRole('dialog', { name: 'Share securely' });
-  await expect(dialog.getByText('Link ready. Anyone with this link can open the selected files until it expires or you revoke it.')).toBeVisible();
+  await expect(dialog.getByText('Link ready. Anyone with it can open the selected files until it expires or you revoke it.')).toBeVisible();
   // The box holds a secret to be copied, not edited: a stray keystroke in it
   // would hand the recipient a URL that opens nothing.
   await expect(dialog.getByLabel('Recipient link')).toHaveAttribute('readonly', '');
@@ -1193,7 +1193,7 @@ test('a share sheet the owner dismisses leaves the link on screen to copy by han
       value: () => Promise.reject(new Error('AbortError')),
     });
   });
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await page.getByRole('button', { name: 'Share securely' }).click();
   await page.getByLabel('Who is it for').fill('Union Bank, Markapur');
   await page.getByRole('button', { name: 'Share', exact: true }).click();
@@ -1203,12 +1203,12 @@ test('a share sheet the owner dismisses leaves the link on screen to copy by han
   // Changing your mind about HOW to send it is not a failure, and the link is
   // still the only copy of a one-time secret.
   await expect(dialog.getByLabel('Recipient link')).toHaveValue('http://localhost:5173/share/7Kq2x');
-  await expect(dialog.getByRole('status')).toHaveText('');
+  await expect(dialog.getByRole('status').filter({ hasNotText: 'Link ready' })).toHaveText('');
 });
 
 test('Done closes the finished dialog, and opening it again offers a fresh form rather than the old link', async ({ page, world }) => {
   world.set('createShareLink', '/share/7Kq2x');
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await page.getByRole('button', { name: 'Share securely' }).click();
   await page.getByLabel('Who is it for').fill('Union Bank, Markapur');
   await page.getByRole('button', { name: 'Share', exact: true }).click();
@@ -1233,7 +1233,7 @@ test('a browser that will not copy tells the owner to copy it by hand', async ({
       value: { writeText: () => Promise.reject(new Error('denied')) },
     });
   });
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await page.getByRole('button', { name: 'Share securely' }).click();
   await page.getByLabel('Who is it for').fill('Union Bank, Markapur');
   await page.getByRole('button', { name: 'Share', exact: true }).click();
@@ -1255,7 +1255,7 @@ test('Send link is only drawn on a device that can share, and hands over the lin
       },
     });
   });
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await page.getByRole('button', { name: 'Share securely' }).click();
   await page.getByLabel('Who is it for').fill('Union Bank, Markapur');
   await page.getByRole('button', { name: 'Share', exact: true }).click();
@@ -1267,7 +1267,7 @@ test('Send link is only drawn on a device that can share, and hands over the lin
 
 test('a desktop with no share sheet is not offered Send link', async ({ page, world }) => {
   world.set('createShareLink', '/share/7Kq2x');
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await page.getByRole('button', { name: 'Share securely' }).click();
   await page.getByLabel('Who is it for').fill('Union Bank, Markapur');
   await page.getByRole('button', { name: 'Share', exact: true }).click();
@@ -1278,14 +1278,14 @@ test('a desktop with no share sheet is not offered Send link', async ({ page, wo
 
 // ── renaming and re-shelving ───────────────────────────────────────────
 
-test('renaming a paper sends the new name and leaves the shelf where it was', async ({ page, world }) => {
-  await page.goto(`/app/papers/${PAPER.deed}`);
+test('renaming a paper sends the new name and leaves the type where it was', async ({ page, world }) => {
+  await page.goto(`/papers/${PAPER.deed}`);
   await page.getByRole('button', { name: 'Actions for Sale deed 4412 of 1998' }).click();
-  await page.getByRole('menuitem', { name: 'Rename or move to another shelf' }).click();
+  await page.getByRole('menuitem', { name: 'Rename' }).click();
 
-  const dialog = page.getByRole('dialog', { name: 'Rename or move this document' });
+  const dialog = page.getByRole('dialog', { name: 'Rename' });
   await expect(dialog.getByLabel('What it is called')).toHaveValue('Sale deed 4412 of 1998');
-  await expect(dialog.getByLabel('Shelf')).toHaveValue('title');
+  await expect(dialog.getByLabel('Type')).toHaveCount(0);
 
   await dialog.getByLabel('What it is called').fill('Sale deed 4412 of 1998 (original)');
   await dialog.getByRole('button', { name: 'Save' }).click();
@@ -1299,19 +1299,24 @@ test('renaming a paper sends the new name and leaves the shelf where it was', as
   await expect(dialog).toHaveCount(0);
 });
 
-test('moving a paper to another shelf sends the shelf it is moving to', async ({ page, world }) => {
-  await page.goto(`/app/papers/${PAPER.deed}`);
+test('changing a paper’s type in Edit details sends it with every other detail', async ({ page, world }) => {
+  world.set('document', paper({ docNo: '4412/1998' }));
+  await page.goto(`/papers/${PAPER.deed}`);
   await page.getByRole('button', { name: 'Actions for Sale deed 4412 of 1998' }).click();
-  await page.getByRole('menuitem', { name: 'Rename or move to another shelf' }).click();
+  await page.getByRole('menuitem', { name: 'Edit details' }).click();
 
-  const dialog = page.getByRole('dialog', { name: 'Rename or move this document' });
-  await dialog.getByLabel('Shelf').selectOption('old');
-  await dialog.getByRole('button', { name: 'Save' }).click();
+  const drawer = page.getByRole('dialog', { name: 'Edit details' });
+  await drawer.getByLabel('Type').selectOption('old');
+  await drawer.getByRole('button', { name: 'Save the details' }).click();
 
-  await expect.poll(() => world.calls('updatePaper').length).toBe(1);
-  expect(world.lastVars('updatePaper')).toEqual({
-    paperId: PAPER.deed, name: 'Sale deed 4412 of 1998', shelf: 'old',
+  await expect.poll(() => world.calls('updatePaperDetails').length).toBe(1);
+  // The server replaces all four, so all four go, starting from the read.
+  expect(world.lastVars('updatePaperDetails')).toMatchObject({
+    paperId: PAPER.deed, shelf: 'old', docNo: '4412/1998',
   });
+  expect(Object.keys(world.lastVars('updatePaperDetails')).sort())
+    .toEqual(['docNo', 'office', 'paperId', 'registeredOn', 'shelf']);
+  expect(world.calls('updatePaper')).toHaveLength(0);
 });
 
 test('a rename lands on the screen the owner is looking at, not only in the mutation', async ({ page, world }) => {
@@ -1320,11 +1325,11 @@ test('a rename lands on the screen the owner is looking at, not only in the muta
   let title = 'Sale deed 4412 of 1998';
   world.set('document', () => paper({ title }));
   world.set('updatePaper', (vars) => { title = String(vars.name); return true; });
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
 
   await page.getByRole('button', { name: 'Actions for Sale deed 4412 of 1998' }).click();
-  await page.getByRole('menuitem', { name: 'Rename or move to another shelf' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Rename or move this document' });
+  await page.getByRole('menuitem', { name: 'Rename' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Rename' });
   await dialog.getByLabel('What it is called').fill('Sale deed 4412 of 1998 (original)');
   await dialog.getByRole('button', { name: 'Save' }).click();
 
@@ -1338,11 +1343,11 @@ test('a rename lands on the screen the owner is looking at, not only in the muta
 
 test('while a rename is saving the dialog says so and will not save it twice', async ({ page, world }) => {
   world.set('updatePaper', World.slow(1_200, true));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await page.getByRole('button', { name: 'Actions for Sale deed 4412 of 1998' }).click();
-  await page.getByRole('menuitem', { name: 'Rename or move to another shelf' }).click();
+  await page.getByRole('menuitem', { name: 'Rename' }).click();
 
-  const dialog = page.getByRole('dialog', { name: 'Rename or move this document' });
+  const dialog = page.getByRole('dialog', { name: 'Rename' });
   await dialog.getByLabel('What it is called').fill('Sale deed 4412 of 1998 (original)');
   await dialog.getByRole('button', { name: 'Save' }).click();
 
@@ -1356,11 +1361,11 @@ test('while a rename is saving the dialog says so and will not save it twice', a
 });
 
 test('a paper cannot be saved with no name at all', async ({ page, world }) => {
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await page.getByRole('button', { name: 'Actions for Sale deed 4412 of 1998' }).click();
-  await page.getByRole('menuitem', { name: 'Rename or move to another shelf' }).click();
+  await page.getByRole('menuitem', { name: 'Rename' }).click();
 
-  const dialog = page.getByRole('dialog', { name: 'Rename or move this document' });
+  const dialog = page.getByRole('dialog', { name: 'Rename' });
   await dialog.getByLabel('What it is called').fill('   ');
   await expect(dialog.getByRole('button', { name: 'Save' })).toBeDisabled();
   await dialog.getByRole('button', { name: 'Cancel' }).click();
@@ -1370,57 +1375,48 @@ test('a paper cannot be saved with no name at all', async ({ page, world }) => {
 
 test('a paper filed on a shelf this screen does not list still opens showing its own shelf', async ({ page, world }) => {
   world.set('document', paper({ shelf: 'photos', shared: false, link: null }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await page.getByRole('button', { name: 'Actions for Sale deed 4412 of 1998' }).click();
-  await page.getByRole('menuitem', { name: 'Rename or move to another shelf' }).click();
+  await page.getByRole('menuitem', { name: 'Edit details' }).click();
 
   // Blank here would silently refile the paper on the first Save.
-  await expect(page.getByLabel('Shelf')).toHaveValue('photos');
-  await expect(page.getByRole('option', { name: 'Photos' })).toHaveCount(1);
+  await expect(page.getByLabel('Type')).toHaveValue('photos');
+  await expect(page.getByRole('option', { name: 'Photos & video' })).toHaveCount(1);
 });
 
-test('every shelf the vault has can be reached from the Reader', async ({ page }) => {
-  // DEFECT: Reader.tsx:42 lists seven shelves; the vault wall has eight
-  // (ui.tsx:369 SHELF_WORD, Vault.tsx's eight cards). "Photos" is missing, so
-  // a scan that is only a picture can be moved OFF that shelf from here and
-  // never onto it — the one shelf in the vault this screen cannot file to.
-  test.fail();
-  await page.goto(`/app/papers/${PAPER.deed}`);
+test('every type the vault has can be reached from the Reader', async ({ page }) => {
+  // Once a defect: the Reader listed seven shelves and not Photos & video.
+  await page.goto(`/papers/${PAPER.deed}`);
   await page.getByRole('button', { name: 'Actions for Sale deed 4412 of 1998' }).click();
-  await page.getByRole('menuitem', { name: 'Rename or move to another shelf' }).click();
-  await expect(page.getByLabel('Shelf').getByRole('option')).toHaveCount(8);
-  await expect(page.getByRole('option', { name: 'Photos' })).toHaveCount(1);
+  await page.getByRole('menuitem', { name: 'Edit details' }).click();
+  await expect(page.getByLabel('Type').getByRole('option')).toHaveCount(8);
+  await expect(page.getByRole('option', { name: 'Photos & video' })).toHaveCount(1);
 });
 
 test('a rename the server refuses leaves the dialog open with the typed name still in it', async ({ page, world }) => {
   world.set('updatePaper', World.gqlError('that paper is not yours to rename'));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await page.getByRole('button', { name: 'Actions for Sale deed 4412 of 1998' }).click();
-  await page.getByRole('menuitem', { name: 'Rename or move to another shelf' }).click();
+  await page.getByRole('menuitem', { name: 'Rename' }).click();
 
-  const dialog = page.getByRole('dialog', { name: 'Rename or move this document' });
+  const dialog = page.getByRole('dialog', { name: 'Rename' });
   await dialog.getByLabel('What it is called').fill('Sale deed 4412 of 1998 (copy)');
   await dialog.getByRole('button', { name: 'Save' }).click();
 
-  await expect(page.getByText('That paper could not be saved. Nothing has changed.')).toBeVisible();
+  await expect(page.getByText('That document could not be saved. Nothing has changed.')).toBeVisible();
   await expect(dialog).toBeVisible();
   await expect(dialog.getByLabel('What it is called')).toHaveValue('Sale deed 4412 of 1998 (copy)');
 });
 
 test('a rename the server declines does not close as though it saved', async ({ page, world }) => {
-  // DEFECT: Reader.tsx:288 only catches a THROWN failure. `update_paper`
-  // (services/api/src/web360.py:4915) returns FALSE for a row that is not the
-  // caller's — no error, no toast — and saveEdit then runs setEditing(false),
-  // so the dialog closes and the old title is still on the screen behind it.
-  // The share path three functions up (Reader.tsx:267) already checks the
-  // returned value; this one owes the owner the same.
-  test.fail();
+  // Once a defect: `update_paper` returns FALSE for a row that is not the
+  // caller's, and the dialog closed as though it had saved.
   world.set('updatePaper', false);
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await page.getByRole('button', { name: 'Actions for Sale deed 4412 of 1998' }).click();
-  await page.getByRole('menuitem', { name: 'Rename or move to another shelf' }).click();
+  await page.getByRole('menuitem', { name: 'Rename' }).click();
 
-  const dialog = page.getByRole('dialog', { name: 'Rename or move this document' });
+  const dialog = page.getByRole('dialog', { name: 'Rename' });
   await dialog.getByLabel('What it is called').fill('Sale deed 4412 of 1998 (copy)');
   const reads = world.calls('document').length;
   await dialog.getByRole('button', { name: 'Save' }).click();
@@ -1450,13 +1446,13 @@ test('a rename the server declines does not close as though it saved', async ({ 
 /** Open the confirm dialog the way an owner does. */
 async function startDelete(page: import('@playwright/test').Page, title: string) {
   await page.getByRole('button', { name: `Actions for ${title}` }).click();
-  await page.getByRole('menuitem', { name: 'Delete this document…' }).click();
+  await page.getByRole('menuitem', { name: 'Delete this document' }).click();
 }
 
 test('deletion is an action, not furniture: the reading rail carries no delete panel', async ({ page, world }) => {
   world.set('document', paper({ ...PLAIN, fileRef: REF }));
   serveBytes(world, 'pdf');
-  await page.goto(`/app/papers/${PAPER.ec}`);
+  await page.goto(`/papers/${PAPER.ec}`);
 
   // The rail is for what was read off the paper. Nothing destructive lives in it.
   await expect(page.getByRole('heading', { name: 'Delete this document' })).toHaveCount(0);
@@ -1466,7 +1462,7 @@ test('deletion is an action, not furniture: the reading rail carries no delete p
   await expect(page.getByRole('dialog')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Delete Encumbrance certificate?' })).toBeVisible();
   // No 30-day archive is promised: delete_paper removes the row there and then.
-  await expect(page.getByText('It leaves this record straight away, with its list of versions.')).toBeVisible();
+  await expect(page.getByText('It leaves this property straight away, with its list of versions.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Delete', exact: true })).toBeVisible();
 });
 
@@ -1478,28 +1474,28 @@ test.describe('the delete dialog over refused bytes', () => {
     // state, including the one where this screen has just been refused the bytes.
     world.set('document', paper({ ...PLAIN, fileRef: REF }));
     world.route(/\/api\/gateway\/storage\/files\/[^/]+\/content/, () => ({ status: 404, body: '' }));
-    await page.goto(`/app/papers/${PAPER.ec}`);
+    await page.goto(`/papers/${PAPER.ec}`);
 
     await startDelete(page, 'Encumbrance certificate');
-    await expect(page.getByText('It leaves this record straight away, with its list of versions.')).toBeVisible();
+    await expect(page.getByText('It leaves this property straight away, with its list of versions.')).toBeVisible();
     await expect(page.getByText('The file itself stays in your storage')).toHaveCount(0);
     onlyRefusals(consoleErrors);
   });
 });
 
-test('an ordinary paper takes two steps to unfile, and Keep it puts it back', async ({ page, world }) => {
+test('an ordinary paper takes two steps to unfile, and Cancel puts it back', async ({ page, world }) => {
   world.set('document', PLAIN);
-  await page.goto(`/app/papers/${PAPER.ec}`);
+  await page.goto(`/papers/${PAPER.ec}`);
 
   await startDelete(page, 'Encumbrance certificate');
-  await page.getByRole('button', { name: 'Keep it', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   expect(world.calls('deletePaper')).toEqual([]);
 });
 
 test('deleting a paper unfiles it and goes back to the record, not to “not in your vault”', async ({ page, world }) => {
   world.set('document', PLAIN);
-  await page.goto(`/app/papers/${PAPER.ec}`);
+  await page.goto(`/papers/${PAPER.ec}`);
 
   await startDelete(page, 'Encumbrance certificate');
   await page.getByRole('button', { name: 'Delete', exact: true }).click();
@@ -1510,17 +1506,17 @@ test('deleting a paper unfiles it and goes back to the record, not to “not in 
 
 test('deleting an unfiled paper goes back to the vault, because there is no record to return to', async ({ page, world }) => {
   world.set('document', paper({ ...PLAIN, recordId: '', recordTitle: '' }));
-  await page.goto(`/app/papers/${PAPER.unsorted}`);
+  await page.goto(`/papers/${PAPER.unsorted}`);
 
   await startDelete(page, 'Encumbrance certificate');
   // An unfiled paper leaves the vault, not "the record" it does not have.
   await expect(page.getByText('It leaves Documents straight away, with its list of versions.')).toBeVisible();
   await page.getByRole('button', { name: 'Delete', exact: true }).click();
-  await expect(page).toHaveURL(/\/app\/papers$/);
+  await expect(page).toHaveURL(/\/papers$/);
 });
 
 test('a shared title deed asks for its number before it goes', async ({ page, world }) => {
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
 
   await startDelete(page, 'Sale deed 4412 of 1998');
   await expect(page.getByText('This title deed is shared. Its link is revoked with it.')).toBeVisible();
@@ -1541,7 +1537,7 @@ test('a shared title deed asks for its number before it goes', async ({ page, wo
 test('a deletion in flight says Removing…, and cannot be asked for a second time', async ({ page, world }) => {
   world.set('document', PLAIN);
   world.set('deletePaper', World.slow(1_200, true));
-  await page.goto(`/app/papers/${PAPER.ec}`);
+  await page.goto(`/papers/${PAPER.ec}`);
 
   await startDelete(page, 'Encumbrance certificate');
   await page.getByRole('button', { name: 'Delete', exact: true }).click();
@@ -1554,20 +1550,20 @@ test('a deletion in flight says Removing…, and cannot be asked for a second ti
 });
 
 test('Enter with the wrong number typed does not unfile a shared title deed', async ({ page, world }) => {
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await startDelete(page, 'Sale deed 4412 of 1998');
   const box = page.getByLabel('Type 4412 to confirm deletion');
   await box.fill('4411');
   // The form submits on Enter, and the phrase guard has to stand there too.
   await box.press('Enter');
 
-  await expect(page).toHaveURL(new RegExp(`/app/papers/${PAPER.deed}$`));
+  await expect(page).toHaveURL(new RegExp(`/papers/${PAPER.deed}$`));
   expect(world.calls('deletePaper')).toEqual([]);
 });
 
 test('a title deed with no number in its name asks for the whole name', async ({ page, world }) => {
   world.set('document', paper({ title: 'Pattadar Passbook', shelf: 'title', shared: true }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
 
   await startDelete(page, 'Pattadar Passbook');
   // `replace(/^\D+/,'')` used to leave this sentence reading "…type  first"
@@ -1581,7 +1577,7 @@ test('a title deed with no number in its name asks for the whole name', async ({
 
 test('a title deed that is not shared is deleted the ordinary way', async ({ page, world }) => {
   world.set('document', paper({ shared: false, link: null }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await startDelete(page, 'Sale deed 4412 of 1998');
   await expect(page.getByText('This title deed is shared.')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Delete', exact: true })).toBeEnabled();
@@ -1589,7 +1585,7 @@ test('a title deed that is not shared is deleted the ordinary way', async ({ pag
 
 test('a shared paper that is not a title deed is deleted the ordinary way', async ({ page, world }) => {
   world.set('document', paper({ ...PLAIN, shared: true, link: DEED.link }));
-  await page.goto(`/app/papers/${PAPER.ec}`);
+  await page.goto(`/papers/${PAPER.ec}`);
   await startDelete(page, 'Encumbrance certificate');
   await expect(page.getByText('This title deed is shared.')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Delete', exact: true })).toBeEnabled();
@@ -1598,13 +1594,13 @@ test('a shared paper that is not a title deed is deleted the ordinary way', asyn
 test('a deletion the server refuses leaves the paper on the screen where the owner can see it', async ({ page, world }) => {
   world.set('document', PLAIN);
   world.set('deletePaper', World.gqlError('that paper is not yours to delete'));
-  await page.goto(`/app/papers/${PAPER.ec}`);
+  await page.goto(`/papers/${PAPER.ec}`);
 
   await startDelete(page, 'Encumbrance certificate');
   await page.getByRole('button', { name: 'Delete', exact: true }).click();
 
   await expect(page.getByText('Deleting that document could not be saved. Nothing has changed.')).toBeVisible();
-  await expect(page).toHaveURL(new RegExp(`/app/papers/${PAPER.ec}$`));
+  await expect(page).toHaveURL(new RegExp(`/papers/${PAPER.ec}$`));
 });
 
 test('a deletion the server declines does not walk the owner away as though it worked', async ({ page, world }) => {
@@ -1616,7 +1612,7 @@ test('a deletion the server declines does not walk the owner away as though it w
   test.fail();
   world.set('document', PLAIN);
   world.set('deletePaper', false);
-  await page.goto(`/app/papers/${PAPER.ec}`);
+  await page.goto(`/papers/${PAPER.ec}`);
 
   await startDelete(page, 'Encumbrance certificate');
   const reads = world.calls('document').length;
@@ -1624,7 +1620,7 @@ test('a deletion the server declines does not walk the owner away as though it w
 
   await expect.poll(() => world.calls('deletePaper').length).toBe(1);
   await expect.poll(() => world.calls('document').length).toBeGreaterThan(reads);
-  await expect(page).toHaveURL(new RegExp(`/app/papers/${PAPER.ec}$`));
+  await expect(page).toHaveURL(new RegExp(`/papers/${PAPER.ec}$`));
 });
 
 
@@ -1632,7 +1628,7 @@ test('a deletion the server declines does not walk the owner away as though it w
 
 test('the versions list keeps what was filed', async ({ page, world }) => {
   world.set('document', DEED);
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   const card = page.locator('section.card').filter({ hasText: 'Versions' });
 
   await expect(card.getByText('v1')).toBeVisible();
@@ -1649,7 +1645,7 @@ test('more than one version is listed oldest first, and none of them is overwrit
       { id: 'w-ver-2', version: 2, label: 'Rescanned at 600 dpi', madeOn: '11/08/2026', madeBy: 'Ravi Kumar', note: '' },
     ],
   }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   const rows = page.locator('section.card').filter({ hasText: 'Versions' }).locator('.rows > div');
   await expect(rows).toHaveCount(2);
   await expect(rows.first()).toContainText('v1');
@@ -1661,7 +1657,7 @@ test('a version nobody signed and nobody annotated shows its date and nothing mo
   world.set('document', paper({
     versions: [{ id: 'w-ver-1', version: 1, label: 'As filed', madeOn: '02/07/2026', madeBy: '', note: '' }],
   }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   const row = page.locator('section.card').filter({ hasText: 'Versions' }).locator('.rows > div');
   await expect(row).toHaveCount(1);
   // filter(Boolean).join(' · ') again: "02/07/2026 · by  · " is what a
@@ -1671,13 +1667,13 @@ test('a version nobody signed and nobody annotated shows its date and nothing mo
 
 test('a paper with no version history shows no versions card', async ({ page, world }) => {
   world.set('document', paper({ versions: [] }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await expect(page.getByText('Versions')).toHaveCount(0);
 });
 
 test('an unfiled paper’s versions card offers no link to a record', async ({ page, world }) => {
   world.set('document', paper({ recordId: '', recordTitle: '' }));
-  await page.goto(`/app/papers/${PAPER.unsorted}`);
+  await page.goto(`/papers/${PAPER.unsorted}`);
   const card = page.locator('section.card').filter({ hasText: 'Versions' });
   await expect(card.getByText('As filed')).toBeVisible();
   await expect(card.getByRole('link')).toHaveCount(0);
@@ -1687,37 +1683,37 @@ test('an unfiled paper’s versions card offers no link to a record', async ({ p
 
 test('the whole screen waits while the paper is being read, and claims nothing', async ({ page, world }) => {
   world.set('document', World.never());
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
 
-  await expect(page.getByText('Loading…')).toBeVisible();
-  await expect(page.getByText("This document isn't in your account")).toHaveCount(0);
+  await expect(page.getByRole('status', { name: 'Loading this document' })).toBeVisible();
+  await expect(page.getByText("This document is not in your account")).toHaveCount(0);
   await expect(page.getByText('did not load')).toHaveCount(0);
 });
 
 test('a read that broke says so, and prints the reason for whoever is on the phone', async ({ page, world }) => {
   world.set('document', World.gqlError('the paper store is down'));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
 
   await expect(page.getByText('This document did not load')).toBeVisible();
   await expect(page.getByText('the paper store is down')).toBeVisible();
   await expect(page.getByText('Check your connection and try again.')).toBeVisible();
   // Telling an owner their deed "did not load" when it has been deleted sends
   // them to support for nothing — so the two absences must not read alike.
-  await expect(page.getByText("This document isn't in your account")).toHaveCount(0);
+  await expect(page.getByText("This document is not in your account")).toHaveCount(0);
 });
 
 test('a paper id that resolves to nothing is not an error, it is not in your vault', async ({ page, world }) => {
-  await page.goto(`/app/papers/${PAPER.missing}`);
+  await page.goto(`/papers/${PAPER.missing}`);
 
-  await expect(page.getByText("This document isn't in your account")).toBeVisible();
-  await expect(page.getByText('It may have been deleted, or it belongs to a record that is no longer yours.')).toBeVisible();
+  await expect(page.getByText("This document is not in your account")).toBeVisible();
+  await expect(page.getByText('It may have been deleted, or its property is no longer yours.')).toBeVisible();
   await expect(page.getByText('did not load')).toHaveCount(0);
   expect(world.lastVars('document')).toMatchObject({ id: PAPER.missing });
 });
 
 test('a paper that is not there draws no toolbar, no rail and no delete panel', async ({ page }) => {
-  await page.goto(`/app/papers/${PAPER.missing}`);
-  await expect(page.getByText("This document isn't in your account")).toBeVisible();
+  await page.goto(`/papers/${PAPER.missing}`);
+  await expect(page.getByText("This document is not in your account")).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Pages' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Share securely' })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Delete this document' })).toHaveCount(0);
@@ -1739,7 +1735,7 @@ test('the Reader fits a phone instead of running off the side of it', async ({ p
   await page.setViewportSize({ width: 390, height: 844 });
   serveBytes(world, 'image');
   world.set('document', paper({ fileRef: REF, mimeType: 'image/jpeg' }));
-  await page.goto(`/app/papers/${PAPER.deed}`);
+  await page.goto(`/papers/${PAPER.deed}`);
   await expect(page.getByRole('img', { name: /page 1 of 14/ })).toBeVisible();
 
   const spill = await page.evaluate(() =>

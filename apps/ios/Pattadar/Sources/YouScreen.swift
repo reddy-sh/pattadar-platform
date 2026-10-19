@@ -44,7 +44,7 @@ struct MoreScreen: View {
                             }
                         }
                     } footer: {
-                        Text("Swapped out of the tab bar — still one tap away.")
+                        Text("Swapped out of the tab bar — still one step away.")
                     }
                 }
 
@@ -66,7 +66,7 @@ struct MoreScreen: View {
                     Button { showFamily = true } label: {
                         HStack {
                             Label {
-                                Text("Groups").foregroundStyle(Color(.label))
+                                Text("Families & groups").foregroundStyle(Color(.label))
                             } icon: {
                                 Image(systemName: "person.2")
                                     .foregroundStyle(Color.accentColor)
@@ -117,7 +117,7 @@ struct MoreScreen: View {
                         Label("Tools", systemImage: "wrench.and.screwdriver")
                     }
                     NavigationLink { ActivityScreen() } label: {
-                        Label("Audit log", systemImage: "clock.arrow.circlepath")
+                        Label("Activity", systemImage: "clock.arrow.circlepath")
                     }
                 }
 
@@ -204,10 +204,10 @@ struct ToolsScreen: View {
     var body: some View {
         List {
             NavigationLink { SpendScreen() } label: {
-                Label("Spend", systemImage: "indianrupeesign.circle")
+                Label("Expenses", systemImage: "indianrupeesign.circle")
             }
             NavigationLink { HoldersScreen(holdings: holdings) } label: {
-                Label("Who holds what", systemImage: "person.text.rectangle")
+                Label("Owners", systemImage: "person.text.rectangle")
             }
         }
         .navigationTitle("Tools")
@@ -222,7 +222,7 @@ struct WalletScreen: View {
         List {
             Section {
                 VStack(alignment: .leading, spacing: Space.hair) {
-                    Text("Balance")
+                    Text("Available")
                         .font(.label).foregroundStyle(.secondary)
                         .textCase(.uppercase)
                     Text(rupees(Double(SampleData.walletBalance)))
@@ -230,7 +230,7 @@ struct WalletScreen: View {
                 }
                 .padding(.vertical, Space.xs)
             } footer: {
-                Text("Pays for services — an EC, a survey, a caretaker's month. Top up by UPI when ordering; refunds land back here.")
+                Text("Pays for services — an EC, a survey, a caretaker's month. Add money by UPI when ordering; refunds come back here as Refunded.")
             }
 
             Section("Recent") {

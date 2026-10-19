@@ -46,7 +46,7 @@ struct SearchScreen: View {
                         }
                     }
                     if !matchedDocuments.isEmpty {
-                        Section("Papers") {
+                        Section("Documents") {
                             ForEach(matchedDocuments) { doc in
                                 NavigationLink { DocumentDetailScreen(doc: doc) } label: {
                                     HStack(spacing: Space.md) {
@@ -76,14 +76,14 @@ struct SearchScreen: View {
                     }
                     if matchedHoldings.isEmpty && matchedDocuments.isEmpty {
                         Section {
-                            Text("Nothing matches \"\(trimmed)\" — not in the records, not in the papers.")
+                            Text("Nothing matches \"\(trimmed)\" — not in your properties, not in your documents.")
                                 .font(.bodyCopy).foregroundStyle(.secondary)
                         }
                     }
                 }
 
                 Section {
-                    Text("Searching finds records and papers wherever they are. To narrow a list you are already looking at, use Filter.")
+                    Text("Searching finds properties and documents wherever they are. To narrow a list you are already looking at, use Filter.")
                         .font(.note).foregroundStyle(.secondary)
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
@@ -93,7 +93,7 @@ struct SearchScreen: View {
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $query, isPresented: $searchActive,
                         placement: .navigationBarDrawer(displayMode: .always),
-                        prompt: "Survey no., village, paper, name")
+                        prompt: "Survey number, village, document, name")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }

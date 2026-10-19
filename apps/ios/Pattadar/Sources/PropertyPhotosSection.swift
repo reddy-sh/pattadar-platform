@@ -133,9 +133,9 @@ struct PropertyPhotoGallery: View {
     }
 
     var body: some View {
-        Section("Photographs") {
+        Section("Photos") {
             if photos.isEmpty && pending.isEmpty {
-                Text("No photographs yet. A picture with its location is the cheapest evidence this land is what the record says.")
+                Text("No photos yet. A photo with its location is the cheapest evidence this land is what your documents say.")
                     .font(.caption).foregroundStyle(.secondary)
             } else {
                 LazyVGrid(columns: columns, spacing: Space.sm) {
@@ -214,7 +214,7 @@ struct PropertyPhotoGallery: View {
             longitude = here.coordinate.longitude
         }
         guard let jpeg = preparedJPEG(image) else {
-            addFailed = "That photo couldn’t be saved."
+            addFailed = "That photo could not be saved."
             return
         }
         enqueue(jpeg, latitude: latitude, longitude: longitude,
@@ -249,7 +249,7 @@ struct PropertyPhotoGallery: View {
                 SyncEngine.shared.kick(.enqueued)
             } catch {
                 // Only the phone's own disk gets us here — worth saying plainly.
-                addFailed = "The photo couldn’t be stored on this phone: \(error.localizedDescription)"
+                addFailed = "The photo could not be stored on this phone. Free some space and try again."
             }
             try? FileManager.default.removeItem(at: fileURL)
         }
@@ -324,7 +324,7 @@ struct PropertyPhotoStrip: View {
     }
 
     var body: some View {
-        Section("Photographs") {
+        Section("Photos") {
             if photos.isEmpty && pending.isEmpty {
                 Button(action: onAdd) {
                     Label(addPrompt, systemImage: "camera")
@@ -563,7 +563,7 @@ private struct PhotoPage: View {
                 image = full
             }
         }
-        .confirmationDialog("Delete this photograph?", isPresented: $confirmDelete,
+        .confirmationDialog("Delete this photo?", isPresented: $confirmDelete,
                             titleVisibility: .visible) {
             Button("Delete", role: .destructive) { Task { await deletePhoto() } }
         }

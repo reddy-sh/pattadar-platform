@@ -31,19 +31,19 @@ public func parseAuditTime(_ iso: String) -> Date? {
     return f.date(from: zoned ? s : s + "Z")
 }
 
-/// "2h ago" / "Yesterday" / "3 Jul".
+/// "2 hours ago" / "Yesterday" / "03/07/2026" — spelled out, never "2h" (U4).
 public func relativeTime(_ iso: String, now: Date = Date()) -> String {
     guard let d = parseAuditTime(iso) else { return iso }
     let mins = Int(now.timeIntervalSince(d) / 60)
     if mins < 1 { return "just now" }
-    if mins < 60 { return "\(mins)m ago" }
+    if mins < 60 { return mins == 1 ? "1 minute ago" : "\(mins) minutes ago" }
     let hours = mins / 60
-    if hours < 24 { return "\(hours)h ago" }
+    if hours < 24 { return hours == 1 ? "1 hour ago" : "\(hours) hours ago" }
     let days = hours / 24
     if days == 1 { return "Yesterday" }
-    if days < 7 { return "\(days)d ago" }
+    if days < 7 { return "\(days) days ago" }
     let f = DateFormatter()
-    f.dateFormat = "d MMM"
+    f.dateFormat = "dd/MM/yyyy"
     return f.string(from: d)
 }
 
@@ -165,7 +165,7 @@ public func humanDate(_ raw: String) -> String {
 
     let out = DateFormatter()
     out.locale = Locale(identifier: "en_IN")
-    out.dateFormat = "d MMMM yyyy"
+    out.dateFormat = "dd/MM/yyyy"  // DD/MM/YYYY on every surface (U4), as web.
 
     // ISO, which is what the reader is asked for: year first, unambiguous.
     if let m = firstMatch(#"^(\d{4})-(\d{2})-(\d{2})"#, in: s), m.count == 4 {

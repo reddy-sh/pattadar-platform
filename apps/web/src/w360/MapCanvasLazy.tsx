@@ -4,15 +4,15 @@
 import { Suspense, lazy } from 'react';
 import type { Ref } from 'react';
 import type { MapCanvasProps, MapHandle } from './MapCanvas';
-import { Loading } from './ui';
+import { SkMap } from './skeletons';
 
 const Impl = lazy(() => import('./MapCanvas'));
 
-export type { MapCanvasProps, MapHandle, MapMark, Basemap } from './MapCanvas';
+export type { MapCanvasProps, MapHandle, MapMark, Basemap, WaterFlowLayer, FlowLine } from './MapCanvas';
 
 export function MapCanvas(props: MapCanvasProps & { ref?: Ref<MapHandle> }) {
   return (
-    <Suspense fallback={<Loading h="100%" />}>
+    <Suspense fallback={<SkMap label="Loading the map" />}>
       <Impl {...props} />
     </Suspense>
   );

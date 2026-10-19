@@ -1,0 +1,42 @@
+{
+  "verdict": "APPROVED",
+  "findings": [
+    {
+      "id": 1,
+      "title": "Empty-line reading recorded as approved",
+      "blocking": false,
+      "confidence": "confirmed",
+      "where": "apps/web/src/w360/ui.tsx:647; docs/specs/TODO-one-platform.md row 20; decisions.md 03/10/2026 item 3",
+      "detail": "The condition `visibleGroups.length === 0 && (query.length > 0 || !searchPlaceholder)` keeps 'No filter options match that search.' in the eleven popovers without a search. The approval reads 'FacetFilter shows that line only once a query has been typed'. report.md flags the narrower reading 'For review', but TODO row 20 says 'Fixed as Reddy approved on 03/10/2026: … A popover without a search, where nothing can be typed, still says it', which records the reading as part of his approval.",
+      "action": "Reddy confirms the reading, or the `|| !searchPlaceholder` term goes. Until he does, reword row 20 so his approval and the coder's reading are kept apart."
+    },
+    {
+      "id": 2,
+      "title": "Four new tests never ran red",
+      "blocking": false,
+      "confidence": "confirmed",
+      "where": "tests/e2e-app/specs/17-villages.spec.ts:937, :987, :1139, :1157; red-runs.md 'Iteration 2'",
+      "detail": "'Enter on a matching village…' and 'once the matches are away, the next Escape…' guard behaviour that was already right. 'in High Contrast the Filter's own search keeps one 3px ring…' and 'the top bar's search draws its ring…' cover iteration-1 CSS written before them. Read against the CSS, each of the last two would fail without its rule, but neither has a recorded red run. red-runs.md discloses all four.",
+      "action": "If a red record is wanted, run the High Contrast Filter-row and top-bar tests with their rules removed, as was done for the late-refusal test, and record it in red-runs.md."
+    },
+    {
+      "id": 3,
+      "title": "Choice paths without a test",
+      "blocking": false,
+      "confidence": "confirmed",
+      "where": "apps/web/src/w360/pages/VillageMaps.tsx:1028-1031 (findTapped set and reset), :630-635 (chooseVillage)",
+      "detail": "A key press in the box clears findTapped, so tapping the field and then pressing Enter on a row is meant to bring focus back, but no test covers that. A mouse choice is tested only in Chromium ('choosing a matching village…' has no @phone tag); WebKit runs only the Enter and tap tests.",
+      "action": "Add a @phone-only test: tap the field, press Enter on a row, expect the field focused. Tag or copy the mouse-choice test so WebKit runs it too."
+    }
+  ],
+  "gates": {
+    "newTestsGreen": "pass: 17-villages 120 of 120 in app (Chromium) and 14 of 14 in phone (WebKit), all twenty new tests included (.local/impl-scratch/cadastral-search-pw-review3.log). Red evidence: the finding-4 test (ff-red :744) and 7 iteration-2 failures (iter2-red :2644, :1002, :1155, :1171) failed on product assertions, and their frames match the current spec at the expected shifts; four tests never ran red (finding 2).",
+    "noNewFailuresVsBaseline": "pass: 17-villages has no failures (both baseline failures now pass). 24-responsive has nothing new against the 03/10 18:39 or 02/10 baselines. In 01-shell, 15 test/project pairs fail now that passed in the 02/10 baseline or the iteration-2 run, and each fails only on the harness console guard. The trace shows the 400 is the seal refusing Home's root-level `query { auditTrail … }`. That is not attributable: VillageMaps is lazy-loaded, the CSS and FacetFilter changes send no request, and the same tests flip between runs.",
+    "noOverflowAt390": "pass: 24-responsive.spec.ts:548 for /app/maps passes in app and phone, and so does the new @phone test's scrollWidth check with the matches open.",
+    "highContrast": "pass: the global ring is now theme.ts's `[data-scheme=\"highContrast\"] :focus-visible` at (0,2,0) !important. This task's rules, rewritten to `[data-scheme='highContrast'] .w360 …` by the palette session, sit at (0,4,1) and (0,4,0) !important and keep one 3px ring on the container, with none on the inner inputs. There is no @layer or enableCssLayer anywhere. The `:has(input:focus-visible)` form matches `.rec .sel` at 8c6a2d4:1174, and the container-plus-silent-child shape matches `.slot` at 8c6a2d4:3052-3053.",
+    "authoring": "pass: harness imports; role, label and text locators, with every class locator commented; no waitForTimeout; founder-voice titles; @phone and @phone-only tags; the late-refusal test inherits the describe's commented allowConsole.",
+    "snapshotsAndProtectedFiles": "pass: pre-product to now is Tasks 5-7 hunks plus other sessions' hunks, all intact. The palette session's rewrite of this task's High Contrast block, its token rename and its highContrast() helper sweep are attributable to that session. fixtures/ and the Playwright config have no change and no commit since 8c6a2d4. design.md and Shell.tsx changes are other sessions'. The only ui.tsx changes of this task are the two additive FacetFilter changes Reddy approved on 03/10/2026 (decisions.md); existing callers pass no new prop. The only copy change is Task 6's approved placeholder.",
+    "guardsTypecheckUnit": "pass: all 22 guards (scripts/*-tests.ts, icon-guard.ts, ux-guards.ts) exit 0; apps/web tsc --noEmit is clean; bun test apps/web/src passes 358 of 358; git diff --check is clean on the six files."
+  },
+  "reviewDoc": "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/.agents/tasks/cadastral-maps-search-ux/impl-review.md"
+}

@@ -1,9 +1,9 @@
 /** Everything the order flow knows that is not a screen.
  *
- *  Ordering happens on three surfaces now — the land chooser (`/app/order`),
- *  the flow itself (`/app/records/:id/order`) and the one-tap buttons on the
- *  Features and Photos hangers that hand off into it — and every one of them
- *  has to agree about the same six things: whether a piece of land is on the
+ *  Ordering happens in one flow (`/order`: properties, services, review),
+ *  reached only through `orderHref` — the head's "Order a service", a row's
+ *  menu, the one-tap buttons on the Features and Photos tabs — and they
+ *  have to agree about the same six things: whether a piece of land is on the
  *  map, what to call that state, which services care, what counts as the same
  *  job twice, what the owner is actually buying, and how an order is made
  *  idempotent. Those agreements live here rather than in whichever screen
@@ -14,9 +14,23 @@
  */
 import { isLocated, pairRing } from './portfolioGeo';
 import type { Order, ServiceField, ServiceOffer } from './api';
-import { inrOr, num } from './ui';
+import { num } from './ui';
 
 // ── Is this land on the map? ───────────────────────────────────────────
+
+/** The one way into ordering (founder, 10/10/2026: "order a service uses a
+ *  single workflow only"). With the properties already known — a property's
+ *  head, a row's menu, a selection — the flow opens on the services step with
+ *  them chosen; `extra` carries a preset service, its answers (`a.<field>`)
+ *  and the provenance word (`why`). */
+export function orderHref(ids: string | readonly string[] = [], extra: Record<string, string> = {}): string {
+  const list = typeof ids === 'string' ? [ids] : ids;
+  const q = new URLSearchParams();
+  if (list.length > 0) { q.set('for', list.join(',')); q.set('step', 'services'); }
+  Object.entries(extra).forEach(([k, v]) => q.set(k, v));
+  const s = q.toString();
+  return s ? `/order?${s}` : '/order';
+}
 
 export type MapState = 'mapped' | 'pin' | 'none';
 
@@ -73,31 +87,33 @@ export const LAND_SENTENCE: Record<string, Record<MapState, string>> = {
   survey: {
     mapped: 'Your boundary is on record. The outline goes with the order, so the '
       + 'surveyor starts from your corners.',
-    pin: 'There is a pin on this land but no boundary. Establishing the corners is the job.',
-    none: 'Nothing on this record says where this land is. This is the service that puts '
+    pin: 'There is a pin on this land but no boundary. Setting the corners is the work.',
+    none: 'Nothing on this property says where this land is. This is the service that puts '
       + 'that right — tell the surveyor where to come below.',
   },
   site_visit: {
-    mapped: 'Your boundary is on record. The outline goes with the order, so whoever goes '
+    mapped: 'Your boundary is on record. The outline goes with the order, so the provider '
       + 'knows where the land ends.',
-    pin: 'There is a pin on this land but nobody has drawn its edges. Whoever goes will '
+    pin: 'There is a pin on this land but nobody has drawn its edges. The provider will '
       + 'find the land; they will not know where it ends.',
-    none: 'Nothing on this record says where this land is, so nobody can be sent to it yet.',
+    none: 'Nothing on this property says where this land is, so no provider can be sent to it yet.',
+  },
+  bore_point: {
+    mapped: 'Your boundary is on record. The outline goes with the order, so the '
+      + 'hydrogeologist studies the ground inside your corners.',
+    pin: 'There is a pin on this land but no boundary. The hydrogeologist will find the land; '
+      + 'tell them below where it ends.',
+    none: 'Nothing on this property says where this land is. Tell the hydrogeologist where to '
+      + 'come below.',
   },
 };
 
-/** The catalogue field that has to be answered when the record cannot say
- *  where the land is. Both are real catalogue fields — `survey.notes` and
- *  `site_visit.meet` — never an invented params key: the server renders any
- *  key it does not recognise as a labelled Pair on the worker's sheet, for
- *  ever. */
-export const DIRECTIONS_FIELD: Record<string, string> = {
-  survey: 'notes',
-  site_visit: 'meet',
-};
-
+/** When the record cannot say where the land is, the field to answer is the
+ *  catalogue's own `directionsField` (survey `notes`, site visit `meet`) —
+ *  never an invented params key: the server renders any key it does not
+ *  recognise as a labelled Pair on the worker's sheet, for ever. */
 export const DIRECTIONS_HELP =
-  'Nobody can find this land from the record, so write down how to get there.';
+  'Nobody can find this land from what is saved, so write down how to get there.';
 
 /** A pin cannot be sent. `capabilities.public_manifest` hands the worker
  *  `{items, boundary}` and nothing else — no lat, no lon, no place line — so
@@ -122,74 +138,17 @@ export const groupsOf = (offers: ServiceOffer[]): string[] => {
   ];
 };
 
-/** What the owner actually receives. The catalogue's `blurb` describes the
- *  work; this describes the thing that lands in their hands, which is the
- *  question a review step has to answer before money is committed. An unknown
- *  key simply has no row — never a placeholder. */
-export const DELIVERABLE: Record<string, string> = {
-  ec: 'The registrar’s list of transactions, as a certificate',
-  survey: 'A surveyor’s sheet with your corners pinned against the FMB',
-  site_visit: 'Photographs and a written report of what was found',
-  title_opinion: 'A written opinion from an advocate on whether the title is clean',
-  mutation: 'The revenue record in the new owner’s name',
-  patta_copy: 'A stamped copy of the passbook entry',
-};
+/** The catalogue key behind an order.
+ *
+ *  The API persists `serviceKey` as the stable identity. An older row has only
+ *  `kind`, which may be a legacy name (`opinion`, `visit`) the catalogue lists
+ *  under the service's `aliases`. */
+export const serviceKeyOf = (
+  order: Pick<Order, 'kind' | 'serviceKey'>, offers: ServiceOffer[] = [],
+): string => order.serviceKey || canonicalKey(order.kind, offers);
 
-/** Services whose required answers belong to ONE parcel, so a set cannot share
- *  them.
- *
- *  `orderService` takes `recordIds` and files one job per record — that is what
- *  the bulk bar's "Order EC ×N" has always done — but it validates the answers
- *  ONCE for the whole call and then writes the same `params` onto every job.
- *  For most of the catalogue that is exactly right: two copies of each patta,
- *  one brief for every site visit, the same span of years on every EC.
- *
- *  For these two it is a lie the owner would only discover on delivery. A
- *  boundary re-survey asks which side and whether a neighbour is disputing it —
- *  "North, yes" is an answer about one parcel, not about forty. A mutation asks
- *  the new owner and the deed number, and the deed number IS the parcel.
- *
- *  So a set may not order these together, and the picker says so rather than
- *  filing forty jobs that all quote one parcel's deed. Ordering them one at a
- *  time still works and is the only correct shape.
- *
- *  The server cannot express this yet — nothing on `ServiceField` says "this
- *  varies per record" — so the rule lives here, in one place, next to the other
- *  vocabulary this flow keeps about the catalogue. If a seventh service arrives
- *  with a per-parcel answer, this set is the line to add it to. */
-export const PER_PROPERTY = new Set(['survey', 'mutation']);
-
-/** Can this service be ordered for several properties in one go? */
-export const bulkable = (key: string) => !PER_PROPERTY.has(key);
-
-/** What an owner calls it when they are not reading a catalogue.
- *
- *  This is the value the old debounced service-search box was reaching for and
- *  could not deliver: the server matches label, blurb and group, so typing
- *  "name transfer" or "EC" returned nothing and the box read as a control that
- *  says no. A line on the tile always answers; a box only answers if somebody
- *  has written the dictionary. Two entries today, and it extends by one line. */
-export const ALSO_CALLED: Record<string, string> = {
-  ec: 'Also called an EC',
-  mutation: 'Also called a name transfer',
-};
-
-/** Kinds that count as "you already have one of these running here".
- *
- *  Not equality: `work_requests.kind` carries three vocabularies — catalogue
- *  keys from `orderService`, and the `survey`/`visit`/`opinion` openers from
- *  `createRequest` — so an owner who asked a surveyor directly last week and
- *  orders a re-survey today is doing the same thing twice under two names. */
-export const SAME_JOB: Record<string, string> = {
-  opinion: 'title_opinion',
-  visit: 'site_visit',
-};
-
-/** The API persists `serviceKey` as the stable identity and keeps `kind` for
- * historical display/workflow compatibility. Older responses have no stable
- * key, so canonicalised `kind` remains the fallback. */
-export const serviceKeyOf = (order: Pick<Order, 'kind' | 'serviceKey'>): string =>
-  order.serviceKey || SAME_JOB[order.kind] || order.kind;
+const canonicalKey = (kind: string, offers: ServiceOffer[]): string =>
+  offers.find((o) => o.aliases.includes(kind))?.key ?? kind;
 
 /** NOTE for whoever is here next: `useOrders(undefined)` and `useOrders('')`
  *  are not the same question. The resolver drops the filter when the id is
@@ -198,8 +157,12 @@ export const serviceKeyOf = (order: Pick<Order, 'kind' | 'serviceKey'>): string 
  *  screen called it with '' before a property had been picked and headed a
  *  survey on an unrelated parcel with "Already ordered here". In this design
  *  the record is a path segment, so the flow cannot mount without one. */
-export const openSameJob = (orders: Order[] | undefined, key: string): Order | undefined =>
-  (orders ?? []).find((o) => serviceKeyOf(o) === (SAME_JOB[key] || key));
+export const openSameJob = (
+  orders: Order[] | undefined, key: string, offers: ServiceOffer[] = [],
+): Order | undefined => {
+  const want = canonicalKey(key, offers);
+  return (orders ?? []).find((o) => serviceKeyOf(o, offers) === want);
+};
 
 // ── Where an order came from ───────────────────────────────────────────
 
@@ -210,18 +173,12 @@ export const WHY_NOTE: Record<string, string> = {
   features: 'Asked for from the features list',
   photos: 'Asked for from the photos',
   boundary: 'Asked for from the boundary screen',
+  owners: 'Asked for from the owners list',
   properties: 'Ordered from the properties list',
 };
 
 export const noteFor = (why: string, recordTitle: string): string =>
   WHY_NOTE[why] ?? `Ordered against ${recordTitle}`;
-
-/** "A encumbrance certificate" is what a template gets you when the thing it
- *  names is a catalogue label rather than a constant. Two of the six start
- *  with a vowel sound, and one of those — Encumbrance Certificate — is the
- *  service most owners order first. */
-export const aOrAn = (word: string): string =>
-  (/^[aeiou]/i.test(word.trim()) ? 'An' : 'A');
 
 // ── Filing one order, once ─────────────────────────────────────────────
 
@@ -259,82 +216,15 @@ export function pruneSheet(
   return out;
 }
 
-/** One intent, one key.
- *
- *  The server hashes the request and replays the previous count for a repeated
- *  (key, hash) pair without inserting. So the key must be stable while the
- *  order is unchanged — a reload, an Android Back, a second press after a
- *  timeout — and must be re-minted the moment anything about the order
- *  changes, because the same key with a DIFFERENT hash answers 0, which is
- *  indistinguishable from a refusal. */
-export function fingerprint(
-  recordId: string, serviceKey: string, sheet: Record<string, string>,
-  attach: string[], sendBoundary: boolean, attempt = 0,
-): string {
-  return JSON.stringify([recordId, serviceKey, sheet, [...attach].sort(), sendBoundary, attempt]);
-}
-
-// ── The draft ──────────────────────────────────────────────────────────
-
-export interface Draft {
-  answers: Record<string, string>;
-  attach: string[];
-  sendBoundary: boolean;
-  key: string;
-  fp: string;
-  /** Set once the order is filed, so `?step=check` can bounce forward rather
-   *  than offering "Place the order" over an order that is already placed —
-   *  which is exactly where Android's Back button lands. */
-  placed?: boolean;
-}
-
-const slot = (recordId: string, serviceKey: string) => `w360.order.${recordId}.${serviceKey}`;
-
-/** Every read and write is wrapped: a private window throws on the property
- *  access, not on the call, and a draft is a convenience — losing it must
- *  never take the screen down with it. */
-export function readDraft(recordId: string, serviceKey: string): Draft | null {
-  try {
-    const raw = sessionStorage.getItem(slot(recordId, serviceKey));
-    return raw ? (JSON.parse(raw) as Draft) : null;
-  } catch {
-    return null;
-  }
-}
-
-export function writeDraft(recordId: string, serviceKey: string, d: Draft): void {
-  try {
-    sessionStorage.setItem(slot(recordId, serviceKey), JSON.stringify(d));
-  } catch {
-    // Full, disabled or private. The flow still works; only the round trip to
-    // the boundary screen stops being survivable.
-  }
-}
-
-export function clearDraft(recordId: string, serviceKey: string): void {
-  try {
-    sessionStorage.removeItem(slot(recordId, serviceKey));
-  } catch {
-    // As above.
-  }
-}
-
 /** Going to draw a boundary and coming back to the order being composed.
  *
- *  Offered only at step 2 — never over a half-filled answer sheet, where a
- *  link that leaves the page throws every typed field away. */
-export const drawBack = (recordId: string, serviceKey: string): string =>
-  `/app/records/${recordId}/map?draw=1&back=${encodeURIComponent(
-    `/app/records/${recordId}/order?service=${serviceKey}&step=pick`,
-  )}`;
+ *  `back` is the order page's own address, carrying the selection, the typed
+ *  answers (`a.<service>.<field>`) and the ticked files (`att`), so the trip
+ *  loses nothing the owner has done. */
+export const drawBack = (recordId: string, back: string): string =>
+  `/properties/${recordId}/location?draw=1&back=${encodeURIComponent(back)}`;
 
 // ── Words for an order that came back ──────────────────────────────────
-
-/** `createRequest` writes cost 0, quoted 0 and due_date '' — an order raised
- *  by asking somebody directly has no price and no date. Without these the
- *  rail prints "₹0" and a dangling "due " against a perfectly good job. */
-export const costWord = (o: Order): string => inrOr(o.cost, '');
-export const dueWord = (o: Order): string => (o.dueDate ? `due ${o.dueDate}` : '');
 
 /** The extent, said the way every other screen in the module says it.
  *

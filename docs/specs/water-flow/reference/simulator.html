@@ -1,0 +1,453 @@
+<!-- UI reference for the Water flow layer (docs/specs/2026-10-13-water-flow-layer.md).
+     The founder's interactive prototype with its data removed: __HOME__ and __SLOKA__ were per-parcel JSON blobs
+     (satellite image as a data URI, lines and catchments in image pixels). Read it for layout, wording, line styling,
+     pin cards and pan/zoom behaviour; production uses MapCanvas (Leaflet) and the API instead. -->
+<title>Bore Point Simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: survey-sheet tool. Satellite map on the left as the instrument; a narrow control column on the right reads like a field notebook. Stacks on phones. */
+:root {
+  --paper: #eef2ef;        /* toposheet paper, faint green-grey */
+  --panel: #fbfcfb;
+  --ink: #17242b;
+  --muted: #56666e;
+  --rule: #d3dcd8;
+  --water: #0a72a8;        /* toposheet blue, the one accent */
+  --water-soft: #ddeef6;
+  --high: #1d7f47; --high-soft: #dcf0e3;
+  --med: #9a6512;  --med-soft: #f6ead3;
+  --low: #6c757a;  --low-soft: #e6e9ea;
+  --focus: #0a72a8;
+  --font-display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --font-body: "Barlow", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --paper: #0d1417; --panel: #131c20; --ink: #e3ecef; --muted: #91a3aa; --rule: #24333a;
+  --water: #5cc6f2; --water-soft: #11303c;
+  --high: #5bd08f; --high-soft: #14301f; --med: #e7ad52; --med-soft: #33260f; --low: #a3adb2; --low-soft: #222b2f;
+  --focus: #5cc6f2; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --paper: #0d1417; --panel: #131c20; --ink: #e3ecef; --muted: #91a3aa; --rule: #24333a;
+  --water: #5cc6f2; --water-soft: #11303c;
+  --high: #5bd08f; --high-soft: #14301f; --med: #e7ad52; --med-soft: #33260f; --low: #a3adb2; --low-soft: #222b2f;
+  --focus: #5cc6f2; color-scheme: dark }
+
+* { box-sizing: border-box }
+body { background: var(--paper); color: var(--ink); font: 15px/1.5 var(--font-body); padding-inline: 16px; padding-block: 16px 28px }
+.wrap { max-width: 1240px; margin: 0 auto; display: grid; gap: 16px }
+header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px }
+h1 { font: 700 30px/1.05 var(--font-display); letter-spacing: .01em; margin: 0; text-wrap: balance }
+.sub { color: var(--muted); margin: 0; max-width: 62ch }
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px; align-items: start }
+@media (max-width: 920px) { .grid { grid-template-columns: minmax(0, 1fr) } }
+
+/* map */
+.mapbox { position: relative; background: #0b0f10; border-radius: 10px; overflow: hidden; aspect-ratio: 1 / 1; max-width: 100%; touch-action: none; user-select: none }
+#map { width: 100%; height: 100%; display: block; cursor: grab }
+#map.dragging { cursor: grabbing }
+.mapctl { position: absolute; right: 10px; top: 10px; display: grid; gap: 6px }
+.mapctl button { width: 36px; height: 36px; border-radius: 8px; border: 1px solid rgba(255,255,255,.25); background: rgba(12,18,20,.72); color: #fff; font: 600 18px/1 var(--font-body); cursor: pointer }
+.mapctl button:hover { background: rgba(12,18,20,.9) }
+.legend { position: absolute; left: 10px; bottom: 10px; background: rgba(12,18,20,.78); color: #eef4f6; border-radius: 8px; padding: 8px 10px; font: 500 12px/1.35 var(--font-body); display: grid; gap: 4px; max-width: calc(100% - 20px) }
+.legend .row { display: flex; align-items: center; gap: 8px; white-space: nowrap }
+.legend svg { flex: none }
+.scale { position: absolute; right: 10px; bottom: 10px; color: #fff; font: 500 12px/1 var(--font-mono); text-shadow: 0 1px 2px #000; display: grid; justify-items: end; gap: 4px }
+.scale i { display: block; height: 6px; border: 2px solid #fff; border-top: 0; box-shadow: 0 1px 2px rgba(0,0,0,.6) }
+.north { position: absolute; left: 12px; top: 10px; color: #fff; font: 700 13px/1 var(--font-display); text-shadow: 0 1px 2px #000; text-align: center }
+.tip { position: absolute; pointer-events: none; background: rgba(10,15,17,.92); color: #fff; padding: 6px 9px; border-radius: 6px; font: 500 12.5px/1.35 var(--font-body); max-width: 240px; transform: translate(12px, -110%); white-space: normal }
+
+/* panel */
+.panel { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; display: grid; min-width: 0 }
+.sec { padding: 14px 16px; display: grid; gap: 10px; border-top: 1px solid var(--rule); min-width: 0 }
+.sec:first-child { border-top: 0 }
+.eyebrow { font: 600 12.5px/1 var(--font-display); letter-spacing: .08em; text-transform: uppercase; color: var(--muted) }
+label.f { display: grid; gap: 6px; font: 600 13px/1.2 var(--font-body) }
+select, input[type=range] { width: 100% }
+select { font: 500 15px/1.2 var(--font-body); color: var(--ink); background: var(--paper); border: 1px solid var(--rule); border-radius: 8px; padding: 9px 10px }
+select:focus-visible, button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px }
+.hint { color: var(--muted); font-size: 13px; margin: 0 }
+input[type=range] { accent-color: var(--water) }
+.rangehead { display: flex; justify-content: space-between; gap: 8px; font: 600 13px/1.2 var(--font-body) }
+.rangehead output { font: 500 13px/1.2 var(--font-mono); color: var(--water) }
+.check { display: flex; gap: 8px; align-items: center; font-size: 14px }
+.checks { display: grid; gap: 6px }
+.sw { width: 14px; height: 14px; border-radius: 3px; border: 2px solid; flex: none }
+.sw.red { border-color: #ff3b30; background: rgba(255,59,48,.18) }
+.sw.pink { border-color: #ff4fd8; background: rgba(255,79,216,.18) }
+
+.best { display: grid; gap: 4px }
+.best .big { font: 700 22px/1.15 var(--font-display) }
+.chip { display: inline-flex; align-items: center; gap: 5px; font: 600 12px/1 var(--font-body); padding: 4px 8px; border-radius: 999px; white-space: nowrap }
+.chip.High { color: var(--high); background: var(--high-soft) }
+.chip.Medium { color: var(--med); background: var(--med-soft) }
+.chip.Low { color: var(--low); background: var(--low-soft) }
+.chip::before { content: ""; width: 7px; height: 7px; border-radius: 50% ; background: currentColor }
+
+.pins { display: grid; gap: 8px; list-style: none; margin: 0; padding: 0 }
+.pin { border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px; display: grid; gap: 6px; cursor: pointer; background: var(--panel) }
+.pin[aria-selected="true"] { border-color: var(--water); box-shadow: inset 3px 0 0 var(--water) }
+.pin .top { display: flex; align-items: center; gap: 8px; justify-content: space-between }
+.pin .num { font: 700 17px/1 var(--font-display) }
+.pin .why { margin: 0; font-size: 14px }
+.facts { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--muted) }
+.facts b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums }
+.maps { display: flex; gap: 4px; align-items: center; font-size: 12px; color: var(--muted); flex-wrap: wrap }
+.maps span { padding: 2px 6px; border-radius: 4px; border: 1px solid var(--rule) }
+.maps span.on { background: var(--water-soft); color: var(--water); border-color: transparent; font-weight: 600 }
+.coords { display: flex; gap: 8px; align-items: center; flex-wrap: wrap }
+.coords code { font: 400 12.5px/1 var(--font-mono); user-select: all }
+.linkbtn { font: 600 12.5px/1 var(--font-body); color: var(--water); background: none; border: 1px solid var(--rule); border-radius: 6px; padding: 5px 8px; cursor: pointer; text-decoration: none }
+.empty { color: var(--muted); font-size: 14px; margin: 0 }
+.note { font-size: 13.5px; margin: 0 }
+
+table { width: 100%; border-collapse: collapse; font-size: 13.5px }
+th, td { text-align: left; padding: 7px 6px; border-top: 1px solid var(--rule); vertical-align: middle }
+th { font: 600 12px/1.2 var(--font-display); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); border-top: 0 }
+td.n { font-variant-numeric: tabular-nums; white-space: nowrap }
+tbody tr { cursor: pointer }
+tbody tr:hover td { background: var(--water-soft) }
+tbody tr.cur td { background: var(--water-soft); font-weight: 600 }
+.tablebox { overflow-x: auto }
+
+.foot { color: var(--muted); font-size: 12.5px; display: grid; gap: 6px }
+.foot p { margin: 0; max-width: 90ch }
+.warn { border-left: 3px solid var(--med); padding: 2px 0 2px 10px; font-size: 13.5px; margin: 0 }
+.mapcol { display: grid; gap: 8px; min-width: 0 }
+.legend2 { display: none }
+@media (max-width: 600px) {
+  .legend { display: none }
+  .legend2 { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; color: var(--ink) }
+  .legend2 .row { display: flex; align-items: center; gap: 6px; white-space: nowrap }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Bore Point Simulator</h1>
+    <p class="sub">Pick a farm and an elevation map. The lines show where rain water runs across the land; the pins are the best places on those lines for a borewell.</p>
+  </header>
+
+  <div class="grid">
+    <div class="mapcol">
+    <div class="mapbox" id="mapbox">
+      <svg id="map" role="img" aria-label="Satellite map with water flow lines and suggested bore points">
+        <image id="sat" x="0" y="0" preserveAspectRatio="none"></image>
+        <g id="catch"></g>
+        <g id="ghost"></g>
+        <g id="lines"></g>
+        <g id="arrows"></g>
+        <path id="boundary" fill="rgba(255,226,74,0.08)" stroke="#ffe24a" vector-effect="non-scaling-stroke" stroke-width="2.5"></path>
+        <g id="pins"></g>
+      </svg>
+      <div class="north" aria-hidden="true">▲<br>N</div>
+      <div class="mapctl">
+        <button type="button" id="zin" aria-label="Zoom in">+</button>
+        <button type="button" id="zout" aria-label="Zoom out">−</button>
+        <button type="button" id="zfit" aria-label="Zoom to the farm and its drainage areas">⌖</button>
+        <button type="button" id="zall" aria-label="Show the whole 6 km area">⤢</button>
+      </div>
+      <div class="legend" id="legend" aria-label="Legend"></div>
+      <div class="scale" id="scale" aria-hidden="true"><span id="scaleLabel">200 m</span><i id="scaleBar"></i></div>
+      <div class="tip" id="tip" hidden></div>
+    </div>
+    <div class="legend2" id="legend2" aria-hidden="true"></div>
+    </div>
+
+    <div class="panel">
+      <div class="sec">
+        <label class="f" for="farm">Farm
+          <select id="farm"></select>
+        </label>
+        <label class="f" for="src">Elevation map
+          <select id="src">
+            <option value="combined">All maps agree (combined)</option>
+            <option value="srtm">SRTM · NASA, 2000</option>
+            <option value="nasadem">NASADEM · NASA, 2020</option>
+            <option value="aw3d30">AW3D30 · JAXA</option>
+            <option value="copernicus">Copernicus · ESA</option>
+          </select>
+        </label>
+        <p class="hint" id="srcHint"></p>
+        <div>
+          <div class="rangehead"><label for="minArea">Draw lines draining at least</label><output id="minOut" for="minArea">2.2 acres</output></div>
+          <input type="range" id="minArea" min="0" max="100" step="1" value="0">
+        </div>
+        <div class="checks">
+          <label class="check" for="redOn"><input type="checkbox" id="redOn" checked> <span class="sw red"></span>Area draining to the main stream</label>
+          <label class="check" for="pinkOn"><input type="checkbox" id="pinkOn" checked> <span class="sw pink"></span>Area draining to the selected pin</label>
+          <label class="check" for="agreeOn"><input type="checkbox" id="agreeOn"> Colour lines by how many maps agree</label>
+          <label class="check" for="ghostOn"><input type="checkbox" id="ghostOn"> Show the other maps' lines faintly</label>
+        </div>
+      </div>
+
+      <div class="sec" id="bestSec"></div>
+      <div class="sec">
+        <div class="eyebrow">Suggested bore points</div>
+        <ul class="pins" id="pinList" role="listbox" aria-label="Suggested bore points"></ul>
+      </div>
+      <div class="sec">
+        <div class="eyebrow">What each map says</div>
+        <div class="tablebox">
+          <table>
+            <thead><tr><th>Map</th><th>Best pin</th><th>Drains</th><th>Agree</th></tr></thead>
+            <tbody id="cmp"></tbody>
+          </table>
+        </div>
+        <p class="hint">Tap a row to switch maps.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <p class="warn">These lines show where rain water runs on the surface. They do not prove there is groundwater below. Before drilling, get a resistivity survey and ask neighbours how deep their borewells are and how much water they give.</p>
+    <p>Lines: D8 flow from each 30 m elevation map, drawn where at least 0.9 ha (2.2 acres) drains through. Red and pink outlines: every 30 m cell whose water flows to that point. Pins: scored on drainage area, lines meeting, and how many of three independent map families (SRTM/NASADEM, AW3D30, Copernicus) have a line within 30 m. Confidence is capped on flat land.</p>
+    <p>Imagery: Esri World Imagery. Elevation: SRTM and NASADEM (NASA); AW3D30 © JAXA; Copernicus DEM © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA.</p>
+  </div>
+</div>
+
+<script type="application/json" id="d-home">__HOME__</script>
+<script type="application/json" id="d-sloka">__SLOKA__</script>
+<script>
+(() => {
+  const NS = "http://www.w3.org/2000/svg";
+  const HA2AC = 2.4710538;
+  const FARMS = { home: JSON.parse(document.getElementById("d-home").textContent), sloka: JSON.parse(document.getElementById("d-sloka").textContent) };
+  const SRC = {
+    combined: { name: "All maps agree", hint: "Median of three independent maps. Colour shows how many maps put a line in the same place. Most reliable on flat land." },
+    srtm: { name: "SRTM", hint: "NASA radar from 2000. This is what most borewell consultants draw their lines from." },
+    nasadem: { name: "NASADEM", hint: "NASA's 2020 re-processing of the same SRTM radar data." },
+    aw3d30: { name: "AW3D30", hint: "JAXA, built from stereo satellite photos, the same way as ISRO's CartoDEM." },
+    copernicus: { name: "Copernicus", hint: "ESA and DLR radar, 2011 to 2015. The newest of the four." }
+  };
+  const FAM = ["SRTM family", "AW3D30", "Copernicus"];
+  const FAMLBL = { "SRTM family": "SRTM/NASADEM", "AW3D30": "AW3D30", "Copernicus": "Copernicus" };
+  const LINE = { 3: "#36d6ff", 2: "#a9eeff", 1: "#ffffff" };
+  const PLAIN = "#40f0e2";   // single colour, like the consultant's maps
+  const RED = "#ff3b30", PINK = "#ff4fd8";
+  const PIN = { High: "#3ddc84", Medium: "#ffb84d", Low: "#cfd5d8" };
+
+  const $ = id => document.getElementById(id);
+  const svg = $("map"), box = $("mapbox"), tip = $("tip");
+  const st = { farm: "home", src: "combined", minV: 0, ghost: false, sel: 1, red: true, pink: true, agree: true };
+  try { const s = JSON.parse(localStorage.getItem("bps") || "{}"); if (FARMS[s.farm]) st.farm = s.farm; if (SRC[s.src]) st.src = s.src; } catch (e) {}
+  st.agree = st.src === "combined";
+  const save = () => { try { localStorage.setItem("bps", JSON.stringify({ farm: st.farm, src: st.src })); } catch (e) {} };
+
+  const acres = ha => { const a = ha * HA2AC; return a >= 100 ? Math.round(a).toLocaleString("en-IN") : a >= 10 ? a.toFixed(0) : a.toFixed(1); };
+  const minAcres = () => 2.2 * Math.pow(250 / 2.2, st.minV / 100);
+  const pathD = p => { let d = "M" + p[0] + " " + p[1]; for (let i = 2; i < p.length; i += 2) d += "L" + p[i] + " " + p[i + 1]; return d; };
+  const widthFor = u => u >= 100 ? 4.6 : u >= 10 ? 3 : 1.7;
+  const el = (tag, attrs) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
+
+  // ---------- view box (pan / zoom) ----------
+  let vb = { x: 0, y: 0, w: 1, h: 1 }, F = FARMS[st.farm];
+  const setVB = () => { svg.setAttribute("viewBox", `${vb.x} ${vb.y} ${vb.w} ${vb.h}`); decorate(); };
+  const clampVB = () => {
+    vb.w = Math.min(F.w, Math.max(120, vb.w)); vb.h = vb.w * F.h / F.w;
+    vb.x = Math.min(F.w - vb.w, Math.max(0, vb.x)); vb.y = Math.min(F.h - vb.h, Math.max(0, vb.y));
+  };
+  const fitFarm = () => {
+    const xs = F.boundary.map(p => p[0]), ys = F.boundary.map(p => p[1]);
+    const S = F.sources[st.src], P = S.points.find(q => q.rank === st.sel);
+    for (const c of [S.nearby && S.nearby.catch, P && P.catch]) if (c) for (let i = 0; i < c.poly.length; i += 2) { xs.push(c.poly[i]); ys.push(c.poly[i + 1]); }
+    const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+    const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) * 1.25;
+    vb.w = Math.min(F.w, Math.max(500, span)); vb.h = vb.w * F.h / F.w; vb.x = cx - vb.w / 2; vb.y = cy - vb.h / 2; clampVB(); setVB();
+  };
+  const zoomAt = (f, sx, sy) => {
+    const r = svg.getBoundingClientRect(); const px = vb.x + (sx - r.left) / r.width * vb.w, py = vb.y + (sy - r.top) / r.height * vb.h;
+    vb.w *= f; vb.h = vb.w * F.h / F.w; clampVB(); vb.x = px - (sx - r.left) / r.width * vb.w; vb.y = py - (sy - r.top) / r.height * vb.h; clampVB(); setVB();
+  };
+  svg.addEventListener("wheel", e => { e.preventDefault(); zoomAt(Math.exp(e.deltaY * 0.0015), e.clientX, e.clientY); }, { passive: false });
+  const ptrs = new Map(); let drag = null, pinch = null;
+  svg.addEventListener("pointerdown", e => {
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (ptrs.size === 1) drag = { x: e.clientX, y: e.clientY, vx: vb.x, vy: vb.y, moved: false };
+    if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), w: vb.w }; drag = null; }
+  });
+  svg.addEventListener("pointermove", e => {
+    if (!ptrs.has(e.pointerId)) return; ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const r = svg.getBoundingClientRect();
+    if (pinch && ptrs.size === 2) {
+      const [a, b] = [...ptrs.values()]; const d = Math.hypot(a.x - b.x, a.y - b.y);
+      const want = pinch.w * pinch.d / Math.max(20, d); zoomAt(want / vb.w, (a.x + b.x) / 2, (a.y + b.y) / 2);
+    } else if (drag) {
+      const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+      if (!drag.moved && Math.hypot(dx, dy) > 4) { drag.moved = true; svg.classList.add("dragging"); try { svg.setPointerCapture(e.pointerId); } catch (_) {} }
+      if (drag.moved) { vb.x = drag.vx - dx / r.width * vb.w; vb.y = drag.vy - dy / r.height * vb.h; clampVB(); setVB(); hideTip(); }
+    }
+  });
+  const endPtr = e => { ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null; if (!ptrs.size) { drag = null; svg.classList.remove("dragging"); } };
+  svg.addEventListener("pointerup", endPtr); svg.addEventListener("pointercancel", endPtr);
+  $("zin").onclick = () => { const r = svg.getBoundingClientRect(); zoomAt(0.7, r.left + r.width / 2, r.top + r.height / 2); };
+  $("zout").onclick = () => { const r = svg.getBoundingClientRect(); zoomAt(1 / 0.7, r.left + r.width / 2, r.top + r.height / 2); };
+  $("zfit").onclick = fitFarm;
+  $("zall").onclick = () => { vb = { x: 0, y: 0, w: F.w, h: F.h }; setVB(); };
+
+  // ---------- tooltip ----------
+  const showTip = (html, e) => { const r = box.getBoundingClientRect(); tip.innerHTML = html; tip.hidden = false;
+    let x = e.clientX - r.left, y = e.clientY - r.top; tip.style.left = Math.min(x, r.width - 250) + "px"; tip.style.top = Math.max(y, 50) + "px"; };
+  const hideTip = () => { tip.hidden = true; };
+  box.addEventListener("pointerleave", hideTip);
+
+  // ---------- drawing ----------
+  let arrowsData = [];
+  function drawLines() {
+    const g = $("lines"), gg = $("ghost"); g.replaceChildren(); gg.replaceChildren(); arrowsData = [];
+    const minHa = minAcres() / HA2AC; const S = F.sources[st.src];
+    if (st.ghost) {
+      const frag = document.createDocumentFragment();
+      let d = "";
+      for (const k in F.sources) { if (k === st.src) continue; for (const L of F.sources[k].lines) if (L.u >= minHa) d += pathD(L.p); }
+      frag.appendChild(el("path", { d, fill: "none", stroke: "#ffffff", "stroke-opacity": "0.32", "stroke-width": "1.1", "vector-effect": "non-scaling-stroke" }));
+      gg.appendChild(frag);
+    }
+    const halo = document.createDocumentFragment(), main = document.createDocumentFragment();
+    S.lines.forEach((L, i) => {
+      if (L.u < minHa) return;
+      const d = pathD(L.p), w = widthFor(L.u);
+      const h = el("path", { d, fill: "none", stroke: "#061014", "stroke-opacity": "0.55", "stroke-width": String(w + 2.4), "stroke-linecap": "round", "stroke-linejoin": "round", "vector-effect": "non-scaling-stroke", "data-i": i });
+      const col = st.agree ? (LINE[L.a] || LINE[1]) : PLAIN;
+      const m = el("path", { d, fill: "none", stroke: col, "stroke-width": String(w), "stroke-linecap": "round", "stroke-linejoin": "round", "vector-effect": "non-scaling-stroke", "data-i": i });
+      if (st.agree && L.a <= 1) m.setAttribute("stroke-dasharray", "5 4");
+      halo.appendChild(h); main.appendChild(m);
+      if (L.u >= 10 && L.p.length >= 6) { const n = L.p.length / 2, j = Math.floor(n / 2) - 1; arrowsData.push([L.p[2 * j], L.p[2 * j + 1], L.p[2 * j + 2], L.p[2 * j + 3], col]); }
+    });
+    g.appendChild(halo); g.appendChild(main);
+  }
+  $("lines").addEventListener("pointermove", e => {
+    const i = e.target.getAttribute && e.target.getAttribute("data-i"); if (i == null || (drag && drag.moved)) return;
+    const L = F.sources[st.src].lines[+i];
+    showTip(`<b>About ${acres(L.u)} acres</b> of land drains through here.<br>${L.a} of 3 maps put a line here.`, e);
+  });
+  $("lines").addEventListener("pointerleave", hideTip);
+
+  function drawCatch() {
+    const g = $("catch"); g.replaceChildren();
+    const S = F.sources[st.src], P = S.points.find(q => q.rank === st.sel);
+    const add = (c, col) => { if (!c) return; const p = c.poly; let d = "M" + p[0] + " " + p[1]; for (let i = 2; i < p.length; i += 2) d += "L" + p[i] + " " + p[i + 1];
+      g.appendChild(el("path", { d: d + "Z", fill: col, "fill-opacity": "0.13", stroke: col, "stroke-width": "2.5", "vector-effect": "non-scaling-stroke", "stroke-linejoin": "round" })); };
+    if (st.red && S.nearby) add(S.nearby.catch, RED);
+    if (st.pink && P) add(P.catch, PINK);
+  }
+  function drawPins() {
+    const g = $("pins"); g.replaceChildren();
+    for (const p of F.sources[st.src].points) {
+      const grp = el("g", { "data-r": p.rank, style: "cursor:pointer" });
+      grp.appendChild(el("circle", { cx: p.x, cy: p.y, class: "ring", fill: "none", stroke: "#ffffff", "vector-effect": "non-scaling-stroke", "stroke-width": "2.5", opacity: p.rank === st.sel ? "1" : "0" }));
+      grp.appendChild(el("circle", { cx: p.x, cy: p.y, class: "dot", fill: PIN[p.conf], stroke: "#0b1416", "vector-effect": "non-scaling-stroke", "stroke-width": "2" }));
+      const t = el("text", { x: p.x, y: p.y, class: "lbl", "text-anchor": "middle", "dominant-baseline": "central", fill: "#0b1416", "font-family": "Barlow Condensed, Arial Narrow, sans-serif", "font-weight": "700" }); t.textContent = p.rank;
+      grp.appendChild(t);
+      grp.addEventListener("click", () => select(p.rank));
+      grp.addEventListener("pointermove", e => showTip(`<b>Pin ${p.rank}</b> · ${p.conf} confidence<br>${p.reason}`, e));
+      grp.addEventListener("pointerleave", hideTip);
+      g.appendChild(grp);
+    }
+  }
+  function decorate() {
+    const r = svg.getBoundingClientRect(); if (!r.width) return; const k = vb.w / r.width;
+    for (const g of $("pins").children) {
+      g.querySelector(".dot").setAttribute("r", 11 * k); g.querySelector(".ring").setAttribute("r", 17 * k);
+      g.querySelector(".lbl").setAttribute("font-size", 14 * k);
+    }
+    const a = $("arrows"); a.replaceChildren(); const s = 6.5 * k, frag = document.createDocumentFragment();
+    for (const [x1, y1, x2, y2, c] of arrowsData) {
+      const dx = x2 - x1, dy = y2 - y1, L = Math.hypot(dx, dy) || 1, ux = dx / L, uy = dy / L, mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+      const p = [mx + ux * s, my + uy * s, mx - ux * s - uy * s * 0.8, my - uy * s + ux * s * 0.8, mx - ux * s + uy * s * 0.8, my - uy * s - ux * s * 0.8];
+      frag.appendChild(el("path", { d: `M${p[0]} ${p[1]}L${p[2]} ${p[3]}L${p[4]} ${p[5]}Z`, fill: c, stroke: "#061014", "stroke-width": "1", "vector-effect": "non-scaling-stroke" }));
+    }
+    a.appendChild(frag);
+    // scale bar: a round number of metres about 90 px wide on screen
+    const mpp = F.mPerPx * k, target = 90 * mpp, steps = [20, 50, 100, 200, 250, 500, 1000, 2000];
+    const m = steps.reduce((b, v) => Math.abs(v - target) < Math.abs(b - target) ? v : b, steps[0]);
+    $("scaleBar").style.width = (m / mpp) + "px"; $("scaleLabel").textContent = m >= 1000 ? (m / 1000) + " km" : m + " m";
+  }
+
+  // ---------- panel ----------
+  function famChips(hits) { return `<div class="maps">${FAM.map(f => `<span class="${hits[f] ? "on" : ""}">${FAMLBL[f]}</span>`).join("")}</div>`; }
+  function drawPanel() {
+    const S = F.sources[st.src], pts = S.points;
+    $("srcHint").textContent = SRC[st.src].hint;
+    const flat = F.reliefM < 10 ? "very flat" : F.reliefM < 20 ? "fairly flat" : "clearly sloped";
+    let best = "";
+    if (pts.length) {
+      const p = pts[0];
+      best = `<div class="eyebrow">Best spot on ${SRC[st.src].name}</div><div class="best"><div class="big">Pin 1 <span class="chip ${p.conf}">${p.conf} confidence</span></div><p class="note">${p.reason}. About ${acres(p.upHa)} acres drain here.</p></div>`;
+    } else best = `<div class="eyebrow">Best spot on ${SRC[st.src].name}</div><p class="empty">No flow line large enough crosses this farm on this map.</p>`;
+    best += `<p class="note">${F.name}: ${F.areaAcres.toFixed(1)} acres. Ground height varies about ${F.reliefM} m within 1 km, so the land is ${flat}${F.reliefM < 20 ? " and the lines are less certain" : ""}.</p>`;
+    if (S.nearby) {
+      const n = S.nearby;
+      best += `<p class="note"><span class="sw red" style="display:inline-block;vertical-align:-2px"></span> ${n.inside ? `A larger stream (about ${acres(n.upHa)} acres draining) crosses the farm on this map` : `A larger stream (about ${acres(n.upHa)} acres draining) passes ${n.distanceM} m ${n.bearing} of the farm on this map`}; ${n.agree} of 3 maps put a line there.</p>`;
+    }
+    $("bestSec").innerHTML = best;
+    $("pinList").innerHTML = pts.length ? pts.map(p => `
+      <li class="pin" role="option" data-r="${p.rank}" aria-selected="${p.rank === st.sel}" tabindex="0">
+        <div class="top"><span class="num">Pin ${p.rank}</span><span class="chip ${p.conf}">${p.conf}</span></div>
+        <p class="why">${p.reason}.</p>
+        <div class="facts"><span>Drains <b>${acres(p.upHa)} ac</b></span><span>Lines meet <b>${p.junction ? "yes" : "no"}</b></span><span>Height <b>${Math.round(p.elev)} m</b></span>${p.catch ? `<span>Pink area <b>${acres(p.catch.ha)} ac</b></span>` : ""}${p.movedM > 0 ? `<span>Moved inside <b>${Math.round(p.movedM)} m</b></span>` : ""}</div>
+        ${famChips(p.hits)}
+        <div class="coords"><code>${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}</code>
+          <button type="button" class="linkbtn" data-copy="${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}">Copy</button>
+          <a class="linkbtn" href="https://www.google.com/maps?q=${p.lat},${p.lon}" target="_blank" rel="noopener">Open in Google Maps</a></div>
+      </li>`).join("") : `<li class="empty">No suggestions on this map.</li>`;
+    $("cmp").innerHTML = Object.keys(SRC).map(k => {
+      const P = F.sources[k].points[0];
+      return `<tr data-k="${k}" class="${k === st.src ? "cur" : ""}"><td>${SRC[k].name}</td><td>${P ? `<span class="chip ${P.conf}">${P.conf}</span>` : "none"}</td><td class="n">${P ? acres(P.upHa) + " ac" : "–"}</td><td class="n">${P ? P.agree + " of 3" : "–"}</td></tr>`;
+    }).join("");
+    // legend
+    const lgLines = st.agree ? [
+      [3, "3 of 3 maps agree"], [2, "2 of 3 maps agree"], [1, "1 map only"]
+    ].map(([a, t]) => `<div class="row"><svg width="28" height="8"><line x1="1" y1="4" x2="27" y2="4" stroke="#061014" stroke-width="5.5" stroke-linecap="round" opacity=".55"/><line x1="1" y1="4" x2="27" y2="4" stroke="${LINE[a]}" stroke-width="3" stroke-linecap="round" ${a <= 1 ? 'stroke-dasharray="5 4"' : ""}/></svg>${t}</div>`).join("")
+      : `<div class="row"><svg width="28" height="8"><line x1="1" y1="4" x2="27" y2="4" stroke="${PLAIN}" stroke-width="3" stroke-linecap="round"/></svg>Drainage lines, ${SRC[st.src].name}</div>`;
+    const lg = lgLines
+      + `<div class="row"><svg width="28" height="12"><rect x="2" y="2" width="24" height="8" fill="none" stroke="#ffe24a" stroke-width="2"/></svg>Farm boundary</div>`
+      + `<div class="row"><svg width="28" height="12"><rect x="2" y="2" width="24" height="8" fill="${RED}" fill-opacity=".2" stroke="${RED}" stroke-width="2"/></svg>Area draining to the main stream</div>`
+      + `<div class="row"><svg width="28" height="12"><rect x="2" y="2" width="24" height="8" fill="${PINK}" fill-opacity=".2" stroke="${PINK}" stroke-width="2"/></svg>Area draining to the selected pin</div>`
+      + `<div class="row"><svg width="28" height="8"><line x1="1" y1="4" x2="27" y2="4" stroke="#36d6ff" stroke-width="1.7"/></svg>thin → thick: more land drains</div>`
+      + `<div class="row"><svg width="28" height="12"><circle cx="8" cy="6" r="5" fill="${PIN.High}"/><circle cx="20" cy="6" r="5" fill="${PIN.Medium}"/></svg>Pins: high, medium confidence</div>`;
+    $("legend").innerHTML = lg; $("legend2").innerHTML = lg;
+  }
+  $("pinList").addEventListener("click", e => {
+    const c = e.target.closest("[data-copy]");
+    if (c) { e.stopPropagation(); const t = c.getAttribute("data-copy");
+      const done = () => { c.textContent = "Copied"; setTimeout(() => c.textContent = "Copy", 1500); };
+      try { navigator.clipboard.writeText(t).then(done, () => selectCode(c)); } catch (_) { selectCode(c); } return; }
+    if (e.target.closest("a")) return;
+    const li = e.target.closest("[data-r]"); if (li) select(+li.getAttribute("data-r"), true);
+  });
+  $("pinList").addEventListener("keydown", e => { const li = e.target.closest("[data-r]"); if (li && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); select(+li.getAttribute("data-r"), true); } });
+  const selectCode = btn => { const code = btn.parentElement.querySelector("code"); const r = document.createRange(); r.selectNodeContents(code); const s = getSelection(); s.removeAllRanges(); s.addRange(r); };
+  $("cmp").addEventListener("click", e => { const tr = e.target.closest("tr[data-k]"); if (tr) { st.src = tr.getAttribute("data-k"); $("src").value = st.src; st.sel = 1; st.agree = st.src === "combined"; save(); render(false); } });
+
+  function select(rank, pan) {
+    st.sel = rank; drawCatch();
+    for (const g of $("pins").children) g.querySelector(".ring").setAttribute("opacity", +g.getAttribute("data-r") === rank ? "1" : "0");
+    for (const li of $("pinList").querySelectorAll("[data-r]")) li.setAttribute("aria-selected", +li.getAttribute("data-r") === rank);
+    if (pan) { const p = F.sources[st.src].points.find(q => q.rank === rank); if (p) { vb.x = p.x - vb.w / 2; vb.y = p.y - vb.h / 2; clampVB(); setVB(); } }
+  }
+
+  function render(resetView) {
+    F = FARMS[st.farm];
+    if (resetView) { const img = $("sat"); img.setAttribute("href", F.image); img.setAttribute("width", F.w); img.setAttribute("height", F.h);
+      $("boundary").setAttribute("d", "M" + F.boundary.map(p => p.join(" ")).join("L") + "Z"); }
+    $("agreeOn").checked = st.agree; drawCatch(); drawLines(); drawPins(); drawPanel(); if (resetView) fitFarm(); else decorate(); select(st.sel, false);
+  }
+
+  // ---------- controls ----------
+  $("farm").innerHTML = Object.keys(FARMS).map(k => `<option value="${k}">${FARMS[k].name} · ${FARMS[k].areaAcres.toFixed(1)} acres</option>`).join("");
+  $("farm").value = st.farm; $("src").value = st.src;
+  $("farm").onchange = e => { st.farm = e.target.value; st.sel = 1; save(); render(true); };
+  $("src").onchange = e => { st.src = e.target.value; st.sel = 1; st.agree = st.src === "combined"; save(); render(false); };
+  $("redOn").onchange = e => { st.red = e.target.checked; drawCatch(); };
+  $("pinkOn").onchange = e => { st.pink = e.target.checked; drawCatch(); };
+  $("agreeOn").onchange = e => { st.agree = e.target.checked; drawLines(); drawPanel(); decorate(); };
+  $("minArea").oninput = e => { st.minV = +e.target.value; const a = minAcres(); $("minOut").textContent = (a >= 10 ? Math.round(a) : a.toFixed(1)) + " acres"; drawLines(); decorate(); };
+  $("ghostOn").onchange = e => { st.ghost = e.target.checked; drawLines(); decorate(); };
+  new ResizeObserver(() => decorate()).observe(box);
+  render(true);
+})();
+</script>

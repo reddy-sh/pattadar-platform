@@ -1,0 +1,5 @@
+{
+  "decision": "CASE_A",
+  "rationale": "A kept Aadhaar card is written only to the gateway's Drive store and never gets a documents row, so it cannot appear in Documents; under Reddy's approved per-person tree (invariant 8) it must be filed under the owner's person folder, in an Aadhaar folder, without widening access.",
+  "planPath": "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/.agents/tasks/aadhaar-documents-missing/plan.md"
+}

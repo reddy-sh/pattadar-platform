@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { courses, campuses } from '../src/data/catalog';
 import { officialReferencesById } from '../src/data/officialReferences';
-import { recordGuidePath, recordGuides, recordGuidesForState, recordVideoUrl } from '../src/data/recordGuides';
+import { hasRecordVideo, recordGuidePath, recordGuides, recordGuidesForState, recordVideoUrl } from '../src/data/recordGuides';
 import { stateLearningGuideByCode } from '../src/data/stateGuideContent';
 import { publishedStateLandRecordProfiles } from '../src/data/stateLandRecords';
 import {
@@ -127,10 +127,10 @@ function recordSchema(record: (typeof recordGuides)[number]): Record<string, unk
     url: pageUrl,
     inLanguage: 'en-IN',
     educationalLevel: 'Beginner',
-    learningResourceType: 'Visual lesson and field guide',
+    learningResourceType: hasRecordVideo(record) ? 'Visual lesson and field guide' : 'Field guide',
     about: `${stateName} land records`,
     citation: officialReferencesById(record.sourceIds).map((source) => source.url),
-    video: {
+    ...(hasRecordVideo(record) && { video: {
       '@type': 'VideoObject',
       name: `${record.title} visual lesson`,
       description: `Original narrated fictional example explaining ${record.title} in ${stateName}.`,
@@ -138,7 +138,7 @@ function recordSchema(record: (typeof recordGuides)[number]): Record<string, unk
       contentUrl: canonicalUrl(recordVideoUrl(record, 'mp4')),
       uploadDate: '2026-10-01',
       inLanguage: 'en-IN',
-    },
+    } }),
   }];
 }
 

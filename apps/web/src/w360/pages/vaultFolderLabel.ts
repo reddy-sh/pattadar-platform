@@ -6,7 +6,7 @@
  *      every person's tree has an Aadhaar folder.
  *    · In no folder but filed against properties: their names, as today, until
  *      property folders exist.
- *    · Neither: "My files", the top level's own name. */
+ *    · Neither: "Documents", the top level's own name. */
 export interface FolderRef { id: string; name: string; parentId: string }
 
 export type FolderLabel =
@@ -32,5 +32,20 @@ export function folderLabel(
     return { kind: 'property', text: linked[0].title, more: linked.length - 1,
              all: linked.map((l) => l.title).join(', ') };
   }
-  return { kind: 'root', text: 'My files' };
+  return { kind: 'root', text: 'Documents' };
+}
+
+/** What Documents' Linked to column says: the first property or holding a
+ *  file is linked to and how many more, or that it is linked to none. The
+ *  Folder column says only where the file is kept, so a file inside a folder
+ *  no longer hides its links, and a loose file no longer shows a property
+ *  under a heading that says Folder. */
+export type LinkedLabel =
+  | { kind: 'linked'; text: string; more: number; all: string }
+  | { kind: 'none'; text: string };
+
+export function linkedLabel(linked: { title: string }[]): LinkedLabel {
+  if (!linked.length) return { kind: 'none', text: 'Not linked' };
+  return { kind: 'linked', text: linked[0].title, more: linked.length - 1,
+           all: linked.map((l) => l.title).join(', ') };
 }

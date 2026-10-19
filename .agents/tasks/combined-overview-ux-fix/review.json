@@ -1,0 +1,53 @@
+{
+  "verdict": "APPROVED",
+  "findings": [
+    {
+      "id": 1,
+      "label": "Live second session in the same tree",
+      "blocking": false,
+      "confidence": "confirmed (tree moved); likely (another session's work)",
+      "issue": "Seven files changed after the last recorded check (about 19:22), some during this review: fenceBill.ts, scripts/fence-tests.ts, FenceStudio.tsx, FenceParts.tsx (replacing an untracked FenceBill.tsx), Tools.tsx, w360.css (.fs-tool and print rules) and tests/e2e-app/specs/19-sections-legacy.spec.ts. verification.md names only the first two. w360.css now carries two other sessions' edits and none of this fix's. The recorded typecheck, guard loop and unit run cover neither HEAD plus the two fix files nor the current tree. None of the new CSS reaches .stack, .row, .cards, .strip or this tab's main, so the captures and spec runs still describe this fix alone.",
+      "action": "Stage only apps/web/src/w360/pages/CombinedProperty.tsx and tests/e2e-app/specs/28-combined-overview.spec.ts. Staging w360.css or Vault.tsx would ship other sessions' work under this audit. Just before committing, re-run the typecheck, the scripts/*-tests.ts loop and bun test apps/web/src, on HEAD plus those two files only where practical (for example in a temporary git worktree). Never git stash or check out in the shared tree."
+    },
+    {
+      "id": 2,
+      "label": "Records below the phone fold",
+      "blocking": false,
+      "confidence": "confirmed",
+      "class": "reddy_decision",
+      "issue": "At 390 the first card starts at 640 of a 664px viewport, and its 'Sy 214/2' title is no longer on the first screen. Compare evidence/overview-phone-top.png with verify/overview-phone-top.png. The stacked strip takes 347px. This was pass 1's finding 3, unchanged by design.",
+      "action": "Raise it with Reddy alongside audit item 1 (tell a fact once) or a 2x2 strip below 900px. No change belongs in this fix; shrinking the stack to --space-md would make the group gap equal the card gap."
+    },
+    {
+      "id": 3,
+      "label": "Spec failure messages name the old defect",
+      "blocking": false,
+      "confidence": "confirmed",
+      "issue": "In tests/e2e-app/specs/28-combined-overview.spec.ts, :75 ('the strip touches the record cards') fires for any gap under 16px, and :94 ('the two buttons are a raw 6px apart') fires for any gap under 12px. Dropping the inline gap, the likeliest regression, falls back to .row's --space-xs (8px) and would be misreported. :93 ('the pair is on one line') states the expectation, so a wrapped pair fails with a sentence that reads as a pass.",
+      "action": "Reword each message as the rule broken, the way :91 does ('closer than --space-md')."
+    },
+    {
+      "id": 4,
+      "label": "HEAD's typography failure (pre-existing, not this diff)",
+      "blocking": false,
+      "confidence": "confirmed",
+      "issue": "typography-tests.ts TY-5 fails on apps/university/src/styles.css:1488, :1520 and :1538 (font-weight: 800). git blame puts all three in committed 641ddb5, and apps/university has no working-tree changes. TY-5 lists up to 25 offenders before it truncates, and it printed three with no suffix, so apps/web has none. .github/workflows/ci.yml runs every scripts/*-tests.ts under set -euo pipefail, so CI's guard step fails with or without this fix.",
+      "action": "Leave it out of this commit. It needs its own fix before any commit on HEAD can pass CI."
+    }
+  ],
+  "priorPass": {
+    "1_suite_evidence_missing": "closed: verification.md records each command with its pass line",
+    "2_co_resident_edits": "carried forward and widened (finding 1)",
+    "3_phone_fold": "carried forward, Reddy's decision (finding 2)",
+    "4_spec_keyed_on_copy": "closed: place-based locators; Playwright 1.62 maps <p> to the paragraph role",
+    "5_floor_under_pinned": "closed: floor raised to 16 (--space-md)"
+  },
+  "checks": {
+    "1_root_cause_shared_layout": "pass: strip and cards wrapped in the shared .stack lg (--space-lg, 24px) at CombinedProperty.tsx:232; main, .strip and .cards unchanged; no page-local margin or component copy",
+    "2_button_gap_and_grid": "pass: --space-sm (12px) between and --space-md (16px) above on MemberCard's row only (:299), the audit's item-6 scoping; .row.tight and the .cards grid untouched (item 8 stays Reddy's)",
+    "3_invariants": "pass: no font-family, font-weight, date-format, package.json or lockfile change in the fix or the spec",
+    "4_evidence": "pass: typecheck, 16 of 17 guards (the failing TY-5 is HEAD's, finding 4), icon-guard, ux-guards, 85 unit tests and spec 28 (4 of 4, app 1512 and phone 390) are recorded. verify/ captures (19:20, after the 18:46 product edit) show 24px between strip and cards at both 1512 and 390, plus 12px and 16px button spacing on all three cards.",
+    "5_reddy_reserved": "pass: no macrostructure, content or copy change in CombinedProperty.tsx; audit items 1, 4, 5, 7 and 8 untouched"
+  },
+  "reviewDoc": "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/.agents/tasks/combined-overview-ux-fix/review.md"
+}

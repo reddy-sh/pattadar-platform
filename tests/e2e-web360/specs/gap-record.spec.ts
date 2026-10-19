@@ -102,7 +102,7 @@ test.describe('W360 · a record that will not load', () => {
       return route.fulfill({ status: 503, json: { detail: 'down' } });
     });
 
-    await page.goto(`/app/records/${PARCEL}`);
+    await page.goto(`/properties/${PARCEL}`);
 
     // main.tsx:43 sets retry: 1, so the error state is only reached after the
     // second refusal — the default expect timeout covers that round trip.
@@ -147,7 +147,7 @@ test.describe('W360 · unfiling a paper', () => {
       return (out?.data?.web?.papers ?? []) as { id: string; title: string }[];
     };
 
-    await page.goto(`/app/records/${id}`);
+    await page.goto(`/properties/${id}`);
     await expect(row).toBeVisible();
 
     // First tap only ASKS. Removing evidence has no undo, so a single click
@@ -201,7 +201,7 @@ test.describe('W360 · tagging a photo', () => {
   });
 
   test('a tag typed on a photo is filed against that photo and survives a reload', async ({ page }) => {
-    await page.goto(`/app/records/${PARCEL}/photos`);
+    await page.goto(`/properties/${PARCEL}/media`);
 
     // A text button named for what it does (it read "+ tag" until 28/09/2026).
     const chip = page.getByRole('button', { name: 'Add a tag' });
@@ -246,7 +246,7 @@ test.describe('W360 · archiving from the record', () => {
       return ((out?.data?.web?.properties?.cards ?? []) as { id: string }[]).map((c) => c.id);
     };
 
-    await page.goto(`/app/records/${id}`);
+    await page.goto(`/properties/${id}`);
     await kebab.click();
     await expect(item).toBeVisible();
     await item.click();
@@ -265,7 +265,7 @@ test.describe('W360 · archiving from the record', () => {
     // stray menu click, with nothing on screen able to show it had.
     await dialog.getByRole('button', { name: 'Cancel' }).click();
     await expect(dialog).toHaveCount(0);
-    expect(new URL(page.url()).pathname).toBe(`/app/records/${id}`);
+    expect(new URL(page.url()).pathname).toBe(`/properties/${id}`);
     expect(await live()).toContain(id);
 
     await kebab.click();
@@ -274,7 +274,7 @@ test.describe('W360 · archiving from the record', () => {
 
     // The record page cannot show the change — `record` reads archived rows too
     // — so confirming has to move you somewhere that can.
-    await page.waitForURL('**/app/properties');
+    await page.waitForURL('**/properties');
     await expect(page.locator('.rec', { hasText: 'Sy ARCHME' })).toHaveCount(0);
 
     // Reversible, and visibly so: the Archived facet is the way back.
@@ -293,7 +293,7 @@ test.describe('W360 · asking for a survey', () => {
     page.locator('section.card', { has: page.getByRole('heading', { name: 'Attachments' }) });
 
   test('an unsurveyed record asks for corners to be established, and attaches no boundary', async ({ page }) => {
-    await page.goto(`/app/records/${UNSURVEYED}/request?kind=survey`);
+    await page.goto(`/properties/${UNSURVEYED}/request?kind=survey`);
 
     const message = page.getByLabel('Message', { exact: true });
     // The em dash is part of the shipped string (RequestWork.tsx:49); a regex
@@ -303,7 +303,7 @@ test.describe('W360 · asking for a survey', () => {
     // The defect this guards: the surveyed opener promises a file that cannot
     // exist on a record with no ring, so the surveyor arrives expecting corners
     // they were told were already attached.
-    await expect(message).not.toHaveValue(/attached as a GeoJSON file/);
+    await expect(message).not.toHaveValue(/attached as a map file/);
 
     const geo = sendCard(page).locator('input[type=checkbox]');
     // A ticked box above a line saying there is no boundary is the state this
@@ -320,10 +320,10 @@ test.describe('W360 · asking for a survey', () => {
     // The control for the test above. Without it, a regression that showed
     // every record the noGeo copy — the easiest way to "fix" the branch — would
     // pass there and quietly stop attaching boundaries that do exist.
-    await page.goto(`/app/records/${PARCEL}/request?kind=survey`);
+    await page.goto(`/properties/${PARCEL}/request?kind=survey`);
 
     await expect(page.getByLabel('Message', { exact: true }))
-      .toHaveValue(/The boundary is attached as a GeoJSON file\./);
+      .toHaveValue(/The boundary is attached as a map file\./);
     const geo = sendCard(page).locator('input[type=checkbox]');
     await expect(geo).toBeChecked();
     await expect(geo).toBeEnabled();

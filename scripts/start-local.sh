@@ -13,7 +13,7 @@
 # SIGN-IN IS REAL by default (LOCAL_AUTH=real, Google offered on the hosted UI;
 # ids/bindings: .local/cognito-local.env). With LOCAL_AUTH=mock the web env simply
 # does not carry VITE_COGNITO_AUTHORITY, which puts AuthProvider into the mock
-# mode it has always had: you land straight in /app and the shell shows a
+# mode it has always had: you land straight in /home and the shell shows a
 # visible "Auth mocked — dev only" chip so nobody mistakes it for a session.
 #
 # Why mock exists. Local dev signs in against the PROD Cognito client,
@@ -260,6 +260,10 @@ stop_port_listeners 8081
 stop_port_listeners 8082
 sleep 0.5
 
+# Provider keys are set on Administration → Intelligence and stored encrypted
+# under PLATFORM_SECRETS_KEY. ANTHROPIC_API_KEY / GEMINI_API_KEY /
+# GOOGLE_SERVICE_ACCOUNT_JSON are fallbacks only. Set any of them, if at all,
+# in the gitignored .local/cognito-local.env; nothing here is hardcoded.
 echo "» starting api on http://localhost:8080 (log: .local/api.log)"
 (
   cd "$RHUB_API_DIR"
@@ -273,6 +277,9 @@ echo "» starting api on http://localhost:8080 (log: .local/api.log)"
   AADHAAR_ENC_KEY="${AADHAAR_ENC_KEY:-${INHERITED_AADHAAR_ENC_KEY:-}}" \
   APP_PG_DSN="$APP_DSN" \
   ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}" \
+  GEMINI_API_KEY="${GEMINI_API_KEY:-}" \
+  GOOGLE_SERVICE_ACCOUNT_JSON="${GOOGLE_SERVICE_ACCOUNT_JSON:-}" \
+  PLATFORM_SECRETS_KEY="${PLATFORM_SECRETS_KEY:-}" \
   APP_PUBLIC_URL="http://localhost:${WEB_PUBLIC_PORT}" \
   SUPER_ADMIN_UIDS="${SUPER_ADMIN_UIDS:-${DEV_USER_ID:-shankarreddy.t}}" \
   ALLOW_INSECURE_LOCAL=1 \

@@ -1,5 +1,5 @@
 /**
- * Invitations data, for the W360 screen at /app/invitations.
+ * Invitations data, for the W360 screen at /invitations.
  *
  * Same reason `groupsData.ts` exists beside `familiesData.ts`: the legacy read
  * (`useInvitationsList`) swallows every error into an empty sample list, so an

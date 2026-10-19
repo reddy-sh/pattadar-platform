@@ -23,14 +23,14 @@ const reminder = (recordId: string): WaitingItem => ({
 
 test('a property with neither a pin nor a boundary is not on the map, and is sent to its map', () => {
   expect(gapsOf(card({ id: 'p', lat: 0, lon: 0, ring: [] }))).toEqual([
-    { label: 'Not on the map', fix: 'Set location', to: '/app/records/p/map' },
+    { label: 'Not on the map', fix: 'Set location', to: '/properties/p/location' },
   ]);
 });
 
 test('pinned land without three corners is asked for a boundary, and a flat is not', () => {
   for (const classification of ['agri', 'open_plot']) {
     expect(gapsOf(card({ id: 'p', classification, ring: [16.5, 80.5, 16.6, 80.5] }))).toEqual([
-      { label: 'No boundary', fix: 'Draw boundary', to: '/app/records/p/map' },
+      { label: 'No boundary', fix: 'Draw boundary', to: '/properties/p/location' },
     ]);
   }
   expect(gapsOf(card({ id: 'f', classification: 'flat', ring: [] }))).toEqual([]);
@@ -38,10 +38,10 @@ test('pinned land without three corners is asked for a boundary, and a flat is n
 
 test('nothing filed opens the record, under a label no other destination on Home uses', () => {
   expect(gapsOf(card({ id: 'p', paperCount: 0 }))).toEqual([
-    { label: 'No documents', fix: 'Open record', to: '/app/records/p' },
+    { label: 'No documents', fix: 'Open property', to: '/properties/p/documents' },
   ]);
   // Neither the shortcut's label nor the shared-link reminder's.
-  expect(gapsOf(card({ paperCount: 0 })).map((g) => g.fix)).not.toContain('Add document');
+  expect(gapsOf(card({ paperCount: 0 })).map((g) => g.fix)).not.toContain('Add a document');
   expect(gapsOf(card({ paperCount: 0 })).map((g) => g.fix)).not.toContain('Open Documents');
 });
 

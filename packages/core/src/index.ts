@@ -74,6 +74,7 @@ export {
   relativeTime,
 } from './format/audit';
 export { formatDate, formatDateTime, parseISOToDisplay } from './format/date';
+export { agoSpelled, dayAndTime } from './format/ago';
 export { formatINR, formatINRCompact, formatNumberIN } from './format/inr';
 export { normalizeIndianMobile, PHONE_MAX_RAW } from './format/phone';
 export { looksLikeAadhaar } from './format/idNumber';

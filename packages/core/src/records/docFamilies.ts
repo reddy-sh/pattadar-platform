@@ -43,14 +43,14 @@ export const DOC_FAMILIES: DocFamily[] = [
 ];
 
 const LABELS: Record<DocFamily, string> = {
-  title: 'Title',
-  revenue: 'Revenue record',
+  title: 'Title deeds',
+  revenue: 'Revenue records',
   map: 'Map',
   identity: 'Identity',
-  search: 'Search & tax',
-  old_record: 'Old record',
-  photo: 'Photos',
-  unsorted: 'Unsorted',
+  search: 'EC & tax receipts',
+  old_record: 'Old records',
+  photo: 'Photos & video',
+  unsorted: 'Not sorted yet',
 };
 
 /** One line saying what belongs on this shelf — the folder card's subtitle. */

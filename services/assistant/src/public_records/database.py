@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
@@ -10,12 +11,15 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
-from .exceptions import PublicRecordsUnavailable
+from .exceptions import PublicRecordsQueryTimeout, PublicRecordsUnavailable
 from .settings import PublicRecordSettings
+
+_log = logging.getLogger("pattadar.assistant.public_records")
 
 _ALLOWED_LOCAL_SETTINGS = {
     "hnsw.ef_search",
     "pg_trgm.similarity_threshold",
+    "work_mem",
 }
 
 
@@ -68,6 +72,7 @@ class ReadOnlyDatabase:
         params: dict[str, Any] | None = None,
         *,
         local_settings: dict[str, str | int | float] | None = None,
+        timeout_ms: int | None = None,
     ) -> list[dict[str, Any]]:
         if not self.settings.configured:
             raise PublicRecordsUnavailable("Public records are temporarily unavailable.")
@@ -82,7 +87,8 @@ class ReadOnlyDatabase:
                     await conn.execute("SET TRANSACTION READ ONLY")
                     await conn.execute(
                         "SELECT set_config('statement_timeout', %s, true)",
-                        (str(self.settings.query_timeout_ms),),
+                        (str(min(timeout_ms or self.settings.query_timeout_ms,
+                                 self.settings.query_timeout_ms)),),
                     )
                     for name, value in (local_settings or {}).items():
                         await conn.execute(
@@ -94,7 +100,19 @@ class ReadOnlyDatabase:
                 return _jsonify(rows)
         except PublicRecordsUnavailable:
             raise
+        except psycopg.errors.QueryCanceled as exc:
+            _log.warning("public_records.query_timeout sqlstate=%s", exc.sqlstate)
+            raise PublicRecordsQueryTimeout(
+                "That search ran too long against the historical records. Try the "
+                "fuller name with surname, spelled as in the deed."
+            ) from exc
         except (psycopg.Error, OSError) as exc:
+            # Type and SQLSTATE only: driver messages can carry host details.
+            _log.warning(
+                "public_records.unavailable error=%s sqlstate=%s",
+                type(exc).__name__,
+                getattr(exc, "sqlstate", None),
+            )
             raise PublicRecordsUnavailable(
                 "Public records are temporarily unavailable."
             ) from exc

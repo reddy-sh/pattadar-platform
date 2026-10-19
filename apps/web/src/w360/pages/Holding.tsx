@@ -12,17 +12,25 @@
  *  the same cards, rows and empty states. So this reads like the rest of the app
  *  without inheriting the record's meaning.
  *
- *  The Overview and Records tabs live in this file because they are the frame's
- *  own two views — the totals, and the records those totals come from. The
- *  remaining four are lazy route chunks.
+ *  The Overview and Properties tabs live in this file because they are the
+ *  frame's own two views — the totals, and the properties those totals come
+ *  from. The remaining four are lazy route chunks.
+ *
+ *  A holding says WHICH properties make one piece of ground; a family or group
+ *  says WHO holds each of them (memo 06/10/2026). So the holding shows its
+ *  holders — the "Held by" line and a holder on every row — but is never
+ *  itself "held": it is "part of" and "one piece of ground".
  */
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useOutletContext, useParams, useNavigate } from 'react-router';
-import { useHolding, useProperties, EMPTY_FILTER } from '../api';
-import type { HoldingCard, HoldingMember } from '../api';
-import { Cell, Crumbs, Failed, HOLDING_WORD, Icon, Menu, Pill, inr, inrOr, num, plural, statusWord } from '../ui';
+import { useHolding, useProperties, EMPTY_FILTER, OWN_NAME } from '../api';
+import type { HoldingCard, HoldingHolder, HoldingMember } from '../api';
+import FileDownloadOutlined from '@mui/icons-material/FileDownloadOutlined';
+import { Card, Cell, Failed, HOLDING_WORD, Icon, PageHead, Pill, SelectAllBox, SelectCell, SelectionBar, TablePager, downloadCsv, inr, inrOr, num, plural, statusWord, usePaged, useRowSelection } from '../ui';
+import { extentTotal } from '../PropertyTable';
 import { Sk } from '../skeletons';
 import { HoldingDeleteDialog, HoldingEditDialog } from './HoldingActions';
+import { SectionHead } from './RecordHead';
 
 interface Ctx { holding: HoldingCard }
 
@@ -41,15 +49,15 @@ export const HOLDING_TABS: {
   to: string; label: string; end?: boolean; count: (c: HoldingCard) => number | null;
 }[] = [
   { to: '', label: 'Overview', end: true, count: () => null },
-  { to: 'surveys', label: 'Records', count: (c) => c.memberCount },
+  { to: 'surveys', label: 'Properties', count: (c) => c.memberCount },
   { to: 'papers', label: 'Documents', count: (c) => c.paperCount },
-  { to: 'fmb', label: 'Combined map', count: (c) => c.surveyedCount },
-  { to: 'expenses', label: 'Costs', count: () => null },
+  { to: 'fmb', label: 'Boundaries', count: (c) => c.surveyedCount },
+  { to: 'expenses', label: 'Expenses', count: () => null },
   { to: 'services', label: 'Services', count: () => null },
 ];
 
 export function tabForHolding(pathname: string) {
-  const tail = pathname.replace(/\/+$/, '').split('/app/holdings/')[1]?.split('/')[1] ?? '';
+  const tail = /^\/holdings\/[^/?#]+\/([^/?#]*)/.exec(pathname)?.[1] ?? '';
   return HOLDING_TABS.find((t) => t.to === tail);
 }
 
@@ -57,62 +65,59 @@ function HoldingHead({ holding, here }: { holding: HoldingCard; here?: string })
   const nav = useNavigate();
   const [panel, setPanel] = useState<'' | 'edit' | 'delete'>('');
   // The same unfiltered query the Properties list runs, so the edit picker and
-  // that screen can never disagree about which records exist or which of them
+  // that screen can never disagree about which properties exist or which of them
   // may be combined. React Query already holds its answer by the time anyone
   // gets here — you arrive through that list — so it costs nothing.
   const { data: portfolio } = useProperties(EMPTY_FILTER);
 
   return (
     <>
-      <Crumbs
-        trail={[
-          { label: HOLDING_WORD.many, to: '/app/holdings' },
-          { label: holding.name, to: here ? `/app/holdings/${holding.id}` : undefined },
+      {/* The shared head (design.md § Page head, detail page): crumbs, the
+          name with its glyph and extent pill, the kind and place as the meta
+          row, the ⋮, then the tab strip as the head's last row. */}
+      <PageHead
+        crumbs={[
+          { label: HOLDING_WORD.many, to: '/holdings' },
+          { label: holding.name, to: here ? `/holdings/${holding.id}` : undefined },
           ...(here ? [{ label: here }] : []),
         ]}
+        title={holding.name}
+        glyph={<Icon name="parcel" size={26} className="rechead-glyph" />}
+        pill={<>
+          {/* The extent, and only the extent. The property count is on the
+              tab strip and in the totals; a pill that also carried it made
+              the head say "2 properties" three times in four lines. */}
+          <span className="chip static num rechead-extent">{holding.extentLine}</span>
+          {!holding.isComplete && <Pill kind="disputed">Incomplete</Pill>}
+        </>}
+        meta={<>
+          <span className="eyebrow rechead-kind">{HOLDING_WORD.one.toUpperCase()}</span>
+          <span aria-hidden>·</span>
+          <span className="rechead-place">
+            {holding.placeLine || 'Place not recorded on its properties'}
+            {holding.note && <> · {holding.note}</>}
+          </span>
+        </>}
+        // No "Add an expense" here. The Expenses tab is one click away in the
+        // strip and owns the real control; a second button that only
+        // NAVIGATES to it is the same action twice.
+        actions={{
+          overflow: [
+            { label: 'Edit name and properties', onClick: () => setPanel('edit') },
+            { label: 'Delete this holding', danger: true, rule: true, onClick: () => setPanel('delete') },
+          ],
+          overflowLabel: `Actions for ${holding.name}`,
+        }}
+        tabs={<HoldingTabs holding={holding} />}
       />
 
-      <header className="pagehead">
-        <div className="grow rechead">
-          <div className="rechead-name">
-            <Icon name="parcel" size={26} className="rechead-glyph" />
-            <h1>{holding.name}</h1>
-            {/* The extent, and only the extent. The record count is on the tab
-                strip and in the totals; a pill that also carried it made the
-                head say "2 records" three times in four lines. */}
-            <span className="chip static num rechead-extent">{holding.extentLine}</span>
-            {!holding.isComplete && <Pill kind="disputed">Incomplete</Pill>}
-          </div>
-          <p className="eyebrow rechead-kind">{HOLDING_WORD.one.toUpperCase()}</p>
-          <p className="lede rechead-place">
-            {holding.placeLine || 'Place not recorded on its records'}
-            {holding.note && <> · {holding.note}</>}
-          </p>
-        </div>
-        <div className="actions">
-          {/* No "Record a cost" here. The Expenses tab is one click away in the
-              strip and owns the real control; a second button that only
-              NAVIGATES to it is the same action twice, and the one in the head
-              cannot do what its label promises. */}
-          <Menu label={`Actions for ${holding.name}`} items={[
-            { label: 'Edit name & records', onClick: () => setPanel('edit') },
-            {
-              label: 'Remove this holding',
-              danger: true,
-              rule: true,
-              onClick: () => setPanel('delete'),
-            },
-          ]} />
-        </div>
-      </header>
-
       {/* A holding whose member was deleted elsewhere. Said here, on every tab,
-          because its totals and its costs are now about fewer records than the
+          because its totals and its expenses are now about fewer properties than the
           owner set up — and nothing else on the screen could explain the drop. */}
       {!holding.isComplete && (
         <p className="note" role="status" style={{ color: 'var(--w-warn)' }}>
-          This holding is down to {plural(holding.memberCount, 'record')}. A record
-          in it was deleted.
+          This holding is down to {plural(holding.memberCount, 'property', 'properties')}.
+          A property in it was deleted.
         </p>
       )}
 
@@ -126,7 +131,7 @@ function HoldingHead({ holding, here }: { holding: HoldingCard; here?: string })
       {panel === 'delete' && (
         <HoldingDeleteDialog
           holding={holding}
-          onDone={() => { setPanel(''); nav('/app/holdings'); }}
+          onDone={() => { setPanel(''); nav('/holdings'); }}
           onClose={() => setPanel('')}
         />
       )}
@@ -138,7 +143,7 @@ function HoldingTabs({ holding }: { holding: HoldingCard }) {
   const strip = useRef<HTMLElement>(null);
   const { pathname } = useLocation();
   // Six tabs do not fit a phone: the strip scrolls sideways, and arriving on
-  // Combined map left the one marker of where you are cut off under its fade.
+  // Boundaries left the one marker of where you are cut off under its fade.
   // The tab you are on is brought into view, as the record's strip does.
   useEffect(() => {
     strip.current?.querySelector<HTMLElement>('[aria-current="page"]')
@@ -150,7 +155,7 @@ function HoldingTabs({ holding }: { holding: HoldingCard }) {
         const n = t.count(holding);
         return (
           <NavLink key={t.label} end={t.end}
-                   to={t.to ? `/app/holdings/${holding.id}/${t.to}` : `/app/holdings/${holding.id}`}>
+                   to={t.to ? `/holdings/${holding.id}/${t.to}` : `/holdings/${holding.id}`}>
             {t.label}
             {n !== null && <span className={n > 0 ? 'n' : 'n zero'}>{n}</span>}
           </NavLink>
@@ -168,9 +173,9 @@ export function Holding() {
   if (isLoading) {
     return (
       <main>
-        <Crumbs trail={[{ label: HOLDING_WORD.many, to: '/app/holdings' }, { label: 'Loading' }]} />
-        <Sk w="18rem" h="2rem" r="var(--radius-xs)" />
-        <Sk w="100%" h="14rem" r="var(--radius-md)" style={{ marginTop: '1rem' }} />
+        <PageHead crumbs={[{ label: HOLDING_WORD.many, to: '/holdings' }, { label: HOLDING_WORD.one }]}
+                  title={HOLDING_WORD.one} />
+        <Sk w="100%" h="14rem" r="var(--radius-md)" />
       </main>
     );
   }
@@ -180,7 +185,8 @@ export function Holding() {
   if (error) {
     return (
       <main>
-        <Crumbs trail={[{ label: HOLDING_WORD.many, to: '/app/holdings' }, { label: HOLDING_WORD.one }]} />
+        <PageHead crumbs={[{ label: HOLDING_WORD.many, to: '/holdings' }, { label: HOLDING_WORD.one }]}
+                  title={HOLDING_WORD.one} />
         <Failed what="This holding" error={error} boxed h="26rem" />
       </main>
     );
@@ -188,9 +194,9 @@ export function Holding() {
   if (!data) {
     return (
       <main>
-        <Crumbs trail={[{ label: HOLDING_WORD.many, to: '/app/holdings' }, { label: 'Not found' }]} />
-        <h1>This holding isn't in your account</h1>
-        <p className="lede">It may have been ungrouped.</p>
+        <PageHead crumbs={[{ label: HOLDING_WORD.many, to: '/holdings' }, { label: 'Not found' }]}
+                  title="This holding is not in your account" />
+        <p className="note">It may have been deleted.</p>
       </main>
     );
   }
@@ -201,13 +207,12 @@ export function Holding() {
   return (
     <main data-tab-layout={layout}>
       <HoldingHead holding={data} here={tab?.to ? tab.label : undefined} />
-      <HoldingTabs holding={data} />
       <Outlet context={ctx} />
     </main>
   );
 }
 
-/** The holding in four figures, then the records they came from.
+/** The holding in four figures, then the properties they came from.
  *
  *  This screen used to explain itself: a "What this is" card carrying two
  *  paragraphs of rationale about what a holding does not do. That
@@ -230,18 +235,19 @@ export function HoldingOverview() {
     : `${holding.surveyedCount} of ${holding.memberCount} with boundaries`;
   return (
     <div className="stack lg">
+      <HeldBy holding={holding} />
       <div className="strip">
         <Cell k="Extent" v={holding.extentLine}
-              note={`${plural(holding.memberCount, 'record')} · ${surveyed}`} />
-        <Cell k="Estimated value"
-              v={holding.marketValue > 0 ? inr(holding.marketValue) : 'Not valued'}
+              note={`${plural(holding.memberCount, 'property', 'properties')} · ${surveyed}`} />
+        <Cell k="Market estimate"
+              v={holding.marketValue > 0 ? inr(holding.marketValue) : 'No estimate yet'}
               note={holding.invested > 0 ? `${inr(holding.invested)} paid` : undefined} />
-        <Cell k="Shared costs"
+        <Cell k="Shared expenses"
               v={holding.combinedSpend > 0 ? inr(holding.combinedSpend) : 'Nothing yet'}
-              to={`/app/holdings/${holding.id}/expenses`} />
-        <Cell k="Costs on its records"
+              to={`/holdings/${holding.id}/expenses`} />
+        <Cell k="Expenses on its properties"
               v={holding.memberSpend > 0 ? inr(holding.memberSpend) : 'Nothing yet'}
-              to={`/app/holdings/${holding.id}/expenses?scope=record`} />
+              to={`/holdings/${holding.id}/expenses?scope=record`} />
       </div>
 
       <div className="cards">
@@ -251,8 +257,72 @@ export function HoldingOverview() {
   );
 }
 
-/** One member. The title links to the RECORD, because that is where its papers,
- *  boundary, people and own costs live — a holding never becomes a
+/** Who holds the holding's properties, largest holder first.
+ *
+ *  The server sends it on the one-holding read (`heldBy`); the list read does
+ *  not, so it is worked out from the members there — the same grouping, so
+ *  the two can never disagree. */
+function holdersOf(holding: HoldingCard): HoldingHolder[] {
+  if (holding.heldBy) return holding.heldBy;
+  const by = new Map<string, HoldingHolder>();
+  for (const m of holding.members) {
+    const h = by.get(m.groupId) ?? { groupId: m.groupId, name: m.holderLabel || OWN_NAME, count: 0 };
+    h.count += 1;
+    by.set(m.groupId, h);
+  }
+  return [...by.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+}
+
+/** The holding's read-only "Held by" line.
+ *
+ *  "Held by" is the group's verb, so the line names the families and groups
+ *  that hold its properties — a holding can span several, the way one farm
+ *  can include a grandfather's undivided khata — and links each to its page.
+ *  Land in nobody's group is said last, as its own sentence, so the line never
+ *  reads "Held by In your own name". Counts appear only when there is more than
+ *  one holder: with one, they would only repeat the property count. */
+function HeldBy({ holding }: { holding: HoldingCard }) {
+  const all = holdersOf(holding);
+  if (all.length === 0) return null;
+  const groups = all.filter((h) => h.groupId);
+  const own = all.find((h) => !h.groupId);
+  const counted = all.length > 1;
+  return (
+    <p className="note" style={{ margin: 0 }}>
+      {groups.length > 0 && (
+        <>
+          Held by{' '}
+          {groups.map((h, i) => (
+            <Fragment key={h.groupId}>
+              {i > 0 && ', '}
+              <Link className="accent" to={`/groups/${h.groupId}`}>{h.name}</Link>
+              {counted && <> · {plural(h.count, 'property', 'properties')}</>}
+            </Fragment>
+          ))}
+          {own && '. '}
+        </>
+      )}
+      {own && (groups.length > 0
+        ? <>{plural(own.count, 'property', 'properties')} in your own name.</>
+        : OWN_NAME)}
+    </p>
+  );
+}
+
+/** One property's holder: its family or group, linked, or "In your own name".
+ *  `bare` drops the "Held by" where a column head already says it. */
+function Holder({ member, bare }: { member: HoldingMember; bare?: boolean }) {
+  if (!member.groupId) return <>{OWN_NAME}</>;
+  const name = (
+    <Link className="accent" to={`/groups/${member.groupId}`} style={{ textDecoration: 'none' }}>
+      {member.holderLabel}
+    </Link>
+  );
+  return bare ? name : <>Held by {name}</>;
+}
+
+/** One member. The title links to the PROPERTY, because that is where its
+ *  documents, boundary, people and own expenses live — a holding never becomes a
  *  second place to edit a survey.
  *
  *  Three things were cut. The second extent reading ("3 Acres 1.6 Guntas · 324
@@ -269,7 +339,7 @@ function MemberCard({ member }: { member: HoldingMember }) {
     <article className="card pad-lg">
       <div className="cardhead">
         <h2 style={{ fontSize: '0.9375rem' }}>
-          <Link to={`/app/records/${member.recordId}`} className="accent"
+          <Link to={`/properties/${member.recordId}`} className="accent"
                 style={{ textDecoration: 'none' }}>
             {member.title}
           </Link>
@@ -289,16 +359,17 @@ function MemberCard({ member }: { member: HoldingMember }) {
           .filter(Boolean).join(' · ')}
       </p>
       <p className="note" style={{ margin: 0 }}>
-        {[ground, plural(member.paperCount, 'document'), member.sheetTitle && 'sheet filed']
+        {[ground, plural(member.paperCount, 'document'), member.sheetTitle && 'sheet saved']
           .filter(Boolean).join(' · ')}
       </p>
+      <p className="note" style={{ margin: 0 }}><Holder member={member} /></p>
       {/* A button pair on the named scale: --space-sm between the buttons (the
-          12px the Combined map's pair has) and --space-md above them. `.row
+          12px the Boundaries tab's pair has) and --space-md above them. `.row
           tight` is a raw 6px with nothing above, which left the buttons glued
           to the status line; it is shared, so only this row changes. */}
       <div className="row" style={{ gap: 'var(--space-sm)', marginTop: 'var(--space-md)' }}>
-        <Link className="btn sm" to={`/app/records/${member.recordId}`}>Open record</Link>
-        <Link className="btn sm" to={`/app/records/${member.recordId}/map`}>
+        <Link className="btn sm" to={`/properties/${member.recordId}`}>Open property</Link>
+        <Link className="btn sm" to={`/properties/${member.recordId}/location`}>
           {member.ground === 'surveyed' ? 'View boundary' : 'Locate it'}
         </Link>
       </div>
@@ -306,59 +377,98 @@ function MemberCard({ member }: { member: HoldingMember }) {
   );
 }
 
-/** The records this holding is made of, and what each still owes. */
+const memberId = (m: HoldingMember) => m.id;
+
+/** The properties this holding is made of, who holds each, and what each
+ *  still owes. */
 export function HoldingSurveys() {
   const holding = useHoldingCtx();
   const short = holding.members.filter((m) => m.ground !== 'surveyed');
+  // Members keep the holding's own order; the footer sums every member, not
+  // just this page.
+  const paged = usePaged(holding.members, { resetKey: holding.id, storeKey: 'pattadar.table.holding-properties' });
+  const sel = useRowSelection(holding.members, memberId, holding.id);
+  // Ticked rows sum in the footer, as a spreadsheet's status bar does.
+  const sumRows = sel.picked.length > 0 ? sel.picked : holding.members;
+  const extentCell = (m: HoldingMember) =>
+    m.extentUnit === 'ac' ? `${num(m.extent, 2)} ac` : `${num(m.extent)} ${m.extentUnit}`;
+  const groundWord = (m: HoldingMember) =>
+    m.ground === 'surveyed' ? 'Boundary' : m.ground === 'pinned' ? 'Pin only' : 'Nothing yet';
+  // The columns the table shows, in its order.
+  const exportCsv = (rows: HoldingMember[]) => downloadCsv(
+    `${holding.name}-properties-${new Date().toISOString().slice(0, 10)}.csv`,
+    [['Property', 'Held by', 'Khata', 'Where', 'On the map', 'Extent', 'Market estimate', 'Documents'],
+     ...rows.map((m) => [m.title, m.groupId ? m.holderLabel : OWN_NAME, m.khataNo, m.placeLine, groundWord(m),
+       extentCell(m), m.marketValue, m.paperCount])]);
   return (
     <>
-      <header className="sechead">
-        <div className="grow">
-          <h2>Records in this holding</h2>
-          <p className="note" style={{ margin: '0.25rem 0 0' }}>
-            {plural(holding.memberCount, 'record')} · {holding.surveyedCount} with a
-            boundary · {plural(holding.paperCount, 'document')} between them.
-          </p>
-        </div>
-      </header>
+      <SectionHead title="Properties"
+                   sub={holding.memberCount > 0 ? [
+                     plural(holding.memberCount, 'property', 'properties'),
+                     holding.surveyedCount > 0 && `${holding.surveyedCount} with a boundary`,
+                     holding.paperCount > 0 && plural(holding.paperCount, 'document'),
+                   ].filter(Boolean).join(' · ') : undefined} />
+      <HeldBy holding={holding} />
 
-      <div className="card scroll-x" style={{ padding: 0 }}>
-        <table className="rectable" style={{ minWidth: '44rem' }}>
+      <Card flush className="scroll-x edgefade">
+        <table className="rectable" aria-label="Properties in this holding" style={{ minWidth: '44rem' }}>
           <thead>
             <tr>
-              <th>Record</th>
+              <th className="selcol">
+                <SelectAllBox total={holding.members.length} picked={sel.picked.length}
+                              noun={['property', 'properties']} onToggle={sel.toggleAll} />
+              </th>
+              <th>Property</th>
+              <th>Held by</th>
               <th>Khata</th>
               <th>Where</th>
               <th>On the map</th>
               <th className="right">Extent</th>
-              <th className="right">Worth</th>
+              <th className="right">Market estimate</th>
               <th className="right">Documents</th>
             </tr>
           </thead>
           <tbody>
-            {holding.members.map((m) => (
-              <tr key={m.id}>
+            {paged.shown.map((m) => (
+              <tr key={m.id} className={sel.selected.has(m.id) ? 'selected' : undefined}>
+                <SelectCell checked={sel.selected.has(m.id)} label={`Select ${m.title}`}
+                            onToggle={() => sel.toggle(m.id)} />
                 <td>
-                  <Link to={`/app/records/${m.recordId}`} className="accent"
+                  <Link to={`/properties/${m.recordId}`} className="accent"
                         style={{ textDecoration: 'none' }}>{m.title}</Link>
                   {m.archived && <> <Pill kind="archived">Archived</Pill></>}
                 </td>
+                <td className={m.groupId ? undefined : 'muted'}><Holder member={m} bare /></td>
                 <td className="muted">{m.khataNo || '—'}</td>
                 <td className="muted">{m.placeLine || '—'}</td>
-                <td className="muted">
-                  {m.ground === 'surveyed' ? 'Boundary'
-                    : m.ground === 'pinned' ? 'Pin only' : 'Nothing yet'}
-                </td>
-                <td className="right num">
-                  {m.extentUnit === 'ac' ? `${num(m.extent, 2)} ac` : `${num(m.extent)} ${m.extentUnit}`}
-                </td>
+                <td className="muted">{groundWord(m)}</td>
+                <td className="right num">{extentCell(m)}</td>
                 <td className="right num">{inrOr(m.marketValue)}</td>
                 <td className="right num">{m.paperCount}</td>
               </tr>
             ))}
           </tbody>
+          <tfoot>
+            <tr>
+              <th scope="row" colSpan={6}>
+                {sel.picked.length > 0
+                  ? `${plural(sel.picked.length, 'property', 'properties')} selected`
+                  : `Total · ${plural(holding.members.length, 'property', 'properties')}`}
+              </th>
+              <td className="right num">{extentTotal(sumRows)}</td>
+              <td className="right num">{inrOr(sumRows.reduce((n, m) => n + m.marketValue, 0))}</td>
+              <td className="right num">{sumRows.reduce((n, m) => n + m.paperCount, 0)}</td>
+            </tr>
+          </tfoot>
         </table>
-      </div>
+      </Card>
+      <TablePager {...paged} onSize={paged.setSize} label="Properties pages" />
+      <SelectionBar count={sel.picked.length} noun={['property', 'properties']}
+                    label="Act on the selected properties" onClear={sel.clear}>
+        <button type="button" className="btn sm" onClick={() => exportCsv(sel.picked)}>
+          <FileDownloadOutlined sx={{ fontSize: 15 }} /> Export
+        </button>
+      </SelectionBar>
 
       {short.length > 0 && (
         <p className="note">

@@ -78,7 +78,7 @@ enum SampleData {
                     price: "₹2,900", category: .ground, symbol: "ruler", requestKind: .survey),
         ServiceItem(name: "Caretaker site visit", detail: "Dated photos, boundary walk, monthly",
                     price: "₹1,200/mo", category: .ground, symbol: "camera", requestKind: .photos),
-        ServiceItem(name: "Legal opinion on title", detail: "Advocate reads your vault · 5 days",
+        ServiceItem(name: "Legal opinion on title", detail: "Advocate reads your documents · 5 days",
                     price: "₹7,500", category: .legal, symbol: "checkmark.seal", requestKind: .legal),
         ServiceItem(name: "Mutation / title transfer", detail: "Filed and followed up for you",
                     price: "₹6,000", category: .records, symbol: "arrow.left.arrow.right", requestKind: .errand),

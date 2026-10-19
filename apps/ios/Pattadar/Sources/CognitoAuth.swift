@@ -136,7 +136,7 @@ final class CognitoAuth: NSObject {
                                                                       : value("error_description"))
         }
         let code = value("code")
-        guard !code.isEmpty else { throw AuthError.failed("No authorization code came back.") }
+        guard !code.isEmpty else { throw AuthError.failed("Sign-in did not finish. Try again.") }
 
         let fresh = try await Self.tokenCall([
             "grant_type": "authorization_code",
@@ -191,7 +191,7 @@ final class CognitoAuth: NSObject {
 
         guard let email = self.email, !email.isEmpty else {
             signOutLocally()
-            throw AuthError.failed("The local token has no email on it.")
+            throw AuthError.failed("This sign-in has no email on it. Sign in again.")
         }
         return email
     }
@@ -288,7 +288,7 @@ final class CognitoAuth: NSObject {
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard code == 200 else {
             let body = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-            throw AuthError.failed((body?["error"] as? String) ?? "Token exchange answered \(code).")
+            throw AuthError.failed((body?["error"] as? String) ?? "Sign-in did not finish (code \(code)). Try again.")
         }
         let t = try JSONDecoder().decode(TokenResponse.self, from: data)
         return Tokens(

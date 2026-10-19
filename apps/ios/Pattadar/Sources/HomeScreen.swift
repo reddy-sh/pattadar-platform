@@ -35,7 +35,7 @@ struct HomeScreen: View {
                                      showsGreeting: false)
                         if documentsSeen > 0 {
                             Button { app.selectedTab = .documents } label: {
-                                shortcut("\(documentsSeen) document\(documentsSeen == 1 ? "" : "s") in the vault",
+                                shortcut(documentsSeen == 1 ? "1 document" : "\(documentsSeen) documents",
                                          "doc.text.fill")
                             }
                         }

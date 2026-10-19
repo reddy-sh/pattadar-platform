@@ -9,7 +9,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/api/gateway/pattadar/graphql', (route) => route.fulfill({ json: { data: { web: {
     portfolio: { displayName: 'Test owner', waiting: [] }, orders: [], search: [],
   } } } }));
-  await page.route(`**${ACCOUNT}/consent`, (route) => route.fulfill({ json: { version: '2026-09-12', purposes: ['document_processing', 'ai_extraction'] } }));
+  await page.route(`**${ACCOUNT}/consent`, (route) => route.fulfill({ json: { version: '2026-10-06', purposes: ['document_processing', 'ai_extraction'] } }));
   await page.route(`**${ACCOUNT}/erasure`, (route) => route.fulfill({ json: { request: null } }));
 });
 
@@ -18,14 +18,14 @@ test('account choices save only the purposes the owner selects and persist on re
   await page.route(`**${ACCOUNT}/consent`, async (route) => {
     if (route.request().method() === 'POST') {
       const body = route.request().postDataJSON();
-      expect(body.version).toBe('2026-09-12');
+      expect(body.version).toBe('2026-10-06');
       purposes = body.purposes;
       expect(purposes).toEqual(['document_processing', 'service_notifications']);
     }
-    await route.fulfill({ json: { version: '2026-09-12', purposes } });
+    await route.fulfill({ json: { version: '2026-10-06', purposes } });
   });
-  await page.goto('/app/account?welcome=1');
-  await expect(page.getByRole('heading', { name: 'Your account and data' })).toBeVisible();
+  await page.goto('/account?welcome=1');
+  await expect(page.getByRole('heading', { name: 'Privacy & your data' })).toBeVisible();
   await page.getByRole('checkbox', { name: 'Use AI providers' }).uncheck();
   await page.getByRole('checkbox', { name: 'Send messages about' }).check();
   await page.getByRole('button', { name: 'Save choices' }).click();
@@ -38,7 +38,7 @@ test('account choices save only the purposes the owner selects and persist on re
 test('account export downloads the returned data and file manifest', async ({ page }) => {
   const exported = { records: [{ title: 'Selected record' }], files: [{ id: 'file-1', filename: 'deed.pdf' }] };
   await page.route(`**${ACCOUNT}/export`, (route) => route.fulfill({ json: exported }));
-  await page.goto('/app/account');
+  await page.goto('/account');
   const received = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download my data' }).click();
   const download = await received;
@@ -57,7 +57,7 @@ test('deletion requires confirmation and shows staged progress without claiming 
     }
     await route.fulfill({ json: { request: receipt } });
   });
-  await page.goto('/app/account');
+  await page.goto('/account');
   const request = page.getByRole('button', { name: 'Request account deletion' });
   await expect(request).toBeDisabled();
   await page.getByLabel('Type DELETE MY ACCOUNT to request deletion').fill('DELETE MY ACCOUNT');
@@ -75,7 +75,7 @@ test('fresh sign-in failure keeps the deletion confirmation available for retry'
   await page.route(`**${ACCOUNT}/erasure`, (route) => route.request().method() === 'POST'
     ? route.fulfill({ status: 401, json: { detail: 'Recent sign-in required' } })
     : route.fulfill({ json: { request: null } }));
-  await page.goto('/app/account');
+  await page.goto('/account');
   await page.getByLabel('Type DELETE MY ACCOUNT to request deletion').fill('DELETE MY ACCOUNT');
   await page.getByRole('button', { name: 'Request account deletion' }).click();
   await expect(page.getByRole('alert')).toContainText('Sign out and sign in again');

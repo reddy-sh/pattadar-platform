@@ -95,7 +95,7 @@ export async function runFmbUpload(
 ): Promise<FmbReading | null> {
   const s = stateOf(recordId);
   if (s.busy) {
-    patch(recordId, { message: 'An FMB is already being read for this record. Wait for it to finish.' });
+    patch(recordId, { message: 'An FMB is already being read for this property. Wait for it to finish.' });
     return null;
   }
   patch(recordId, { busy: true, stage: `Checking ${file.name}…`, message: '', reading: null });
@@ -113,7 +113,7 @@ export async function runFmbUpload(
   if (stateOf(recordId).seen.has(hash)) {
     patch(recordId, {
       busy: false, stage: '',
-      message: 'This is the same FMB you already uploaded to this record — it was not sent again. '
+      message: 'This is the same FMB you already uploaded to this property. It was not sent again. '
         + 'Reading it a second time would cost the same and change nothing.',
     });
     return null;

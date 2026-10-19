@@ -5,7 +5,7 @@
  *     FilesPanel upload/AI-classify pipeline, links, trash flow)
  *   · Registered deeds — AI-imported registered documents (RegisteredDocsView
  *     + inline deed detail, Add-as-Parcel / Link-to-Passbook)
- * The old /app/deeds route redirects here.
+ * The old /deeds route redirects here.
  */
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';

@@ -1,0 +1,15 @@
+{
+  "verdict": "APPROVED",
+  "findings": [
+    {
+      "id": 1,
+      "label": "Keyboard-focus row reads as locator.press('Tab')",
+      "blocking": false,
+      "confidence": "likely",
+      "location": ".kiro/skills/heuristic-ux-audit/references/evidence-capture.md:207 (§ Interaction states table, keyboard focus row)",
+      "issue": "The row says \"focus() on a text input or press('Tab') to a button, then toBeFocused()\". Its neighbours focus() and fill() are calls on the control, so it reads as trigger.press('Tab'); Playwright 1.62's locator.press focuses the element and then presses the key (playwright-core/types/types.d.ts:15990), which moves focus off the button, so toBeFocused() fails and that control's later states (popover open, an item chosen, High Contrast) are lost until the spec is fixed. The eval's + Filter trigger is such a button (apps/web/src/w360/ui.tsx:568-574).",
+      "action": "Reword the row to: focus() on the control, from a fresh load or after a key press, never straight after a click, then toBeFocused(). The coder's High Contrast re-check (eval-traceability.md, rows 1, 5 and 6) shows that recipe matching :focus-visible on a button in both Chromium and WebKit."
+    }
+  ],
+  "reviewDoc": "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/.agents/tasks/cadastral-maps-search-ux/skill-review.md"
+}

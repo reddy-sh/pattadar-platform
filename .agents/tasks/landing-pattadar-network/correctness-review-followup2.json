@@ -1,0 +1,22 @@
+{
+  "approved": true,
+  "findings": [
+    {
+      "severity": "nit",
+      "blocking": false,
+      "confidence": "likely",
+      "label": "Control-character refusals labelled as ID numbers",
+      "file": "apps/web/src/pages/landing/NetworkInterestForm.tsx",
+      "detail": "serverError maps any server 'invalid' on name/district/mandal/note that passes check() to COPY.errors.idNumber. The server's _free_text_ok also refuses C0 control characters (e.g. a pasted tab), which the client does not check, so those refusals now show the Aadhaar sentence. Fix: mirror the control-character test in check(), or apply the ID-number mapping only to text containing a non-ASCII digit run."
+    },
+    {
+      "severity": "nit",
+      "blocking": false,
+      "confidence": "confirmed",
+      "label": "Stale 'wording unchanged' comment",
+      "file": "apps/web/src/pages/landing/landingContent.ts",
+      "detail": "The NETWORK doc comment still says the former ROADMAP items keep 'their wording unchanged', but the lawyer card title changed in this commit. Reword the comment."
+    }
+  ],
+  "reviewDoc": "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/.worktrees/landing-pattadar-network/.agents/tasks/landing-pattadar-network/correctness-review-followup2.md"
+}

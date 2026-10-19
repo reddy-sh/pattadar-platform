@@ -39,7 +39,7 @@ struct FamilyScreen: View {
                                            description: Text("A group holds land and records who inherits it."))
                 }
             }
-            .navigationTitle("Family")
+            .navigationTitle("Families & groups")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button { showAdd = true } label: { Label("Add", systemImage: "plus") }
@@ -49,10 +49,10 @@ struct FamilyScreen: View {
             .sheet(item: $editing) { g in EditGroupScreen(group: g) { Task { await load() } } }
             .confirmationDialog("Delete this group?", isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
                                 titleVisibility: .visible) {
-                Button("Delete", role: .destructive) {
+                Button("Delete group", role: .destructive) {
                     if let g = confirming { Task { await delete(g) } }
                 }
-                Button("Keep it", role: .cancel) { confirming = nil }
+                Button("Cancel", role: .cancel) { confirming = nil }
             } message: {
                 // Land is not deleted with the group, and saying so prevents
                 // the fear that stops people tidying up.
@@ -92,7 +92,7 @@ struct GroupDetailScreen: View {
     var body: some View {
         List {
             Section("Group") {
-                Fact(label: "Type", value: humanize(group.type))
+                Fact(label: "Type", value: groupTypeWord(group.type))
                 Fact(label: "Note", value: group.description)
                 Fact(label: "Land", value: String(format: "%.2f ac", group.totalExtent), mono: true)
                 Fact(label: "Properties", value: "\(group.landCount)")
@@ -143,7 +143,7 @@ struct GroupDetailScreen: View {
                     }
                 }
                 Button { showAdd = true } label: {
-                    Label("Add member", systemImage: "person.badge.plus")
+                    Label("Add a member", systemImage: "person.badge.plus")
                 }
             }
 
@@ -163,20 +163,20 @@ struct GroupDetailScreen: View {
         .sheet(isPresented: $editing) { EditGroupScreen(group: group) { } }
         .confirmationDialog("Delete this group?", isPresented: $confirmDeleteGroup,
                             titleVisibility: .visible) {
-            Button("Delete", role: .destructive) { Task { await removeGroup() } }
-            Button("Keep it", role: .cancel) { }
+            Button("Delete group", role: .destructive) { Task { await removeGroup() } }
+            Button("Cancel", role: .cancel) { }
         } message: {
             Text("\(group.name) and its \(members.count) member\(members.count == 1 ? "" : "s") will be removed. Land stays; it simply stops being held by a group.")
         }
         .sheet(isPresented: $showAdd) {
             AddMemberScreen(groupID: group.id) { Task { await reload() } }
         }
-        .confirmationDialog("Remove this person?", isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
+        .confirmationDialog("Remove this member?", isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
                             titleVisibility: .visible) {
-            Button("Remove", role: .destructive) {
+            Button("Remove member", role: .destructive) {
                 if let m = confirming { Task { await remove(m) } }
             }
-            Button("Keep them", role: .cancel) { confirming = nil }
+            Button("Cancel", role: .cancel) { confirming = nil }
         } message: {
             Text(confirming.map {
                 $0.isBeneficiary

@@ -26,16 +26,17 @@
  *      world.patch('vault', { total: 0, shelves: [] });
  */
 import { World } from './world';
-import type { Answer } from './world';
+import type { Answer, AnswerFn } from './world';
 import { ID, PAPER, FEATURE, PERSON, PHOTO, TICKET, KIT, LINK, MARK, EXPENSE } from './ids';
 import { FEATURE_TYPES } from './featureTypes';
+import CATALOGUE from './catalogue.json';
 
 // ── builders ───────────────────────────────────────────────────────────
 
 /** Every field `CARD` in api.ts selects. Anything omitted here draws as
  *  undefined on a property card, which is the bug, not the fixture. */
 function card(over: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
+  const c: Record<string, unknown> = {
     id: ID.parcel,
     kind: 'parcel',
     title: 'Sy 214/2',
@@ -62,15 +63,45 @@ function card(over: Record<string, unknown> = {}): Record<string, unknown> {
     // branch on the card: a zero count drops out of the digest instead of
     // printing "0 papers", an empty deed line prints no label over no number,
     // and `litigation` is a capsule on the band rather than a status word.
-    extentDetail: '4 Acres 12 Guntas · 430 Cents · 20,812 Sq.yd',
+    extentDetail: '4 acres 12 guntas · 430 cents · 20,812 sq.yd',
     paperCount: 6,
     photoCount: 12,
     featureCount: 4,
     deedLine: 'D.No 4521/2019 · Markapur SRO',
     litigation: false,
     paperFileRef: '',
+    // WHO holds it and WHICH holding it is part of (web360 `_with_holders`).
+    // Every seeded record is held in the owner's own name and in no holding.
+    groupId: '',
+    groupName: '',
+    holderLabel: 'In your own name',
+    holdingId: '',
+    holdingName: '',
+    // The register's facts (web360 `_register_facts`). The first parcel
+    // carries every one, so each cell's branch is drawn; overrides that leave
+    // them out inherit them, so the other cards blank the provenance below.
+    docNo: '4521/2019', sro: 'Markapur', regDate: '2019-06-14',
+    parentage: 'T. Venkat Reddy', coOwnerCount: 1,
+    managerLine: 'K. Ramaiah · Caretaker', managerCount: 2,
+    purchasePrice: 1_850_000, purchaseDate: '2019-06-14',
+    mutationStatus: 'Done', ecStatus: 'Clear',
+    // 19:00 UTC is 00:30 the next day in India: the table must say 11/10.
+    createdAt: '2026-08-01T04:00:00', lastActivityAt: '2026-10-10T19:00:00',
+    lastActivityBy: 'You', lastActivityAction: 'record.corrected',
     ...over,
   };
+  // The LP is the government's number, which a parcel's title spells as
+  // "Sy 214/2"; a built property has none unless it says so.
+  if (!('surveyNo' in over)) {
+    c.surveyNo = c.kind === 'parcel' ? String(c.title).replace(/^Sy\s+/, '') : '';
+  }
+  if (!('lastActivityAt' in over) && c.id !== ID.parcel) {
+    Object.assign(c, { docNo: '', sro: '', regDate: '', parentage: '', coOwnerCount: 0,
+      managerLine: '', managerCount: 0, purchasePrice: 0, purchaseDate: '',
+      mutationStatus: '', ecStatus: '', createdAt: '', lastActivityAt: '',
+      lastActivityBy: '', lastActivityAction: '' });
+  }
+  return c;
 }
 
 export const CARDS: Record<string, unknown>[] = [
@@ -94,7 +125,7 @@ export const CARDS: Record<string, unknown>[] = [
     lon: 0,
     ring: [],
     coverFileRef: '',
-    extentDetail: '1 Acre 8 Guntas · 120 Cents · 5,808 Sq.yd',
+    extentDetail: '1 acre 8 guntas · 120 cents · 5,808 sq.yd',
     // No photograph and no ground, but a scan of its own. The card's artwork
     // chain falls through to the paper rather than to the illustration that is
     // identical on every parcel in the account.
@@ -134,7 +165,7 @@ export const CARDS: Record<string, unknown>[] = [
     coverFileRef: 'file-cover-flat',
     // Both extents. `extent` can only carry the slab, so the ground under it
     // only reaches the reader through this line.
-    extentDetail: '1,450 Sq.ft built · 200 Sq.yd land',
+    extentDetail: '1,450 sq.ft built · 200 sq.yd land',
     // A suit, on a holding whose status is plainly `owned`. The two facts are
     // not alternatives, which is the whole reason litigation is its own field
     // and its own capsule.
@@ -184,7 +215,7 @@ export const CARDS: Record<string, unknown>[] = [
     tags: ['neighbour'],
     ring: [],
     coverFileRef: '',
-    extentDetail: '2 Acres · 200 Cents · 9,680 Sq.yd',
+    extentDetail: '2 acres · 200 cents · 9,680 sq.yd',
     // A neighbour's land, watched and nothing more. Empty of everything a
     // record accumulates, which is the one case where the card has to write a
     // sentence instead of counting to zero four times.
@@ -229,7 +260,50 @@ function facetsFor(cards: Record<string, unknown>[], active: Record<string, stri
     group('village', 'Village', 'village', {}),
     group('khata', 'Khata', 'khataNo', {}),
     group('owner', 'Owner', 'ownerName', {}),
-    { key: 'tags', label: 'Tags', options: [...tagCounts.entries()].map(([k, count]) => ({ key: k, label: k, count, active: (active.tags ?? []).includes(k) })) },
+    { key: 'tags', label: 'Your tags', options: [...tagCounts.entries()].map(([k, count]) => ({ key: k, label: k, count, active: (active.tags ?? []).includes(k) })) },
+    // "Holder" (key `group`): each group that holds an active record, then
+    // "In your own name". "Holding": each holding an active record is part of,
+    // then "Not in a holding" — and no options at all until a holding exists,
+    // exactly as web360.py builds them. Every DEFAULT card is personal and in
+    // no holding; a test that wants either gives its cards a groupId/holdingId.
+    (() => {
+      const live = cards.filter((c) => c.status !== 'archived');
+      const groups = new Map<string, { label: string; count: number }>();
+      for (const c of live) {
+        const gid = String(c.groupId ?? '');
+        if (!gid) continue;
+        const g = groups.get(gid) ?? { label: String(c.groupName || 'Unnamed group'), count: 0 };
+        g.count += 1;
+        groups.set(gid, g);
+      }
+      const own = live.filter((c) => !c.groupId).length;
+      return {
+        key: 'group', label: 'Holder',
+        options: [
+          ...[...groups.entries()].map(([k, g]) => ({ key: k, label: g.label, count: g.count, active: (active.group ?? []).includes(k) })),
+          ...(own ? [{ key: 'personal', label: 'In your own name', count: own, active: (active.group ?? []).includes('personal') }] : []),
+        ],
+      };
+    })(),
+    (() => {
+      const live = cards.filter((c) => c.status !== 'archived');
+      const holdings = new Map<string, { label: string; count: number }>();
+      for (const c of live) {
+        const hid = String(c.holdingId ?? '');
+        if (!hid) continue;
+        const h = holdings.get(hid) ?? { label: String(c.holdingName || 'Untitled holding'), count: 0 };
+        h.count += 1;
+        holdings.set(hid, h);
+      }
+      const loose = live.filter((c) => !c.holdingId).length;
+      return {
+        key: 'holding', label: 'Holding',
+        options: [
+          ...[...holdings.entries()].map(([k, h]) => ({ key: k, label: h.label, count: h.count, active: (active.holding ?? []).includes(k) })),
+          ...(holdings.size && loose ? [{ key: 'none', label: 'Not in a holding', count: loose, active: (active.holding ?? []).includes('none') }] : []),
+        ],
+      };
+    })(),
   ];
 }
 
@@ -245,7 +319,7 @@ const PORTFOLIO = {
   // W17 — the Shell decides whether to draw the desk rail from this, so the
   // sealed world is an ADMIN by default. A test that wants the ordinary
   // owner's rail sets it false, which is the cheaper of the two to arrange.
-  isPlatformAdmin: true, associateId: '',
+  isPlatformAdmin: true, isSuperAdmin: false, associateId: '',
   tiles: [
     { key: 'worth', label: 'What it is worth', value: '2.39', unit: 'crore', note: 'Across 5 records', tone: 'good' },
     { key: 'land', label: 'Land', value: '7.5', unit: 'acres', note: '3 records', tone: '' },
@@ -256,7 +330,7 @@ const PORTFOLIO = {
   waiting: [
     { id: 'w-wait-tax', title: 'Land tax is due on Sy 214/2', detail: 'The receipt for 2025-26 is not on file', icon: 'tax', actionLabel: 'File the receipt', actionKind: 'papers', recordId: ID.parcel },
     { id: 'w-wait-survey', title: 'Sy 88 has never been surveyed', detail: 'No corners have been established', icon: 'map', actionLabel: 'Ask for a survey', actionKind: 'request', recordId: ID.plot },
-    { id: 'w-wait-review', title: 'A surveyor sent back corners to look at', detail: 'Ticket W-2101, waiting on you for 2 days', icon: 'warn', actionLabel: 'Review what came back', actionKind: 'ticket', recordId: ID.parcel },
+    { id: 'w-wait-review', title: 'A surveyor sent back corners to look at', detail: 'Ticket PT-2101, waiting on you for 2 days', icon: 'warn', actionLabel: 'Review what came back', actionKind: 'ticket', recordId: ID.parcel },
   ],
   valueBars: [
     { label: 'Land', value: 14_700_000, share: 0.62 },
@@ -272,8 +346,10 @@ const PORTFOLIO = {
  *  asserted against real filtering rather than a second hand-written list.
  *  Archived records stay out of the list until the archived facet asks for
  *  them — the behaviour the "Archive removes it, the facet brings it back"
- *  scenario depends on. */
-const properties: Answer = (vars) => {
+ *  scenario depends on. A test with a cast of its own (a card in a group or a
+ *  holding) answers with `propertiesOver(itsCards)` and keeps the filtering. */
+export function propertiesOver(ALL: Record<string, unknown>[]): (vars: Record<string, unknown>) => unknown {
+  return (vars) => {
   const want = (key: string) => ((vars[key] as string[] | undefined) ?? []).filter(Boolean);
   const kinds = want('kinds'); const statuses = want('statuses');
   const stakes = want('stakes'); const tags = want('tags');
@@ -282,8 +358,11 @@ const properties: Answer = (vars) => {
   // the old combined "derived" facet that matched two villages with AND and
   // drew an empty grid.
   const villages = want('villages'); const khatas = want('khatas'); const owners = want('owners');
+  // Holder and holding: `personal` is "In your own name", `none` is "Not in a
+  // holding" — OR within each, AND with everything else, as the resolver does.
+  const groups = want('groups'); const holdings = want('holdings');
 
-  let cards = CARDS.filter((c) => (statuses.includes('archived') ? true : c.status !== 'archived'));
+  let cards = ALL.filter((c) => (statuses.includes('archived') ? true : c.status !== 'archived'));
   if (kinds.length) cards = cards.filter((c) => kinds.includes(c.kind as string));
   if (statuses.length) cards = cards.filter((c) => statuses.includes(c.status as string));
   if (stakes.length) cards = cards.filter((c) => stakes.includes(c.stake as string));
@@ -291,11 +370,19 @@ const properties: Answer = (vars) => {
   if (khatas.length) cards = cards.filter((c) => khatas.includes(c.khataNo as string));
   if (owners.length) cards = cards.filter((c) => owners.includes(c.ownerName as string));
   if (tags.length) cards = cards.filter((c) => ((c.tags as string[]) ?? []).some((t) => tags.includes(t)));
+  if (groups.length) cards = cards.filter((c) => groups.includes(String(c.groupId || 'personal')));
+  if (holdings.length) cards = cards.filter((c) => holdings.includes(String(c.holdingId || 'none')));
 
   const activeCount = kinds.length + statuses.length + stakes.length
-    + villages.length + khatas.length + owners.length + tags.length;
-  const total = CARDS.length;
-  const summaryBits = [...kinds, ...statuses, ...stakes, ...villages, ...khatas, ...owners, ...tags];
+    + villages.length + khatas.length + owners.length + tags.length
+    + groups.length + holdings.length;
+  const total = ALL.length;
+  const holderName = (g: string) => (g === 'personal' ? 'In your own name'
+    : String(ALL.find((c) => c.groupId === g)?.groupName || g));
+  const holdingName = (h: string) => (h === 'none' ? 'Not in a holding'
+    : String(ALL.find((c) => c.holdingId === h)?.holdingName || h));
+  const summaryBits = [...kinds, ...statuses, ...stakes, ...villages, ...khatas, ...owners, ...tags,
+    ...groups.map(holderName), ...holdings.map(holdingName)];
   return {
     shown: cards.length,
     total,
@@ -304,16 +391,65 @@ const properties: Answer = (vars) => {
     hiddenPlaces: cards.length === total ? [] : ['Markapur'],
     activeCount,
     cards,
-    facets: facetsFor(CARDS, {
+    facets: facetsFor(ALL, {
       kind: kinds, status: statuses, stake: stakes,
       village: villages, khata: khatas, owner: owners, tags,
+      group: groups, holding: holdings,
     }),
   };
 };
+}
+
+const properties: Answer = propertiesOver(CARDS);
+
+// ── Holder: who holds a property (web360 `holderChange` / `setRecordHolder`) ──
+
+/** The groups the default holder answers can name. The default cards are all
+ *  in the owner's own name; a test that moves them to a group names one of
+ *  these (or answers `holderChange` itself). */
+export const HOLDER_GROUPS: Record<string, string> = {
+  'w-grp-reddy': 'Reddy Family',
+  'w-grp-estate': "Grandfather's estate",
+};
+
+/** What the server answers for a holder change over `cards`: the chosen
+ *  records first (`requested: true`), then every OTHER parcel on the same
+ *  khata (`requested: false`), because a parcel is held through its khata. A
+ *  built property moves alone. `groupId` '' or `personal` is your own name.
+ *  `shares` is `memberShares` (web360 `_holder_member_shares`): members'
+ *  shares tied to a moving parcel in a group that will no longer hold it —
+ *  only those whose group is not the target are answered, as the server does. */
+export function holderChangeOver(cards: Record<string, unknown>[], names: Record<string, string> = HOLDER_GROUPS, shares: Record<string, unknown>[] = []): (vars: Record<string, unknown>) => unknown {
+  return (vars) => {
+    const ids = ((vars.recordIds as string[]) ?? []).filter(Boolean);
+    if (!ids.length) return World.gqlError('Choose at least one property.');
+    const raw = String(vars.groupId ?? '');
+    const groupId = raw === 'personal' ? '' : raw;
+    const holderLabel = groupId ? (names[groupId] ?? 'Unnamed group') : 'In your own name';
+    const byId = new Map(cards.map((c) => [String(c.id), c]));
+    const row = (c: Record<string, unknown>, requested: boolean) => ({
+      id: c.id, kind: c.kind, title: c.title,
+      passbookId: c.kind === 'parcel' && c.khataNo ? `w-pb-${c.khataNo}` : '',
+      khataNo: c.kind === 'parcel' ? c.khataNo : '',
+      requested,
+      fromGroupId: c.groupId ?? '', fromHolderLabel: c.holderLabel ?? 'In your own name',
+    });
+    const chosen = ids.map((id) => byId.get(id)).filter(Boolean) as Record<string, unknown>[];
+    const khatas = new Set(chosen.filter((c) => c.kind === 'parcel' && c.khataNo).map((c) => c.khataNo));
+    const siblings = cards.filter((c) => !ids.includes(String(c.id))
+      && c.kind === 'parcel' && c.khataNo && khatas.has(c.khataNo));
+    const moving = new Set([...chosen, ...siblings].filter((c) => c.kind === 'parcel').map((c) => String(c.id)));
+    return {
+      groupId, holderLabel, siblingCount: siblings.length,
+      records: [...chosen.map((c) => row(c, true)), ...siblings.map((c) => row(c, false))],
+      memberShares: shares.filter((m) => moving.has(String(m.recordId)) && m.groupId !== groupId),
+    };
+  };
+}
 
 // ── W03 · one record ───────────────────────────────────────────────────
 
-function recordOf(id: string): Record<string, unknown> | null {
+export function recordOf(id: string): Record<string, unknown> | null {
   const c = BY_ID.get(id);
   if (!c) return null;
   const built = c.kind !== 'parcel';
@@ -345,7 +481,8 @@ function recordOf(id: string): Record<string, unknown> | null {
     //               answer, which gives every record its one owner;
     //   services  — the ORDERS against the record that are not closed;
     //   photos    — stills only, videos beside them (web360.py counts
-    //               media_kind='photo'), so the clip in PHOTOS is not one.
+    //               media_kind='photo'), so the clip in PHOTOS is not one;
+    //   media     — every row the Media tab lists, clip included.
     paperCount: (PAPERS[id] ?? []).length,
     featureCount: id === ID.parcel ? (FEATURES.features as unknown[]).length : 0,
     peopleCount: (id === ID.parcel ? (PEOPLE.people as unknown[]).length : 0) + 1,
@@ -353,11 +490,217 @@ function recordOf(id: string): Record<string, unknown> | null {
     photoCount: id === ID.parcel
       ? (PHOTOS.photos as Record<string, unknown>[]).filter((p) => p.mediaKind !== 'video').length
       : 0,
+    mediaCount: id === ID.parcel ? (PHOTOS.photos as unknown[]).length : 0,
     photoNote: id === ID.parcel ? 'Last visit 12 Aug 2026' : 'Nothing has been photographed here',
     tags: c.tags,
     noteBody: id === ID.parcel ? 'The eastern boundary is disputed with the adjoining survey.' : '',
     noteAuthor: id === ID.parcel ? 'Shankar Reddy' : '',
     noteAt: id === ID.parcel ? '2026-08-14' : '',
+    groupId: c.groupId, groupName: c.groupName, holderLabel: c.holderLabel,
+    // The holding is `combinedId/combinedName` on the record (Q_RECORD).
+    combinedId: c.holdingId, combinedName: c.holdingName,
+    surveyNo: c.surveyNo, docNo: c.docNo, sro: c.sro, regDate: c.regDate,
+  };
+}
+
+// ── W03 · Overview, the master record (Query.web.recordOverview) ──────
+// Mirrors docs/specs/2026-10-11-property-overview.md §3: every field key the
+// record kind has, set or not (an unset field has value '' and source null),
+// the acquiring transfer, the per-tab summary off the same rows the tabs list,
+// and the important gaps. Sy 214/2 is the deed-read case with one conflict
+// (the owner typed the extent, a later deed says otherwise); every other
+// record is the bare case — nothing known about how it was acquired.
+//
+// The read answers what the writes so far would have left, as the server does:
+// a chooseFieldClaim on the extent ('keep' or the deed's claim) files the
+// owner's own value and clears the conflict, and a fileDeedReading on a bare
+// record fills "Title" from deed 1576/1989.
+
+const claimSource = (source: string, label: string, setAt: string, sourceRef = '', documentId = '') =>
+  ({ source, label, sourceRef, documentId, setAt, confidence: source === 'deed_reading' ? 'high' : '' });
+
+type FieldRow = {
+  key: string; group: string; label: string; value: string; display: string; important: boolean;
+  howToFill: string; source: ReturnType<typeof claimSource> | null; conflicts: Record<string, unknown>[];
+};
+
+const FIELD_KEYS: [string, string, string, string][] = [
+  // key, group, label, how to fill
+  ['state', 'identity', 'State', ''],
+  ['district', 'identity', 'District', ''],
+  ['mandal', 'identity', 'Mandal', ''],
+  ['village', 'identity', 'Village', ''],
+  ['survey_no', 'identity', 'Survey number', 'From your deed or 1-B'],
+  ['subdivision', 'identity', 'Subdivision', ''],
+  ['lp_no', 'identity', 'LP number (resurvey)', 'From your Adangal or 1-B (Mee Bhoomi), if your village is resurveyed'],
+  ['ulpin', 'identity', 'ULPIN', 'From your Adangal or 1-B (Mee Bhoomi), if your village is resurveyed'],
+  ['old_survey_no', 'identity', 'Old survey number', ''],
+  ['khata_no', 'identity', 'Khata / patta number', 'Upload the 1-B or passbook'],
+  ['extent', 'physical', 'Extent', 'From your deed or 1-B'],
+  ['classification', 'physical', 'Kind of land', ''],
+  ['land_class', 'physical', 'Wet / dry', ''],
+  ['boundary_north', 'physical', 'North boundary', ''],
+  ['boundary_south', 'physical', 'South boundary', ''],
+  ['boundary_east', 'physical', 'East boundary', ''],
+  ['boundary_west', 'physical', 'West boundary', ''],
+  ['acquisition_mode', 'title', 'How acquired', 'Upload the deed, or tell us how you got it'],
+  ['registered', 'title', 'Registered', ''],
+  ['doc_no', 'title', 'Document number', 'From your deed'],
+  ['reg_date', 'title', 'Registered on', ''],
+  ['exec_date', 'title', 'Executed on', ''],
+  ['sro', 'title', 'Registration office', ''],
+  ['consideration', 'title', 'Consideration', ''],
+  ['govt_value', 'title', 'Government value', ''],
+  ['stamp_duty', 'title', 'Stamp duty', ''],
+  ['ec_status', 'status', 'Encumbrance', ''],
+  ['ec_date', 'status', 'EC checked on', ''],
+  ['mutation_status', 'status', 'Mutation', ''],
+  ['litigation', 'status', 'Litigation', ''],
+];
+
+const DEED = claimSource('deed_reading', 'Deed 4412/1998', '2026-08-02T05:00:00Z', 'w-job-deed', PAPER.deed);
+const PASSBOOK = claimSource('passbook_reading', 'Passbook 1042', '2026-07-20T05:00:00Z', 'w-job-pb');
+const LEGACY = claimSource('legacy', 'Entered before sources were kept', '2026-01-01T00:00:00Z');
+const MANUAL = claimSource('manual', 'You entered', '2026-07-01T05:00:00Z');
+
+/** Sy 214/2's set values: [value, display, source]. */
+const PARCEL_VALUES: Record<string, [string, string, ReturnType<typeof claimSource>]> = {
+  state: ['Andhra Pradesh', 'Andhra Pradesh', PASSBOOK],
+  district: ['Prakasam', 'Prakasam', PASSBOOK],
+  mandal: ['Markapur', 'Markapur', PASSBOOK],
+  village: ['Katragunta', 'Katragunta', PASSBOOK],
+  survey_no: ['214/2', '214/2', DEED],
+  khata_no: ['1042', '1042', PASSBOOK],
+  extent: ['4.3', '4.30 ac', MANUAL],
+  classification: ['dry', 'Dry land', LEGACY],
+  boundary_north: ['Road', 'Road', DEED],
+  acquisition_mode: ['sale', 'Sale', DEED],
+  registered: ['yes', 'Yes', DEED],
+  doc_no: ['4412/1998', '4412/1998', DEED],
+  reg_date: ['1998-03-12', '12/03/1998', DEED],
+  exec_date: ['1998-03-10', '10/03/1998', DEED],
+  sro: ['Markapur', 'Markapur', DEED],
+  consideration: ['240000', '₹2,40,000', DEED],
+};
+
+/** The acquisition a filed deed reading leaves on a bare record. */
+const FILED_DEED = claimSource('deed_reading', 'Deed 1576/1989', '2026-10-11T05:00:00Z', 'w-paper-new', 'w-paper-new');
+
+export function overviewOf(id: string, world?: World): Record<string, unknown> | null {
+  const rec = recordOf(id);
+  if (!rec) return null;
+  const rich = id === ID.parcel;
+  const chose = world?.calls('chooseFieldClaim')
+    .filter((c) => c.vars.recordId === id && c.vars.key === 'extent').at(-1);
+  const filed = !rich && !!world?.calls('fileDeedReading').some((c) => c.vars.recordId === id);
+  const built = rec.kind !== 'parcel';
+  // The bare records hold only what the card had, from before sources.
+  const bare: Record<string, string> = {
+    village: String(rec.village ?? ''), mandal: String(rec.mandal ?? ''), district: String(rec.district ?? ''),
+    survey_no: String(rec.surveyNo ?? ''), khata_no: String(rec.khataNo ?? ''),
+  };
+  const fields: FieldRow[] = FIELD_KEYS
+    .filter(([key]) => !(built && ['lp_no', 'ulpin', 'old_survey_no', 'khata_no'].includes(key)))
+    .map(([key, group, label, howToFill]) => {
+      let set = rich ? PARCEL_VALUES[key] : (bare[key] ? [bare[key], bare[key], LEGACY] as const : undefined);
+      if (key === 'extent' && rich && chose) {
+        set = chose.vars.claimId === 'keep' ? ['4.3', '4.30 ac', MANUAL] : ['4.12', '4.12 ac', MANUAL];
+      }
+      const important = built
+        ? ['extent', 'acquisition_mode', 'doc_no'].includes(key)
+        : ['survey_no', 'khata_no', 'extent', 'acquisition_mode', 'doc_no', 'lp_no', 'ulpin'].includes(key);
+      return {
+        key, group, label, important, howToFill,
+        value: set?.[0] ?? '', display: set?.[1] ?? '', source: set?.[2] ?? null,
+        conflicts: rich && key === 'extent' && !chose
+          ? [{ id: 'w-claim-extent-deed', value: '4.12', display: '4.12 ac', source: DEED }]
+          : [],
+      };
+    });
+  const papers = PAPERS[id] ?? [];
+  return {
+    id,
+    fields,
+    missing: fields.filter((f) => f.important && !f.value),
+    conflictCount: fields.filter((f) => f.conflicts.length).length,
+    // D1's farmland prompt: none in the seeded world; 45-record-overview sets one.
+    suggestKind: '', suggestReason: '', convertTarget: null,
+    compliance: complianceOf(rich, filed, built, bare),
+    acquisition: rich ? {
+      mode: 'sale', modeLabel: 'Sale', registered: 'yes',
+      docNo: '4412/1998', regDate: '1998-03-12', execDate: '1998-03-10', sro: 'Markapur',
+      consideration: 240_000, govtValue: 180_000, stampDuty: 0, proofNo: '',
+      transferId: 'w-transfer-1', deedDocumentId: PAPER.deed,
+      fromParties: [{ name: 'K. Narayana', parentage: 'S/o Venkaiah', role: 'seller', relationship: '', shareNum: 0, shareDen: 0, isGpa: false }],
+      toParties: [{ name: 'Telukutla Shankar Reddy', parentage: 'S/o T. Narayana Reddy', role: 'buyer', relationship: '', shareNum: 1, shareDen: 1, isGpa: false }],
+      chainLength: 2, source: DEED,
+    } : filed ? {
+      mode: 'sale', modeLabel: 'Sale', registered: 'yes',
+      docNo: '1576/1989', regDate: '1989-06-02', execDate: '', sro: 'Ongole',
+      consideration: 0, govtValue: 0, stampDuty: 0, proofNo: '',
+      transferId: 'w-transfer-filed', deedDocumentId: 'w-paper-new',
+      fromParties: [{ name: 'P. Subbaiah', parentage: '', role: 'seller', relationship: '', shareNum: 0, shareDen: 0, isGpa: false }],
+      toParties: [], chainLength: 1, source: FILED_DEED,
+    } : null,
+    summary: {
+      paperCount: papers.length, newestPaper: String(papers[0]?.title ?? ''), newestPaperAt: papers.length ? '2026-08-02' : '',
+      featureCount: rec.featureCount, featureAttention: 0,
+      ownerCount: 1, hasPin: !!(rec.lat || rec.lon), hasOutline: ((rec.ring as number[]) ?? []).length >= 6,
+      photoCount: rec.photoCount, mediaCount: rec.mediaCount, noteCount: rec.noteBody ? 1 : 0, newestNoteAt: String(rec.noteAt ?? ''),
+      servicesOpen: rec.serviceCount, servicesDone: rich ? 1 : 0,
+      paidTotal: rich ? 240_000 : 0, marketTotal: Number(rec.marketValue ?? 0),
+      newestActivity: rich ? 'Extent corrected' : '', newestActivityAt: rich ? '2026-08-14' : '',
+    },
+  };
+}
+
+// The Compliance check (services/api/src/compliance.py), as the server would
+// run it on these facts. Sy 214/2: the deed, chain, khata, survey and FMB pass;
+// the deed and the owner disagree on the extent; the EC on file is old; the
+// boundaries and the tax receipt are missing; mutation, LP and court cannot be
+// told; the AP policy adds the Adangal and the restriction review.
+const check = (key: string, label: string, status: string, detail: string, action = 'none', fieldKey = '', serviceKind = '') =>
+  ({ key, label, status, detail, action, fieldKey, serviceKind });
+
+function complianceOf(rich: boolean, filed: boolean, built: boolean, bare: Record<string, string>) {
+  const checks = rich ? [
+    check('deed', 'Registered title deed on file', 'pass', 'Deed 4412/1998 on file'),
+    check('chain', 'Title chain recorded', 'pass', '2 deeds in the chain'),
+    check('khata', 'Khata / passbook recorded', 'pass', 'Khata 1042'),
+    check('mutation', 'Mutation in your name', 'unknown', 'Mutation status not recorded', 'add', 'mutation_status'),
+    check('survey', 'Survey number and extent recorded', 'pass', '214/2 · 4.30 ac'),
+    check('extent_match', 'Deed extent matches revenue extent', 'warn', 'Deed says 4.12 ac, passbook says 4.30 ac', 'add', 'extent'),
+    check('lp', 'LP number / ULPIN', 'unknown', 'Only for resurveyed villages; not known whether yours is', 'add', 'lp_no'),
+    check('boundaries', 'Boundaries recorded', 'fail', 'South, East, West not recorded', 'add', 'boundary_south'),
+    check('ec', 'Encumbrance certificate on file', 'warn', 'Checked on 02/08/2024, more than 12 months ago', 'order', 'ec_date', 'ec'),
+    check('court', 'No court case recorded', 'unknown', 'Not answered yet', 'add', 'litigation'),
+    check('tax', 'Land tax receipt on file', 'fail', 'No tax receipt on file', 'upload'),
+    check('policy.adangal', 'Current Adangal', 'unknown', 'Not checked from your documents yet: Check land classification, cultivation and survey particulars.', 'upload'),
+    check('policy.fmb', 'FMB / cadastral map', 'pass', 'Map in Documents'),
+    check('policy.restrictions', 'Restriction and dispute review', 'unknown', 'Check this yourself: Check assigned/grant conditions, prohibited-property lists, acquisition, court disputes, endowment or Wakf interests, and transfer eligibility.'),
+  ] : [
+    filed ? check('deed', 'Registered title deed on file', 'pass', 'Deed 1576/1989 on file')
+      : check('deed', 'Registered title deed on file', 'fail', 'No deed on file', 'upload', 'doc_no'),
+    filed ? check('chain', 'Title chain recorded', 'pass', 'Earlier owner: P. Subbaiah')
+      : check('chain', 'Title chain recorded', 'fail', 'Who held it before you is not recorded', 'add', 'from_parties'),
+    built ? check('khata', 'Khata / tax assessment recorded', 'fail', 'No khata or tax assessment number', 'add', 'khata_no')
+      : bare.khata_no ? check('khata', 'Khata / passbook recorded', 'pass', `Khata ${bare.khata_no}`)
+        : check('khata', 'Khata / passbook recorded', 'fail', 'No khata or passbook number', 'add', 'khata_no'),
+    check('mutation', 'Mutation in your name', 'unknown', 'Mutation status not recorded', 'add', 'mutation_status'),
+    check('survey', built ? 'Plot and extent recorded' : 'Survey number and extent recorded', 'fail',
+      'Extent not recorded', 'add', 'extent'),
+    ...(built ? [] : [
+      check('extent_match', 'Deed extent matches revenue extent', 'unknown', 'Needs both the deed and the passbook read', 'upload', 'extent'),
+      check('lp', 'LP number / ULPIN', 'unknown', 'Only for resurveyed villages; not known whether yours is', 'add', 'lp_no'),
+    ]),
+    check('boundaries', 'Boundaries recorded', 'fail', 'No side recorded', 'add', 'boundary_north'),
+    check('ec', 'Encumbrance certificate on file', 'fail', 'No EC on file', 'order', 'ec_date', 'ec'),
+    check('court', 'No court case recorded', 'unknown', 'Not answered yet', 'add', 'litigation'),
+    check('tax', built ? 'Property tax receipt on file' : 'Land tax receipt on file', 'fail', 'No tax receipt on file', 'upload'),
+  ];
+  return {
+    checkedAt: '2026-10-12T08:35:00+00:00',
+    passed: checks.filter((c) => c.status === 'pass').length, total: checks.length, checks,
   };
 }
 
@@ -545,8 +888,8 @@ const SHELF_COUNTS: Record<string, number> = {
   title: 6, revenue: 5, map: 3, search: 4, identity: 2, old: 4, photos: 2, unsorted: 1,
 };
 const SHELF_LABEL: Record<string, string> = {
-  title: 'Title', revenue: 'Revenue record', map: 'Map', search: 'Search & tax',
-  identity: 'Identity', old: 'Old record', photos: 'Photos', unsorted: 'Unsorted',
+  title: 'Title deeds', revenue: 'Revenue records', map: 'Map', search: 'EC & tax receipts',
+  identity: 'Identity', old: 'Old records', photos: 'Photos & video', unsorted: 'Not sorted yet',
 };
 const SHELF_NOTE: Record<string, string> = {
   title: 'Sale deeds, gift deeds, partition deeds',
@@ -574,11 +917,20 @@ const VAULT = {
   links: SHARE_LINKS,
 };
 
+/** The order the eight shelves are listed in (fixtures/ids.ts SHELVES). */
+const SHELF_ORDER = ['title', 'revenue', 'map', 'search', 'identity', 'old', 'photos', 'unsorted'];
+
 /** A shelf listing. The counts agree with the wall above, because a card that
- *  says 6 and a shelf that lists 2 is exactly the defect worth catching. */
-const vaultPapers: Answer = (vars) => {
-  const shelf = String(vars.shelf ?? '');
+ *  says 6 and a shelf that lists 2 is exactly the defect worth catching.
+ *
+ *  Every row carries what Documents' file list reads (Vault.tsx): `createdAt`
+ *  (it sorts on it with localeCompare), `mimeType`, `sizeBytes`, `folderId`,
+ *  `jointFmbId`, `aadhaarCard` and `linkedProperties` — empty, so
+ *  linkedPropertiesFor falls back to recordId/recordTitle. Title deeds is made
+ *  the newest shelf, so the deed every test reaches for is on page 1 of 25. */
+function shelfPapers(shelf: string): Record<string, unknown>[] {
   const count = SHELF_COUNTS[shelf] ?? 0;
+  const s = Math.max(0, SHELF_ORDER.indexOf(shelf));
   const seeded = (PAPERS[ID.parcel] as Record<string, unknown>[]).filter((p) => p.shelf === shelf);
   const made = Array.from({ length: Math.max(0, count - seeded.length) }, (_, i) => ({
     id: `w-paper-${shelf}-${i + 1}`,
@@ -586,9 +938,22 @@ const vaultPapers: Answer = (vars) => {
     detail: 'Sy 214/2 · Katragunta',
     shelf, icon: shelf, tags: [], shared: false, pageCount: 2,
     fileRef: `file-${shelf}-${i + 1}`,
+  }));
+  return [...seeded, ...made].map((p, i) => ({
+    mimeType: 'application/pdf', sizeBytes: 0, folderId: '', jointFmbId: '', aadhaarCard: false,
+    linkedProperties: [],
+    createdAt: `2026-09-${String(28 - s).padStart(2, '0')}T10:${String(59 - i).padStart(2, '0')}:00`,
+    ...p,
     recordId: ID.parcel, recordTitle: 'Sy 214/2',
   }));
-  return [...seeded.map((p) => ({ ...p, recordId: ID.parcel, recordTitle: 'Sy 214/2' })), ...made];
+}
+
+/** `shelf: 'all'` is the read Documents makes since it became a file list
+ *  (Vault.tsx useVaultPapers('all')): every shelf's rows, 27 in all, the
+ *  figure VAULT.total counts. */
+const vaultPapers: Answer = (vars) => {
+  const shelf = String(vars.shelf ?? '');
+  return shelf === 'all' ? SHELF_ORDER.flatMap(shelfPapers) : shelfPapers(shelf);
 };
 
 function documentOf(id: string): Record<string, unknown> | null {
@@ -654,29 +1019,35 @@ const search: Answer = (vars) => {
   const hits: Record<string, unknown>[] = [];
   for (const c of CARDS) {
     if (String(c.title).toLowerCase().includes(q) || String(c.village).toLowerCase().includes(q)) {
-      hits.push({ id: c.id, kind: 'record', title: c.title, subtitle: c.placeLine, route: `/app/records/${c.id}` });
+      hits.push({ id: c.id, kind: 'record', title: c.title, subtitle: c.placeLine, route: `/properties/${c.id}` });
     }
   }
   for (const p of PAPERS[ID.parcel] as Record<string, unknown>[]) {
     if (String(p.title).toLowerCase().includes(q)) {
-      hits.push({ id: p.id, kind: 'paper', title: p.title, subtitle: p.detail, route: `/app/papers/${p.id}` });
+      hits.push({ id: p.id, kind: 'paper', title: p.title, subtitle: p.detail, route: `/papers/${p.id}` });
     }
   }
   for (const person of (PEOPLE.people as Record<string, unknown>[])) {
     if (String(person.name).toLowerCase().includes(q)) {
-      hits.push({ id: person.id, kind: 'person', title: person.name, subtitle: String(person.role), route: `/app/records/${ID.parcel}/people` });
+      hits.push({ id: person.id, kind: 'person', title: person.name, subtitle: String(person.role), route: `/properties/${ID.parcel}/people?section=staff&person=${person.id}` });
     }
   }
   return hits;
 };
 
-// ── W10-W12 · services, one ticket, the wallet ─────────────────────────
+// ── W10-W12 · services, one service order, the wallet ──────────────────
 
-/** The eight states a job passes through, as eight seeded tickets, so a spec
- *  asserting "this button is only offered at this stage" has a row for each
- *  stage instead of mutating one row eight times. `can` is the server's list
- *  of legal moves and Ticket.tsx gates every button on it
- *  (can: accept · cancel · deliver · dispatch · send_back · start). */
+/** Eight seeded orders, one per state the owner's page draws, so a spec
+ *  asserting "this is only offered here" has a row for each instead of
+ *  mutating one row eight times. Every field is the server's own shape
+ *  (web360.py `ticket`, ticketing.py STATUS_*): `status` is one of the eight
+ *  server statuses, `statusLabel` the OWNER's word (`owner_label`: sent reads
+ *  "Placed", on_site "In progress"), `ref` is `ticket_ref`'s PT-xxxx, and `can`
+ *  is `owner_can` — a subset of cancel · accept · send_back · message · nudge ·
+ *  rate, never a desk move (service order spec §7).
+ *
+ *  `stage` keeps the list's four pips (Orders.tsx Rail); the order page never
+ *  reads it. */
 interface TicketShape {
   id: string; ref: string; status: string; statusLabel: string; statusState: string;
   stage: number; stageLabel: string; needsYou: boolean; closed: boolean;
@@ -685,14 +1056,17 @@ interface TicketShape {
 }
 
 const TICKET_SHAPES: TicketShape[] = [
-  { id: TICKET.placed, ref: 'W-2101', status: 'placed', statusLabel: 'Placed', statusState: '', stage: 1, stageLabel: 'Placed', needsYou: false, closed: false, assignee: '', can: ['assign', 'cancel', 'dispatch'], quietDays: 0, quiet: false, funded: false, held: 0, pendingReview: 0, outcomeNote: '', acceptedAt: '' },
-  { id: TICKET.assigned, ref: 'W-2102', status: 'assigned', statusLabel: 'Assigned', statusState: '', stage: 2, stageLabel: 'Assigned', needsYou: false, closed: false, assignee: 'Ravi Kumar, licensed surveyor', can: ['assign', 'cancel', 'deliver', 'dispatch', 'start', 'unassign'], quietDays: 1, quiet: false, funded: true, held: 6_500, pendingReview: 0, outcomeNote: '', acceptedAt: '' },
-  { id: TICKET.onSite, ref: 'W-2103', status: 'on_site', statusLabel: 'On site', statusState: '', stage: 3, stageLabel: 'On site', needsYou: false, closed: false, assignee: 'Ravi Kumar, licensed surveyor', can: ['cancel', 'deliver', 'dispatch', 'unassign'], quietDays: 0, quiet: false, funded: true, held: 6_500, pendingReview: 0, outcomeNote: '', acceptedAt: '' },
-  { id: TICKET.delivered, ref: 'W-2104', status: 'delivered', statusLabel: 'Delivered', statusState: '', stage: 4, stageLabel: 'Delivered', needsYou: false, closed: false, assignee: 'Ravi Kumar, licensed surveyor', can: ['accept', 'cancel', 'dispatch', 'send_back'], quietDays: 0, quiet: false, funded: true, held: 6_500, pendingReview: 0, outcomeNote: '', acceptedAt: '' },
-  { id: TICKET.needsYou, ref: 'W-2105', status: 'waiting_owner', statusLabel: 'Waiting on you', statusState: 'warn', stage: 4, stageLabel: 'Delivered', needsYou: true, closed: false, assignee: 'Ravi Kumar, licensed surveyor', can: ['accept', 'cancel', 'dispatch', 'send_back'], quietDays: 0, quiet: false, funded: true, held: 6_500, pendingReview: 2, outcomeNote: '', acceptedAt: '' },
-  { id: TICKET.quiet, ref: 'W-2106', status: 'assigned', statusLabel: 'Sent out', statusState: 'warn', stage: 2, stageLabel: 'Assigned', needsYou: false, closed: false, assignee: 'Srinivas, document writer', can: ['assign', 'cancel', 'deliver', 'dispatch', 'start', 'unassign'], quietDays: 9, quiet: true, funded: true, held: 1_200, pendingReview: 0, outcomeNote: '', acceptedAt: '' },
-  { id: TICKET.closed, ref: 'W-2098', status: 'accepted', statusLabel: 'Done', statusState: 'good', stage: 4, stageLabel: 'Delivered', needsYou: false, closed: true, assignee: 'Ravi Kumar, licensed surveyor', can: [], quietDays: 0, quiet: false, funded: true, held: 0, pendingReview: 0, outcomeNote: 'Eight corners established and filed onto the record.', acceptedAt: '2026-08-14' },
-  { id: TICKET.cancelled, ref: 'W-2099', status: 'cancelled', statusLabel: 'Cancelled', statusState: 'bad', stage: 1, stageLabel: 'Placed', needsYou: false, closed: true, assignee: '', can: [], quietDays: 0, quiet: false, funded: false, held: 0, pendingReview: 0, outcomeNote: 'Cancelled before anybody was sent. ₹6,500 came back to the wallet.', acceptedAt: '' },
+  // Nothing held, payments off: the panel's one filled button is "Hold ₹1,200".
+  { id: TICKET.placed, ref: 'PT-2101', status: 'placed', statusLabel: 'Placed', statusState: 'unknown', stage: 1, stageLabel: 'Placed', needsYou: false, closed: false, assignee: '', can: ['cancel', 'message'], quietDays: 0, quiet: false, funded: false, held: 0, pendingReview: 0, outcomeNote: '', acceptedAt: '' },
+  { id: TICKET.assigned, ref: 'PT-2102', status: 'assigned', statusLabel: 'Assigned', statusState: 'unknown', stage: 2, stageLabel: 'Assigned', needsYou: false, closed: false, assignee: 'Ravi Kumar', can: ['cancel', 'message'], quietDays: 1, quiet: false, funded: true, held: 6_500, pendingReview: 0, outcomeNote: '', acceptedAt: '' },
+  { id: TICKET.onSite, ref: 'PT-2103', status: 'on_site', statusLabel: 'In progress', statusState: 'unknown', stage: 3, stageLabel: 'On site', needsYou: false, closed: false, assignee: 'K. Anitha', can: ['cancel', 'message'], quietDays: 0, quiet: false, funded: true, held: 6_500, pendingReview: 0, outcomeNote: '', acceptedAt: '' },
+  // Sent back: the owner returned the work and the provider is reworking it.
+  { id: TICKET.delivered, ref: 'PT-2104', status: 'changes', statusLabel: 'Sent back', statusState: 'warn', stage: 3, stageLabel: 'On site', needsYou: false, closed: false, assignee: 'Ravi Kumar', can: ['cancel', 'message'], quietDays: 0, quiet: false, funded: true, held: 6_500, pendingReview: 0, outcomeNote: '', acceptedAt: '' },
+  { id: TICKET.needsYou, ref: 'PT-2105', status: 'submitted', statusLabel: 'Waiting on you', statusState: 'warn', stage: 4, stageLabel: 'Delivered', needsYou: true, closed: false, assignee: 'Ravi Kumar', can: ['accept', 'cancel', 'message', 'send_back'], quietDays: 0, quiet: false, funded: true, held: 6_500, pendingReview: 2, outcomeNote: '', acceptedAt: '' },
+  // Nine days without a word from the provider: `owner_can` offers `nudge`.
+  { id: TICKET.quiet, ref: 'PT-2106', status: 'assigned', statusLabel: 'Assigned', statusState: 'unknown', stage: 2, stageLabel: 'Assigned', needsYou: false, closed: false, assignee: 'Srinivas', can: ['cancel', 'message', 'nudge'], quietDays: 9, quiet: true, funded: true, held: 1_200, pendingReview: 0, outcomeNote: '', acceptedAt: '' },
+  { id: TICKET.closed, ref: 'PT-2098', status: 'accepted', statusLabel: 'Accepted', statusState: 'good', stage: 4, stageLabel: 'Delivered', needsYou: false, closed: true, assignee: 'Ravi Kumar', can: ['message'], quietDays: 0, quiet: false, funded: true, held: 0, pendingReview: 0, outcomeNote: '', acceptedAt: '2026-09-11' },
+  { id: TICKET.cancelled, ref: 'PT-2099', status: 'cancelled', statusLabel: 'Cancelled', statusState: 'bad', stage: 1, stageLabel: 'Placed', needsYou: false, closed: true, assignee: '', can: [], quietDays: 0, quiet: false, funded: false, held: 0, pendingReview: 0, outcomeNote: 'Found the papers in my own files.', acceptedAt: '' },
 ];
 
 const KIND_OF: Record<string, { kind: string; title: string; detail: string; cost: number }> = {
@@ -706,16 +1080,39 @@ const KIND_OF: Record<string, { kind: string; title: string; detail: string; cos
   [TICKET.cancelled]: { kind: 'survey', title: 'Corner survey', detail: 'Establish 8 corners', cost: 6_500 },
 };
 
+/** The provider behind the name, on the two orders that have one
+ *  (web360.py `_assigned_person`). `contact` is filled only when the server
+ *  decided this owner may have it; K. Anitha withheld hers, so `contact` is ''
+ *  and `contactWhy` is the sentence printed instead. */
+const ASSIGNED_TO: Record<string, Record<string, unknown>> = {
+  [TICKET.assigned]: {
+    associateId: 'as-ravi', name: 'Ravi Kumar', firm: 'Ravi Surveys', initials: 'RK',
+    discipline: 'surveyor', disciplineLabel: 'Licensed surveyor',
+    contact: '9848012345', contactShown: true, contactWhy: '',
+    assignedAt: '2026-09-05', via: 'the desk',
+  },
+  [TICKET.onSite]: {
+    associateId: 'as-anita', name: 'K. Anitha', firm: '', initials: 'KA',
+    discipline: 'advocate', disciplineLabel: 'Advocate',
+    contact: '', contactShown: false,
+    contactWhy: 'They asked that their number not be shared. Write to them below and Pattadar desk passes it on.',
+    assignedAt: '2026-09-06', via: 'the desk',
+  },
+};
+
 const ORDERS = TICKET_SHAPES.map((t) => ({
   id: t.id, kind: KIND_OF[t.id].kind, title: KIND_OF[t.id].title, detail: KIND_OF[t.id].detail,
   assignee: t.assignee, cost: KIND_OF[t.id].cost, stage: t.stage, stageLabel: t.stageLabel,
-  needsYou: t.needsYou, dueDate: t.closed ? '' : '2026-09-25',
+  needsYou: t.needsYou, dueDate: t.closed ? '' : '25/09/2026',
   recordId: ID.parcel, recordTitle: 'Sy 214/2', params: '{}',
   // Selected since 8ee7822 (w360/api.ts Order). Orders.tsx recordTypeLabel
   // calls replaceAll on them, so an absent value crashed the Services list.
   recordKind: 'parcel', recordClassification: 'agri', recordLocation: 'Katragunta, Markapur, Prakasam',
   status: t.status, statusLabel: t.statusLabel, statusState: t.statusState, ref: t.ref,
   held: t.held, pendingReview: t.pendingReview,
+  // Who holds it, when that is a Pattadar provider (the order's `assignedTo`).
+  assigneeRef: String(ASSIGNED_TO[t.id]?.associateId ?? ''),
+  assignedResource: null,
 }));
 
 const orders: Answer = (vars) => {
@@ -727,79 +1124,144 @@ const orders: Answer = (vars) => {
   return rows;
 };
 
+/** A trail line in the server's own words (ticketing.event_headline). */
+const ev = (id: string, kind: string, action: string, headline: string, at: string,
+            actorKind = 'owner', actorLabel = 'You', detail = '') => ({
+  id, kind, action, headline, detail, actorLabel, actorKind, tone: '',
+  at: `${at}T05:00:00Z`, atLabel: `${at.slice(8, 10)}/${at.slice(5, 7)}/${at.slice(0, 4)}`,
+  attachments: [] as Record<string, unknown>[],
+});
 
-/** The associate behind the name, on the two tickets that have one.
- *
- *  `contactShown` is the whole point of the card: an owner sees the number of
- *  whoever is on THEIR live job, and only when that person agreed to it at
- *  enrolment. The withheld case is seeded too — it is the branch that decides
- *  whether the screen is honest or just optimistic.
- */
-const ASSIGNED_TO: Record<string, Record<string, unknown>> = {
-  [TICKET.assigned]: {
-    associateId: 'as-ravi', name: 'Ravi Kumar', firm: 'Ravi Surveys', initials: 'RK',
-    discipline: 'surveyor', disciplineLabel: 'Licensed surveyor',
-    contact: '9848012345', contactMasked: '••••••2345', contactShown: true, contactWhy: '',
-    jobsOpen: 2, assignedAt: '2026-09-05', via: 'desk',
-  },
-  [TICKET.onSite]: {
-    associateId: 'as-anita', name: 'K. Anitha', firm: '', initials: 'KA',
-    discipline: 'advocate', disciplineLabel: 'Advocate',
-    contact: '', contactMasked: '••••••2334', contactShown: false,
-    contactWhy: 'They asked that their number not be shared. Send them a message instead and Pattadar does the writing.',
-    jobsOpen: 3, assignedAt: '2026-09-06', via: 'owner',
-  },
+/** The owner's trail for one seeded order: what `_owner_sees` lets through,
+ *  with `detail` cut on every kind but message and refused. */
+function ownerEvents(t: TicketShape): ReturnType<typeof ev>[] {
+  const out = [ev('w-ev-place', 'status', 'place', 'You placed this order', '2026-09-04')];
+  const who = t.assignee;
+  const reached = ['assigned', 'on_site', 'submitted', 'changes', 'accepted'].includes(t.status);
+  if (who && reached) out.push(ev('w-ev-assign', 'status', 'assign', `Pattadar desk assigned ${who}`, '2026-09-05', 'system', 'Pattadar desk'));
+  if (['on_site', 'submitted', 'changes', 'accepted'].includes(t.status)) {
+    out.push(ev('w-ev-start', 'status', 'start', `${who} started work`, '2026-09-06', 'worker', who));
+  }
+  if (['submitted', 'changes', 'accepted'].includes(t.status)) {
+    out.push(ev('w-ev-dlv', 'deliverable', '', `${who} delivered “8 corners, walked”`, '2026-09-10', 'system', 'Pattadar desk'));
+    out.push(ev('w-ev-deliver', 'status', 'deliver', `${who} delivered the work`, '2026-09-10', 'system', 'Pattadar desk'));
+  }
+  if (t.status === 'changes') out.push(ev('w-ev-back', 'status', 'send_back', 'You sent the work back', '2026-09-11'));
+  if (t.status === 'accepted') {
+    out.push(ev('w-ev-accept', 'status', 'accept', 'You accepted the work', '2026-09-11'));
+    out.push(ev('w-ev-filed', 'filed', '', "“Surveyor report” was added to this property's Documents", '2026-09-11'));
+  }
+  if (t.status === 'cancelled') out.push(ev('w-ev-cancel', 'status', 'cancel', 'You cancelled this order', '2026-09-06'));
+  return out;
+}
+
+const DELIVERABLES_OF = (t: TicketShape) => {
+  if (!['submitted', 'changes', 'accepted'].includes(t.status)) return [];
+  const accepted = t.status === 'accepted';
+  return [
+    { id: 'w-dlv-1', kind: 'boundary', label: '8 corners, walked', note: 'GPS, ±3 m', fileRef: '', fileName: '', mimeType: '', sizeBytes: 0, payload: JSON.stringify({ ring: RING }), submittedBy: 'Ravi Kumar', submittedAt: '10/09/2026', fileAs: 'boundary', fileTargets: [{ k: 'boundary', v: 'The outline on file' }], goesTo: 'The outline on file', review: accepted ? 'accepted' : t.status === 'changes' ? 'rejected' : 'pending', reviewNote: t.status === 'changes' ? 'Corner 6 is in the neighbour’s field' : '', filedTable: accepted ? 'parcels' : '', filedId: accepted ? ID.parcel : '', filedAt: accepted ? '11/09/2026' : '' },
+    { id: 'w-dlv-2', kind: 'paper', label: 'Surveyor report', note: '3 pages', fileRef: 'file-survey-report', fileName: 'survey-report.pdf', mimeType: 'application/pdf', sizeBytes: 240_000, payload: '{}', submittedBy: 'Ravi Kumar', submittedAt: '10/09/2026', fileAs: 'map', fileTargets: [{ k: 'map', v: 'Map' }, { k: 'title', v: 'Title deeds' }], goesTo: 'Documents › Map', review: accepted ? 'accepted' : 'pending', reviewNote: '', filedTable: accepted ? 'documents' : '', filedId: accepted ? PAPER.map : '', filedAt: accepted ? '11/09/2026' : '' },
+  ];
 };
+
+/** The ledger in ENTRY_LABEL's words: Held · Released · Pattadar fee · Refunded. */
+function ledgerOf(t: TicketShape) {
+  const cost = KIND_OF[t.id].cost;
+  const row = (id: string, entry: string, label: string, amount: number, from: string, to: string, at: string, payee = '') => ({
+    id, entry, label, amount, fromBucket: from, toBucket: to, payee, provider: 'stub', simulated: true,
+    status: 'done', note: '', ticketId: t.id, ticketRef: t.ref, at,
+  });
+  if (t.status === 'cancelled') {
+    return [row('w-led-hold', 'hold', 'Held', cost, 'wallet', 'held', '04/09/2026'),
+      row('w-led-return', 'return', 'Refunded', cost, 'held', 'wallet', '06/09/2026')];
+  }
+  if (t.status === 'accepted') {
+    return [row('w-led-hold', 'hold', 'Held', cost, 'wallet', 'held', '05/09/2026'),
+      row('w-led-release', 'release', 'Released', cost * 0.9, 'held', 'payout', '11/09/2026', 'Ravi Kumar'),
+      row('w-led-fee', 'fee', 'Pattadar fee', cost * 0.1, 'held', 'fee', '11/09/2026')];
+  }
+  return t.funded ? [row('w-led-hold', 'hold', 'Held', t.held, 'wallet', 'held', '05/09/2026')] : [];
+}
 
 function ticketOf(id: string): Record<string, unknown> | null {
   const t = TICKET_SHAPES.find((s) => s.id === id);
   if (!t) return null;
   const meta = KIND_OF[id];
-  const hasDeliverables = t.pendingReview > 0 || t.status === 'delivered' || t.closed;
+  const accepted = t.status === 'accepted';
   return {
     id: t.id, ref: t.ref, kind: meta.kind, title: meta.title, detail: meta.detail,
     recordId: ID.parcel, recordTitle: 'Sy 214/2', recordPlace: 'Katragunta, Markapur, Prakasam',
     status: t.status, statusLabel: t.statusLabel, statusState: t.statusState,
     stage: t.stage, stageLabel: t.stageLabel, needsYou: t.needsYou, closed: t.closed,
-    assignee: t.assignee, dueDate: t.closed ? '' : '2026-09-25',
-    // W17 — who is REALLY on it. Two of the seeded tickets carry a Pattadar
-    // associate with an id behind the name, and the rest keep the legacy
-    // free-text assignee, because both branches of "Who is on it" have to be
-    // reachable: one has a number to ring, the other deliberately does not.
-    // TICKET.onSite's associate withheld their number, which is the third
-    // branch and the one nobody remembers to build.
-    assignedTo: ASSIGNED_TO[t.id] ?? null,
-    dispatchState: t.id === TICKET.placed ? 'queued' : '',
+    assignee: t.assignee, dueDate: t.closed ? '' : '25/09/2026',
+    assignedTo: ASSIGNED_TO[t.id] ?? null, assignedResource: null,
     quietDays: t.quietDays, quiet: t.quiet,
     outcomeNote: t.outcomeNote, acceptedAt: t.acceptedAt, createdAt: '2026-09-04',
+    overdueDays: 0, askedAt: '', files: [],
     can: t.can,
     answers: [
       { k: 'Which survey number', v: '214/2' },
       { k: 'How many corners', v: '8' },
     ],
+    myRating: 0, myRatingNote: '',
     money: {
-      quoted: meta.cost, held: t.held, released: t.closed && t.status === 'accepted' ? meta.cost : 0,
-      fee: 0, returned: t.status === 'cancelled' ? meta.cost : 0, payeeShare: meta.cost,
-      provider: 'stub', live: false, funded: t.funded,
-      headline: t.funded ? `₹${meta.cost.toLocaleString('en-IN')} is set aside for this job` : `₹${meta.cost.toLocaleString('en-IN')} has not been set aside yet`,
+      quoted: meta.cost, held: t.held, released: accepted ? meta.cost * 0.9 : 0,
+      fee: accepted ? meta.cost * 0.1 : 0, returned: t.status === 'cancelled' ? meta.cost : 0,
+      payeeShare: 0.9, provider: 'stub', live: false, funded: t.held > 0,
+      headline: t.held > 0 ? `₹${t.held.toLocaleString('en-IN')} held` : 'Nothing held yet',
       honesty: 'Payments are switched off on this build. Nothing has been charged.',
     },
-    events: [
-      { id: 'w-ev-1', kind: 'placed', action: 'place', headline: 'You asked for a corner survey', detail: '', actorLabel: 'You', actorKind: 'owner', tone: '', at: '2026-09-04T05:00:00Z', atLabel: '4 Sep 2026' },
-      ...(t.assignee ? [{ id: 'w-ev-2', kind: 'assigned', action: 'assign', headline: `Put on ${t.assignee}`, detail: '', actorLabel: 'Pattadar', actorKind: 'system', tone: '', at: '2026-09-05T05:00:00Z', atLabel: '5 Sep 2026' }] : []),
-      ...(t.closed ? [{ id: 'w-ev-3', kind: t.status, action: t.status, headline: t.outcomeNote, detail: '', actorLabel: 'You', actorKind: 'owner', tone: t.status === 'cancelled' ? 'bad' : 'good', at: '2026-09-11T05:00:00Z', atLabel: '11 Sep 2026' }] : []),
-    ],
-    deliverables: hasDeliverables
-      ? [
-          { id: 'w-dlv-1', kind: 'boundary', label: '8 corners, walked', note: 'GPS, ±3 m', fileRef: '', fileName: '', mimeType: '', sizeBytes: 0, payload: JSON.stringify({ ring: RING }), submittedBy: 'Ravi Kumar', submittedAt: '2026-09-10', fileAs: 'Boundary', fileTargets: [{ k: 'Record', v: 'Sy 214/2' }], goesTo: 'The record boundary', review: t.closed ? 'accepted' : 'pending', reviewNote: '', filedTable: t.closed ? 'boundary' : '', filedId: t.closed ? 'w-boundary-1' : '', filedAt: t.closed ? '2026-09-11' : '' },
-          { id: 'w-dlv-2', kind: 'paper', label: 'Surveyor report', note: '3 pages', fileRef: 'file-survey-report', fileName: 'survey-report.pdf', mimeType: 'application/pdf', sizeBytes: 240_000, payload: '', submittedBy: 'Ravi Kumar', submittedAt: '2026-09-10', fileAs: 'Paper', fileTargets: [{ k: 'Shelf', v: 'Map' }], goesTo: 'The map shelf', review: t.closed ? 'accepted' : 'pending', reviewNote: '', filedTable: '', filedId: '', filedAt: '' },
-        ]
-      : [],
-    dispatches: t.assignee
-      ? [{ id: 'w-dsp-1', purpose: 'invite', channel: 'sms', contactMasked: '+91 98••• ••432', personName: t.assignee.split(',')[0], subject: 'A job on Sy 214/2', body: 'Please open the link to accept.', provider: 'stub', live: false, status: 'sent', statusWord: 'Sent', error: '', expiresOn: '2026-09-19', daysLeft: 6, revoked: false, revokeReason: '', sentAt: '2026-09-05' }]
-      : [],
-    ledger: t.funded
-      ? [{ id: 'w-led-1', entry: 'hold', label: 'Set aside for W-2102', amount: meta.cost, fromBucket: 'wallet', toBucket: 'held', payee: '', provider: 'stub', simulated: true, status: 'done', note: '', ticketId: t.id, ticketRef: t.ref, at: '2026-09-05' }]
+    events: ownerEvents(t),
+    deliverables: DELIVERABLES_OF(t),
+    ledger: ledgerOf(t),
+  };
+}
+
+/** The desk's moves per status: every `system` pair in ticketing.TRANSITIONS
+ *  but cancel, plus `message` while the order is not cancelled
+ *  (web360.py `desk_ticket`). */
+const DESK_CAN: Record<string, string[]> = {
+  placed: ['assign', 'dispatch', 'message'],
+  sent: ['assign', 'dispatch', 'message', 'withdraw'],
+  assigned: ['assign', 'deliver', 'dispatch', 'message', 'start', 'unassign'],
+  on_site: ['deliver', 'dispatch', 'message', 'unassign'],
+  submitted: ['dispatch', 'message'],
+  changes: ['deliver', 'dispatch', 'message'],
+  accepted: ['message'],
+  cancelled: [],
+};
+
+/** A worker token as a dispatch body carries it: 43 URL-safe characters. */
+const WORK_TOKEN = 'e2e-fixture-worker-token-xxxxxxxxxxxxxxxxxx';
+
+/** One order as the desk reads it (`deskTicket`): the desk row, the desk's
+ *  moves, the whole trail with dispatch and payment rows and every detail,
+ *  what came back, and every dispatch. */
+function deskTicketOf(id: string): Record<string, unknown> | null {
+  const t = TICKET_SHAPES.find((s) => s.id === id);
+  if (!t) return null;
+  const meta = KIND_OF[id];
+  const job = DESK_JOBS.find((j) => j.ticketId === id) ?? {
+    ticketId: t.id, ref: t.ref, kind: meta.kind, serviceLabel: meta.title,
+    place: 'Katragunta, Markapur', status: t.status, statusLabel: t.statusLabel, statusState: t.statusState,
+    assignee: t.assignee, assigneeRef: String(ASSIGNED_TO[t.id]?.associateId ?? ''), assigneeContact: '',
+    orderedAt: '2026-09-04', ageDays: 5, dueDate: t.closed ? '' : '25/09/2026', overdue: false,
+    quiet: t.quiet, quietDays: t.quietDays, quoted: meta.cost, held: t.held, dispatchState: '',
+    dispatchRound: 0, nextRoundAt: '', offersOut: 0, offersDeclined: 0, lastResponse: '',
+    candidateCount: 2, stuck: false, askedAt: '',
+  };
+  const sent = !!t.assignee;
+  const events = [...ownerEvents(t).map((e) => (e.action === 'place'
+    ? { ...e, detail: 'Ordered from Sy 214/2' } : e))];
+  if (t.funded) events.splice(1, 0, ev('w-ev-pay', 'payment', '', `₹${meta.cost.toLocaleString('en-IN')} held`, '2026-09-05'));
+  if (sent) events.splice(1, 0, ev('w-ev-dsp', 'dispatch', '', `Sent to ${t.assignee} on SMS — recorded, not sent (stub)`, '2026-09-05', 'system', 'Pattadar desk', 'A job on Sy 214/2'));
+  return {
+    job,
+    can: DESK_CAN[String(job.status)] ?? [],
+    events,
+    deliverables: DELIVERABLES_OF(t),
+    dispatches: sent
+      ? [{ id: 'w-dsp-1', purpose: 'invite', channel: 'sms', contactMasked: '••••••2345', personName: t.assignee, subject: 'A job on Sy 214/2', body: `Sy 214/2 at Katragunta needs 8 corners walked. ₹6,500, wanted by 25/09/2026.\nOpen http://localhost:5173/work/${WORK_TOKEN} to accept.`, provider: 'stub', live: false, status: 'sent', statusWord: 'Sent', error: '', expiresOn: '19/09/2026', daysLeft: 6, revoked: false, revokeReason: '', sentAt: '05/09/2026' }]
       : [],
   };
 }
@@ -812,64 +1274,24 @@ const WALLET = {
     ticketId: t.id, ref: t.ref, title: KIND_OF[t.id].title, recordTitle: 'Sy 214/2',
     statusLabel: t.statusLabel, held: t.held,
   })),
+  // ENTRY_LABEL's words and `_ddmmyyyy` dates, as web360.py `wallet` sends them.
   rows: [
-    { id: 'w-wled-1', entry: 'topup', label: 'Added to the wallet', amount: 45_000, fromBucket: 'bank', toBucket: 'wallet', payee: '', provider: 'stub', simulated: true, status: 'done', note: '', ticketId: '', ticketRef: '', at: '2026-08-30' },
-    { id: 'w-wled-2', entry: 'hold', label: 'Set aside for W-2102', amount: 6_500, fromBucket: 'wallet', toBucket: 'held', payee: '', provider: 'stub', simulated: true, status: 'done', note: '', ticketId: TICKET.assigned, ticketRef: 'W-2102', at: '2026-09-05' },
-    { id: 'w-wled-3', entry: 'release', label: 'Paid to Ravi Kumar', amount: 6_500, fromBucket: 'held', toBucket: 'payee', payee: 'Ravi Kumar', provider: 'stub', simulated: true, status: 'done', note: '', ticketId: TICKET.closed, ticketRef: 'W-2098', at: '2026-08-14' },
+    { id: 'w-wled-1', entry: 'top_up', label: 'Added', amount: 45_000, fromBucket: 'outside', toBucket: 'wallet', payee: '', provider: 'stub', simulated: true, status: 'done', note: '', ticketId: '', ticketRef: '', at: '30/08/2026' },
+    { id: 'w-wled-2', entry: 'hold', label: 'Held', amount: 6_500, fromBucket: 'wallet', toBucket: 'held', payee: '', provider: 'stub', simulated: true, status: 'done', note: '', ticketId: TICKET.assigned, ticketRef: 'PT-2102', at: '05/09/2026' },
+    { id: 'w-wled-3', entry: 'release', label: 'Released', amount: 6_500, fromBucket: 'held', toBucket: 'payout', payee: 'Ravi Kumar', provider: 'stub', simulated: true, status: 'done', note: '', ticketId: TICKET.closed, ticketRef: 'PT-2098', at: '14/08/2026' },
   ],
 };
 
-/** The catalogue, exactly as `SERVICE_CATALOGUE` in services/api/src/web360.py
- *  holds it — six services, three groups, and the real field tuples.
+/** The catalogue, exactly as the API's `servicesOffered` answers it with no
+ *  published revision: generated from services/api/src/catalogue.py by
+ *  `catalogue-dump.py`, never typed by hand.
  *
- *  It used to be four inventions: a `visit` key the server calls `site_visit`,
- *  groups named `Searches` and `Filing` that exist nowhere, and prices nobody
- *  charges. Every assertion about grouping, about which services need the land
- *  located, and about what an order costs was therefore testing a catalogue
- *  the product does not sell. A fixture is allowed to choose the DATA; it is
- *  not allowed to invent the SHAPE.
- *
- *  `shelves` and `visual` joined the shape in 37ae2ca, both non-null in the
- *  API's `ServiceOffer`, and were missing here until 26/09/2026. Without them
- *  RecordPapers crashed on `o.shelves.some` on every record. The values are
- *  what the API answers: shelves from SERVICE_CATALOGUE, visuals from
- *  `_service_visual_for` over governance.BASELINE_DOCUMENT's serviceVisuals. */
-const offerVisual = (assetKey: string, alt: string, caption: string) =>
-  ({ assetKey, src: `/service-visuals/${assetKey}.webp`, alt, caption, sourceScope: 'IN/AP/*/*/*' });
-const OFFERS = [
-  { key: 'ec', label: 'Encumbrance Certificate', price: 1_180, group: 'Records', blurb: "The registrar's list of every transaction on this land, for a period you choose.", days: 7,
-    shelves: ['search'], visual: offerVisual('ec', "A records officer traces a property's registered transaction history.", 'Shows the registration history used to find mortgages and other recorded claims.'), fields: [
-    { name: 'from_year', label: 'From year', kind: 'year', required: false, options: [], help: 'Leave both empty for the full history, which is what the registrar gives by default.' },
-    { name: 'to_year', label: 'To year', kind: 'year', required: false, options: [], help: '' },
-    { name: 'purpose', label: 'What it is for', kind: 'select', required: false, options: ['Sale', 'Loan', 'Court', 'Own records'], help: '' },
-  ] },
-  { key: 'survey', label: 'Boundary re-survey', price: 2_900, group: 'On the ground', blurb: 'A licensed surveyor walks the boundary and pins each corner against the FMB sheet.', days: 21,
-    shelves: [], visual: offerVisual('survey', 'A licensed surveyor measures a field boundary with surveying equipment.', 'A surveyor measures boundary corners on the land and marks where they fall.'), fields: [
-    { name: 'which_side', label: 'Which boundary', kind: 'select', required: true, options: ['All four', 'North', 'South', 'East', 'West'], help: '' },
-    { name: 'dispute', label: 'Is a neighbour disputing it?', kind: 'select', required: true, options: ['No', 'Yes'], help: 'A disputed boundary is surveyed with both parties present.' },
-    { name: 'notes', label: 'Anything the surveyor should know', kind: 'textarea', required: false, options: [], help: '' },
-  ] },
-  { key: 'site_visit', label: 'Site visit', price: 1_200, group: 'On the ground', blurb: 'Someone stands on the land, photographs it and reports what they found.', days: 7,
-    shelves: [], visual: offerVisual('site_visit', 'A field worker photographs and inspects a property on site.', 'A field worker visits, photographs and reports what is present on the land.'), fields: [
-    { name: 'visit_on', label: 'Preferred date', kind: 'date', required: false, options: [], help: 'Left empty, we go within the week.' },
-    { name: 'check', label: 'What to check', kind: 'select', required: true, options: ['General condition', 'Crop', 'Encroachment', 'Water', 'Fencing'], help: '' },
-    { name: 'meet', label: 'Who to meet on site', kind: 'text', required: false, options: [], help: '' },
-  ] },
-  { key: 'title_opinion', label: 'Title opinion', price: 4_500, group: 'Legal', blurb: 'An advocate reads the chain of documents and writes whether the title is clean.', days: 14,
-    shelves: [], visual: offerVisual('title_opinion', 'An advocate reviews a chain of property ownership documents.', 'An advocate traces the ownership chain and gives a written title opinion.'), fields: [
-    { name: 'years', label: 'How far back to trace', kind: 'select', required: true, options: ['13 years', '30 years'], help: 'Banks usually ask for 30.' },
-    { name: 'for_bank', label: 'Which bank, if it is for a loan', kind: 'text', required: false, options: [], help: '' },
-  ] },
-  { key: 'mutation', label: 'Mutation / name transfer', price: 2_200, group: 'Records', blurb: "Getting the revenue record moved into the new owner's name after a sale.", days: 30,
-    shelves: [], visual: offerVisual('mutation', 'A revenue officer transfers a land record from the previous owner to the new owner.', "Updates the revenue record to the new owner's name after a registered sale."), fields: [
-    { name: 'new_owner', label: 'Name to transfer into', kind: 'text', required: true, options: [], help: '' },
-    { name: 'deed_no', label: 'Registered deed number', kind: 'text', required: true, options: [], help: '' },
-  ] },
-  { key: 'patta_copy', label: 'Certified patta copy', price: 450, group: 'Records', blurb: 'A stamped copy of the pattadar passbook entry from the village office.', days: 5,
-    shelves: ['revenue'], visual: offerVisual('patta_copy', 'An owner receives a certified copy of the pattadar landholding entry.', 'A certified copy of the current pattadar landholding entry from the revenue office.'), fields: [
-    { name: 'copies', label: 'How many copies', kind: 'number', required: true, options: [], help: '' },
-  ] },
-];
+ *  A hand copy drifted twice — first into four invented services, then to six
+ *  of the twelve — and every assertion about grouping, prices and what an
+ *  order delivers was testing a catalogue the product does not sell. A
+ *  fixture is allowed to choose the DATA; it is not allowed to invent the
+ *  SHAPE, and the catalogue is not fixture data. */
+const OFFERS = CATALOGUE.offers;
 
 const servicesOffered: Answer = (vars) => {
   const key = String(vars.key ?? '');
@@ -889,14 +1311,19 @@ const servicesOffered: Answer = (vars) => {
     : a.group.localeCompare(b.group)));
 };
 
+/** The order page's second step: each chosen record with the catalogue its
+ *  place offers. Every seeded record is in one place with no published
+ *  revision, so each gets the whole baseline; a test about a record priced or
+ *  limited elsewhere sets its own answer. */
+const servicesForRecords: Answer = (vars, query, world) => (
+  (vars.recordIds as string[] ?? []).map((recordId) => ({
+    recordId, offers: (servicesOffered as AnswerFn)({}, query, world),
+  }))
+);
+
 const CORRECTIONS = [
   { id: 'w-corr-1', field: 'Khata number', was: '1041', now: '1042', at: '2026-08-20', by: 'Shankar Reddy', note: 'Corrected from the adangal' },
   { id: 'w-corr-2', field: 'Owner name', was: 'T S Reddy', now: 'Telukutla Shankar Reddy', at: '2026-07-02', by: 'Shankar Reddy', note: '' },
-];
-
-const ASSIGNABLE = [
-  { id: 'w-asg-1', name: 'Ravi Kumar', role: 'Licensed surveyor', detail: 'Markapur · 14 jobs done' },
-  { id: 'w-asg-2', name: 'Srinivas', role: 'Document writer', detail: 'Markapur SRO' },
 ];
 
 // ── the switchboard ────────────────────────────────────────────────────
@@ -924,23 +1351,24 @@ const ASSIGNABLE = [
 // cold-start sentences, the reason somebody cannot be offered a job, and the
 // coverage gap — which are the three things an operator reads first.
 
-const DISCIPLINES = [
-  { key: 'surveyor', label: 'Licensed surveyor', blurb: '', kinds: ['survey'], areaGrain: 'village', credential: 'Survey licence', fanout: 3 },
-  { key: 'advocate', label: 'Advocate', blurb: '', kinds: ['title_opinion', 'opinion'], areaGrain: 'state', credential: 'Bar Council enrolment', fanout: 5 },
-  { key: 'writer', label: 'Document writer', blurb: '', kinds: ['ec', 'patta_copy', 'mutation'], areaGrain: 'mandal', credential: "Writer's licence", fanout: 4 },
-  { key: 'agent', label: 'Revenue agent', blurb: '', kinds: ['mutation', 'patta_copy', 'ec'], areaGrain: 'mandal', credential: '', fanout: 4 },
-  { key: 'photo_studio', label: 'Photo & drone studio', blurb: '', kinds: ['site_visit', 'visit'], areaGrain: 'mandal', credential: 'GST', fanout: 3 },
-  { key: 'caretaker', label: 'Caretaker', blurb: '', kinds: ['site_visit', 'visit', 'patta_copy'], areaGrain: 'village', credential: '', fanout: 3 },
-  { key: 'contractor', label: 'Fencing & earthwork', blurb: '', kinds: ['fencing'], areaGrain: 'village', credential: '', fanout: 3 },
-  { key: 'landscaper', label: 'Landscaping & plantation', blurb: '', kinds: ['fencing'], areaGrain: 'village', credential: '', fanout: 3 },
-  { key: 'labour', label: 'Labour & crew', blurb: '', kinds: ['fencing', 'visit'], areaGrain: 'village', credential: '', fanout: 2 },
-];
+/** The server's `disciplines`, generated with the catalogue (catalogue-dump.py). */
+const DISCIPLINES = CATALOGUE.disciplines;
 
 const area = (level: string, name: string) =>
   ({ id: `ar-${level}-${name}`.toLowerCase(), level, name, label: `${name} ${level}` });
 
+/** Fields the server sends on every associate as plain strings or numbers,
+ *  never null (web360.py `_associate_out`). Nobody seeded here has given an
+ *  address, been rated or started training. */
+const ASSOCIATE_DEFAULTS = {
+  addressLine: '', villageLocality: '', postOffice: '', mandalCity: '', district: '',
+  stateName: '', postalCode: '', addressLabel: '', addressComplete: false,
+  lastCompletedAt: '', ratingAverage: 0, ratingCount: 0, trainingState: '', trainingNote: '',
+};
+
 const ASSOCIATES = [
   {
+    ...ASSOCIATE_DEFAULTS,
     id: 'as-ravi', name: 'G. Srinivas', firm: 'Srinivas Surveys', initials: 'GS',
     contact: '9848012345', contactMasked: '••••••2345', contactVisible: true,
     state: 'active', stateWord: 'Taking work', stateState: 'ok', stateReason: '',
@@ -956,6 +1384,7 @@ const ASSOCIATES = [
     createdAt: '2026-08-02',
   },
   {
+    ...ASSOCIATE_DEFAULTS,
     id: 'as-anita', name: 'K. Anitha', firm: '', initials: 'KA',
     contact: '9701122334', contactMasked: '••••••2334', contactVisible: false,
     state: 'active', stateWord: 'Taking work', stateState: 'ok', stateReason: '',
@@ -969,6 +1398,7 @@ const ASSOCIATES = [
     acceptRate: 0, lastOfferedAt: '', note: '', createdAt: '2026-08-11',
   },
   {
+    ...ASSOCIATE_DEFAULTS,
     id: 'as-rajesh', name: 'M. Rajesh', firm: 'Rajesh Studio', initials: 'MR',
     contact: 'rajesh@example.com', contactMasked: 'r••••••@example.com', contactVisible: true,
     state: 'paused', stateWord: 'Paused', stateState: 'warn', stateReason: 'Away until October',
@@ -983,41 +1413,31 @@ const ASSOCIATES = [
   },
 ];
 
-const CARD_OF = (a: Record<string, unknown>) => ({
-  id: a.id, name: a.name, firm: a.firm, initials: a.initials,
-  disciplines: (a.disciplines as Record<string, unknown>[]).map((d) => d.key),
-  disciplineLabels: (a.disciplines as Record<string, unknown>[]).map((d) => d.label),
-  areas: (a.areas as Record<string, unknown>[]).map((x) => x.name),
-  verified: (a.credentials as unknown[]).length > 0,
-  jobsOpen: a.jobsOpen, jobsDone: a.jobsDone, acceptsMore: a.dispatchable,
-  why: a.dispatchable ? ['Covers Katragunta', 'Nothing in hand'] : (a.whyNot as string[]),
-});
-
 const DESK_JOBS = [
   {
-    ticketId: TICKET.placed, ref: 'W-2101', kind: 'ec', serviceLabel: 'Encumbrance Certificate',
-    place: 'Katragunta, Markapur', status: 'placed', statusLabel: 'Placed', statusState: 'ok',
+    ticketId: TICKET.placed, ref: 'PT-2101', kind: 'ec', serviceLabel: 'Encumbrance certificate',
+    place: 'Katragunta, Markapur', status: 'placed', statusLabel: 'Placed', statusState: 'unknown',
     assignee: '', assigneeRef: '', assigneeContact: '', orderedAt: '2026-09-09',
     ageDays: 4, dueDate: '2026-09-20', overdue: false, quiet: false, quietDays: 0,
     quoted: 1180, held: 0, dispatchState: '', dispatchRound: 0, nextRoundAt: '',
-    offersOut: 0, offersDeclined: 0, lastResponse: '', candidateCount: 2, stuck: false,
+    offersOut: 0, offersDeclined: 0, lastResponse: '', candidateCount: 2, stuck: false, askedAt: '',
   },
   {
-    ticketId: TICKET.assigned, ref: 'W-2102', kind: 'survey', serviceLabel: 'Boundary re-survey',
-    place: 'Katragunta, Markapur', status: 'assigned', statusLabel: 'Assigned', statusState: 'ok',
+    ticketId: TICKET.assigned, ref: 'PT-2102', kind: 'survey', serviceLabel: 'Boundary re-survey',
+    place: 'Katragunta, Markapur', status: 'assigned', statusLabel: 'Assigned', statusState: 'unknown',
     assignee: 'G. Srinivas', assigneeRef: 'as-ravi', assigneeContact: '9848012345',
     orderedAt: '2026-08-30', ageDays: 14, dueDate: '2026-09-25', overdue: false,
     quiet: true, quietDays: 9, quoted: 2900, held: 2900, dispatchState: '',
     dispatchRound: 0, nextRoundAt: '', offersOut: 0, offersDeclined: 0,
-    lastResponse: '', candidateCount: 2, stuck: false,
+    lastResponse: '', candidateCount: 2, stuck: false, askedAt: '',
   },
   {
-    ticketId: TICKET.onSite, ref: 'W-2103', kind: 'title_opinion', serviceLabel: 'Title opinion',
-    place: 'Kukatpally, Hyderabad', status: 'placed', statusLabel: 'Placed', statusState: 'ok',
+    ticketId: TICKET.onSite, ref: 'PT-2103', kind: 'title_opinion', serviceLabel: 'Title opinion',
+    place: 'Kukatpally, Hyderabad', status: 'placed', statusLabel: 'Placed', statusState: 'unknown',
     assignee: '', assigneeRef: '', assigneeContact: '', orderedAt: '2026-08-25',
     ageDays: 19, dueDate: '2026-09-30', overdue: false, quiet: false, quietDays: 0,
     quoted: 4500, held: 0, dispatchState: '', dispatchRound: 0, nextRoundAt: '',
-    offersOut: 0, offersDeclined: 0, lastResponse: '', candidateCount: 0, stuck: true,
+    offersOut: 0, offersDeclined: 0, lastResponse: '', candidateCount: 0, stuck: true, askedAt: '',
   },
 ];
 
@@ -1029,13 +1449,20 @@ const DESK = {
   coverageGaps: 1, tasksOpen: 0,
 };
 
+/** Where a coverage cell sits, keyed the way web360.py `_coverage_scope_key`
+ *  builds it: level|state|district|mandal, each folded to lower case. */
+const MANDAL_SCOPE = {
+  Markapur: { scopeKey: 'mandal|andhra pradesh|prakasam|markapur', stateKey: 'andhra pradesh', stateName: 'Andhra Pradesh', districtKey: 'prakasam', districtName: 'Prakasam', mandalKey: 'markapur', mandalName: 'Markapur' },
+  Hyderabad: { scopeKey: 'mandal|telangana|hyderabad|hyderabad', stateKey: 'telangana', stateName: 'Telangana', districtKey: 'hyderabad', districtName: 'Hyderabad', mandalKey: 'hyderabad', mandalName: 'Hyderabad' },
+} as const;
+
 const COVERAGE = [
-  { level: 'mandal', name: 'Markapur', discipline: 'surveyor', disciplineLabel: 'Licensed surveyor', activeCount: 1, openJobs: 1, records: 3, risk: '' },
-  { level: 'mandal', name: 'Markapur', discipline: 'writer', disciplineLabel: 'Document writer', activeCount: 0, openJobs: 1, records: 3, risk: 'gap' },
-  { level: 'mandal', name: 'Markapur', discipline: 'photo_studio', disciplineLabel: 'Photo & drone studio', activeCount: 0, openJobs: 0, records: 3, risk: 'empty' },
-  { level: 'mandal', name: 'Hyderabad', discipline: 'surveyor', disciplineLabel: 'Licensed surveyor', activeCount: 0, openJobs: 0, records: 1, risk: 'empty' },
-  { level: 'mandal', name: 'Hyderabad', discipline: 'advocate', disciplineLabel: 'Advocate', activeCount: 1, openJobs: 1, records: 1, risk: '' },
-  { level: 'mandal', name: 'Hyderabad', discipline: 'writer', disciplineLabel: 'Document writer', activeCount: 0, openJobs: 0, records: 1, risk: 'empty' },
+  { ...MANDAL_SCOPE.Markapur, level: 'mandal', name: 'Markapur', discipline: 'surveyor', disciplineLabel: 'Licensed surveyor', activeCount: 1, openJobs: 1, records: 3, risk: '' },
+  { ...MANDAL_SCOPE.Markapur, level: 'mandal', name: 'Markapur', discipline: 'writer', disciplineLabel: 'Document writer', activeCount: 0, openJobs: 1, records: 3, risk: 'gap' },
+  { ...MANDAL_SCOPE.Markapur, level: 'mandal', name: 'Markapur', discipline: 'photo_studio', disciplineLabel: 'Photo & drone studio', activeCount: 0, openJobs: 0, records: 3, risk: 'empty' },
+  { ...MANDAL_SCOPE.Hyderabad, level: 'mandal', name: 'Hyderabad', discipline: 'surveyor', disciplineLabel: 'Licensed surveyor', activeCount: 0, openJobs: 0, records: 1, risk: 'empty' },
+  { ...MANDAL_SCOPE.Hyderabad, level: 'mandal', name: 'Hyderabad', discipline: 'advocate', disciplineLabel: 'Advocate', activeCount: 1, openJobs: 1, records: 1, risk: '' },
+  { ...MANDAL_SCOPE.Hyderabad, level: 'mandal', name: 'Hyderabad', discipline: 'writer', disciplineLabel: 'Document writer', activeCount: 0, openJobs: 0, records: 1, risk: 'empty' },
 ];
 
 const ASSOCIATE_EVENTS = [
@@ -1065,6 +1492,7 @@ export const SEED: Record<string, Answer> = {
   properties,
   record: (vars) => recordOf(String(vars.id ?? '')),
   papers: (vars) => PAPERS[String(vars.id ?? '')] ?? [],
+  recordOverview: (vars, _q, world) => overviewOf(String(vars.id ?? ''), world),
   features: (vars) => (String(vars.id) === ID.parcel ? FEATURES : { ...FEATURES, total: 0, needsRepair: 0, features: [], categories: [], walkedOn: '', walkedBy: '' }),
   people: (vars) => (String(vars.id) === ID.parcel ? PEOPLE : { ...PEOPLE, count: 0, people: [], payments: [], monthlyOut: 0, seasonalIn: 0 }),
   boundary: (vars) => boundaryOf(String(vars.id ?? '')),
@@ -1085,17 +1513,21 @@ export const SEED: Record<string, Answer> = {
   search,
   vaultPapers,
   // Documents' own folders. None by default, so every screen that opens
-  // /app/papers draws the top level exactly as before folders existed.
+  // /papers draws the top level exactly as before folders existed.
   vaultFolders: [],
   // Documents asks for combined views so its filter can find a file through
   // the view its property belongs to. None by default.
   combinedProperties: [],
+  // A holding's Documents tab (Holding.tsx, `combinedPapers`). Nothing filed
+  // by default; the holding specs set their own.
+  combinedPapers: [],
   orders,
   ticket: (vars) => ticketOf(String(vars.id ?? '')),
+  // The desk's read of one order (DeskJob.tsx); null for a non-admin.
+  deskTicket: (vars) => deskTicketOf(String(vars.id ?? '')),
   wallet: WALLET,
   servicesOffered,
-  corrections: (vars) => (String(vars.id) === ID.parcel ? CORRECTIONS : []),
-  assignable: ASSIGNABLE.map((a) => a.name),
+  servicesForRecords,
   // W17 — the desk. `desk` answers null for a non-admin, which is what the
   // screens branch on, so a test that wants the refusal sets it to null.
   desk: (vars) => {
@@ -1114,11 +1546,14 @@ export const SEED: Record<string, Answer> = {
   },
   associate: (vars) => ASSOCIATES.find((a) => a.id === String(vars.id ?? '')) ?? null,
   associateEvents: () => ASSOCIATE_EVENTS,
+  // One member's jobs and training certificates (DeskAssociate.tsx). None by
+  // default; the server answers an empty list, never null.
+  associateJobs: () => [],
+  associateTrainingCertificates: () => [],
   coverage: () => COVERAGE,
   deskTasks: () => [],
   disciplines: () => DISCIPLINES,
   candidates: () => CANDIDATES,
-  associatesForTicket: () => ASSOCIATES.filter((a) => a.state === 'active').map(CARD_OF),
   // Published owner guidance (w360/GovernanceGuidance.tsx). Null is what the
   // API answers when nothing is published for the scope (web360.py
   // governance_policy), so the guidance card stays off the screens written
@@ -1128,16 +1563,58 @@ export const SEED: Record<string, Answer> = {
   owners: { owners: [{ id: 'w-owner-1', name: 'Shankar Reddy', initials: 'SR', parentage: 'T. Narayana Reddy', address: 'Katragunta, Markapur, Prakasam', role: 'Pattadar', isCurrent: true, acquiredVia: 'hereditary', photoRef: '' }], count: 1, currentName: 'Shankar Reddy' },
   // Chain of title (useTransfers). None recorded is the common case.
   transfers: { transfers: [], count: 0, unverifiedCount: 0 },
-  // Audit trail (RecordHead.tsx useRecordHistory). Empty is the common case
-  // — most records have not been changed since onboarding.
-  recordHistory: [],
+  // A property's Activity tab (Orders.tsx RecordHistory, `recordHistory`).
+  // Sy 214/2 carries its two corrections as the server words them; every
+  // other record has not been changed since it was added. (The app stopped
+  // asking for the old `corrections` field, so that answer is retired.)
+  recordHistory: (vars) => (String(vars.id) === ID.parcel
+    ? CORRECTIONS.map((c) => ({
+        id: c.id, action: 'record.corrected', detail: '', field: c.field,
+        was: c.was, now: c.now, at: `${c.at}T06:00:00Z`, by: c.by, source: '',
+      }))
+    : []),
   // Read through the ROOT schema rather than `web` — w360/api.ts useNotes, on
   // every record head — so it is keyed with world.ts's ROOT prefix. Without it
   // the world answered 400 and every record screen failed the console guard.
   'root.notes': [],
+  // A record made from a read deed keeps the reading as its first note
+  // (PropertyActions.tsx, root `addNote`). Same ROOT prefix as `notes`.
+  'root.addNote': { id: 'w-note-new' },
+  // A note is edited in place on its card (RecordNotes.tsx, root `updateNote`).
+  'root.updateNote': { id: 'w-note-1' },
   // Home reads the account's setup tasks (w360/SetupChecklist.tsx) through the
   // root schema on every visit. None by default, so the checklist stays away.
   'root.setupTasks': [],
+  // Home's Recent activity (data/hooks.ts useAuditTrail, Dashboard.tsx) and
+  // /audit read the cross-client audit trail through the root schema.
+  // Empty by default; a test about activity seeds its own AuditEventV2 rows.
+  'root.auditTrail': [],
+  // The other root-schema reads drawn screens make, each answered with what
+  // the server sends for an account that has nothing there yet:
+  // Families & groups, Invitations, Invite & earn, Profile and Tools.
+  'root.groups': [],
+  'root.invitations': [],
+  'root.myReferral': {
+    code: 'SHANKAR123', path: '/r/SHANKAR123', joined: 0, qualified: 0, creditsEarned: 0,
+    monthlyCap: 10, referredBy: '', rewards: [],
+  },
+  'root.me': {
+    id: 'owner', name: 'Shankar Reddy', email: '', address: '', language: 'en',
+    districtsOfInterest: '', notificationPrefs: 'email', kycRefMasked: '', mfaEnabled: false,
+    lastActiveAt: '2026-08-01T09:30:00',
+  },
+  'root.districts': [],
+  'root.sroOffices': [],
+  'root.feeSchedule': [],
+  'root.marketValues': [],
+  // An invitation link (/verify/:token, /i/:token — InvitePage via
+  // growthData.ts). A live beneficiary invite from the owner; a test about an
+  // expired or unknown link overrides it.
+  'root.invitePreview': () => ({
+    state: 'live', purpose: 'beneficiary', inviter: 'Shankar Reddy', expiresOn: '31/10/2026',
+    steps: ['Confirm your mobile number', 'Check the property you were named on'],
+    forGuardian: false, canVerifyWithoutAccount: true,
+  }),
 
   // writes — the happy answer for each, in the type api.ts expects back
   setTag: true,
@@ -1150,6 +1627,7 @@ export const SEED: Record<string, Answer> = {
   deletePhoto: true,
   setCoverPhoto: true,
   updatePaper: true,
+  updatePaperDetails: true,
   deleteExpense: true,
   addFeature: 'w-feat-new',
   updateFeature: true,
@@ -1161,7 +1639,26 @@ export const SEED: Record<string, Answer> = {
   revokeShareLink: true,
   extendShareLink: true,
   dismissWaiting: true,
+  holderChange: holderChangeOver(CARDS),
+  // Which holdings a delete would empty (web360 `deleteImpact`). No default
+  // card is in a holding, so no delete empties one.
+  deleteImpact: [],
+  // Combine on Properties (HoldingActions.tsx CombineDialog) answers the new
+  // holding's id.
+  createCombinedProperty: 'w-hold-new',
+  // A record made from a read deed also files the deed's parties and its
+  // transfer (PropertyActions.tsx); each write answers the new row's id.
+  addOwner: 'w-owner-new',
+  addTransfer: 'w-transfer-new',
+  setTransferParty: 'w-party-new',
+  setRecordHolder: holderChangeOver(CARDS),
   saveRecord: 'w-record-new',
+  // The Overview's writes (RecordOverview.tsx) each answer the fresh overview.
+  setRecordFields: (vars, _q, world) => overviewOf(String(vars.recordId ?? ''), world),
+  setAcquisition: (vars, _q, world) => overviewOf(String(vars.recordId ?? ''), world),
+  chooseFieldClaim: (vars, _q, world) => overviewOf(String(vars.recordId ?? ''), world),
+  fileDeedReading: (vars, _q, world) => overviewOf(String(vars.recordId ?? ''), world),
+  convertRecordKind: (vars, _q, world) => overviewOf(String(vars.recordId ?? ''), world),
   setPin: true,
   setBoundary: true,
   addMark: 'w-mark-new',
@@ -1172,27 +1669,38 @@ export const SEED: Record<string, Answer> = {
   archiveRecords: (vars) => ((vars.ids as string[]) ?? []).length,
   tagRecords: (vars) => ((vars.ids as string[]) ?? []).length,
   createRequest: 'w-req-new',
-  assignRequest: true,
   inviteAssociate: 'as-new',
   updateAssociate: true,
   setAssociateDisciplines: true,
   setAssociateAreas: true,
   setAssociateState: true,
   deleteUnclaimedAssociate: true,
-  assignAssociate: true,
   deskAssign: true,
   deskUnassign: true,
   setPlatformAdmin: true,
   closeDeskTask: true,
   createShareLink: 'w-link-new',
+  createDocumentShareLink: '/share/w-doclink-new',
   orderService: 1,
   fundTicket: 'w-led-hold-new',
-  dispatchTicket: 'w-dsp-new',
-  revokeDispatch: true,
-  startTicket: true,
-  addDeliverable: 'w-dlv-new',
+  postTicketMessage: true,
+  nudgeTicket: true,
+  rateAssociate: true,
+  deskDispatchTicket: 'w-dsp-new',
+  deskRevokeDispatch: true,
+  deskStartTicket: true,
+  deskAddDeliverable: 'w-dlv-new',
+  deskPostTicketMessage: true,
   reviewDeliverable: true,
-  acceptTicket: 1,
+  // web360.py accept_ticket: 0 while any item is undecided or when nothing
+  // was kept, else how many it filed.
+  acceptTicket: async (vars: Record<string, unknown>, _query: string, world: World) => {
+    const t = await world.current('ticket', { id: vars.ticketId }) as
+      { deliverables?: { review: string; filedId: string }[] } | null | undefined;
+    const items = t?.deliverables ?? [];
+    if (items.some((d) => d.review === 'pending')) return 0;
+    return items.filter((d) => d.review === 'accepted' && !d.filedId).length;
+  },
   sendBackTicket: true,
   cancelTicket: true,
 };
@@ -1251,10 +1759,24 @@ export function seedRest(world: World): void {
   world.route(/\/api\/gateway\/pattadar\/payments\/config/, () => ({
     json: { enabled: false, mode: 'off', live: false },
   }));
-  world.route(/\/api\/gateway\/pattadar\/payments\/tickets\//, () => ({
-    status: 409,
-    json: { error: 'Payments are switched off on this build.' },
-  }));
+  // One order's payment state. With payments off the real server
+  // (payments.py `_view`) answers 200 and `not_started` for a GET — it does
+  // not refuse — and refuses only the writes (checkout, verify).
+  world.route(/\/api\/gateway\/pattadar\/payments\/tickets\//, (route) => {
+    if (route.request().method() !== 'GET') {
+      return { status: 409, json: { error: 'Payments are switched off on this build.' } };
+    }
+    const id = new URL(route.request().url()).pathname.split('/').filter(Boolean).at(-1) ?? '';
+    const meta = KIND_OF[id];
+    return { json: {
+      status: 'not_started', title: meta?.title ?? 'Service', amount: (meta?.cost ?? 0) * 100,
+      currency: 'INR', mode: 'off', enabled: false, operations: [],
+    } };
+  });
+
+  // Sign-out revokes the media stream sessions (AuthProvider
+  // revokeMediaStreams). The gateway answers 204.
+  world.route(/\/api\/gateway\/storage\/stream-sessions$/, () => ({ status: 204 }));
 
   // No village maps have been uploaded. A map test that wants one seeds it.
   world.route(/\/api\/gateway\/pattadar\/village-maps/, (route) =>

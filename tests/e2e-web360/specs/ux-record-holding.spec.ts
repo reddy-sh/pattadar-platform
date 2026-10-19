@@ -20,8 +20,8 @@
  * data lands, and how big a control ends up after its padding, font and border
  * resolve.
  *
- * Scope. Both frames that share the tab-strip contract: `/app/records/:id`
- * (nine tabs) and `/app/holdings/:id` (six). The strips are read out of the DOM
+ * Scope. Both frames that share the tab-strip contract: `/properties/:id`
+ * (nine tabs) and `/holdings/:id` (six). The strips are read out of the DOM
  * rather than imported, so this file cannot drift from `TABS` /
  * `HOLDING_TABS`; `ux-guards.ts` already pins those inventories at nine and six.
  *
@@ -84,7 +84,7 @@ test.afterEach(async ({ request }) => {
 });
 
 async function combine(page: Pg, name: string): Promise<string> {
-  await page.goto('/app/properties?view=list');
+  await page.goto('/properties?view=table');
   await expect(page.locator('table.rectable tbody tr').first()).toBeVisible();
   for (const title of MEMBERS) {
     await page.getByRole('checkbox', { name: `Select ${title}` }).check();
@@ -94,9 +94,9 @@ async function combine(page: Pg, name: string): Promise<string> {
   await expect(dialog).toBeVisible();
   await dialog.getByLabel('What do you call it').fill(name);
   await dialog.getByRole('button', { name: /^Combine \d+ records$/ }).click();
-  await page.waitForURL(/\/app\/holdings\/cp-/);
+  await page.waitForURL(/\/holdings\/cp-/);
   await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
-  const id = page.url().split('/app/holdings/')[1].split(/[/?]/)[0];
+  const id = page.url().split('/holdings/')[1].split(/[/?]/)[0];
   MADE.push(id);
   return id;
 }
@@ -177,7 +177,7 @@ test.describe('every Record tab', () => {
 
   test('draws one main and one h1, and never skips a heading level', async ({ page }) => {
     await page.setViewportSize(DESKTOP);
-    await openTab(page, `/app/records/${RECORD}`);
+    await openTab(page, `/properties/${RECORD}`);
     for (const tab of await tabsOf(page)) {
       await openTab(page, tab.href);
       await expect(page.locator('main'), `${tab.label}: one main landmark`).toHaveCount(1);
@@ -194,7 +194,7 @@ test.describe('every Record tab', () => {
   test('never scrolls sideways, at desktop or on a phone', async ({ page }) => {
     for (const size of [DESKTOP, PHONE]) {
       await page.setViewportSize(size);
-      await openTab(page, `/app/records/${RECORD}`);
+      await openTab(page, `/properties/${RECORD}`);
       for (const tab of await tabsOf(page)) {
         await openTab(page, tab.href);
         const { scroll, client } = await overflowsSideways(page);
@@ -206,7 +206,7 @@ test.describe('every Record tab', () => {
 
   test('names every control that shows only an icon', async ({ page }) => {
     await page.setViewportSize(DESKTOP);
-    await openTab(page, `/app/records/${RECORD}`);
+    await openTab(page, `/properties/${RECORD}`);
     for (const tab of await tabsOf(page)) {
       await openTab(page, tab.href);
       expect(await unnamedControls(page),
@@ -216,7 +216,7 @@ test.describe('every Record tab', () => {
 
   test('paints a focus ring the keyboard can see', async ({ page }) => {
     await page.setViewportSize(DESKTOP);
-    await openTab(page, `/app/records/${RECORD}`);
+    await openTab(page, `/properties/${RECORD}`);
     // Tab strip first: it is the frame's own navigation and the first thing a
     // keyboard reaches inside the record.
     const first = page.locator('nav.tabs a').first();
@@ -236,7 +236,7 @@ test.describe('every Holding tab', () => {
   test('draws one main and one h1, and never skips a heading level', async ({ page }) => {
     await page.setViewportSize(DESKTOP);
     const id = await combine(page, 'UX audit holding');
-    await openTab(page, `/app/holdings/${id}`);
+    await openTab(page, `/holdings/${id}`);
     for (const tab of await tabsOf(page)) {
       await openTab(page, tab.href);
       await expect(page.locator('main'), `${tab.label}: one main landmark`).toHaveCount(1);
@@ -254,7 +254,7 @@ test.describe('every Holding tab', () => {
     const id = await combine(page, 'UX audit overflow');
     for (const size of [DESKTOP, PHONE]) {
       await page.setViewportSize(size);
-      await openTab(page, `/app/holdings/${id}`);
+      await openTab(page, `/holdings/${id}`);
       for (const tab of await tabsOf(page)) {
         await openTab(page, tab.href);
         const { scroll, client } = await overflowsSideways(page);
@@ -267,7 +267,7 @@ test.describe('every Holding tab', () => {
   test('names every control that shows only an icon', async ({ page }) => {
     await page.setViewportSize(DESKTOP);
     const id = await combine(page, 'UX audit names');
-    await openTab(page, `/app/holdings/${id}`);
+    await openTab(page, `/holdings/${id}`);
     for (const tab of await tabsOf(page)) {
       await openTab(page, tab.href);
       expect(await unnamedControls(page), `${tab.label}: unnamed icon control`).toEqual([]);
@@ -304,7 +304,7 @@ test.describe('the stage a viewport instrument actually fills', () => {
     // than as page margin, which is the point of the direction above. The number
     // is printed so a later decision to centre the drawing has a baseline.
     await page.setViewportSize(DESKTOP);
-    await openTab(page, `/app/records/${RECORD}/people`);
+    await openTab(page, `/properties/${RECORD}/people`);
 
     const canvas = page.locator('.ownerchain-canvas');
     await expect(canvas).toBeVisible();
@@ -351,7 +351,7 @@ test.describe('the stage a viewport instrument actually fills', () => {
     // the change can be scoped before it is made.
     test.fail();
     await page.setViewportSize(DESKTOP);
-    await openTab(page, `/app/records/${RECORD}`);
+    await openTab(page, `/properties/${RECORD}`);
 
     const offenders: string[] = [];
     for (const tab of await tabsOf(page)) {
@@ -375,7 +375,7 @@ test('filled-button counts per region, for the record', async ({ page }) => {
   // and this comment goes away.
   test.slow();
   await page.setViewportSize(DESKTOP);
-  await openTab(page, `/app/records/${RECORD}`);
+  await openTab(page, `/properties/${RECORD}`);
   const counted: string[] = [];
   for (const tab of await tabsOf(page)) {
     await openTab(page, tab.href);

@@ -25,7 +25,7 @@ whole:
     .local/api-venv/bin/python scripts/seed-record-features.py 987
     .local/api-venv/bin/python scripts/seed-record-features.py 987 --purge
 
-Takes a survey number ("987"), or a record id ("rec-a42d94525cc3"). The owner
+Takes a survey number ("987"), or a property id (a UUID, "0199d0c4-…"). The owner
 is read from the record itself, so it cannot write features into an account
 that does not hold the land.
 """
@@ -180,7 +180,7 @@ def find_record(conn, ref: str) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("record", help="survey number (987) or record id (rec-…)")
+    ap.add_argument("record", help="survey number (987) or property id (UUID)")
     ap.add_argument("--purge", action="store_true",
                     help="remove the features this script filed, and write none")
     args = ap.parse_args()

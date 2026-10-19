@@ -3,7 +3,7 @@ import ArrowForwardRounded from '@mui/icons-material/ArrowForwardRounded';
 import PlayCircleOutlineRounded from '@mui/icons-material/PlayCircleOutlineRounded';
 import { Link, Navigate, useParams } from 'react-router';
 import { PageMeta } from '../components/PageMeta';
-import { recordGuidePath, recordGuidesForState, recordVideoUrl } from '../data/recordGuides';
+import { hasRecordVideo, recordGuidePath, recordGuidesForState, recordVideoUrl } from '../data/recordGuides';
 import { publishedStateLandRecordBySlug } from '../data/stateLandRecords';
 
 export function RecordLibraryPage() {
@@ -36,8 +36,8 @@ export function RecordLibraryPage() {
       <section className="record-library-grid" aria-label={`${profile.name} record lessons`}>
         {guides.map((guide, index) => (
           <Link className="record-library-card" key={guide.slug} to={recordGuidePath(guide)}>
-            <div className="record-library-card__top"><span>{String(index + 1).padStart(2, '0')} / {String(guides.length).padStart(2, '0')}</span><PlayCircleOutlineRounded aria-hidden="true" /></div>
-            <img className="record-library-card__poster" src={recordVideoUrl(guide, 'jpg')} alt="" loading="lazy" />
+            <div className="record-library-card__top"><span>{String(index + 1).padStart(2, '0')} / {String(guides.length).padStart(2, '0')}</span>{hasRecordVideo(guide) && <PlayCircleOutlineRounded aria-hidden="true" />}</div>
+            {hasRecordVideo(guide) && <img className="record-library-card__poster" src={recordVideoUrl(guide, 'jpg')} alt="" loading="lazy" />}
             <span className="record-library-card__kind">{guide.kind}</span>
             <h2>{guide.title}</h2>
             <p>{guide.summary}</p>

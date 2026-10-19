@@ -12,12 +12,12 @@ test.describe.configure({ mode: 'serial' });
  *  a person to confirm a choice they had just made in a window that already
  *  showed them the names, the sizes and the thumbnails. What the panel was for
  *  is inline on those two hangers now — the size refusal, the stage line and the
- *  caption box beside the photograph it describes. */
+ *  caption box beside the photograph it describes. Notes is absent too: a note
+ *  is written in place, on the card it becomes (RecordNotes.tsx). */
 const shots: [string, string, string][] = [
-  ['features', `/app/records/${ID.parcel}/features`, 'Add a feature'],
-  ['people', `/app/records/${ID.parcel}/people`, 'Assign someone'],
-  ['notes', `/app/records/${ID.parcel}/notes`, 'Add a note'],
-  ['money', `/app/records/${ID.parcel}/money`, 'Record a cost'],
+  ['features', `/properties/${ID.parcel}/site-features`, 'Add a feature'],
+  ['people', `/properties/${ID.parcel}/people`, 'Assign someone'],
+  ['money', `/properties/${ID.parcel}/money`, 'Record a cost'],
 ];
 
 for (const [name, url, label] of shots) {
@@ -40,7 +40,7 @@ for (const [name, url, label] of shots) {
 
 test('drawer · the record add/edit drawer still works on the shared shell', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto('/app/properties');
+  await page.goto('/properties');
   await page.getByRole('button', { name: 'Add', exact: true }).click();
   const drawer = page.locator('aside.drawer');
   await expect(drawer.getByRole('heading', { name: 'Add a property' })).toBeVisible();
@@ -52,7 +52,7 @@ test('drawer · the record add/edit drawer still works on the shared shell', asy
 
 test('drawer · the expense drawer still works on the shared shell', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto(`/app/records/${ID.parcel}/expenses`);
+  await page.goto(`/properties/${ID.parcel}/expenses`);
   await page.getByRole('button', { name: 'Add an expense' }).first().click();
   const drawer = page.locator('aside.drawer');
   await expect(drawer.getByRole('heading', { name: 'Add an expense' })).toBeVisible();
@@ -64,7 +64,7 @@ test('drawer · a long form keeps its footer on screen', async ({ page }) => {
   // of one scrolling panel, so on a long form the way to save was to scroll
   // looking for it.
   await page.setViewportSize({ width: 1440, height: 700 });
-  await page.goto(`/app/records/${ID.parcel}/features`);
+  await page.goto(`/properties/${ID.parcel}/site-features`);
   await page.getByRole('button', { name: 'Add a feature' }).first().click();
   const drawer = page.locator('aside.drawer');
   const foot = drawer.locator('.drawerfoot');

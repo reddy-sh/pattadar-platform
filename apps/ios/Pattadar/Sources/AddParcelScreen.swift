@@ -37,7 +37,7 @@ struct AddParcelScreen: View {
                 Section {
                     ScanFirstCard(
                         title: "Read it from the deed",
-                        body_: "Photograph or upload the deed — the survey number, extent and classification are read from it.",
+                        body_: "Take a photo of the deed or upload it — the survey number, extent and classification are read from it.",
                         endpoint: .registeredDocument,
                         manualOpen: $manualOpen,
                         result: $scanned,
@@ -77,7 +77,7 @@ struct AddParcelScreen: View {
                             LabeledContent("Passbook", value: pb.pattadarNo)
                         }
                         FormRow(label: "Survey number", text: $surveyNo, prompt: "124", required: true)
-                        FormRow(label: "Sub-division", text: $subdivision, prompt: "1")
+                        FormRow(label: "Subdivision", text: $subdivision, prompt: "1")
                         LabeledContent("Extent") {
                             HStack(spacing: Space.sm) {
                                 TextField("0", text: $extent)

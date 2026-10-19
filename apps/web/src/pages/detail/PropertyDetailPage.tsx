@@ -500,7 +500,7 @@ export function PropertyDetailPage() {
     );
   const p = data.property;
   if (!p)
-    return <NotFoundCard what="Property" backTo="/app/parcels?tab=properties" backLabel="Back to Land & Properties" />;
+    return <NotFoundCard what="Property" backTo="/properties" backLabel="Back to Land & Properties" />;
 
   const def = propertyTypeDef(p.type);
   let attrs: Record<string, unknown> = {};
@@ -569,7 +569,7 @@ export function PropertyDetailPage() {
             <Field label="Current owner">{ownerName}</Field>
             <Field label="Family / group">
               {data.groupName ? (
-                <Link component={RouterLink} to="/app/groups">
+                <Link component={RouterLink} to="/groups">
                   👪 {data.groupName}
                 </Link>
               ) : (
@@ -726,7 +726,7 @@ export function PropertyDetailPage() {
       {tab === 'notes' && <NotesPanel entityType="property" entityId={id} />}
       {tab === 'audit' && <AuditTrailPanel target={id} />}
       <Box sx={{ mt: 2 }}>
-        <Link component="button" variant="body2" onClick={() => navigate('/app/parcels?tab=properties')}>
+        <Link component="button" variant="body2" onClick={() => navigate('/properties')}>
           ← Back to Land &amp; Properties
         </Link>
       </Box>
@@ -751,7 +751,7 @@ export function PropertyDetailPage() {
               void deleteProperty(id)
                 .then(() => {
                   refresh();
-                  navigate('/app/parcels?tab=properties');
+                  navigate('/properties');
                 })
                 .catch(() => notify("Couldn't delete — try again", true))
                 .finally(() => {

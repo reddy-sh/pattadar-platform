@@ -31,7 +31,7 @@ struct AddDocumentSheet: View {
                 Section {
                     ScanFirstCard(
                         title: "Read the document",
-                        body_: "Photograph or upload a deed, passbook or certificate. What it says is read and kept with it.",
+                        body_: "Take a photo of a deed, passbook or certificate, or upload it. What it says is read and kept with it.",
                         endpoint: .registeredDocument,
                         manualOpen: $manualOpen,
                         result: $scanned,
@@ -79,14 +79,14 @@ struct AddDocumentSheet: View {
             // the same sheet, a second original, or a scan made twice by
             // accident.
             .confirmationDialog(
-                "This paper is already in your vault",
+                "This document is already in Documents",
                 isPresented: Binding(get: { duplicate != nil },
                                      set: { if !$0 { duplicate = nil } }),
                 titleVisibility: .visible
             ) {
                 Button("Replace the one on file") { resolve(.replace) }
-                Button("File this as well") { resolve(.keepBoth) }
-                Button("Don’t file it", role: .cancel) { resolve(.discard) }
+                Button("Add this as well") { resolve(.keepBoth) }
+                Button("Do not add it", role: .cancel) { resolve(.discard) }
             } message: {
                 Text(duplicate?.match.because ?? "")
             }
@@ -119,7 +119,7 @@ struct AddDocumentSheet: View {
                 onFiled()
                 dismiss()
             } catch {
-                problem = "Couldn’t keep that file — \(error.localizedDescription)"
+                problem = "Could not keep that file. Try again."
             }
         }
     }
@@ -215,13 +215,13 @@ struct FileToVaultScreen: View {
                         }
                         .padding(.vertical, Space.xs)
                     } footer: {
-                        Text("An identity card, certificate or receipt is a paper, not a property — it goes into the vault and can be attached to land or a person any time.")
+                        Text("An identity card, certificate or receipt is a document, not a property — it goes into Documents and can be attached to land or a person any time.")
                     }
                     Section {
                         Button { file(scan) } label: {
                             HStack {
                                 if filing { ProgressView().padding(.trailing, Space.sm) }
-                                Label(filing ? "Filing…" : "File into the vault",
+                                Label(filing ? "Adding…" : "Add to Documents",
                                       systemImage: "lock.doc.fill")
                             }
                             .frame(maxWidth: .infinity)
@@ -233,7 +233,7 @@ struct FileToVaultScreen: View {
                     }
                 }
             }
-            .navigationTitle("File this paper")
+            .navigationTitle("Add a document")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -248,14 +248,14 @@ struct FileToVaultScreen: View {
                     .registeredDocuments ?? []
             }
             .confirmationDialog(
-                "This paper is already in your vault",
+                "This document is already in Documents",
                 isPresented: Binding(get: { duplicate != nil },
                                      set: { if !$0 { duplicate = nil } }),
                 titleVisibility: .visible
             ) {
                 Button("Replace the one on file") { resolve(replacing: true) }
-                Button("File this as well") { resolve(replacing: false) }
-                Button("Don’t file it", role: .cancel) { duplicate = nil }
+                Button("Add this as well") { resolve(replacing: false) }
+                Button("Do not add it", role: .cancel) { duplicate = nil }
             } message: {
                 Text(duplicate?.match.because ?? "")
             }

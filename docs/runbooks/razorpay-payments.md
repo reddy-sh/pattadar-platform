@@ -27,7 +27,7 @@ Subscribe to payment authorization/capture and order payment events, plus releva
 
 ## Funding and confirmation
 
-The owner opens `/app/services/<id>/pay` from the service. The old `/app/tickets/<id>/pay` redirects there permanently, because a shipped iOS build hard-codes it; the same id resolves either way, so that older shape in a log is not a fault. Native production order details also link to this web checkout, where the same account may need to sign in. The API derives the quote, currency and owner from the locked ticket; a browser cannot submit its own charge amount or another owner's ticket.
+The owner opens `/services/<id>/pay` from the service. The old `/app/services/<id>/pay` and `/app/tickets/<id>/pay` addresses no longer resolve (redirects removed 11/10/2026, design.md § Addresses and ids); an older shape in a log is from before that change. Open item for Reddy: the native iOS order screen (`apps/ios/Pattadar/Sources/ServicesScreen.swift`) still builds `app/tickets/<id>/pay`, so that link now lands on the not-found page until iOS moves to `/services/<id>/pay`. Native production order details also link to this web checkout, where the same account may need to sign in. The API derives the quote, currency and owner from the locked ticket; a browser cannot submit its own charge amount or another owner's ticket.
 
 `POST /payments/tickets/<id>/checkout` saves an intent and durable order operation before contacting Razorpay. One ticket has one intent. Order creation uses a stable unique receipt. If the response is lost, reconciliation scans provider orders from the original creation time for that receipt before considering a retry. An unresolved provider result never creates a second checkout promise.
 

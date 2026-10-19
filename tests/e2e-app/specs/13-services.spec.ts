@@ -5,13 +5,12 @@
  * money leaves the app on somebody else's word, so every screen here has to be
  * honest about what has actually been filed.
  *
- *   /app/services                  every order this account placed
- *   /app/assigned                  the ones sitting on your decision
- *   /app/order                     which land is this for — and nothing else
- *   /app/records/:id/services      the same rows, scoped to one record
- *   /app/records/:id/history       what has been corrected on that record
- *   /app/records/:id/order         the order itself, in four steps
- *   /app/records/:id/request       asking somebody outside to do a job
+ *   /services                  every order this account placed
+ *   /assigned                  the ones sitting on your decision
+ *   /order                     the one order flow: properties, services, review
+ *   /properties/:id/services      the same rows, scoped to one record
+ *   /properties/:id/activity       what has been corrected on that record
+ *   /properties/:id/request       asking somebody outside to do a job
  *
  * What a reader of this file should know before changing it:
  *
@@ -59,8 +58,8 @@
  *      has been corrected", which is the opposite of what happened.
  *   2. RequestWork.tsx:87-88 — and again, on the screen that promises the
  *      owner chooses exactly what leaves the record.
- *   3. Orders.tsx:61 — `useAssignable`'s error, the same way: the Assign-to
- *      select is left holding one option that does nothing, for ever.
+ *   3. (Retired 10/10/2026: the owner's Assign-to picker and its `assignable`
+ *      read left Orders.tsx when assigning became the desk's move.)
  *   4. RequestWork.tsx:205 — RAISE_FAILED is unreachable, so a request that
  *      died on the way back never tells the owner to look under Services
  *      before retrying, which is the whole point of that sentence.
@@ -73,7 +72,7 @@
  *      what is ticked. The order flow's own `Attachments`
  *      (OrderService.tsx:228-287) caps nothing, on the same data; the
  *      thirteenth photo on a record still cannot be sent from here.
- *   8. OrderService.tsx:1005-1006 — the receipt prints "It is job W-2199 ,
+ *   8. OrderService.tsx:1005-1006 — the receipt prints "It is job PT-2199 ,
  *      and we expect it back by …": JSX strips the newline between the
  *      reference and the fragment that opens with a space before its comma.
  *   9. OrderLand.tsx:66 and OrderService.tsx:122 — the only two callers of
@@ -132,10 +131,19 @@ const cardCount = (page: Page, title: string) =>
 /** One order row, named by its reference number.
  *
  *  Rows in `Rows` (Orders.tsx) are plain divs inside `.rows.boxed` — no role,
- *  no heading. The ref (W-2101 …) is unique per order and is printed on every
+ *  no heading. The ref (PT-2101 …) is unique per order and is printed on every
  *  row, so it is what names one. */
 const orderRow = (page: Page, ref: string) =>
   page.locator('.rows.boxed > div').filter({ hasText: ref });
+
+/** One order in the /services table, named by its reference number.
+ *  The ref is printed under the service name in the row's first cell. */
+const serviceRows = (page: Page) => page.getByRole('table', { name: 'Your service orders' }).locator('tbody tr');
+const serviceRow = (page: Page, ref: string) => serviceRows(page).filter({ hasText: ref });
+
+/** The property's own Service orders tab — every seeded order is against
+ *  Sy 214/2, so the trackable rows are all here. */
+const RECORD_SERVICES = `/properties/${ID.parcel}/services`;
 
 /** The orders a default `includeClosed: false` read answers with. */
 const OPEN_ORDERS = ORDERS.filter((o) => o.status !== 'accepted' && o.status !== 'cancelled');
@@ -172,96 +180,124 @@ const storedNode = (over: Record<string, unknown> = {}) => ({
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // ═══════════════════════════════════════════════════════════════════════
-// /app/services — everything you have ordered
+// /services — everything you have ordered
 // ═══════════════════════════════════════════════════════════════════════
 
 test.describe('Services', () => {
-  test('every order still running is on the list, with its stage, its status word and what it cost', async ({ page, world }) => {
-    await page.goto('/app/services');
+  // The list is a data table now (Orders.tsx OrderTable): one row per order,
+  // the service name as the row's link, the property as its own link, the
+  // status as one chip, the due date and the money. Tracking a job and
+  // putting somebody on it moved off this list — onto the order itself and
+  // onto the property's own Service orders tab, which still draws the
+  // trackable rows (`Rows`). Those tests follow the rows there, below.
+  test('Grid and Table show the same orders, and what is ticked in one stays ticked in the other', async ({ page }) => {
+    await page.goto('/services');
+    const table = page.getByRole('table', { name: 'Your service orders' });
+    await expect(table.locator('tbody tr').first()).toBeVisible();
+    const rows = await table.locator('tbody tr').count();
+    expect(rows).toBeGreaterThan(1);
+
+    await page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Grid' }).click();
+    await expect(page).toHaveURL(/[?&]view=grid/);
+    const cards = page.locator('.ordercard');
+    await expect(cards).toHaveCount(rows);
+    await cards.first().getByRole('checkbox').check();
+    await expect(page.getByRole('group', { name: 'Act on the selected orders' })).toContainText('1 order selected');
+
+    await page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Table' }).click();
+    await expect(table.locator('tbody tr').first().getByRole('checkbox')).toBeChecked();
+    await expect(table.locator('tfoot')).toContainText('1 order selected');
+  });
+
+  test('every order still running is on the list, with its status word, its due date and what it cost', async ({ page, world }) => {
+    await page.goto('/services');
 
     await expect(page.getByRole('heading', { name: 'Services', level: 1 })).toBeVisible();
     // Not "paid from your wallet, held in escrow": placing an order takes
-    // nothing from anybody, and funding is a separate later act on the ticket.
-    await expect(page.getByText(
-      'You pay only after you accept the work.',
-    )).toBeVisible();
+    // nothing from anybody, and funding is a separate later act on the order.
+    // A standing condition of ordering, so it sits behind the heading's ⓘ.
+    await expect(page.getByRole('button', { name: 'About Services' }))
+      .toHaveAccessibleDescription('You pay only after you accept the work.');
     // Six open jobs; the two closed ones are not asked for.
-    await expect(page.locator('.rows.boxed > div')).toHaveCount(6);
-    for (const ref of ['W-2101', 'W-2102', 'W-2103', 'W-2104', 'W-2105', 'W-2106']) {
-      await expect(orderRow(page, ref)).toBeVisible();
+    await expect(serviceRows(page)).toHaveCount(6);
+    for (const ref of ['PT-2101', 'PT-2102', 'PT-2103', 'PT-2104', 'PT-2105', 'PT-2106']) {
+      await expect(serviceRow(page, ref)).toBeVisible();
     }
-    await expect(orderRow(page, 'W-2098')).toHaveCount(0);
+    await expect(serviceRow(page, 'PT-2098')).toHaveCount(0);
 
-    const survey = orderRow(page, 'W-2102');
+    const survey = serviceRow(page, 'PT-2102');
     await expect(survey).toContainText('Corner survey');
-    await expect(survey).toContainText('Establish 8 corners');
     await expect(survey).toContainText('Assigned');
     await expect(survey).toContainText('₹6,500');
-    // What is actually set aside on the job, which is not the same claim as
-    // what it was quoted at.
-    await expect(survey).toContainText('₹6,500 set aside');
-    await expect(survey).toContainText('2026-09-25');
+    // What is actually held on the job, which is not the same claim as what
+    // it was quoted at. "Held" is the wallet's word (design.md, Wallet movement).
+    await expect(survey).toContainText('₹6,500 held');
+    // Dates are DD/MM/YYYY on every surface (naming standard U4).
+    await expect(survey).toContainText('25/09/2026');
 
     // A job nobody has funded is quoted but holds nothing.
-    const ec = orderRow(page, 'W-2101');
+    const ec = serviceRow(page, 'PT-2101');
     await expect(ec).toContainText('₹1,200');
-    await expect(ec).not.toContainText('set aside');
+    await expect(ec).not.toContainText('held');
 
     expect(world.calls('orders').map((c) => c.vars))
       .toContainEqual({ recordId: null, includeClosed: false });
   });
 
-  test('the two states an owner acts on are said in words, not left to the pips', async ({ page }) => {
-    await page.goto('/app/services');
+  test('the two states an owner acts on are said in words', async ({ page }) => {
+    await page.goto('/services');
 
-    // "Sent out" and "Waiting on you" have no pip of their own — they are the
-    // reason the status word sits beside the rail at all.
-    await expect(orderRow(page, 'W-2106')).toContainText('Sent out');
-    const waiting = orderRow(page, 'W-2105');
+    // "Sent back" and "Waiting on you" have no pip of their own — they are the
+    // reason the status is a word at all. The words are the server's owner
+    // words (ticketing.owner_label): the desk's "Sent out" never reaches here.
+    await expect(serviceRow(page, 'PT-2104')).toContainText('Sent back');
+    await expect(serviceRow(page, 'PT-2106')).toContainText('Assigned');
+    await expect(page.getByText('Sent out')).toHaveCount(0);
+    const waiting = serviceRow(page, 'PT-2105');
     // One status per order, said once: "Needs you" used to be a second pill
     // beside "Waiting on you", the same fact twice (Orders.tsx statusOf).
     await expect(waiting).toContainText('Waiting on you');
     await expect(waiting).not.toContainText('Needs you');
     await expect(waiting).toContainText('2 to review');
     // And a job nobody is waiting on carries neither.
-    await expect(orderRow(page, 'W-2103')).not.toContainText('Waiting on you');
+    await expect(serviceRow(page, 'PT-2103')).not.toContainText('Waiting on you');
   });
 
   test('each row says which property it is against, and that name is the way in', async ({ page }) => {
-    await page.goto('/app/services');
-    const link = orderRow(page, 'W-2102').getByRole('link', { name: 'Sy 214/2' });
-    await expect(link).toHaveAttribute('href', `/app/records/${ID.parcel}`);
+    await page.goto('/services');
+    const link = serviceRow(page, 'PT-2102').getByRole('link', { name: 'Sy 214/2' });
+    await expect(link).toHaveAttribute('href', `/properties/${ID.parcel}`);
   });
 
   test('a finished job only appears when I ask for everything', async ({ page, world }) => {
-    await page.goto('/app/services');
-    await expect(orderRow(page, 'W-2098')).toHaveCount(0);
+    await page.goto('/services');
+    await expect(serviceRow(page, 'PT-2098')).toHaveCount(0);
 
-    await page.getByRole('button', { name: 'All' }).click();
+    await page.getByRole('button', { name: 'All', exact: true }).click();
 
     await expect.poll(() => world.calls('orders').some((c) => c.vars.includeClosed === true)).toBe(true);
     expect(world.lastVars('orders')).toMatchObject({ recordId: null, includeClosed: true });
 
-    await expect(page.locator('.rows.boxed > div')).toHaveCount(8);
-    await expect(orderRow(page, 'W-2098')).toContainText('Done');
-    await expect(orderRow(page, 'W-2099')).toContainText('Cancelled');
+    await expect(serviceRows(page)).toHaveCount(8);
+    await expect(serviceRow(page, 'PT-2098')).toContainText('Accepted');
+    await expect(serviceRow(page, 'PT-2099')).toContainText('Cancelled');
     // A closed job has no due date to hold anybody to.
-    await expect(orderRow(page, 'W-2098')).not.toContainText('2026-09-25');
+    await expect(serviceRow(page, 'PT-2098')).not.toContainText('25/09/2026');
   });
 
   test('the Open chip puts the finished work away again, without a second round trip', async ({ page, world }) => {
-    await page.goto('/app/services');
-    await page.getByRole('button', { name: 'All' }).click();
-    await expect(orderRow(page, 'W-2098')).toBeVisible();
+    await page.goto('/services');
+    await page.getByRole('button', { name: 'All', exact: true }).click();
+    await expect(serviceRow(page, 'PT-2098')).toBeVisible();
     const asked = world.calls('orders').length;
 
     await page.getByRole('button', { name: 'Open', exact: true }).click();
 
-    await expect(page.locator('.rows.boxed > div')).toHaveCount(6);
-    await expect(orderRow(page, 'W-2098')).toHaveCount(0);
+    await expect(serviceRows(page)).toHaveCount(6);
+    await expect(serviceRow(page, 'PT-2098')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Open', exact: true }))
       .toHaveAttribute('aria-pressed', 'true');
-    await expect(page.getByRole('button', { name: 'All' }))
+    await expect(page.getByRole('button', { name: 'All', exact: true }))
       .toHaveAttribute('aria-pressed', 'false');
     // The open list was already held under its own key, so going back to it
     // costs nothing — the two chips are two queries, not one query re-asked.
@@ -269,23 +305,63 @@ test.describe('Services', () => {
   });
 
   test('a row opens its own service', async ({ page }) => {
-    await page.goto('/app/services');
-    await expect(orderRow(page, 'W-2101').getByRole('link', { name: 'Open order' }))
-      .toHaveAttribute('href', `/app/services/${TICKET.placed}`);
-    await expect(page.getByRole('link', { name: 'Open order' })).toHaveCount(6);
+    await page.goto('/services');
+    // The service name is the row's real link (Orders.tsx OrderTable), so a
+    // keyboard gets the same target the pointer does.
+    await expect(serviceRow(page, 'PT-2101').getByRole('link', { name: 'Encumbrance certificate' }))
+      .toHaveAttribute('href', `/services/${TICKET.placed}`);
+    await expect(serviceRows(page).locator('td:nth-child(2) > a')).toHaveCount(6);
+  });
+
+  test('the list pages and totals every order the filter lets through', async ({ page, world }) => {
+    // 25 open orders: past one page of 20, and the footer adds up all 25.
+    const many = Array.from({ length: 25 }, (_, i) => ({
+      ...OPEN_ORDERS[0], id: `bulk-${i}`, ref: `PT-3${String(i).padStart(3, '0')}`,
+      batchId: '', batchRef: '', cost: 1000, held: i < 2 ? 500 : 0,
+    }));
+    world.set('orders', ordersAnswer(many));
+    await page.goto('/services');
+
+    await expect(serviceRows(page)).toHaveCount(20);
+    const foot = page.getByRole('table', { name: 'Your service orders' }).locator('tfoot tr');
+    await expect(foot.getByRole('rowheader')).toHaveText('Total · 25 orders');
+    await expect(foot).toContainText('₹25,000');
+    await expect(foot).toContainText('₹1,000 held');
+    const pager = page.getByRole('navigation', { name: 'Service order pages' });
+    await expect(pager).toContainText('1–20 of 25');
+    await pager.getByRole('button', { name: 'Next' }).click();
+    await expect(serviceRows(page)).toHaveCount(5);
+    await expect(pager).toContainText('21–25 of 25');
+  });
+
+  test('ticking two orders sums them in the footer and offers them for export', async ({ page }) => {
+    await page.goto('/services');
+    const rows = [serviceRow(page, 'PT-2101'), serviceRow(page, 'PT-2102')];
+    for (const row of rows) await row.getByRole('checkbox').check();
+    // The tick box is a control: ticking does not open the order.
+    await expect(page).toHaveURL('/services');
+
+    const foot = page.getByRole('table', { name: 'Your service orders' }).locator('tfoot tr');
+    await expect(foot.getByRole('rowheader')).toHaveText('2 orders selected');
+    const costs = await Promise.all(rows.map(async (row) =>
+      Number((await row.locator('td').nth(5).innerText()).split('\n')[0].replace(/[^0-9]/g, ''))));
+    await expect(foot.locator('td.num')).toContainText(`₹${(costs[0] + costs[1]).toLocaleString('en-IN')}`);
+    const bar = page.getByRole('group', { name: 'Act on the selected orders' });
+    await expect(bar.getByRole('status')).toHaveText('2 orders selected');
+    await expect(bar.getByRole('button', { name: 'Export' })).toBeVisible();
+    await bar.getByRole('button', { name: 'Clear' }).click();
+    await expect(foot.getByRole('rowheader')).toHaveText(/^Total · /);
   });
 
   test('following a row through lands on that service and opens its own job, not the list again', async ({ page }) => {
-    // The route moved to /app/services/:id and the old /app/tickets/:id is a
-    // redirect kept alive for a shipped phone binary. The row must send the
-    // owner to the new path directly — a link that pays a redirect on every
-    // press is a link that will be the last one fixed when the redirect goes.
-    await page.goto('/app/services');
+    // The route moved to /services/:id and the old /tickets/:id is gone, so
+    // the row must send the owner to the new path.
+    await page.goto('/services');
 
-    await orderRow(page, 'W-2101').getByRole('link', { name: 'Open order' }).click();
+    await serviceRow(page, 'PT-2101').getByRole('link', { name: 'Encumbrance certificate' }).click();
 
-    await expect(page).toHaveURL(`/app/services/${TICKET.placed}`);
-    // W-2101 is the encumbrance certificate and W-2102 is the corner survey,
+    await expect(page).toHaveURL(`/services/${TICKET.placed}`);
+    // PT-2101 is the encumbrance certificate and PT-2102 is the corner survey,
     // so the heading is what proves the row opened ITS job and not a
     // neighbour's.
     await expect(page.getByRole('heading', { level: 1, name: 'Encumbrance certificate' }))
@@ -294,292 +370,65 @@ test.describe('Services', () => {
     // not the browser button.
     const crumbs = page.getByRole('navigation', { name: 'Breadcrumb' });
     await expect(crumbs.getByRole('link', { name: 'Services' }))
-      .toHaveAttribute('href', '/app/services');
-    await expect(crumbs).toContainText('W-2101');
+      .toHaveAttribute('href', '/services');
+    await expect(crumbs).toContainText('PT-2101');
   });
 
-  test('where a job has got to can be read without leaving the list', async ({ page }) => {
-    await page.goto('/app/services');
-    const row = orderRow(page, 'W-2102');
-    const track = row.getByRole('button', { name: 'Track' });
-    await expect(track).toHaveAttribute('aria-expanded', 'false');
+  test('a click anywhere on a row that is not its own control opens the order', async ({ page }) => {
+    await page.goto('/services');
 
-    await track.click();
+    await serviceRow(page, 'PT-2102').locator('td').nth(4).click();
 
-    await expect(row).toContainText('Assigned · due 2026-09-25 · with Ravi Kumar, licensed surveyor');
-    await expect(row.getByRole('button', { name: 'Hide' })).toHaveAttribute('aria-expanded', 'true');
-
-    await row.getByRole('button', { name: 'Hide' }).click();
-    await expect(row).not.toContainText('due 2026-09-25 · with Ravi Kumar');
+    await expect(page).toHaveURL(`/services/${TICKET.assigned}`);
   });
 
-  test('tracking a second job puts the first one away, so two panels cannot be read against each other', async ({ page }) => {
-    await page.goto('/app/services');
-    await orderRow(page, 'W-2102').getByRole('button', { name: 'Track' }).click();
-    await expect(orderRow(page, 'W-2102')).toContainText('Assigned · due 2026-09-25 · with Ravi Kumar');
-
-    await orderRow(page, 'W-2103').getByRole('button', { name: 'Track' }).click();
-
-    await expect(orderRow(page, 'W-2103')).toContainText('On site · due 2026-09-25 · with Ravi Kumar');
-    await expect(orderRow(page, 'W-2102')).not.toContainText('with Ravi Kumar');
-    await expect(orderRow(page, 'W-2102').getByRole('button', { name: 'Track' }))
-      .toHaveAttribute('aria-expanded', 'false');
-  });
-
-  test('a job somebody already holds names who has it instead of offering to hand it out again', async ({ page }) => {
-    await page.goto('/app/services');
-    const row = orderRow(page, 'W-2102');
-    await row.getByRole('button', { name: 'Track' }).click();
-
-    await expect(row).toContainText('with Ravi Kumar, licensed surveyor');
-    // The picker is for a job nobody is on. Offering it here would be a second
-    // way to reassign work that the one-service screen already owns.
-    await expect(row.getByLabel('Assign to')).toHaveCount(0);
-    await expect(row).not.toContainText('Never assigned.');
-  });
-
-  test('an order placed before the form asked anything says so instead of showing a blank', async ({ page }) => {
-    await page.goto('/app/services');
-    await orderRow(page, 'W-2103').getByRole('button', { name: 'Track' }).click();
-    await expect(orderRow(page, 'W-2103'))
-      .toContainText('No details recorded.');
-  });
-
-  test('the answers I gave are readable back off the row', async ({ page, world }) => {
-    world.set('orders', OPEN_ORDERS.map((o) => (o.id === TICKET.onSite
-      ? { ...o, params: JSON.stringify({ how_many_corners: '8', anything_else: '  ' }) }
-      : o)));
-    await page.goto('/app/services');
-
-    await orderRow(page, 'W-2103').getByRole('button', { name: 'Track' }).click();
-    const row = orderRow(page, 'W-2103');
-    await expect(row).toContainText('How many corners');
-    await expect(row).toContainText('8');
-    // An answer nobody filled in is not a line on the sheet.
-    await expect(row).not.toContainText('Anything else');
-  });
-
-  test('an order whose answers cannot be read still shows its stage', async ({ page, world }) => {
-    world.set('orders', OPEN_ORDERS.map((o) => (o.id === TICKET.onSite ? { ...o, params: 'not json' } : o)));
-    await page.goto('/app/services');
-
-    await orderRow(page, 'W-2103').getByRole('button', { name: 'Track' }).click();
-    await expect(orderRow(page, 'W-2103')).toContainText('On site');
-    await expect(orderRow(page, 'W-2103'))
-      .toContainText('No details recorded.');
-  });
-
-  test('a job nobody is on yet is where somebody is put on it', async ({ page, world }) => {
-    await page.goto('/app/services');
-    await orderRow(page, 'W-2101').getByRole('button', { name: 'Track' }).click();
-
-    const picker = orderRow(page, 'W-2101').getByLabel('Assign to');
-    await expect(picker).toBeVisible();
-    await expect.poll(() => world.asked('assignable')).toBe(true);
-    // The names are the ones this account has already handed work to.
-    await expect(picker.locator('option')).toHaveText(['Nobody yet', 'Ravi Kumar', 'Srinivas']);
-
-    await picker.selectOption('Ravi Kumar');
-
-    await expect.poll(() => world.calls('assignRequest')).toHaveLength(1);
-    expect(world.lastVars('assignRequest'))
-      .toMatchObject({ requestId: TICKET.placed, assignee: 'Ravi Kumar' });
-  });
-
-  test('the name that took is on the row straight away, without a reload', async ({ page, world }) => {
-    // The row only changes because the mutation invalidates the w360 key
-    // (api.ts useW360Mutation onSuccess) and the list is read again. The world
-    // answers the second read with the name on it, which is what the server
-    // would do.
-    let assigned = false;
-    world.set('assignRequest', () => { assigned = true; return true; });
-    world.set('orders', (vars) => ordersAnswer(ORDERS.map((o) => (o.id === TICKET.placed && assigned
-      ? { ...o, assignee: 'Srinivas, document writer' }
-      : o)))(vars));
-    await page.goto('/app/services');
-    const row = orderRow(page, 'W-2101');
-    await row.getByRole('button', { name: 'Track' }).click();
-
-    await row.getByLabel('Assign to').selectOption('Srinivas');
-
-    await expect(row).toContainText('with Srinivas, document writer');
-    await expect(row.getByLabel('Assign to')).toHaveCount(0);
-  });
-
-  test('a row whose names have not arrived yet does not claim there is nobody to pick', async ({ page, world }) => {
-    // `people` is undefined both while the read is in flight and when it
-    // failed; only a resolved empty array is an answer about this account.
-    world.set('assignable', World.never());
-    await page.goto('/app/services');
-    await orderRow(page, 'W-2101').getByRole('button', { name: 'Track' }).click();
-
-    const picker = orderRow(page, 'W-2101').getByLabel('Assign to');
-    await expect(picker).toBeVisible();
-    await expect(picker.locator('option')).toHaveText(['Nobody yet']);
-    await expect(orderRow(page, 'W-2101'))
-      .not.toContainText('Nobody has worked on your records yet');
-  });
-
-  test('names that could not be read leave the picker empty rather than saying nobody has ever worked here', async ({ page, world }) => {
-    world.set('assignable', World.gqlError('the people store is down'));
-    await page.goto('/app/services');
-    await orderRow(page, 'W-2101').getByRole('button', { name: 'Track' }).click();
-
-    const picker = orderRow(page, 'W-2101').getByLabel('Assign to');
-    await expect(picker.locator('option')).toHaveText(['Nobody yet']);
-    // It says nothing about why it is empty either — `useAssignable`'s error is
-    // never read (Orders.tsx:61). That is a silent control, not a lying one, so
-    // it is recorded here rather than as a defect: what must not happen is the
-    // sentence below, which would blame the owner's own history for an outage.
-    await expect(orderRow(page, 'W-2101'))
-      .not.toContainText('Nobody has worked on your records yet');
-  });
-
-  test('putting the picker back to nobody files nothing', async ({ page, world }) => {
-    await page.goto('/app/services');
-    const row = orderRow(page, 'W-2101');
-    await row.getByRole('button', { name: 'Track' }).click();
-    const picker = row.getByLabel('Assign to');
-
-    await picker.selectOption('Ravi Kumar');
-    await expect.poll(() => world.calls('assignRequest')).toHaveLength(1);
-    await picker.selectOption('');          // "Nobody yet" — not a name
-    await picker.selectOption('Srinivas');
-
-    await expect.poll(() => world.calls('assignRequest')).toHaveLength(2);
-    expect(world.calls('assignRequest').map((c) => c.vars.assignee))
-      .toEqual(['Ravi Kumar', 'Srinivas']);
-  });
-
-  test('while somebody is being put on a job the picker is shut and says what is happening', async ({ page, world }) => {
-    world.set('assignRequest', World.slow(1500, true));
-    await page.goto('/app/services');
-    const row = orderRow(page, 'W-2101');
-    await row.getByRole('button', { name: 'Track' }).click();
-
-    await row.getByLabel('Assign to').selectOption('Ravi Kumar');
-
-    await expect(row).toContainText('Putting them on it…');
-    await expect(row.getByLabel('Assign to')).toBeDisabled();
-    // And when it lands the row stops saying it, rather than sitting there.
-    await expect(row).not.toContainText('Putting them on it…');
-    await expect(row.getByRole('alert')).toHaveCount(0);
-  });
-
-  test('a second name that the machine does take clears the refusal from the first', async ({ page, world }) => {
-    world.set('assignRequest', (vars) => vars.assignee === 'Ravi Kumar');
-    await page.goto('/app/services');
-    const row = orderRow(page, 'W-2101');
-    await row.getByRole('button', { name: 'Track' }).click();
-
-    await row.getByLabel('Assign to').selectOption('Srinivas');
-    await expect(row.getByRole('alert')).toContainText('That did not go through.');
-
-    await row.getByLabel('Assign to').selectOption('Ravi Kumar');
-
-    await expect(row.getByRole('alert')).toHaveCount(0);
-    expect(world.calls('assignRequest').map((c) => c.vars.assignee))
-      .toEqual(['Srinivas', 'Ravi Kumar']);
-  });
-
-  test('a name the machine will not take is put back, and the row says so', async ({ page, world }) => {
-    world.set('assignRequest', false);
-    await page.goto('/app/services');
-    await orderRow(page, 'W-2101').getByRole('button', { name: 'Track' }).click();
-
-    const picker = orderRow(page, 'W-2101').getByLabel('Assign to');
-    await picker.selectOption('Srinivas');
-
-    await expect(orderRow(page, 'W-2101').getByRole('alert')).toContainText(
-      'That did not go through. Nothing on this job has changed — reload the page and try again.',
-    );
-    // The select is uncontrolled, so the name that did not take must not sit
-    // there looking saved.
-    await expect(picker).toHaveValue('');
-  });
-
-  test('an assignment that never reached the server says the same thing, and says why', async ({ page, world }) => {
-    world.set('assignRequest', World.gqlError('the work queue is down'));
-    await page.goto('/app/services');
-    await orderRow(page, 'W-2101').getByRole('button', { name: 'Track' }).click();
-    await orderRow(page, 'W-2101').getByLabel('Assign to').selectOption('Ravi Kumar');
-
-    await expect(orderRow(page, 'W-2101').getByRole('alert'))
-      .toContainText('That did not go through.');
-    // The reason itself arrives as a toast from the shared mutation helper.
-    const toast = page.locator('.toast').filter({ hasText: 'That assignment' });
-    await expect(toast).toContainText('That assignment could not be saved. Nothing has changed.');
-    await expect(toast).toContainText('the work queue is down');
-  });
-
-  test('closing the panel is how the failed assignment is cleared', async ({ page, world }) => {
-    world.set('assignRequest', false);
-    await page.goto('/app/services');
-    const row = orderRow(page, 'W-2101');
-    await row.getByRole('button', { name: 'Track' }).click();
-    await row.getByLabel('Assign to').selectOption('Ravi Kumar');
-    await expect(row.getByRole('alert')).toBeVisible();
-
-    await row.getByRole('button', { name: 'Hide' }).click();
-    await row.getByRole('button', { name: 'Track' }).click();
-
-    await expect(row.getByRole('alert')).toHaveCount(0);
-  });
-
-  test('an account with nobody to hand work to is told so, not given a picker that cannot do anything', async ({ page, world }) => {
-    world.set('assignable', []);
-    await page.goto('/app/services');
-    await orderRow(page, 'W-2101').getByRole('button', { name: 'Track' }).click();
-
-    // The whole sentence: it is not enough to say there is nobody, because the
-    // job still has to reach a surveyor. The way through is named.
-    await expect(orderRow(page, 'W-2101')).toContainText(
-      'No providers yet.',
-    );
-    await expect(orderRow(page, 'W-2101').getByLabel('Assign to')).toHaveCount(0);
-  });
-
-  test('a job that is over says nobody was ever on it rather than offering a picker', async ({ page }) => {
-    await page.goto('/app/services');
-    await page.getByRole('button', { name: 'All' }).click();
-
-    const row = orderRow(page, 'W-2099');
-    await row.getByRole('button', { name: 'Track' }).click();
-
-    await expect(row).toContainText('Never assigned.');
-    await expect(row.getByLabel('Assign to')).toHaveCount(0);
-  });
-
-  test('nothing on order says so, and offers the finished work rather than a filter chip over an empty box', async ({ page, world }) => {
+  test('an account that has never ordered gets the title and one way in, not a band over an empty box', async ({ page, world }) => {
     world.set('orders', []);
-    await page.goto('/app/services');
-
-    await expect(page.getByText('No open orders')).toBeVisible();
-    // The chip row is gone: the one question an empty Open list raises is
-    // answered by the button inside the empty state.
-    await expect(page.getByRole('button', { name: 'Open', exact: true })).toHaveCount(0);
-
-    await page.getByRole('button', { name: 'All' }).click();
+    await page.goto('/services');
 
     await expect(page.getByText('No orders yet')).toBeVisible();
-    // Asked for everything, the chips are back — there is somewhere to go.
-    await expect(page.getByRole('button', { name: 'Open', exact: true })).toBeVisible();
+    // First-run empty (design.md § Page head, "Empty states"): no band, no
+    // summary and no head action — the card carries the one filled add.
+    await expect(page.locator('.filterbar')).toHaveCount(0);
+    await expect(page.locator('.pagehead-summary')).toHaveCount(0);
+    await expect(page.locator('.pagehead .actions')).toHaveCount(0);
+    const add = page.getByRole('main').getByRole('link', { name: 'Order a service' });
+    await expect(add).toHaveCount(1);
+    await expect(add).toHaveClass(/\bprimary\b/);
+  });
+
+  test('nothing open says so, and offers the finished work from the card', async ({ page, world }) => {
+    const done = { ...OPEN_ORDERS[0], status: 'accepted' };
+    world.set('orders', ordersAnswer([done]));
+    await page.goto('/services');
+
+    await expect(page.getByText('No open orders')).toBeVisible();
+    // Filtered empty: the head and band stay as when populated, the filled
+    // add included, and the card offers the way out.
+    await expect(page.locator('.pagehead .btn.primary')).toHaveText('Order a service');
+    const which = page.getByRole('group', { name: 'Which orders' });
+    await expect(which.getByRole('button', { name: 'Open', exact: true })).toHaveAttribute('aria-pressed', 'true');
+
+    await page.locator('.blank').getByRole('button', { name: 'Show all' }).click();
+
+    await expect(which.getByRole('button', { name: 'All', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(serviceRows(page)).toHaveCount(1);
   });
 
   test('a list still loading does not claim there is nothing on order', async ({ page, world }) => {
     world.set('orders', World.never());
-    await page.goto('/app/services');
+    await page.goto('/services');
 
-    await expect(page.getByText('Loading…')).toBeVisible();
+    await expect(page.getByRole('status', { name: 'Loading your service orders' })).toBeVisible();
     await expect(page.getByText('No open orders')).toHaveCount(0);
-    await expect(page.getByText('Work you have ordered did not load')).toHaveCount(0);
+    await expect(page.getByText('Your service orders did not load')).toHaveCount(0);
   });
 
   test('a list that did not load says so, says nothing was lost, and prints the reason', async ({ page, world }) => {
     world.set('orders', World.gqlError('the work queue is down'));
-    await page.goto('/app/services');
+    await page.goto('/services');
 
-    const failed = page.getByRole('alert').filter({ hasText: 'Work you have ordered did not load' });
+    const failed = page.getByRole('alert').filter({ hasText: 'Your service orders did not load' });
     await expect(failed).toBeVisible();
     await expect(failed).toContainText('Check your connection and try again.');
     await expect(failed).toContainText('the work queue is down');
@@ -589,69 +438,31 @@ test.describe('Services', () => {
   });
 
   test('the header goes straight into ordering, without a detour through the property list', async ({ page }) => {
-    await page.goto('/app/services');
-    await expect(page.getByRole('link', { name: 'Order a service' })).toHaveAttribute('href', '/app/order');
+    await page.goto('/services');
+    await expect(page.getByRole('link', { name: 'Order a service' })).toHaveAttribute('href', '/order');
   });
 
-  test('the pips count out how far along a job is, and carry the row’s own word', async ({ page, world }) => {
-    // `stage` is a 0-based index into ORDER_STAGES — services/api/src/
-    // ticketing.py STATUS_STAGE writes placed=0, assigned=1, on_site=2,
-    // submitted=3 — and Rail (ui.tsx:755) counts it out loud because four
-    // amber dashes say nothing to a screen reader. It is set here rather than
-    // read off the seed, whose rows number their stages from 1.
-    world.set('orders', ordersAnswer(ORDERS.map((o) => ({ ...o, stage: o.stage - 1 }))));
-    await page.goto('/app/services');
 
-    await expect(orderRow(page, 'W-2101').getByLabel('Stage 1 of 4')).toBeVisible();
-    await expect(orderRow(page, 'W-2103').getByLabel('Stage 3 of 4')).toBeVisible();
-    // The word beside the pips is the row's status, not the stage's name: a
-    // job at Delivered that is waiting on this person says so.
-    await expect(orderRow(page, 'W-2105').getByLabel('Stage 4 of 4')).toContainText('Waiting on you');
-    await expect(orderRow(page, 'W-2106').getByLabel('Stage 2 of 4')).toContainText('Sent out');
-    // The pips are bare <i>s with no role of their own; `i.on` is how many are
-    // lit, which is the only thing a glance down the list actually reads.
-    await expect(orderRow(page, 'W-2101').locator('.rail i.on')).toHaveCount(1);
-    await expect(orderRow(page, 'W-2105').locator('.rail i.on')).toHaveCount(4);
-  });
-
-  test('a stage the rail has no pip for still reads as a stage, rather than as none', async ({ page, world }) => {
-    // `stage` is the server's integer and Rail (ui.tsx:755) clamps it into
-    // ORDER_STAGES rather than indexing past the end. Orders.tsx:27-31 worries
-    // in writing about a ninth status arriving; when it does, the row must
-    // still count itself out loud instead of lighting nothing and naming
-    // nothing.
-    world.set('orders', ordersAnswer(ORDERS.map((o) => {
-      if (o.id === TICKET.placed) return { ...o, stage: -1 };
-      if (o.id === TICKET.assigned) return { ...o, stage: 9 };
-      return o;
-    })));
-    await page.goto('/app/services');
-
-    await expect(orderRow(page, 'W-2101').getByLabel('Stage 1 of 4')).toBeVisible();
-    await expect(orderRow(page, 'W-2101').locator('.rail i.on')).toHaveCount(1);
-    await expect(orderRow(page, 'W-2102').getByLabel('Stage 4 of 4')).toBeVisible();
-    await expect(orderRow(page, 'W-2102').locator('.rail i.on')).toHaveCount(4);
-  });
-
-  test('a job against a record with no name of its own draws no nameless link', async ({ page, world }) => {
-    // Orders.tsx:164 gates the record link on `o.recordTitle` as well as on
-    // `showRecord`. A link with nothing written in it is announced by its href
-    // and clicked by accident; the row is owed one link, the service's.
+  test('a job against a property with no name of its own draws no nameless link', async ({ page, world }) => {
+    // OrderTable gates the property link on `o.recordTitle`. A link with
+    // nothing written in it is announced by its href and clicked by accident;
+    // the row is owed one link, the service's, and a dash where the name is.
     world.set('orders', ordersAnswer(ORDERS.map((o) =>
       (o.id === TICKET.placed ? { ...o, recordTitle: '' } : o))));
-    await page.goto('/app/services');
+    await page.goto('/services');
 
-    const row = orderRow(page, 'W-2101');
-    await expect(row.getByRole('link', { name: 'Open order' })).toBeVisible();
+    const row = serviceRow(page, 'PT-2101');
+    await expect(row.getByRole('link', { name: 'Encumbrance certificate' })).toBeVisible();
     await expect(row.getByRole('link')).toHaveCount(1);
+    await expect(row.locator('td').nth(2)).toHaveText('—');
     // And the rows that do have a name still carry it.
-    await expect(orderRow(page, 'W-2102').getByRole('link', { name: 'Sy 214/2' })).toBeVisible();
+    await expect(serviceRow(page, 'PT-2102').getByRole('link', { name: 'Sy 214/2' })).toBeVisible();
   });
 
   test('Try again on a list that did not load really asks again, and the rows arrive', async ({ page, world }) => {
     world.set('orders', World.gqlError('the work queue is down'));
-    await page.goto('/app/services');
-    const failed = page.getByRole('alert').filter({ hasText: 'Work you have ordered did not load' });
+    await page.goto('/services');
+    const failed = page.getByRole('alert').filter({ hasText: 'Your service orders did not load' });
     await expect(failed).toBeVisible();
     const before = world.calls('orders').length;
 
@@ -662,53 +473,220 @@ test.describe('Services', () => {
     await failed.getByRole('button', { name: 'Try again' }).click();
 
     await expect.poll(() => world.calls('orders').length).toBeGreaterThan(before);
-    await expect(orderRow(page, 'W-2101')).toBeVisible();
-    await expect(page.locator('.rows.boxed > div')).toHaveCount(6);
+    await expect(serviceRow(page, 'PT-2101')).toBeVisible();
+    await expect(serviceRows(page)).toHaveCount(6);
     await expect(failed).toHaveCount(0);
-  });
-
-  // ── defect ───────────────────────────────────────────────────────────
-  test('names that could not be read say so, instead of a picker with nobody in it', async ({ page, world }) => {
-    // DEFECT — apps/web/src/w360/pages/Orders.tsx:61 reads `useAssignable()`
-    // as `{ data: people }` and never looks at its `error`, so a read that
-    // failed and a read still in flight are the same screen: a select labelled
-    // "Assign to" whose only option is "Nobody yet", for ever. Lines 63-67 of
-    // that same file already rule that out in writing — "a select whose only
-    // option is 'Nobody yet' is a control that cannot do anything" — and write
-    // a sentence for the account that truly has no names. An outage is owed
-    // the third state, not the first one's silence: a line saying the names
-    // could not be read, with the service as the way through, the way the empty
-    // branch beside it already offers one.
-    test.fail();
-    world.set('assignable', World.gqlError('the people store is down'));
-    await page.goto('/app/services');
-    await orderRow(page, 'W-2101').getByRole('button', { name: 'Track' }).click();
-    await expect(orderRow(page, 'W-2101').getByRole('button', { name: 'Hide' })).toBeVisible();
-
-    // Either shape of fix counts: the module's own `Failed` ("… did not
-    // load") or a sentence of this row's own. What must not happen is silence.
-    await expect(orderRow(page, 'W-2101'))
-      .toContainText(/did not load|could not be read/i, { timeout: 3000 });
   });
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// /app/assigned — waiting on you
+// /properties/:id/services — tracking a job and putting somebody on it
+//
+// The trackable rows (`Rows` in Orders.tsx) left /services when that page
+// became a table, and stayed on the property's own Service orders tab. Every
+// seeded order is against Sy 214/2, so the same rows are here.
+// ═══════════════════════════════════════════════════════════════════════
+
+test.describe('Tracking an order on its property', () => {
+  test('Open | All is a band control under the head, not in it', async ({ page }) => {
+    await page.goto(RECORD_SERVICES);
+    const which = page.locator('.filterbar.band').getByRole('group', { name: 'Which orders' });
+    await expect(which).toBeVisible();
+    await expect(page.locator('header.sechead').getByRole('group', { name: 'Which orders' })).toHaveCount(0);
+    await which.getByRole('button', { name: 'All', exact: true }).click();
+    await expect(which.getByRole('button', { name: 'All', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('where a job has got to can be read without leaving the list', async ({ page }) => {
+    await page.goto(RECORD_SERVICES);
+    const row = orderRow(page, 'PT-2102');
+    const track = row.getByRole('button', { name: 'Show progress' });
+    await expect(track).toHaveAttribute('aria-expanded', 'false');
+
+    await track.click();
+
+    await expect(row).toContainText('Assigned · due 25/09/2026 · with Ravi Kumar');
+    await expect(row.getByRole('button', { name: 'Hide progress' })).toHaveAttribute('aria-expanded', 'true');
+
+    await row.getByRole('button', { name: 'Hide progress' }).click();
+    await expect(row).not.toContainText('due 25/09/2026 · with Ravi Kumar');
+  });
+
+  test('a provider\'s proof shows their rating, never how much other work they carry', async ({ page, world }) => {
+    // web360.py AssignedResourceTrust has no open-work count: it is counted
+    // across every customer, so it would tell this owner another's volume.
+    const proof = {
+      associateId: 'as-ravi', name: 'Ravi Kumar', firm: 'Ravi Surveys', initials: 'RK',
+      role: 'Licensed surveyor', ratingAverage: 4.6, ratingCount: 12, professionalVerified: true,
+      professionalCredentials: [], trainingCertificates: [],
+    };
+    world.set('orders', ordersAnswer(ORDERS.map((o) =>
+      (o.id === TICKET.assigned ? { ...o, assigneeRef: 'as-ravi', assignedResource: proof } : o))));
+    await page.goto(RECORD_SERVICES);
+    const row = orderRow(page, 'PT-2102');
+    await row.getByRole('button', { name: 'Show progress' }).click();
+
+    await expect(row.getByLabel('Verified work profile for Ravi Kumar')).toContainText('4.6 from 12 service ratings');
+    await expect(row).not.toContainText(/active Pattadar order/);
+    expect(world.calls('orders').at(-1)!.query).not.toContain('jobsOpen');
+  });
+
+  test('tracking a second job puts the first one away, so two panels cannot be read against each other', async ({ page }) => {
+    await page.goto(RECORD_SERVICES);
+    await orderRow(page, 'PT-2102').getByRole('button', { name: 'Show progress' }).click();
+    await expect(orderRow(page, 'PT-2102')).toContainText('Assigned · due 25/09/2026 · with Ravi Kumar');
+
+    await orderRow(page, 'PT-2103').getByRole('button', { name: 'Show progress' }).click();
+
+    await expect(orderRow(page, 'PT-2103')).toContainText('On site · due 25/09/2026 · with K. Anitha');
+    await expect(orderRow(page, 'PT-2102')).not.toContainText('with Ravi Kumar');
+    await expect(orderRow(page, 'PT-2102').getByRole('button', { name: 'Show progress' }))
+      .toHaveAttribute('aria-expanded', 'false');
+  });
+
+  test('a job somebody already holds names who has it instead of offering to hand it out again', async ({ page }) => {
+    await page.goto(RECORD_SERVICES);
+    const row = orderRow(page, 'PT-2102');
+    await row.getByRole('button', { name: 'Show progress' }).click();
+
+    await expect(row).toContainText('with Ravi Kumar');
+    // There is no picker anywhere on the owner's side: who does the work is
+    // Pattadar desk's decision (service order spec §7).
+    await expect(row.getByLabel('Assign to')).toHaveCount(0);
+    await expect(row).not.toContainText('Never assigned.');
+  });
+
+  test('an order placed before the form asked anything says so instead of showing a blank', async ({ page }) => {
+    await page.goto(RECORD_SERVICES);
+    await orderRow(page, 'PT-2103').getByRole('button', { name: 'Show progress' }).click();
+    await expect(orderRow(page, 'PT-2103'))
+      .toContainText('No details recorded.');
+  });
+
+  test('the answers I gave are readable back off the row', async ({ page, world }) => {
+    world.set('orders', OPEN_ORDERS.map((o) => (o.id === TICKET.onSite
+      ? { ...o, params: JSON.stringify({ how_many_corners: '8', anything_else: '  ' }) }
+      : o)));
+    await page.goto(RECORD_SERVICES);
+
+    await orderRow(page, 'PT-2103').getByRole('button', { name: 'Show progress' }).click();
+    const row = orderRow(page, 'PT-2103');
+    await expect(row).toContainText('How many corners');
+    await expect(row).toContainText('8');
+    // An answer nobody filled in is not a line on the sheet.
+    await expect(row).not.toContainText('Anything else');
+  });
+
+  test('an order whose answers cannot be read still shows its stage', async ({ page, world }) => {
+    world.set('orders', OPEN_ORDERS.map((o) => (o.id === TICKET.onSite ? { ...o, params: 'not json' } : o)));
+    await page.goto(RECORD_SERVICES);
+
+    await orderRow(page, 'PT-2103').getByRole('button', { name: 'Show progress' }).click();
+    await expect(orderRow(page, 'PT-2103')).toContainText('On site');
+    await expect(orderRow(page, 'PT-2103'))
+      .toContainText('No details recorded.');
+  });
+
+  test('a job nobody is on yet offers no picker: Pattadar desk finds the provider', async ({ page, world }) => {
+    // Service order spec §7: assigning is the desk's move (DeskJob.tsx), and
+    // the server no longer answers `assignable` or `assignRequest` at all.
+    await page.goto(RECORD_SERVICES);
+    const row = orderRow(page, 'PT-2101');
+    await row.getByRole('button', { name: 'Show progress' }).click();
+    await expect(row.getByRole('button', { name: 'Hide progress' })).toBeVisible();
+
+    await expect(row.getByLabel('Assign to')).toHaveCount(0);
+    await expect(row.getByRole('combobox')).toHaveCount(0);
+    await expect(row).not.toContainText('Never assigned.');
+    expect(world.asked('assignable')).toBe(false);
+  });
+
+  test('the way to everything about an unassigned order is its own page', async ({ page }) => {
+    await page.goto(RECORD_SERVICES);
+    await orderRow(page, 'PT-2101').getByRole('link', { name: 'Open order' }).click();
+    await expect(page).toHaveURL(`/services/${TICKET.placed}`);
+    await expect(page.locator('section.card.next-step')).toBeVisible();
+  });
+
+  test('a job that is over says nobody was ever on it rather than offering a picker', async ({ page }) => {
+    await page.goto(RECORD_SERVICES);
+    await page.getByRole('button', { name: 'All' }).click();
+
+    const row = orderRow(page, 'PT-2099');
+    await row.getByRole('button', { name: 'Show progress' }).click();
+
+    await expect(row).toContainText('Never assigned.');
+    await expect(row.getByLabel('Assign to')).toHaveCount(0);
+  });
+
+  test('the pips count out how far along a job is, and the status word sits beside them', async ({ page, world }) => {
+    // `stage` is a 0-based index into ORDER_STAGES — services/api/src/
+    // ticketing.py STATUS_STAGE writes placed=0, assigned=1, on_site=2,
+    // submitted=3 — and Rail (ui.tsx) counts it out loud because four amber
+    // dashes say nothing to a screen reader. It is set here rather than read
+    // off the seed, whose rows number their stages from 1.
+    world.set('orders', ordersAnswer(ORDERS.map((o) => ({ ...o, stage: o.stage - 1 }))));
+    await page.goto(RECORD_SERVICES);
+
+    await expect(orderRow(page, 'PT-2101').getByLabel('Stage 1 of 4')).toBeVisible();
+    await expect(orderRow(page, 'PT-2103').getByLabel('Stage 3 of 4')).toBeVisible();
+    // The rail is pips only and names its stage; the row's own status is the
+    // chip beside the title, said once (Orders.tsx: "Pips only: the word is
+    // the chip above"). A job at Delivered that is waiting on this person
+    // says so in the chip.
+    await expect(orderRow(page, 'PT-2105').getByLabel('Stage 4 of 4: Delivered')).toBeVisible();
+    await expect(orderRow(page, 'PT-2105').locator('.schip').first()).toHaveText('Waiting on you');
+    await expect(orderRow(page, 'PT-2106').getByLabel('Stage 2 of 4: Assigned')).toBeVisible();
+    await expect(orderRow(page, 'PT-2106').locator('.schip').first()).toHaveText('Assigned');
+    // The pips are bare <i>s with no role of their own; `i.on` is how many are
+    // lit, which is the only thing a glance down the list actually reads.
+    await expect(orderRow(page, 'PT-2101').locator('.rail i.on')).toHaveCount(1);
+    await expect(orderRow(page, 'PT-2105').locator('.rail i.on')).toHaveCount(4);
+  });
+
+  test('a stage the rail has no pip for still reads as a stage, rather than as none', async ({ page, world }) => {
+    // `stage` is the server's integer and Rail (ui.tsx) clamps it into
+    // ORDER_STAGES rather than indexing past the end. When a ninth status
+    // arrives, the row must still count itself out loud instead of lighting
+    // nothing and naming nothing.
+    world.set('orders', ordersAnswer(ORDERS.map((o) => {
+      if (o.id === TICKET.placed) return { ...o, stage: -1 };
+      if (o.id === TICKET.assigned) return { ...o, stage: 9 };
+      return o;
+    })));
+    await page.goto(RECORD_SERVICES);
+
+    await expect(orderRow(page, 'PT-2101').getByLabel('Stage 1 of 4')).toBeVisible();
+    await expect(orderRow(page, 'PT-2101').locator('.rail i.on')).toHaveCount(1);
+    await expect(orderRow(page, 'PT-2102').getByLabel('Stage 4 of 4')).toBeVisible();
+    await expect(orderRow(page, 'PT-2102').locator('.rail i.on')).toHaveCount(4);
+  });
+
+  test('a row opens its own order, beside the panel that tracks it', async ({ page }) => {
+    await page.goto(RECORD_SERVICES);
+    await expect(orderRow(page, 'PT-2101').getByRole('link', { name: 'Open order' }))
+      .toHaveAttribute('href', `/services/${TICKET.placed}`);
+    await expect(page.locator('.rows.boxed').getByRole('link', { name: 'Open order' })).toHaveCount(6);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// /assigned — waiting on you
 // ═══════════════════════════════════════════════════════════════════════
 
 test.describe('Waiting on you', () => {
   test('only the jobs sitting on my decision are here', async ({ page }) => {
-    await page.goto('/app/assigned');
+    await page.goto('/assigned');
 
     await expect(page.getByRole('heading', { name: 'Waiting on you' })).toBeVisible();
-    await expect(page.getByText('Needs your action')).toBeVisible();
+    await expect(page.getByText('Needs your action')).toHaveCount(0);
 
     // One of the eight: the delivered job with two things to review.
     await expect(page.locator('.rows.boxed > div')).toHaveCount(1);
-    await expect(orderRow(page, 'W-2105')).toContainText('2 to review');
+    await expect(orderRow(page, 'PT-2105')).toContainText('2 to review');
     // A job placed with nobody on it is not waiting on anybody.
-    await expect(orderRow(page, 'W-2101')).toHaveCount(0);
-    await expect(orderRow(page, 'W-2102')).toHaveCount(0);
+    await expect(orderRow(page, 'PT-2101')).toHaveCount(0);
+    await expect(orderRow(page, 'PT-2102')).toHaveCount(0);
   });
 
   test('a job with something to look at is waiting on me even when nothing is flagged', async ({ page, world }) => {
@@ -720,19 +698,19 @@ test.describe('Waiting on you', () => {
       if (o.id === TICKET.delivered) return { ...o, needsYou: true };
       return o;
     })));
-    await page.goto('/app/assigned');
+    await page.goto('/assigned');
 
     await expect(page.locator('.rows.boxed > div')).toHaveCount(2);
-    await expect(orderRow(page, 'W-2103')).toContainText('3 to review');
+    await expect(orderRow(page, 'PT-2103')).toContainText('3 to review');
     // The server's flag reads as the ticket machine's word for that state.
-    await expect(orderRow(page, 'W-2104')).toContainText('Waiting on you');
+    await expect(orderRow(page, 'PT-2104')).toContainText('Waiting on you');
     // The row that was on the list only because the seed flagged it is gone.
-    await expect(orderRow(page, 'W-2105')).toHaveCount(0);
+    await expect(orderRow(page, 'PT-2105')).toHaveCount(0);
   });
 
   test('the page that says what is waiting never asks for finished work', async ({ page, world }) => {
-    await page.goto('/app/assigned');
-    await expect(orderRow(page, 'W-2105')).toBeVisible();
+    await page.goto('/assigned');
+    await expect(orderRow(page, 'PT-2105')).toBeVisible();
 
     // Every read on this route — the page's and the Shell badge's, which share
     // the key — asks for the open list across every record.
@@ -742,39 +720,40 @@ test.describe('Waiting on you', () => {
   });
 
   test('this page names the record each job is against, because the list crosses records', async ({ page }) => {
-    await page.goto('/app/assigned');
-    await expect(orderRow(page, 'W-2105').getByRole('link', { name: 'Sy 214/2' }))
-      .toHaveAttribute('href', `/app/records/${ID.parcel}`);
+    await page.goto('/assigned');
+    await expect(orderRow(page, 'PT-2105').getByRole('link', { name: 'Sy 214/2' }))
+      // A job's property opens on its Services tab, where the job is.
+      .toHaveAttribute('href', `/properties/${ID.parcel}/services`);
   });
 
   test('the Open and Everything chips are gone, because a finished job is not waiting on anybody', async ({ page }) => {
-    await page.goto('/app/assigned');
+    await page.goto('/assigned');
     await expect(page.getByRole('button', { name: 'All' })).toHaveCount(0);
     await expect(page.getByRole('link', { name: 'Order a service' })).toHaveCount(0);
   });
 
   test('with nothing waiting it says so, and points at everything I have ordered', async ({ page, world }) => {
     world.set('orders', OPEN_ORDERS.filter((o) => !o.needsYou && o.pendingReview === 0));
-    await page.goto('/app/assigned');
+    await page.goto('/assigned');
 
     await expect(page.getByText('Nothing is waiting on you')).toBeVisible();
     // Not the Services empty state: this list asks a different question.
     await expect(page.getByText('No open orders')).toHaveCount(0);
     await expect(page.getByRole('link', { name: 'All your service orders' }))
-      .toHaveAttribute('href', '/app/services');
+      .toHaveAttribute('href', '/services');
   });
 
   test('while it loads it does not say nothing is waiting on you', async ({ page, world }) => {
     world.set('orders', World.never());
-    await page.goto('/app/assigned');
+    await page.goto('/assigned');
 
-    await expect(page.getByText('Loading…')).toBeVisible();
+    await expect(page.getByRole('status', { name: 'Loading the orders waiting on you' })).toBeVisible();
     await expect(page.getByText('Nothing is waiting on you')).toHaveCount(0);
   });
 
   test('a read that failed here is named as a failure, not as an empty inbox', async ({ page, world }) => {
     world.set('orders', World.gqlError('the work queue is down'));
-    await page.goto('/app/assigned');
+    await page.goto('/assigned');
 
     await expect(page.getByRole('alert').filter({ hasText: 'Work waiting on you did not load' }))
       .toBeVisible();
@@ -783,54 +762,54 @@ test.describe('Waiting on you', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// /app/records/:id/services
+// /properties/:id/services
 // ═══════════════════════════════════════════════════════════════════════
 
 test.describe("A record's services", () => {
   test('the record’s own list asks for that record’s work and nobody else’s', async ({ page, world }) => {
-    await page.goto(`/app/records/${ID.parcel}/services`);
+    await page.goto(`/properties/${ID.parcel}/services`);
 
     await expect(page.getByRole('heading', { name: 'Service orders' })).toBeVisible();
     // The same sentence the order flow one click away says, and the service
-    // says on arrival: placing an order takes nothing from anybody.
-    await expect(page.getByText(
-      'You pay only after you accept the work.',
-    )).toBeVisible();
-    await expect(page.getByText('Sy 214/2 · Katragunta')).toBeVisible();
+    // says on arrival: placing an order takes nothing from anybody. It is a
+    // standing condition, so it sits behind the heading's ⓘ.
+    await expect(page.getByRole('button', { name: 'About Service orders' }))
+      .toHaveAccessibleDescription('You pay only after you accept the work.');
+    await expect(page.getByRole('heading', { level: 1, name: 'Sy 214/2' })).toBeVisible();
 
     await expect.poll(() => world.calls('orders').map((c) => c.vars))
       .toContainEqual({ recordId: ID.parcel, includeClosed: false });
     await expect(page.locator('.rows.boxed > div')).toHaveCount(6);
     // No record name on the rows: every one of them is this record's.
-    await expect(orderRow(page, 'W-2102').getByRole('link', { name: 'Sy 214/2' })).toHaveCount(0);
+    await expect(orderRow(page, 'PT-2102').getByRole('link', { name: 'Sy 214/2' })).toHaveCount(0);
   });
 
   test('ordering from a record already knows which property it is for', async ({ page }) => {
-    await page.goto(`/app/records/${ID.parcel}/services`);
+    await page.goto(`/properties/${ID.parcel}/services`);
     // One way in: the property header's "Order a service", which is on every
     // tab. The tab's own copy of it, under its heading, was the same link a
     // few centimetres lower and is gone; the tab's head link goes to the list
     // of every service order instead.
     await expect(page.locator('header.pagehead').getByRole('link', { name: 'Order a service' }))
-      .toHaveAttribute('href', `/app/records/${ID.parcel}/order`);
+      .toHaveAttribute('href', `/order?for=${ID.parcel}&step=services`);
     await expect(page.locator('header.sechead').getByRole('link', { name: 'Order a service' })).toHaveCount(0);
     await expect(page.locator('header.sechead').getByRole('link', { name: 'All your service orders' }))
-      .toHaveAttribute('href', '/app/services');
+      .toHaveAttribute('href', '/services');
   });
 
   test('a record whose work is all done can still be asked what it cost', async ({ page, world }) => {
-    await page.goto(`/app/records/${ID.parcel}/services`);
+    await page.goto(`/properties/${ID.parcel}/services`);
     await page.getByRole('button', { name: 'All' }).click();
 
     await expect.poll(() => world.calls('orders').some(
       (c) => c.vars.recordId === ID.parcel && c.vars.includeClosed === true,
     )).toBe(true);
     expect(world.lastVars('orders')).toMatchObject({ recordId: ID.parcel, includeClosed: true });
-    await expect(orderRow(page, 'W-2098')).toContainText('Done');
+    await expect(orderRow(page, 'PT-2098')).toContainText('Accepted');
   });
 
   test('a record nothing has been ordered against says so', async ({ page }) => {
-    await page.goto(`/app/records/${ID.plot}/services`);
+    await page.goto(`/properties/${ID.plot}/services`);
 
     await expect(page.getByText('No open orders')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Open', exact: true })).toHaveCount(0);
@@ -841,7 +820,7 @@ test.describe("A record's services", () => {
     // The one question an empty Open list raises, answered by the button inside
     // the empty state rather than by a filter chip over an empty box.
     world.set('orders', ordersAnswer(ORDERS.filter((o) => o.status === 'accepted' || o.status === 'cancelled')));
-    await page.goto(`/app/records/${ID.parcel}/services`);
+    await page.goto(`/properties/${ID.parcel}/services`);
     await expect(page.getByText('No open orders')).toBeVisible();
 
     await page.getByRole('button', { name: 'All' }).click();
@@ -849,25 +828,25 @@ test.describe("A record's services", () => {
     await expect.poll(() => world.calls('orders').some(
       (c) => c.vars.recordId === ID.parcel && c.vars.includeClosed === true,
     )).toBe(true);
-    await expect(orderRow(page, 'W-2098')).toContainText('Done');
-    await expect(orderRow(page, 'W-2099')).toContainText('Cancelled');
+    await expect(orderRow(page, 'PT-2098')).toContainText('Accepted');
+    await expect(orderRow(page, 'PT-2099')).toContainText('Cancelled');
     // And now there is somewhere to go back to, so the chips are on screen.
     await expect(page.getByRole('button', { name: 'Open', exact: true })).toBeVisible();
   });
 
   test('a record’s services still loading does not read as a record that never ordered anything', async ({ page, world }) => {
     world.set('orders', World.never());
-    await page.goto(`/app/records/${ID.parcel}/services`);
+    await page.goto(`/properties/${ID.parcel}/services`);
 
     // The waiting word names what it waits for, in the failure's own words
     // ("This property's service orders did not load").
-    await expect(page.getByText("Loading this property's service orders…")).toBeVisible();
+    await expect(page.getByRole('status', { name: "Loading this property's service orders" })).toBeVisible();
     await expect(page.getByText('No open orders')).toHaveCount(0);
   });
 
   test('a record’s services that did not load says so in that record’s words', async ({ page, world }) => {
     world.set('orders', World.gqlError('the work queue is down'));
-    await page.goto(`/app/records/${ID.parcel}/services`);
+    await page.goto(`/properties/${ID.parcel}/services`);
 
     await expect(page.getByRole('alert').filter({ hasText: "This property's service orders did not load" }))
       .toBeVisible();
@@ -877,1328 +856,893 @@ test.describe("A record's services", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// /app/records/:id/history — what has been corrected
+// /properties/:id/activity — what has been corrected
 // ═══════════════════════════════════════════════════════════════════════
 
 test.describe("A record's audit", () => {
-  test('every correction is kept, with what the value used to be beside what it is now', async ({ page, world }) => {
-    await page.goto(`/app/records/${ID.parcel}/history`);
+  // The tab is the property's Activity now (Orders.tsx RecordHistory): it
+  // reads `recordHistory`, not `corrections`, and words every row with the
+  // same table Account → Activity uses. A correction is the event
+  // `record.corrected` carrying field / was / now. The world answers
+  // `recordHistory` with [] by default, so these scenarios seed their own.
+  const corrected = (over: Record<string, unknown>) => ({
+    id: 'w-ev-x', action: 'record.corrected', detail: '', field: 'Khata number',
+    was: '1041', now: '1042', at: '2026-08-20T06:00:00Z', by: 'Shankar Reddy', ...over,
+  });
+  const TRAIL = CORRECTIONS.map((c, i) => corrected({
+    id: `w-ev-${i + 1}`, field: c.field, was: c.was, now: c.now, at: `${c.at}T06:00:00Z`, by: c.by,
+  }));
 
-    await expect(page.getByRole('heading', { name: 'What has been changed' })).toBeVisible();
-    await expect(page.getByText('nothing is removed from this list')).toBeVisible();
-    expect(world.lastVars('corrections')).toMatchObject({ id: ID.parcel });
+  test('every correction is kept, with what the value used to be beside what it is now', async ({ page, world }) => {
+    world.set('recordHistory', TRAIL);
+    await page.goto(`/properties/${ID.parcel}/activity`);
+
+    // V3: the heading repeats the tab name.
+    await expect(page.getByRole('heading', { level: 2, name: 'Activity', exact: true })).toBeVisible();
+    await expect(page.getByText(`${CORRECTIONS.length} changes`, { exact: true })).toBeVisible();
+    expect(world.lastVars('recordHistory')).toMatchObject({ id: ID.parcel });
 
     await expect(page.locator('.rows.boxed > div')).toHaveCount(CORRECTIONS.length);
     const khata = page.locator('.rows.boxed > div').filter({ hasText: 'Khata number' });
-    await expect(khata).toContainText('1041');
     await expect(khata).toContainText('1042');
     await expect(khata.locator('s')).toHaveText('1041');
-    await expect(khata).toContainText('2026-08-20');
+    // U4: DD/MM/YYYY.
+    await expect(khata).toContainText('20/08/2026');
     await expect(khata).toContainText('Shankar Reddy');
   });
 
-  test('a record nothing has been corrected on says so, and says what would appear', async ({ page }) => {
-    await page.goto(`/app/records/${ID.flat}/history`);
+  test('a property nothing has changed on says so', async ({ page }) => {
+    await page.goto(`/properties/${ID.flat}/activity`);
 
-    await expect(page.getByText('Nothing has been corrected on this record yet.')).toBeVisible();
-    await expect(page.getByText('the old one appears here beside the new')).toBeVisible();
+    await expect(page.getByText('No activity recorded yet')).toBeVisible();
+    await expect(page.locator('main s')).toHaveCount(0);
   });
 
   test('a value that had nothing in it before is shown as a dash, not as a blank', async ({ page, world }) => {
-    // `<s>{c.was || '—'}</s>` (Orders.tsx:317). A struck blank reads as a
-    // rendering fault; the dash says the field was empty until this change.
-    world.set('corrections', [{
-      id: 'w-corr-9', field: 'Khata number', was: '', now: '1042',
-      at: '2026-09-01T05:00:00Z', by: 'Shankar Reddy',
-    }]);
-    await page.goto(`/app/records/${ID.parcel}/history`);
+    // `<s>{e.was || '—'}</s>` (Orders.tsx RecordHistory). A struck blank reads
+    // as a rendering fault; the dash says the field was empty until this change.
+    world.set('recordHistory', [corrected({ was: '', now: '1042', at: '2026-09-01T05:00:00Z' })]);
+    await page.goto(`/properties/${ID.parcel}/activity`);
 
     const row = page.locator('.rows.boxed > div').filter({ hasText: 'Khata number' });
     await expect(row.locator('s')).toHaveText('—');
     await expect(row).toContainText('1042');
-    await expect(row).toContainText('2026-09-01');
+    await expect(row).toContainText('01/09/2026');
   });
 
   test('a value that was cleared is shown as a dash on the new side too', async ({ page, world }) => {
-    // The mirror of the struck side: `<span className="accent">{c.now || '—'}</span>`
-    // (Orders.tsx:317). A khata that was REMOVED must read "1041 → —"; a line
-    // that stops at the arrow reads as a half-drawn row, not as a deletion.
-    world.set('corrections', [{
-      id: 'w-corr-10', field: 'Khata number', was: '1041', now: '',
-      at: '2026-09-02T05:00:00Z', by: 'Shankar Reddy',
-    }]);
-    await page.goto(`/app/records/${ID.parcel}/history`);
+    // The mirror of the struck side: `{e.now || '—'}`. A khata that was
+    // REMOVED must read "1041 → —"; a line that stops at the arrow reads as a
+    // half-drawn row, not as a deletion.
+    world.set('recordHistory', [corrected({ was: '1041', now: '', at: '2026-09-02T05:00:00Z' })]);
+    await page.goto(`/properties/${ID.parcel}/activity`);
 
     const row = page.locator('.rows.boxed > div').filter({ hasText: 'Khata number' });
     await expect(row.locator('s')).toHaveText('1041');
     await expect(row).toContainText('1041 → —');
-    await expect(row).toContainText('2026-09-02');
+    await expect(row).toContainText('02/09/2026');
   });
 
-  test('the audit list says it is loading rather than saying nothing has changed', async ({ page, world }) => {
-    world.set('corrections', World.never());
-    await page.goto(`/app/records/${ID.parcel}/history`);
+  test('the list says it is loading rather than saying nothing has changed', async ({ page, world }) => {
+    world.set('recordHistory', World.never());
+    await page.goto(`/properties/${ID.parcel}/activity`);
 
-    await expect(page.getByText('Loading…')).toBeVisible();
-    await expect(page.getByText('Nothing has been corrected on this record yet.')).toHaveCount(0);
+    await expect(page.getByRole('status', { name: "Loading this property's activity" })).toBeVisible();
+    await expect(page.getByText('No activity recorded yet')).toHaveCount(0);
   });
 
-  // ── defect ───────────────────────────────────────────────────────────
-  test('an audit read that failed is not reported as nothing to report', async ({ page, world }) => {
-    // DEFECT — apps/web/src/w360/pages/Orders.tsx:284 destructures
-    // `useCorrections` WITHOUT `error`, and line 300 then treats
-    // `(data ?? []).length === 0` as "nothing has been corrected". A failed
-    // read and a clean history are the same screen, so an outage tells the
-    // owner their record has never been corrected — on the one tab whose
-    // whole promise is "nothing is removed from this list". Every other list
-    // in this file has a `Failed` branch; this one is owed the same:
-    //   `: !data ? <Failed what="This record's corrections" error={error} />`
-    test.fail();
-    world.set('corrections', World.gqlError('the audit store is down'));
-    await page.goto(`/app/records/${ID.parcel}/history`);
+  // Was a DEFECT (a failed corrections read said "nothing has been
+  // corrected"). RecordHistory now branches on `!data` to <Failed>.
+  test('a read that failed is not reported as nothing to report', async ({ page, world }) => {
+    world.set('recordHistory', World.gqlError('the audit store is down'));
+    await page.goto(`/properties/${ID.parcel}/activity`);
 
-    await expect(page.getByRole('alert').filter({ hasText: 'did not load' }))
-      .toBeVisible({ timeout: 3000 });
+    const failed = page.getByRole('alert').filter({ hasText: "This property's activity did not load" });
+    await expect(failed).toBeVisible({ timeout: 20_000 });
+    await expect(failed).toContainText('the audit store is down');
+    await expect(page.getByText('No activity recorded yet')).toHaveCount(0);
   });
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// /app/order — which land is this for
+// /order — one flow: properties, services, review
 // ═══════════════════════════════════════════════════════════════════════
 
-/** One card in the land grid.
- *
- *  Both grids on this page are `.cards` holding `<a class="rec">` — the land
- *  above, the read-only catalogue below — and the only thing that tells them
- *  apart in the DOM is that the land grid is a direct child of `<main>` while
- *  the catalogue's sits inside `<section class="sec">`. A card's accessible
- *  name is its whole meat (title, place, extent, map word, jobs), so it is
- *  named by the text it contains rather than by a role name. */
+/** The flow's step list (OrderTracker: an `<ol>` with `aria-current="step"`). */
+const steps = (page: Page) => page.getByRole('list', { name: 'Order steps' });
+const currentStep = (page: Page) => steps(page).locator('li[aria-current="step"]');
+/** One property card in the grid; its tick box is named "Include <title>". */
 const landCard = (page: Page, title: string) =>
-  page.locator('main > .cards > div.rec').filter({ hasText: title });
+  page.locator('main .cards > div.rec').filter({ hasText: title });
+const landCards = (page: Page) => page.locator('main .cards > div.rec');
+const include = (page: Page, title: string) => page.getByRole('checkbox', { name: `Include ${title}` });
+const landTable = (page: Page) => page.getByRole('table', { name: 'Your properties' });
+const svcTable = (page: Page) => page.getByRole('table', { name: 'Services offered there' });
+const svcRows = (page: Page) => svcTable(page).locator('tbody tr[data-key]');
+const svcRow = (page: Page, label: string) => svcRows(page).filter({ hasText: label });
+const pickSvc = (page: Page, label: string) => page.getByRole('checkbox', { name: `Choose ${label}` });
+const summary = (page: Page) => page.getByRole('table', { name: 'What will be ordered' });
+const line = (page: Page, key: string, id: string) => summary(page).locator(`tr[data-line="${key}:${id}"]`);
+const bar = (page: Page, name: string) => page.getByRole('group', { name });
 
-// A div with one link in it since 07944a0 (OrderLand.tsx LandCard): the
-// "Include" tick box had to stop being interactive content inside an anchor.
-const landCards = (page: Page) => page.locator('main > .cards > div.rec');
+/** `orderService` answered the way the server does: one order per record. */
+const filesAll = (vars: Record<string, unknown>) => (vars.recordIds as string[]).length;
 
-/** One tile in the catalogue strip under the grid. It composes nothing: it is
- *  a link that re-heads this same page. */
-const offerTile = (page: Page, label: string) =>
-  page.locator('section.sec .cards a.rec').filter({ hasText: label });
+/** Straight to the services step for these properties, as the record's own
+ *  "Order a service" lands. */
+const toServices = async (page: Page, ...recordIds: string[]) => {
+  await page.goto(`/order?for=${recordIds.join(',')}&step=services`);
+  await expect(svcRows(page).first()).toBeVisible();
+};
+/** On to the review with these services chosen. */
+const toReview = async (page: Page, labels: string[], ...recordIds: string[]) => {
+  await toServices(page, ...recordIds);
+  for (const l of labels) await pickSvc(page, l).check();
+  await page.getByRole('button', { name: 'Next: review' }).click();
+  await expect(page.getByRole('heading', { name: 'Review and place' })).toBeVisible();
+};
 
-test.describe('Choosing the land', () => {
-  test('the first question is which land, and this screen composes no order at all', async ({ page, world }) => {
-    await page.goto('/app/order');
+test.describe('Ordering: choosing the properties', () => {
+  test('the flow opens on step one of three, and composes nothing yet', async ({ page, world }) => {
+    await page.goto('/order');
 
-    await expect(page.getByRole('heading', { name: 'Choose the property' })).toBeVisible();
-
-    // Four of the five seeded records: the archived shop is not land anybody
-    // can order work on, and `properties` leaves it out until the archived
-    // facet asks for it.
+    await expect(page.getByRole('heading', { level: 1, name: 'Order a service' })).toBeVisible();
+    await expect(steps(page).getByRole('listitem')).toHaveText([/Properties/, /Services/, /Review/]);
+    await expect(currentStep(page)).toContainText('Properties');
+    await expect(page.getByRole('heading', { name: 'Choose the properties' })).toBeVisible();
+    // The archived shop is not land anybody orders work on.
     await expect(landCards(page)).toHaveCount(4);
-    await expect(landCard(page, 'Sy 214/2')).toBeVisible();
-    await expect(landCard(page, 'Flat 4B, Sai Residency')).toBeVisible();
     await expect(landCard(page, 'Shop 7, Market Road')).toHaveCount(0);
-
-    // Nothing on this screen can file anything: no question sheet, no
-    // attachment picker, no order button.
-    await expect(page.getByRole('button', { name: /Place the order/ })).toHaveCount(0);
-    await expect(page.getByRole('heading', { name: 'What we need to know' })).toHaveCount(0);
+    // No services on this step, and nothing filed.
+    await expect(svcTable(page)).toHaveCount(0);
+    expect(world.asked('servicesForRecords')).toBe(false);
     expect(world.calls('orderService')).toHaveLength(0);
-    expect(world.lastVars('properties')).toMatchObject({
-      kinds: [], statuses: [], stakes: [], villages: [], khatas: [], owners: [], tags: [],
-    });
+    // The bar, and its Next, wait for a choice.
+    await expect(bar(page, 'The chosen properties')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Next: choose services' })).toHaveCount(0);
   });
 
-  test('each card says how big the land is, its khata, and whether anybody can find it', async ({ page }) => {
-    await page.goto('/app/order');
+  test('each card says how big the land is, its khata, whether anybody can find it, and what is running there', async ({ page }) => {
+    await page.goto('/order');
 
     const parcel = landCard(page, 'Sy 214/2');
     await expect(parcel).toContainText('Katragunta, Markapur, Prakasam');
-    await expect(parcel).toContainText('4 acres');
+    await expect(parcel).toContainText('4 acres 12 guntas');
     await expect(parcel).toContainText('Khata 1042');
-    // The point of the redesign, said before a service is even a thought.
     await expect(parcel).toContainText('Boundary on map');
-
-    // A record with a pin and no corners, and one with neither, are two
-    // different answers — and neither of them is "Boundary on map".
+    await expect(parcel).toContainText('6 orders already running here');
     await expect(landCard(page, 'Flat 4B, Sai Residency')).toContainText('Location pin only');
-    await expect(landCard(page, 'Flat 4B, Sai Residency')).toContainText('1,450 sft');
-    // A flat with no khata number does not print a dangling "Khata".
     await expect(landCard(page, 'Flat 4B, Sai Residency')).not.toContainText('Khata');
     await expect(landCard(page, 'Sy 88')).toContainText('Add a location to show on map');
-    await expect(landCard(page, 'Sy 88')).toContainText('Khata 318');
-  });
-
-  test('a card says how much work is already running on that land', async ({ page }) => {
-    await page.goto('/app/order');
-
-    // All six open jobs in the world are against this one parcel.
-    await expect(landCard(page, 'Sy 214/2')).toContainText('6 jobs already running here');
-    // And a record nothing is running on says nothing, rather than "0 jobs".
     await expect(landCard(page, 'Sy 88')).not.toContainText('already running here');
   });
 
-  test('while the count of running jobs is still in flight a card claims nothing about it', async ({ page, world }) => {
-    world.set('orders', World.never());
-    await page.goto('/app/order');
+  test('the whole card ticks its box, and the bar counts the choice', async ({ page }) => {
+    await page.goto('/order');
+    await landCard(page, 'Sy 214/2').locator('label').click();
+    await landCard(page, 'Sy 88').locator('label').click();
 
-    // The absence of the badge is not a claim that there is no work here, so
-    // the card must not print one until the read lands.
-    await expect(landCard(page, 'Sy 214/2')).toContainText('4 acres');
-    await expect(landCard(page, 'Sy 214/2')).not.toContainText('already running here');
-    await expect(page.getByText('Existing orders could not be checked.')).toHaveCount(0);
+    await expect(include(page, 'Sy 214/2')).toBeChecked();
+    await expect(bar(page, 'The chosen properties')).toContainText('2 properties selected');
+    await bar(page, 'The chosen properties').getByRole('button', { name: 'Clear' }).click();
+    await expect(include(page, 'Sy 214/2')).not.toBeChecked();
+    await expect(page.getByRole('button', { name: 'Next: choose services' })).toHaveCount(0);
   });
 
-  test('a count that could not be read is said once, and does not withhold the land', async ({ page, world }) => {
+  test('the table view lists the same land with a box per row, and the header box takes everything shown', async ({ page }) => {
+    await page.goto('/order');
+    await page.getByRole('button', { name: 'Table' }).click();
+
+    const rows = landTable(page).locator('tbody tr');
+    await expect(rows).toHaveCount(4);
+    await expect(landTable(page).locator('thead')).toContainText(/Property.*Place.*Extent.*Khata.*Orders running/i);
+    await expect(rows.filter({ hasText: 'Sy 214/2' })).toContainText('1042');
+    await expect(rows.filter({ hasText: 'Sy 214/2' }).locator('td').last()).toHaveText('6');
+
+    // A row click toggles, like its box.
+    await rows.filter({ hasText: 'Sy 88' }).locator('td').nth(2).click();
+    await expect(page.getByRole('checkbox', { name: 'Select Sy 88' })).toBeChecked();
+
+    await page.getByRole('checkbox', { name: 'Select all 4 properties' }).check();
+    await expect(bar(page, 'The chosen properties')).toContainText('4 properties selected');
+    await page.getByRole('checkbox', { name: 'Select all 4 properties' }).uncheck();
+    await expect(bar(page, 'The chosen properties')).toHaveCount(0);
+  });
+
+  test('select all takes only what the search left on screen', async ({ page }) => {
+    await page.goto('/order');
+    await page.getByRole('button', { name: 'Table' }).click();
+    await page.getByLabel('Find your property').fill('Katragunta');
+
+    await expect(page.getByText('2 of 4 shown')).toBeVisible();
+    await page.getByRole('checkbox', { name: 'Select all 2 properties' }).check();
+    await expect(bar(page, 'The chosen properties')).toContainText('2 properties selected');
+    await expect(page).toHaveURL(/q=Katragunta/);
+  });
+
+  test('the village filter narrows the land, and says how many are shown', async ({ page }) => {
+    await page.goto('/order');
+    await page.getByRole('button', { name: '+ Filter' }).click();
+    await page.getByRole('button', { name: /^Katragunta/ }).click();
+
+    await expect(landCards(page)).toHaveCount(2);
+    await expect(page.getByText('2 of 4 shown')).toBeVisible();
+    await page.getByRole('button', { name: 'Remove filter Village Katragunta' }).click();
+    await expect(landCards(page)).toHaveCount(4);
+  });
+
+  test('a search that matches nothing says so, and offers to clear itself', async ({ page }) => {
+    await page.goto('/order');
+    await page.getByLabel('Find your property').fill('Vizag');
+
+    await expect(page.getByText('No property matches “Vizag”')).toBeVisible();
+    await page.getByRole('button', { name: 'Clear', exact: true }).click();
+    await expect(landCards(page)).toHaveCount(4);
+  });
+
+  test('a link can arrive with the land already chosen', async ({ page }) => {
+    await page.goto(`/order?for=${ID.parcel},${ID.plot}`);
+
+    await expect(include(page, 'Sy 214/2')).toBeChecked();
+    await expect(include(page, 'Sy 88')).toBeChecked();
+    await expect(bar(page, 'The chosen properties')).toContainText('2 properties selected');
+  });
+
+  test('a portfolio longer than the fold shows a batch and a way to the rest', async ({ page, world }) => {
+    world.set('properties', propertyList(Array.from({ length: 30 }, (_, i) => ({
+      ...CARDS[0], id: `w-many-${i}`, title: `Sy ${400 + i}`, coverFileRef: '',
+    }))));
+    await page.goto('/order');
+
+    await expect(landCards(page)).toHaveCount(24);
+    await page.getByRole('button', { name: 'Show all 30' }).click();
+    await expect(landCards(page)).toHaveCount(30);
+  });
+
+  test('a running-orders count that could not be read is said once, and does not withhold the land', async ({ page, world }) => {
     world.set('orders', World.gqlError('the work queue is down'));
-    await page.goto('/app/order');
+    await page.goto('/order');
 
     await expect(page.getByText('Existing orders could not be checked.')).toBeVisible();
-    // Thirty perfectly good cards are not withheld because a count failed.
     await expect(landCards(page)).toHaveCount(4);
     await expect(landCard(page, 'Sy 214/2')).not.toContainText('already running here');
   });
 
   test('a portfolio still arriving is not an account with no land', async ({ page, world }) => {
     world.set('properties', World.never());
-    await page.goto('/app/order');
-
+    await page.goto('/order');
     await expect(page.getByRole('status', { name: 'Loading your properties' })).toBeVisible();
     await expect(page.getByText('Add a property before ordering')).toHaveCount(0);
-    await expect(page.getByRole('alert')).toHaveCount(0);
   });
 
-  test('a portfolio that did not load says so rather than offering nothing to order against', async ({ page, world }) => {
+  test('a portfolio that did not load says so', async ({ page, world }) => {
     world.set('properties', World.gqlError('the portfolio read failed'));
-    await page.goto('/app/order');
-
+    await page.goto('/order');
     const failed = page.getByRole('alert').filter({ hasText: 'Your properties did not load' });
-    await expect(failed).toBeVisible();
     await expect(failed).toContainText('the portfolio read failed');
-    await expect(page.getByText('Add a property before ordering')).toHaveCount(0);
   });
 
-  test('an account with no land yet is told to add some, and can still read what this costs', async ({ page, world }) => {
+  test('an account with no land is told to add some, and can still read the catalogue', async ({ page, world }) => {
     world.set('properties', propertyList([]));
-    await page.goto('/app/order');
+    await page.goto('/order');
 
     await expect(page.getByText('Add a property before ordering')).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Add a property' }))
-      .toHaveAttribute('href', '/app/properties?new=1');
-    // …and the catalogue is still under it: a first-time owner has to be able
-    // to see what this app is for before being asked to add a property.
-    await expect(page.getByRole('heading', { name: 'Available services' })).toBeVisible();
-    await expect(offerTile(page, 'Encumbrance Certificate')).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Add a property' })).toHaveAttribute('href', '/properties?new=1');
+    const table = page.getByRole('table', { name: 'Available services' });
+    await expect(table.locator('tbody tr[data-key]')).toHaveCount(OFFERS.length);
+    // Read-only: nothing to tick, and no steps to walk.
+    await expect(table.getByRole('checkbox')).toHaveCount(0);
+    await expect(steps(page)).toHaveCount(0);
   });
 
-  test('searching narrows the land I already hold, without asking the server a second time', async ({ page, world }) => {
-    await page.goto('/app/order');
-    await expect(landCards(page)).toHaveCount(4);
-    const asked = world.calls('properties').length;
-
-    await page.getByLabel('Find your property').fill('Kukatpally');
-
-    await expect(landCards(page)).toHaveCount(1);
-    await expect(landCard(page, 'Flat 4B, Sai Residency')).toBeVisible();
-    // The narrowing is in the URL, so a reload and a followed catalogue tile
-    // both keep it — and it is done over the cards already held.
-    await expect(page).toHaveURL('/app/order?q=Kukatpally');
-    expect(world.calls('properties')).toHaveLength(asked);
+  test('on a phone the steps, the land and the action bar fit without sideways scrolling @phone', async ({ page, world }) => {
+    world.set('orders', ordersAnswer([]));
+    await page.goto('/order');
+    await include(page, 'Sy 214/2').check();
+    await expect(page.getByRole('button', { name: 'Next: choose services' })).toBeInViewport();
+    await page.getByRole('button', { name: 'Next: choose services' }).click();
+    await expect(svcRows(page).first()).toBeVisible();
+    // The bar (and its Next) appears once a service is ticked.
+    await pickSvc(page, 'Site visit').check();
+    await expect(page.getByRole('button', { name: 'Next: review' })).toBeInViewport();
+    // The document (the services table scrolls inside its own card).
+    const wide = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(await wide()).toBeLessThanOrEqual(1);
+    await page.getByRole('button', { name: 'Next: review' }).click();
+    await expect(page.getByRole('heading', { name: 'Review and place' })).toBeVisible();
+    expect(await wide()).toBeLessThanOrEqual(1);
   });
+});
 
-  test('a search that matches no land says so in my own words, and offers to clear itself', async ({ page }) => {
-    await page.goto('/app/order');
-    await page.getByLabel('Find your property').fill('Vizag');
+test.describe('Ordering: choosing the services', () => {
+  test.beforeEach(({ world }) => { world.set('orders', ordersAnswer([])); });
 
-    await expect(page.getByText('No property matches “Vizag”')).toBeVisible();
-    await expect(landCards(page)).toHaveCount(0);
+  test('Next takes the chosen land to the services offered there, priced from the catalogue', async ({ page, world }) => {
+    await page.goto('/order');
+    await include(page, 'Sy 214/2').check();
+    await page.getByRole('button', { name: 'Next: choose services' }).click();
 
-    await page.getByRole('button', { name: 'Clear' }).click();
-
-    await expect(landCards(page)).toHaveCount(4);
-    await expect(page).toHaveURL('/app/order');
-  });
-
-  test('a portfolio longer than the fold shows a batch and a way to the rest', async ({ page, world }) => {
-    const many = Array.from({ length: 30 }, (_, i) => ({
-      ...CARDS[0], id: `w-many-${i}`, title: `Sy ${400 + i}`, coverFileRef: '',
-    }));
-    world.set('properties', propertyList(many));
-    await page.goto('/app/order');
-
-    // A batch and a button, which is what the Properties grid already does —
-    // not a sentence apologising that twenty of them are unreachable.
-    await expect(landCards(page)).toHaveCount(24);
-    await page.getByRole('button', { name: 'Show all 30' }).click();
-    await expect(landCards(page)).toHaveCount(30);
-  });
-
-  test('the catalogue under the grid prices every job and says what an owner calls it', async ({ page }) => {
-    await page.goto('/app/order');
-
-    await expect(page.getByRole('heading', { name: 'Available services' })).toBeVisible();
-    await expect(page.locator('section.sec .cards a.rec')).toHaveCount(OFFERS.length);
-
-    const ec = offerTile(page, 'Encumbrance Certificate');
+    await expect(page).toHaveURL(/step=services/);
+    await expect(currentStep(page)).toContainText('Services');
+    await expect(svcRows(page)).toHaveCount(OFFERS.length);
+    expect(world.lastVars('servicesForRecords')).toMatchObject({ recordIds: [ID.parcel] });
+    const ec = svcRow(page, 'Encumbrance certificate');
     await expect(ec).toContainText('₹1,180');
     await expect(ec).toContainText('about 7 days');
-    await expect(ec).toContainText("The registrar's list of every transaction on this land");
-    // Typing "EC" into a search box answered nothing; a line on the tile always does.
-    await expect(ec).toContainText('Also called an EC');
-    await expect(offerTile(page, 'Mutation / name transfer')).toContainText('Also called a name transfer');
-    await expect(offerTile(page, 'Boundary re-survey')).toContainText('₹2,900');
-    await expect(offerTile(page, 'Certified patta copy')).toContainText('₹450');
+    await expect(ec).toContainText('Records');
+    // One property: no "available at" column to read.
+    await expect(svcTable(page).locator('thead')).not.toContainText('Available at');
+    await expect(svcTable(page).locator('img')).toHaveCount(0);
   });
 
-  test('following a service from the catalogue re-heads this page with that service in the question', async ({ page, world }) => {
-    await page.goto('/app/order');
+  test('the recommended services come first, marked, then the rest by group', async ({ page }) => {
+    await toServices(page, ID.parcel);
 
-    await offerTile(page, 'Boundary re-survey').click();
-
-    await expect(page).toHaveURL('/app/order?service=survey');
-    await expect(page.getByRole('heading', { name: 'Which property is the boundary re-survey for?' }))
-      .toBeVisible();
-    // Still nothing composed: the tile asked the same question again, more
-    // narrowly, against no property at all.
-    expect(world.calls('orderService')).toHaveLength(0);
-    await expect(page.getByRole('link', { name: 'Choose a different service' }))
-      .toHaveAttribute('href', '/app/order');
+    const featured = OFFERS.filter((o) => (o as { featured: boolean }).featured);
+    for (let i = 0; i < featured.length; i += 1) {
+      await expect(svcRows(page).nth(i)).toContainText('Recommended');
+    }
+    await expect(svcRows(page).nth(featured.length)).not.toContainText('Recommended');
+    await expect(svcRows(page).filter({ hasText: 'Recommended' })).toHaveCount(featured.length);
+    // Work on the ground leads the groups, as it does across the app.
+    await expect(svcRows(page).nth(0)).toContainText('On the ground');
   });
 
-  test('a search survives following a catalogue tile', async ({ page }) => {
-    await page.goto('/app/order?q=Katragunta');
-    await expect(landCards(page)).toHaveCount(2);
+  test('several services can be chosen at once, and the header box takes them all', async ({ page }) => {
+    await toServices(page, ID.parcel);
+    await pickSvc(page, 'Encumbrance certificate').check();
+    await svcRow(page, 'Site visit').locator('td').nth(2).click();
 
-    await offerTile(page, 'Site visit').click();
-
-    await expect(page).toHaveURL('/app/order?service=site_visit&q=Katragunta');
-    await expect(page.getByLabel('Find your property')).toHaveValue('Katragunta');
-    await expect(landCards(page)).toHaveCount(2);
-    await expect(page.getByRole('link', { name: 'Choose a different service' }))
-      .toHaveAttribute('href', '/app/order?q=Katragunta');
+    await expect(pickSvc(page, 'Site visit')).toBeChecked();
+    await expect(bar(page, 'The chosen services')).toContainText('2 services selected');
+    await page.getByRole('checkbox', { name: /^Select all \d+ services$/ }).check();
+    await expect(bar(page, 'The chosen services')).toContainText(`${OFFERS.length} services selected`);
   });
 
-  test('choosing the land hands the order to that land, and keeps the service that was asked for', async ({ page }) => {
-    await page.goto('/app/order?service=survey');
+  test('the table totals what is ticked: how many, the rupees, and the longest wait', async ({ page }) => {
+    await toServices(page, ID.parcel);
+    const foot = svcTable(page).locator('tfoot');
+    await expect(foot).toContainText('Nothing chosen yet');
 
-    await landCard(page, 'Sy 214/2').click();
-
-    await expect(page).toHaveURL(`/app/records/${ID.parcel}/order?service=survey&step=pick`);
-    await expect(page.getByRole('heading', { name: 'What do you want done on this land?' })).toBeVisible();
+    await pickSvc(page, 'Encumbrance certificate').check();
+    await pickSvc(page, 'Site visit').check();
+    // Read the two rows' own figures, so the sum is checked against the page.
+    const fig = async (name: string, col: number) => Number(
+      (await svcRow(page, name).locator('td').nth(col).innerText()).replace(/[^0-9]/g, ''));
+    const sum = await fig('Encumbrance certificate', 3) + await fig('Site visit', 3);
+    const days = Math.max(await fig('Encumbrance certificate', 4), await fig('Site visit', 4));
+    await expect(foot).toContainText('2 services selected');
+    await expect(foot).toContainText(`₹${sum.toLocaleString('en-IN')}`);
+    await expect(foot).toContainText(`up to ${days} days`);
   });
 
-  test('an old link that named the land in the query string lands in that land’s own flow', async ({ page }) => {
-    await page.goto(`/app/order?record=${ID.parcel}`);
-
-    // Replaced, not pushed: Back must not bounce off the redirect.
-    await expect(page).toHaveURL(`/app/records/${ID.parcel}/order?step=pick`);
-    await expect(page.getByRole('heading', { name: 'What do you want done on this land?' })).toBeVisible();
-
-    await page.goto(`/app/order?record=${ID.parcel}&service=ec`);
-    await expect(page).toHaveURL(`/app/records/${ID.parcel}/order?service=ec&step=pick`);
+  test('Next waits for a service', async ({ page }) => {
+    await toServices(page, ID.parcel);
+    await expect(page.getByRole('button', { name: 'Next: review' })).toHaveCount(0);
+    await pickSvc(page, 'Site visit').check();
+    await bar(page, 'The chosen services').getByRole('button', { name: 'Clear' }).click();
+    await expect(pickSvc(page, 'Site visit')).not.toBeChecked();
+    await expect(page.getByRole('button', { name: 'Next: review' })).toHaveCount(0);
   });
 
-  test('a catalogue still arriving is not a catalogue with nothing in it', async ({ page, world }) => {
-    world.set('servicesOffered', World.never());
-    await page.goto('/app/order');
-    await expect(landCard(page, 'Sy 214/2')).toBeVisible();
-
-    await expect(page.getByText('Loading the list of services…')).toBeVisible();
-    await expect(page.getByText('No services are available right now')).toHaveCount(0);
+  test('a link can arrive with the services already chosen', async ({ page }) => {
+    await page.goto(`/order?for=${ID.parcel}&service=ec,site_visit&step=services`);
+    await expect(pickSvc(page, 'Encumbrance certificate')).toBeChecked();
+    await expect(pickSvc(page, 'Site visit')).toBeChecked();
   });
 
-  test('a catalogue that did not load is named where it failed, and the land is still choosable', async ({ page, world }) => {
-    world.set('servicesOffered', World.gqlError('the catalogue service is down'));
-    await page.goto('/app/order');
+  test('“What is this?” answers under the row, and offers the University guides', async ({ page }) => {
+    await toServices(page, ID.parcel);
+    await svcRow(page, 'Encumbrance certificate').getByRole('button', { name: 'What is this? Encumbrance certificate' }).click();
 
-    const failed = page.getByRole('alert').filter({ hasText: 'The list of services did not load' });
-    await expect(failed).toBeVisible();
+    const more = svcTable(page).locator('tr.svc-table-more');
+    await expect(more).toContainText('Also called an EC');
+    await expect(more.getByRole('link', { name: /^Andhra Pradesh: EC & deeds/ }))
+      .toHaveAttribute('href', /\/states\/andhra-pradesh\/records\/encumbrance-and-deeds$/);
+    // Opening it chose nothing.
+    await expect(pickSvc(page, 'Encumbrance certificate')).not.toBeChecked();
+  });
+
+  test('two properties priced differently show the range and where each service is offered', async ({ page, world }) => {
+    const offer = (key: string, price: number) => ({ ...(OFFERS.find((o) => o.key === key) as object), price });
+    world.set('servicesForRecords', (vars: Record<string, unknown>) => (vars.recordIds as string[]).map((recordId) => ({
+      recordId,
+      offers: recordId === ID.plot
+        ? [offer('ec', 1400), offer('site_visit', 1200)]
+        : [offer('ec', 1180), offer('site_visit', 1200), offer('survey', 2900), offer('patta_copy', 450)],
+    })));
+    await toServices(page, ID.parcel, ID.plot);
+
+    await expect(svcRow(page, 'Encumbrance certificate')).toContainText('₹1,180–₹1,400 each');
+    await expect(svcRow(page, 'Site visit')).toContainText('₹1,200 each');
+    await expect(svcRow(page, 'Encumbrance certificate')).toContainText('All');
+    await expect(svcRow(page, 'Certified patta copy')).toContainText('1 of 2');
+  });
+
+  test('a service whose answers belong to one boundary is shut when several properties are chosen', async ({ page }) => {
+    await toServices(page, ID.parcel, ID.plot);
+
+    await expect(pickSvc(page, 'Boundary re-survey')).toBeDisabled();
+    await expect(svcRow(page, 'Boundary re-survey')).toContainText('Ordered one property at a time');
+    await expect(pickSvc(page, 'Encumbrance certificate')).toBeEnabled();
+  });
+
+  test('…and open again for one property', async ({ page }) => {
+    await toServices(page, ID.plot);
+    await expect(pickSvc(page, 'Boundary re-survey')).toBeEnabled();
+  });
+
+  test('a service already on order for every chosen property says so, links it, and cannot be chosen', async ({ page, world }) => {
+    world.set('orders', ordersAnswer(OPEN_ORDERS));
+    await toServices(page, ID.parcel);
+
+    const ec = svcRow(page, 'Encumbrance certificate');
+    await expect(pickSvc(page, 'Encumbrance certificate')).toBeDisabled();
+    await expect(ec).toContainText('Already on order');
+    await expect(pickSvc(page, 'Site visit')).toBeEnabled();
+  });
+
+  test('services still arriving are not services with nothing in them', async ({ page, world }) => {
+    world.set('servicesForRecords', World.never());
+    await page.goto(`/order?for=${ID.parcel}&step=services`);
+    await expect(page.getByRole('status', { name: 'Loading the services offered there' })).toBeVisible();
+    await expect(page.getByText('No service is offered there yet')).toHaveCount(0);
+  });
+
+  test('services that did not load are named where they failed', async ({ page, world }) => {
+    world.set('servicesForRecords', World.gqlError('the catalogue service is down'));
+    await page.goto(`/order?for=${ID.parcel}&step=services`);
+    const failed = page.getByRole('alert').filter({ hasText: 'The services offered there did not load' });
     await expect(failed).toContainText('the catalogue service is down');
-    // The outage does not decide whether anything can be ordered.
-    await expect(landCards(page)).toHaveCount(4);
   });
 
-  test('a catalogue with nothing on offer says so, and still leaves a way to ask somebody', async ({ page, world }) => {
-    world.set('servicesOffered', []);
-    await page.goto('/app/order');
-
-    await expect(page.getByText('No services are available right now')).toBeVisible();
-    await expect(landCards(page)).toHaveCount(4);
+  test('land where nothing is offered yet says so', async ({ page, world }) => {
+    world.set('servicesForRecords', (vars: Record<string, unknown>) =>
+      (vars.recordIds as string[]).map((recordId) => ({ recordId, offers: [] })));
+    await page.goto(`/order?for=${ID.parcel}&step=services`);
+    await expect(page.getByText('Pattadar does not offer services where this property is yet.')).toBeVisible();
   });
 
-  test('a land card states the extent the rest of the app states, down to the gunta', async ({ page }) => {
-    // This screen used to print `extent(v, unit)`, which rounds to the unit:
-    // 4.3 acres drew as "4 acres". Twelve guntas is a third of an acre, not a
-    // rounding error, and the Properties grid this card is deliberately a copy
-    // of prints the server's own words. `extentLine` in orderFlow.ts is what
-    // keeps one piece of land one size on both screens.
-    await page.goto('/app/order');
+  test('Back keeps the land and the services chosen, both ways', async ({ page }) => {
+    await page.goto('/order');
+    await include(page, 'Sy 214/2').check();
+    await page.getByRole('button', { name: 'Next: choose services' }).click();
+    await pickSvc(page, 'Encumbrance certificate').check();
 
-    await expect(landCard(page, 'Sy 214/2')).toContainText('4 acres 12 guntas', { timeout: 3000 });
+    // The finished step is a button back.
+    await steps(page).getByRole('button', { name: 'Properties' }).click();
+    await expect(include(page, 'Sy 214/2')).toBeChecked();
+    // The browser's own Back walks forward again… and Forward, and Back.
+    await page.goBack();
+    await expect(pickSvc(page, 'Encumbrance certificate')).toBeChecked();
+    await page.getByRole('button', { name: 'Next: review' }).click();
+    await bar(page, 'Place the orders').getByRole('button', { name: 'Back' }).click();
+    await expect(pickSvc(page, 'Encumbrance certificate')).toBeChecked();
+  });
+
+  test('a later step reached with nothing chosen goes back to the choosing', async ({ page }) => {
+    await page.goto('/order?step=review');
+    await expect(page).toHaveURL(/step=properties/);
+    await expect(page.getByRole('heading', { name: 'Choose the properties' })).toBeVisible();
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════
-// /app/records/:id/order — the four steps of one order
-// ═══════════════════════════════════════════════════════════════════════
-
-/** One service tile in the flow's chooser. `.choice.svc` holds nothing else,
- *  and a tile's accessible name is its label, its price, its wait and its
- *  sub-line run together — so it is named by the text it contains. */
-const svcTile = (page: Page, label: string) =>
-  page.locator('.choice.svc button').filter({ hasText: label });
-
-/** One row of the review summary, named by the key in its left column.
- *  `KV` renders `<div class="kv"><div><span class="k">…</span><span class="v">…`
- *  with no roles at all, and several values repeat their own key's words. */
-const kvRow = (page: Page, k: string) =>
-  page.locator('.kv > div').filter({
-    has: page.locator('span.k').filter({ hasText: new RegExp(`^${k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) }),
-  });
-
-/** The seeded `record` answer with a field or two changed.
- *
- *  `world.seedOf('record')` refuses it — the seed answers it with a function
- *  of its variables — so the seed's own answer is called and patched, rather
- *  than a second hand-written RecordDetail drifting from the one in seed.ts.
- *  Q_RECORD selects forty fields and a missing one draws as `undefined`. */
-const recordLike = (over: Record<string, unknown>) =>
-  (vars: Record<string, unknown>, query: string) => {
-    const answer = SEED.record as (v: Record<string, unknown>, q: string) => Record<string, unknown> | null;
-    const base = answer(vars, query);
-    return base ? { ...base, ...over } : base;
-  };
-
-/** A job the server filed, as `orders` answers it once it exists. */
-const newJob = (over: Record<string, unknown> = {}) => ({
-  ...ORDERS[0], id: 'w-tkt-new', ref: 'W-2199', kind: 'survey', title: 'Boundary re-survey',
-  detail: 'All four', cost: 2_900, assignee: '', stage: 1, stageLabel: 'Placed',
-  status: 'placed', statusLabel: 'Placed', statusState: '', needsYou: false, pendingReview: 0,
-  held: 0, dueDate: '2026-09-25', recordId: ID.parcel, recordTitle: 'Sy 214/2', ...over,
-});
-
-/** Walks the flow to the review step with its questions already answered.
- *
- *  `?a.<field>=` is the app's own door for that — it is how the one-tap
- *  buttons on the Features and Photos hangers hand their answer over — so a
- *  test about the review is not also a test about typing. */
-async function toReview(
-  page: Page, recordId: string, service: string,
-  answers: Record<string, string> = {}, extra = '',
-) {
-  const a = Object.entries(answers)
-    .map(([k, v]) => `&a.${k}=${encodeURIComponent(v)}`).join('');
-  await page.goto(`/app/records/${recordId}/order?service=${service}&step=tell${a}${extra}`);
-  await page.getByRole('button', { name: 'Check the order' }).click();
-  await expect(page.getByRole('heading', { name: 'Check this before it goes in' })).toBeVisible();
-}
-
-/** One line of the needs strip. The card holding it has no title and so no
- *  heading to name it by; the rail's own nav has list items too. */
-const need = (page: Page, says: string) =>
-  page.locator('.card.flat li').filter({ hasText: says });
-
-test.describe('Ordering a service', () => {
-  // Since 8ee7822 a service already running on the land is drawn as its open
-  // request instead of a tile that can be picked, and the seeded parcel has an
-  // EC and corner surveys open. Most of these tests are about ordering, so
-  // they start from a land with nothing running. The tests about what is
-  // already running set the seeded orders back themselves.
+test.describe('Ordering: review and place', () => {
   test.beforeEach(({ world }) => {
     world.set('orders', ordersAnswer([]));
+    world.set('orderService', filesAll);
   });
 
-  // ── step 2 · what do you want done ─────────────────────────────────
+  test('the review prices every line and totals them, and says nothing is charged now', async ({ page }) => {
+    await toReview(page, ['Encumbrance certificate', 'Certified patta copy'], ID.parcel, ID.plot);
 
-  test('the flow opens on what this land needs, with the land itself beside it', async ({ page }) => {
-    await page.goto(`/app/records/${ID.parcel}/order`);
-
-    await expect(page.getByRole('heading', { name: 'What do you want done on this land?' })).toBeVisible();
-    await expect(page.getByText('Sy 214/2 · Katragunta, Markapur, Prakasam')).toBeVisible();
-
-    // The land is on the page at every step — here as the card the owner
-    // already recognises, with what the record can say about where it is.
-    const land = card(page, 'This property');
-    await expect(land).toContainText('Sy 214/2');
-    await expect(land).toContainText('Katragunta, Markapur, Prakasam');
-    await expect(land).toContainText('4 acres');
-    await expect(land).toContainText('Khata 1042');
-    await expect(land).toContainText('Boundary on map');
-    await expect(land.getByRole('link', { name: 'View / measure boundary' }))
-      .toHaveAttribute('href', `/app/records/${ID.parcel}/map`);
-    await expect(land.getByRole('link', { name: 'Change land' })).toHaveAttribute('href', '/app/order');
+    await expect(currentStep(page)).toContainText('Review');
+    await expect(line(page, 'ec', ID.parcel)).toContainText('₹1,180');
+    await expect(line(page, 'patta_copy', ID.plot)).toContainText('₹450');
+    await expect(summary(page)).toContainText('4 new orders');
+    await expect(summary(page)).toContainText('₹3,260');
+    await expect(page.getByText('Nothing is charged now. You pay only after you accept the work.')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Place 4 orders · ₹3,260' })).toBeEnabled();
   });
 
-  test('the strip at the top says what this land is short of, and every line has somewhere to go', async ({ page }) => {
-    await page.goto(`/app/records/${ID.plot}/order`);
+  test('placing files one order per service, each for every property, each with its own key', async ({ page, world }) => {
+    await toReview(page, ['Encumbrance certificate', 'Site visit'], ID.parcel, ID.plot);
+    await page.getByLabel('What to check').selectOption('Crop');
+    // Sy 88 cannot be found from what is saved, so who to meet is required.
+    await page.getByLabel('Who to meet on site').fill('Ramana at the gate');
+    await page.getByRole('button', { name: 'Place 4 orders · ₹4,760' }).click();
 
-    await expect(need(page, 'There is no boundary on record for this land.')
-      .getByRole('link', { name: 'Locate / draw boundary' }))
-      .toHaveAttribute('href', `/app/records/${ID.plot}/map`);
-    await expect(need(page, 'No documents are filed on this property yet.')
-      .getByRole('link', { name: 'Open Documents' }))
-      .toHaveAttribute('href', `/app/records/${ID.plot}`);
-    await expect(page.locator('.card.flat li')).toHaveCount(2);
+    await expect(page).toHaveURL('/services');
+    const calls = world.calls('orderService').map((c) => c.vars);
+    expect(calls).toHaveLength(2);
+    expect(calls.map((v) => v.kind).sort()).toEqual(['ec', 'site_visit']);
+    for (const v of calls) expect(v.recordIds).toEqual([ID.parcel, ID.plot]);
+    const visit = calls.find((v) => v.kind === 'site_visit')!;
+    expect(JSON.parse(String(visit.params))).toEqual({ check: 'Crop', meet: 'Ramana at the gate' });
+    expect(String(calls[0].idempotencyKey)).toMatch(UUID);
+    expect(calls[0].idempotencyKey).not.toBe(calls[1].idempotencyKey);
+    // Several properties: nothing attached.
+    expect(JSON.parse(String(visit.attachmentManifest))).toEqual({});
   });
 
-  test('a job already running on this land is one of the things the land needs saying about it', async ({ page, world }) => {
-    world.set('orders', ordersAnswer(ORDERS));
-    await page.goto(`/app/records/${ID.parcel}/order`);
-
-    await expect(need(page, 'An encumbrance certificate is already on order here.')
-      .getByRole('link', { name: 'Open the job' }))
-      .toHaveAttribute('href', `/app/services/${TICKET.placed}`);
-  });
-
-  test('a land with its boundary and its papers on record gets no needs box', async ({ page, world }) => {
-    world.set('orders', ordersAnswer([]));
-    await page.goto(`/app/records/${ID.parcel}/order`);
-
-    await expect(page.getByRole('heading', { name: 'What do you want done on this land?' })).toBeVisible();
-    await expect(page.locator('.card.flat')).toHaveCount(0);
-  });
-
-  test('work on the ground is offered first, whatever order the catalogue arrives in', async ({ page }) => {
-    await page.goto(`/app/records/${ID.parcel}/order`);
-
-    // The server sorts (group, label), which puts Legal first by alphabetical
-    // accident. Most owners are here for somebody to go and stand on the land.
-    await expect(page.locator('button.chip')).toHaveText(['All', 'On the ground', 'Records', 'Legal']);
-    await expect(page.locator('.choice.svc button')).toHaveCount(6);
-
-    await page.getByRole('button', { name: 'On the ground', exact: true }).click();
-
-    await expect(page.locator('.choice.svc button')).toHaveCount(2);
-    await expect(svcTile(page, 'Boundary re-survey')).toBeVisible();
-    await expect(svcTile(page, 'Site visit')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'On the ground', exact: true }))
-      .toHaveAttribute('aria-pressed', 'true');
-
-    await page.getByRole('button', { name: 'All', exact: true }).click();
-    await expect(page.locator('.choice.svc button')).toHaveCount(6);
-  });
-
-  test('every tile carries its price and its wait, so a choice is never made blind', async ({ page }) => {
-    await page.goto(`/app/records/${ID.parcel}/order`);
-
-    await expect(svcTile(page, 'Boundary re-survey')).toContainText('₹2,900');
-    await expect(svcTile(page, 'Boundary re-survey')).toContainText('about 21 days');
-    await expect(svcTile(page, 'Title opinion')).toContainText('₹4,500');
-    await expect(svcTile(page, 'Title opinion')).toContainText('about 14 days');
-    await expect(svcTile(page, 'Certified patta copy')).toContainText('₹450');
-    await expect(svcTile(page, 'Mutation / name transfer')).toContainText('about 30 days');
-  });
-
-  test('a tile’s line is about this land before it is about the catalogue', async ({ page }) => {
-    await page.goto(`/app/records/${ID.parcel}/order`);
-
-    // Work on the ground: what this record can say about where the land is,
-    // ahead of anything else, because it decides whether the job can be done.
-    await expect(svcTile(page, 'Boundary re-survey')).toContainText(
-      'Your boundary is on record. The outline goes with the order, so the surveyor starts '
-      + 'from your corners.',
-    );
-    // Then what you are actually buying, which the blurb does not say. (What
-    // you already have running is no longer a line on a tile: since 8ee7822
-    // such a service is its open request — see the test below.) What
-    // an owner CALLS it comes next in the precedence and is unreachable here
-    // by construction: both keys in ALSO_CALLED (ec, mutation) are in
-    // DELIVERABLE too, so a tile never falls through to it. It is asserted
-    // where it does show — on the catalogue tiles of the land chooser.
-    await expect(svcTile(page, 'Mutation / name transfer'))
-      .toContainText('The revenue record in the new owner’s name');
-    await expect(svcTile(page, 'Title opinion'))
-      .toContainText('A written opinion from an advocate on whether the title is clean');
-  });
-
-  test('a service in a group this app has never heard of is still offered, in the catalogue’s own words', async ({ page, world }) => {
-    const caretaking = {
-      key: 'fence_check', label: 'Fence inspection', price: 800, group: 'Caretaking',
-      blurb: 'A caretaker walks the fence line and reports what is broken.', days: 4, fields: [],
-    };
-    world.set('servicesOffered', (vars: Record<string, unknown>) => (String(vars.key ?? '')
-      ? [...OFFERS, caretaking].filter((o) => o.key === vars.key)
-      : [...OFFERS, caretaking]));
-    await page.goto(`/app/records/${ID.parcel}/order`);
-
-    // A group nobody here has heard of fails safe: it is appended in the
-    // server's own order rather than dropped.
-    await expect(page.locator('button.chip'))
-      .toHaveText(['All', 'On the ground', 'Records', 'Legal', 'Caretaking']);
-    // With no map sentence, nothing running and no deliverable written for it,
-    // the tile falls back to the catalogue's own description of the work.
-    await expect(svcTile(page, 'Fence inspection'))
-      .toContainText('A caretaker walks the fence line and reports what is broken.');
-  });
-
-  test('nothing can be answered until a service has been chosen', async ({ page }) => {
-    await page.goto(`/app/records/${ID.parcel}/order`);
-
-    const next = page.getByRole('button', { name: 'Answer what it needs' });
-    await expect(next).toBeDisabled();
-    await expect(svcTile(page, 'Boundary re-survey')).toHaveAttribute('aria-pressed', 'false');
-
-    await svcTile(page, 'Boundary re-survey').click();
-
-    await expect(page).toHaveURL(`/app/records/${ID.parcel}/order?service=survey&step=pick`);
-    await expect(svcTile(page, 'Boundary re-survey')).toHaveAttribute('aria-pressed', 'true');
-    await expect(svcTile(page, 'Site visit')).toHaveAttribute('aria-pressed', 'false');
-    await expect(next).toBeEnabled();
-
-    await next.click();
-    await expect(page).toHaveURL(`/app/records/${ID.parcel}/order?service=survey&step=tell`);
-    await expect(page.getByRole('heading', { name: 'What we need to know' })).toBeVisible();
-  });
-
-  test('work this catalogue does not sell can still be asked of somebody I already work with', async ({ page }) => {
-    await page.goto(`/app/records/${ID.parcel}/order`);
-
-    await expect(page.getByRole('link', { name: 'Ask someone you already work with.' }))
-      .toHaveAttribute('href', `/app/records/${ID.parcel}/request`);
-  });
-
-  test('a catalogue with nothing on offer does not leave the land with nowhere to go', async ({ page, world }) => {
-    world.set('servicesOffered', []);
-    await page.goto(`/app/records/${ID.parcel}/order`);
-
-    await expect(page.getByText('No services are available right now')).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Ask someone yourself' }))
-      .toHaveAttribute('href', `/app/records/${ID.parcel}/request`);
-    await expect(page.getByRole('button', { name: 'Answer what it needs' })).toHaveCount(0);
-  });
-
-  test('a catalogue that did not load is not an empty catalogue', async ({ page, world }) => {
-    world.set('servicesOffered', World.gqlError('the catalogue service is down'));
-    await page.goto(`/app/records/${ID.parcel}/order`);
-
-    await expect(page.getByRole('alert').filter({ hasText: 'The list of services did not load' }))
-      .toBeVisible();
-    await expect(page.getByText('No services are available right now')).toHaveCount(0);
-  });
-
-  test('a catalogue still arriving is not one with nothing in it either', async ({ page, world }) => {
-    world.set('servicesOffered', World.never());
-    await page.goto(`/app/records/${ID.parcel}/order`);
-
-    await expect(page.getByText('Loading the list of services…')).toBeVisible();
-    await expect(page.getByText('No services are available right now')).toHaveCount(0);
-  });
-
-  test('a land whose running jobs could not be read is still ordered against, and says what it could not check', async ({ page, world }) => {
-    world.set('orders', World.gqlError('the work queue is down'));
-    await page.goto(`/app/records/${ID.parcel}/order`);
-
-    await expect(page.getByText('We could not check what is already running on this land.')).toBeVisible();
-    // Warned, never blocked: every tile is still choosable.
-    await expect(page.locator('.choice.svc button')).toHaveCount(6);
-    await expect(svcTile(page, 'Encumbrance Certificate'))
-      .not.toContainText('You already have one of these running here.');
-  });
-
-  test('a land nobody can find can still order the survey that would find it', async ({ page }) => {
-    await page.goto(`/app/records/${ID.plot}/order`);
-
-    // Refusing to sell the service that produces the map, because there is no
-    // map, is not a safeguard.
-    const survey = svcTile(page, 'Boundary re-survey');
-    await expect(survey).toContainText(
-      'Nothing on this record says where this land is. This is the service that puts that '
-      + 'right — tell the surveyor where to come below.',
-    );
-    await survey.click();
-
-    // Chosen, and offered a trip to draw the boundary that comes back here.
-    await expect(survey.getByRole('link', { name: 'Locate / draw boundary' })).toHaveAttribute(
-      'href',
-      `/app/records/${ID.plot}/map?draw=1&back=${encodeURIComponent(`/app/records/${ID.plot}/order?service=survey&step=pick`)}`,
-    );
-    await page.getByRole('button', { name: 'Answer what it needs' }).click();
-    await expect(page.getByRole('heading', { name: 'What we need to know' })).toBeVisible();
-  });
-
-  // ── step 3 · what we need to know ──────────────────────────────────
-
-  test('every question a service asks is drawn, in the kind of box that question needs', async ({ page }) => {
-    await page.goto(`/app/records/${ID.parcel}/order?service=survey&step=tell`);
-
-    await expect(page.getByText(
-      'Boundary re-survey on Sy 214/2 · ₹2,900 · about 21 days',
-    )).toBeVisible();
-    const sheet = card(page, 'Details for this service');
-    await expect(sheet.getByLabel('Which boundary').locator('option'))
-      .toHaveText(['Choose…', 'All four', 'North', 'South', 'East', 'West']);
-    await expect(sheet.getByLabel('Is a neighbour disputing it?').locator('option'))
-      .toHaveText(['Choose…', 'No', 'Yes']);
-    // A note to a surveyor is paragraphs, not a one-line input.
-    await expect(sheet.getByLabel('Anything the surveyor should know')).toHaveAttribute('rows', '3');
-  });
-
-  test('a date, a year, a count and a name are each asked for in their own kind of box', async ({ page }) => {
-    await page.goto(`/app/records/${ID.parcel}/order?service=site_visit&step=tell`);
-    const visit = page.getByLabel('Preferred date');
-    await expect(visit).toHaveAttribute('type', 'date');
-    // A preferred date in the past is not a preference, it is a typo.
-    await expect(visit).toHaveAttribute('min', /^\d{4}-\d{2}-\d{2}$/);
-
-    await page.goto(`/app/records/${ID.parcel}/order?service=ec&step=tell`);
-    await expect(page.getByLabel('From year')).toHaveAttribute('type', 'number');
-    await expect(page.getByLabel('From year')).toHaveAttribute('min', '1900');
-    // And no question is dressed as a search box, which is what the old
-    // `Field` did to every text, date and number answer on this screen.
-    await expect(card(page, 'Details for this service').locator('.search')).toHaveCount(0);
-
-    await page.goto(`/app/records/${ID.parcel}/order?service=patta_copy&step=tell`);
-    await expect(page.getByLabel('How many copies')).toHaveAttribute('type', 'number');
-    await expect(page.getByLabel('How many copies')).toHaveAttribute('min', '1');
-
-    await page.goto(`/app/records/${ID.parcel}/order?service=mutation&step=tell`);
-    await expect(page.getByLabel('Name to transfer into')).toHaveAttribute('type', 'text');
-  });
-
-  test('the questions that have to be answered are starred, and announced as required', async ({ page }) => {
-    await page.goto(`/app/records/${ID.parcel}/order?service=survey&step=tell`);
-    const sheet = card(page, 'Details for this service');
-
-    await expect(sheet.getByText('* Required')).toBeVisible();
-    await expect(sheet.getByText('Which boundary *', { exact: true })).toBeVisible();
-    await expect(sheet.getByLabel('Which boundary')).toHaveAttribute('aria-required', 'true');
-    // The star is decoration; the attribute is what a screen reader is told.
-    await expect(sheet.getByText('Anything the surveyor should know', { exact: true })).toBeVisible();
-    await expect(sheet.getByText('Anything the surveyor should know *', { exact: true })).toHaveCount(0);
-    expect(await sheet.getByLabel('Anything the surveyor should know').getAttribute('aria-required'))
-      .toBeNull();
-  });
-
-  test('the help under a question is read out with the question, not left to people who can see it', async ({ page }) => {
-    await page.goto(`/app/records/${ID.parcel}/order?service=title_opinion&step=tell`);
-
-    await expect(page.getByLabel('How far back to trace'))
-      .toHaveAttribute('aria-describedby', 'sf-years-help');
-    await expect(page.locator('#sf-years-help')).toHaveText('Banks usually ask for 30.');
-  });
-
-  test('a question nobody answered stops the order, and is named where it was asked and once more at the button', async ({ page, world }) => {
-    await page.goto(`/app/records/${ID.parcel}/order?service=survey&step=tell`);
-
-    await page.getByRole('button', { name: 'Check the order' }).click();
-
-    await expect(page).toHaveURL(`/app/records/${ID.parcel}/order?service=survey&step=tell`);
-    await expect(page.getByText('Still needed: Which boundary, Is a neighbour disputing it?'))
-      .toBeVisible();
-    await expect(page.getByLabel('Which boundary')).toHaveAttribute('aria-invalid', 'true');
-    await expect(page.getByRole('alert').filter({ hasText: 'We need this before the order can go in.' }))
-      .toHaveCount(2);
-    expect(world.calls('orderService')).toHaveLength(0);
-
-    await page.getByLabel('Which boundary').selectOption('All four');
-    await page.getByLabel('Is a neighbour disputing it?').selectOption('No');
-    await page.getByRole('button', { name: 'Check the order' }).click();
-
-    await expect(page.getByRole('heading', { name: 'Check this before it goes in' })).toBeVisible();
-  });
-
-  test('where the land is, is only asked about work somebody has to go and do', async ({ page }) => {
-    await page.goto(`/app/records/${ID.parcel}/order?service=survey&step=tell`);
-    await expect(card(page, 'Location & boundary')).toBeVisible();
-
-    await page.goto(`/app/records/${ID.parcel}/order?service=site_visit&step=tell`);
-    await expect(card(page, 'Location & boundary')).toBeVisible();
-
-    // An encumbrance certificate does not care where the land is.
-    await page.goto(`/app/records/${ID.parcel}/order?service=ec&step=tell`);
-    await expect(card(page, 'Location & boundary')).toHaveCount(0);
-    await page.goto(`/app/records/${ID.parcel}/order?service=title_opinion&step=tell`);
-    await expect(card(page, 'Location & boundary')).toHaveCount(0);
-  });
-
-  test('the boundary is only offered to be sent when there are corners to send', async ({ page, world }) => {
-    await page.goto(`/app/records/${ID.parcel}/order?service=survey&step=tell`);
-    const where = card(page, 'Location & boundary');
-    const send = where.getByRole('checkbox', { name: 'Send them the boundary you have drawn' });
-    await expect(send).toBeChecked();
-
-    // A pin is not a boundary and cannot be sent: `public_manifest` hands the
-    // worker `{items, boundary}` and nothing else.
-    await page.goto(`/app/records/${ID.flat}/order?service=site_visit&step=tell`);
-    await expect(card(page, 'Location & boundary'))
-      .toContainText('A pin cannot go with the order — only a drawn boundary can.');
-    await expect(page.getByRole('checkbox', { name: 'Send them the boundary you have drawn' }))
-      .toHaveCount(0);
-
-    // Two corners are not a boundary either — and the checkbox is ABSENT
-    // rather than disabled, because there is nothing to decide.
-    world.set('record', recordLike({ ring: [15.7410, 79.2694, 15.7402, 79.2704] }));
-    await page.goto(`/app/records/${ID.parcel}/order?service=survey&step=tell`);
-    await expect(card(page, 'Location & boundary'))
-      .toContainText('A pin cannot go with the order — only a drawn boundary can.');
-    await expect(page.getByRole('checkbox', { name: 'Send them the boundary you have drawn' }))
-      .toHaveCount(0);
-  });
-
-  test('a land nobody can find is asked how to get there, and that answer becomes one that has to be given', async ({ page }) => {
-    await page.goto(`/app/records/${ID.plot}/order?service=survey&step=tell`);
-
-    await expect(card(page, 'Location & boundary')).toContainText(
-      'Nothing on this record says where this land is. This is the service that puts that '
-      + 'right — tell the surveyor where to come below.',
-    );
-    // The catalogue says this field is optional. On a land nobody can find it
-    // is the only way anybody gets there.
-    await expect(card(page, 'Details for this service').getByText('Anything the surveyor should know *', { exact: true }))
-      .toBeVisible();
-    await expect(page.getByLabel('Anything the surveyor should know'))
-      .toHaveAttribute('aria-required', 'true');
-    await expect(page.locator('#sf-notes-help'))
-      .toHaveText('Nobody can find this land from the record, so write down how to get there.');
-
-    await page.getByRole('button', { name: 'Check the order' }).click();
-    await expect(page.getByText(
-      'Still needed: Which boundary, Is a neighbour disputing it?, Anything the surveyor should know.',
-    )).toBeVisible();
-  });
-
-  test('a visit to a land nobody can find asks who to meet there instead', async ({ page }) => {
-    await page.goto(`/app/records/${ID.plot}/order?service=site_visit&step=tell`);
-
-    await expect(card(page, 'Location & boundary')).toContainText(
-      'Nothing on this record says where this land is, so nobody can be sent to it yet.',
-    );
-    await expect(card(page, 'Details for this service').getByText('Who to meet on site *', { exact: true })).toBeVisible();
-    await expect(page.getByLabel('Who to meet on site')).toHaveAttribute('aria-required', 'true');
-    await expect(page.locator('#sf-meet-help'))
-      .toHaveText('Nobody can find this land from the record, so write down how to get there.');
-  });
-
-  test('everything filed on the land can be sent, with the papers kept out of the photos', async ({ page }) => {
-    await page.goto(`/app/records/${ID.parcel}/order?service=site_visit&step=tell`);
-    const give = card(page, 'Documents to share with the provider');
-
-    await expect(cardCount(page, 'Documents to share with the provider')).toHaveText('0 of 8');
-    await expect(give).toContainText('Papers · 5');
-    await expect(give).toContainText('Photos and video · 3');
-    // Nothing is capped: the old screen stopped at eight papers and six
-    // photos with nothing saying so.
-    await expect(give.getByRole('checkbox')).toHaveCount(8);
-    // A photo nobody captioned is named by its file rather than left blank.
-    await expect(give.getByRole('checkbox', { name: 'ne-stone.jpg' })).toBeVisible();
-    await expect(give).toContainText('Video · 2026-06-02');
-  });
-
-  test('a land with nothing filed on it can still be ordered against', async ({ page }) => {
-    await page.goto(`/app/records/${ID.plot}/order?service=survey&step=tell`);
-    const give = card(page, 'Documents to share with the provider');
-
-    await expect(give).toContainText('No documents on this property yet');
-    await expect(give.getByRole('link', { name: 'Add a document first' }))
-      .toHaveAttribute('href', `/app/records/${ID.plot}`);
-    await expect(page.getByRole('button', { name: 'Check the order' })).toBeEnabled();
-  });
-
-  test('a land with papers and no photographs heads only the shelf it actually has', async ({ page }) => {
-    await page.goto(`/app/records/${ID.flat}/order?service=ec&step=tell`);
-    const give = card(page, 'Documents to share with the provider');
-
-    await expect(give).toContainText('Papers · 1');
-    await expect(give).not.toContainText('Photos and video');
-    await expect(give.getByRole('checkbox')).toHaveCount(1);
-    await expect(cardCount(page, 'Documents to share with the provider')).toHaveText('0 of 1');
-    await expect(give).not.toContainText('No documents on this property yet');
-  });
-
-  test('what is ticked is named on the order, so a surveyor sent to the wrong field can be shown what they were handed', async ({ page, world }) => {
-    await page.goto(`/app/records/${ID.parcel}/order?service=site_visit&step=tell&a.check=Crop`);
-    await page.getByRole('checkbox', { name: 'Sale deed 4412 of 1998' }).check();
-    await page.getByRole('checkbox', { name: 'The well from the gate' }).check();
-    await expect(cardCount(page, 'Documents to share with the provider')).toHaveText('2 of 8');
-
-    await page.getByRole('button', { name: 'Check the order' }).click();
-    await expect(kvRow(page, 'Goes with it')).toContainText('1 document, 1 photo');
-    await page.getByRole('button', { name: /^Place/ }).click();
-
-    await expect.poll(() => world.calls('orderService')).toHaveLength(1);
-    const vars = world.lastVars('orderService');
-    expect(JSON.parse(String(vars.params))).toMatchObject({
-      shared: 'Sale deed 4412 of 1998, The well from the gate',
-    });
-    expect(JSON.parse(String(vars.attachmentManifest))).toEqual({
-      documentIds: [PAPER.deed], photoIds: [PHOTO.cover], includeBoundary: true,
-    });
-  });
-
-  test('choosing a different service goes back and forgets the one that was chosen', async ({ page }) => {
-    await page.goto(`/app/records/${ID.parcel}/order?service=survey&step=tell`);
-
-    await page.getByRole('button', { name: 'Choose a different service' }).click();
-
-    await expect(page).toHaveURL(`/app/records/${ID.parcel}/order?step=pick`);
-    await expect(page.getByRole('heading', { name: 'What do you want done on this land?' })).toBeVisible();
-    await expect(svcTile(page, 'Boundary re-survey')).toHaveAttribute('aria-pressed', 'false');
-    await expect(page.getByRole('button', { name: 'Answer what it needs' })).toBeDisabled();
-  });
-
-  // ── step 4 · check this before it goes in ──────────────────────────
-
-  test('the review restates the whole order before any money is committed', async ({ page, world }) => {
-    await toReview(page, ID.parcel, 'survey', {
-      which_side: 'All four', dispute: 'No', notes: 'The gate is on the north',
-    });
-
-    await expect(kvRow(page, 'Land')).toContainText('Sy 214/2 — Katragunta, Markapur, Prakasam');
-    await expect(kvRow(page, 'Service')).toContainText('Boundary re-survey');
-    // What lands in the owner's hands, which the catalogue's blurb does not say.
-    await expect(kvRow(page, 'You get'))
-      .toContainText('A surveyor’s sheet with your corners pinned against the FMB');
-    await expect(kvRow(page, 'Quoted')).toContainText('₹2,900');
-    await expect(kvRow(page, 'Expected')).toContainText('about 21 days once somebody is on it');
-    await expect(kvRow(page, 'Which boundary')).toContainText('All four');
-    await expect(kvRow(page, 'Is a neighbour disputing it?')).toContainText('No');
-    await expect(kvRow(page, 'Anything the surveyor should know')).toContainText('The gate is on the north');
-    await expect(kvRow(page, 'Goes with it')).toContainText('Nothing');
-    await expect(kvRow(page, 'Boundary')).toContainText('Sent with the order');
-
-    // Nothing has been filed by reading it.
+  test('a required question left empty stops the order, named at the question and at the button', async ({ page, world }) => {
+    await toReview(page, ['Site visit'], ID.parcel);
+    await page.getByRole('button', { name: /^Place 1 order/ }).click();
+
+    await expect(page.getByLabel('What to check')).toHaveAttribute('aria-invalid', 'true');
+    await expect(page.getByRole('alert').filter({ hasText: 'Still needed: Site visit: What to check.' })).toBeVisible();
     expect(world.calls('orderService')).toHaveLength(0);
   });
 
-  test('the money on the review says nothing is taken now, and when it is owed', async ({ page, world }) => {
-    world.set('orders', ordersAnswer([]));
-    await toReview(page, ID.parcel, 'survey', { which_side: 'All four', dispute: 'No' });
+  test('each service asks its own questions once, and the required ones are announced', async ({ page }) => {
+    await toReview(page, ['Encumbrance certificate', 'Site visit'], ID.parcel, ID.plot);
 
-    await expect(page.getByText(
-      'You pay only after you accept the work.',
-    )).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Place the order · ₹2,900' })).toBeVisible();
+    await expect(page.getByLabel('What it is for')).toHaveCount(1);
+    await expect(page.getByLabel('What to check')).toHaveAttribute('aria-required', 'true');
+    await expect(page.getByLabel('From year')).not.toHaveAttribute('aria-required', 'true');
+    // Said once, behind the heading's ⓘ — not printed under every service.
+    await expect(page.getByRole('button', { name: 'About Review and place' })).toHaveAccessibleDescription(
+      'Each answer goes on every chosen property’s order.');
+    await expect(page.getByText('These answers go on every property’s order.')).toHaveCount(0);
+    // The short answers sit side by side, not one full-width row each.
+    const from = await page.getByLabel('From year').boundingBox();
+    const to = await page.getByLabel('To year').boundingBox();
+    expect(Math.abs(from!.y - to!.y)).toBeLessThan(4);
   });
 
-  test('a job whose price does not move with the count says so where the money is', async ({ page }) => {
-    await toReview(page, ID.parcel, 'patta_copy', { copies: '3' });
+  test('a property nobody can find is asked how to get there, and that answer becomes required', async ({ page, world }) => {
+    await toReview(page, ['Boundary re-survey'], ID.plot);
 
-    await expect(page.getByText(
-      'The number of copies does not change the price.',
-    )).toBeVisible();
-  });
-
-  test('only the questions that were answered are restated', async ({ page }) => {
-    await toReview(page, ID.parcel, 'ec', { from_year: '1998' });
-
-    await expect(kvRow(page, 'From year')).toContainText('1998');
-    await expect(kvRow(page, 'To year')).toHaveCount(0);
-    await expect(kvRow(page, 'What it is for')).toHaveCount(0);
-    // Paperwork has no boundary row at all.
-    await expect(kvRow(page, 'Boundary')).toHaveCount(0);
-  });
-
-  test('the boundary row says what will actually be sent, in each of its three states', async ({ page }) => {
-    await toReview(page, ID.parcel, 'survey', { which_side: 'All four', dispute: 'No' });
-    await page.getByRole('button', { name: 'Go back and change something' }).click();
-    await page.getByRole('checkbox', { name: 'Send them the boundary you have drawn' }).uncheck();
-    await page.getByRole('button', { name: 'Check the order' }).click();
-    await expect(kvRow(page, 'Boundary')).toContainText('Not sent');
-
-    await toReview(page, ID.flat, 'site_visit', { check: 'Crop' });
-    await expect(kvRow(page, 'Boundary')).toContainText('Only a pin — nothing to send');
-
-    await toReview(page, ID.plot, 'survey', {
-      which_side: 'All four', dispute: 'No', notes: 'Ask at the temple',
-    });
-    await expect(kvRow(page, 'Boundary')).toContainText('Nothing drawn yet');
-  });
-
-  // Rewritten 27/09/2026. These used to say an owner is warned about a second
-  // copy of a running job and may place it anyway. Since 8ee7822 a running
-  // service is not offered at all: its tile becomes the open request, and
-  // the order is refused if it is reached another way (OrderService.tsx,
-  // `if (!offer || duplicate || existingUnavailable) return`).
-  test('a service already running on this land is offered back as its open request, not ordered twice', async ({ page, world }) => {
-    world.set('orders', ordersAnswer(ORDERS));
-    await page.goto(`/app/records/${ID.parcel}/order`);
-
-    const running = page.locator('.svc-existing').filter({ hasText: 'Encumbrance Certificate' });
-    await expect(running).toBeVisible();
-    await expect(running.getByRole('link', { name: 'Open request' }))
-      .toHaveAttribute('href', `/app/services/${TICKET.placed}`);
-    await expect(svcTile(page, 'Encumbrance Certificate')).toHaveCount(0);
-  });
-
-  test('a job asked for directly, under another name, still counts as the same job', async ({ page, world }) => {
-    // `work_requests.kind` carries three vocabularies: an owner who asked a
-    // caretaker directly last week is ordering the same thing twice today.
-    world.set('orders', ordersAnswer([newJob({
-      id: 'w-tkt-visit', ref: 'W-2200', kind: 'visit', title: 'Caretaker visit',
-      stageLabel: 'Assigned', cost: 1_500,
-    })]));
-    await page.goto(`/app/records/${ID.parcel}/order`);
-
-    const running = page.locator('.svc-existing').filter({ hasText: 'Site visit' });
-    await expect(running).toContainText('W-2200');
-    await expect(running.getByRole('link', { name: 'Open request' }))
-      .toHaveAttribute('href', '/app/services/w-tkt-visit');
-    await expect(svcTile(page, 'Site visit')).toHaveCount(0);
-  });
-
-  test('when what is running could not be read the review says so, rather than promising nothing is', async ({ page, world }) => {
-    world.set('orders', World.gqlError('the work queue is down'));
-    await toReview(page, ID.parcel, 'patta_copy', { copies: '2' });
-
-    await expect(page.getByText(
-      'We could not check what is already running on this land. Check Services '
-      + 'before trying again.',
-    )).toBeVisible();
-    // The rail has a Services link of its own; this is the one inside the
-    // sentence, which has to point at THIS land's list.
-    await expect(page.locator('p.note').filter({ hasText: 'before trying again' })
-      .getByRole('link', { name: 'Services' }))
-      .toHaveAttribute('href', `/app/records/${ID.parcel}/services`);
-    await expect(card(page, 'This service is already ordered for this property')).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Place the order · ₹450' })).toBeEnabled();
-  });
-
-  test('nothing is filed until the order is placed, and going back keeps every answer', async ({ page, world }) => {
-    await toReview(page, ID.parcel, 'patta_copy', { copies: '4' });
-    expect(world.calls('orderService')).toHaveLength(0);
-
-    await page.getByRole('button', { name: 'Go back and change something' }).click();
-
-    await expect(page).toHaveURL(`/app/records/${ID.parcel}/order?service=patta_copy&step=tell`);
-    await expect(page.getByLabel('How many copies')).toHaveValue('4');
-    expect(world.calls('orderService')).toHaveLength(0);
-  });
-
-  // ── filing it ──────────────────────────────────────────────────────
-
-  test('placing sends the land, the kind, every answer and a key of its own', async ({ page, world }) => {
-    // Nothing else running here, so the plain "Place the order" is the button
-    // under test rather than the second-one-anyway path.
-    world.set('orders', ordersAnswer([]));
-    await toReview(page, ID.parcel, 'survey', {
-      which_side: 'All four', dispute: 'No', notes: 'The gate is on the north',
-    });
-
-    await page.getByRole('button', { name: 'Place the order · ₹2,900' }).click();
-
-    await expect.poll(() => world.calls('orderService')).toHaveLength(1);
-    const vars = world.lastVars('orderService');
-    expect(vars).toMatchObject({
-      recordIds: [ID.parcel],
-      kind: 'survey',
-      note: 'Ordered against Sy 214/2',
-    });
-    // Only the fields THIS service asks for: an answer typed against a service
-    // the owner changed their mind about must not ride along and render for
-    // ever as a stray Pair on the worker's sheet.
-    expect(JSON.parse(String(vars.params))).toEqual({
-      which_side: 'All four', dispute: 'No', notes: 'The gate is on the north',
-    });
-    expect(JSON.parse(String(vars.attachmentManifest)))
-      .toEqual({ documentIds: [], photoIds: [], includeBoundary: true });
-    expect(String(vars.idempotencyKey)).not.toBe('');
-    expect(String(vars.idempotencyKey)).toMatch(UUID);
-  });
-
-  test('where an order was asked for rides with it onto the job', async ({ page, world }) => {
-    await page.goto(`/app/records/${ID.parcel}/order?service=patta_copy&why=photos&step=tell&a.copies=2`);
-    await page.getByRole('button', { name: 'Check the order' }).click();
-    await expect(page).toHaveURL(
-      `/app/records/${ID.parcel}/order?service=patta_copy&why=photos&step=check`,
-    );
-
-    await page.getByRole('button', { name: 'Place the order · ₹450' }).click();
-
-    await expect.poll(() => world.calls('orderService')).toHaveLength(1);
-    expect(world.lastVars('orderService')).toMatchObject({ note: 'Asked for from the photos' });
-  });
-
-  test('an answer handed over by a link is filled in, and one this service never asked for is dropped', async ({ page, world }) => {
-    await page.goto(
-      `/app/records/${ID.parcel}/order?service=ec&step=tell&a.from_year=1998&a.nonsense=whatever`,
-    );
-
-    await expect(page.getByLabel('From year')).toHaveValue('1998');
-    await page.getByRole('button', { name: 'Check the order' }).click();
-    await page.getByRole('button', { name: /^Place/ }).click();
-
-    await expect.poll(() => world.calls('orderService')).toHaveLength(1);
-    const params = JSON.parse(String(world.lastVars('orderService').params));
-    expect(params).toEqual({ from_year: '1998', to_year: '', purpose: '' });
-    expect(params).not.toHaveProperty('nonsense');
-  });
-
-  test('a refused order says nothing was charged, and leaves the review exactly where it was', async ({ page, world }) => {
-    world.set('orderService', 0);
-    await toReview(page, ID.parcel, 'patta_copy', { copies: '2' });
-
-    await page.getByRole('button', { name: 'Place the order · ₹450' }).click();
-
-    const said = page.getByRole('alert');
-    await expect(said).toContainText('That order was not accepted, and nothing was charged.');
-    // The commonest cause, named, with somewhere to look — not "choose the
-    // property or the service again".
-    await expect(said).toContainText('Something you attached may no longer be on this land');
-    await expect(said).not.toContainText('That order did not go through');
-    await expect(page).toHaveURL(`/app/records/${ID.parcel}/order?service=patta_copy&step=check`);
-    await expect(page.getByRole('heading', { name: 'That is placed.' })).toHaveCount(0);
-  });
-
-  test('an order that never came back sends me to look before I order it a second time', async ({ page, world }) => {
-    world.set('orderService', World.gqlError('the gateway gave up'));
-    await toReview(page, ID.parcel, 'patta_copy', { copies: '2' });
-    const before = world.calls('orders').length;
-
-    await page.getByRole('button', { name: 'Place the order · ₹450' }).click();
-
-    const said = page.getByRole('alert');
-    // A rejected request is NOT proof that nothing was filed.
-    await expect(said).toContainText('That order did not go through — check your connection and try again.');
-    await expect(said).toContainText('it was filed and you need not order again');
-    await expect(said).not.toContainText('nothing was charged');
-    await expect(said.getByRole('link', { name: 'See what is running here' }))
-      .toHaveAttribute('href', `/app/records/${ID.parcel}/services`);
-    // And the list it points at is re-read, so the answer is already on screen.
-    await expect.poll(() => world.calls('orders').length).toBeGreaterThan(before);
-  });
-
-  test('pressing again after a refusal is the same order; changing it makes it a new one', async ({ page, world }) => {
-    world.set('orderService', 0);
-    await toReview(page, ID.parcel, 'patta_copy', { copies: '2' });
-
-    await page.getByRole('button', { name: 'Place the order · ₹450' }).click();
-    await expect(page.getByRole('alert')).toBeVisible();
-    await page.getByRole('button', { name: 'Place the order · ₹450' }).click();
-    await expect.poll(() => world.calls('orderService')).toHaveLength(2);
-
-    const [first, second] = world.calls('orderService');
-    // The server replays the previous count for a repeated (key, hash) pair
-    // without inserting, which is what stops two presses filing two orders.
-    expect(second.vars.idempotencyKey).toBe(first.vars.idempotencyKey);
-    expect(String(first.vars.idempotencyKey)).not.toBe('');
-
-    await page.getByRole('button', { name: 'Go back and change something' }).click();
-    await page.getByLabel('How many copies').fill('3');
-    await page.getByRole('button', { name: 'Check the order' }).click();
-    await page.getByRole('button', { name: 'Place the order · ₹450' }).click();
-
-    await expect.poll(() => world.calls('orderService')).toHaveLength(3);
-    // A different order: the same key with a different hash answers 0, which
-    // is indistinguishable from a refusal.
-    expect(world.lastVars('orderService').idempotencyKey).not.toBe(first.vars.idempotencyKey);
-  });
-
-  test('while an order is going nothing on the review can be pressed', async ({ page, world }) => {
-    world.set('orderService', World.slow(1_500, 1));
-    await toReview(page, ID.parcel, 'patta_copy', { copies: '2' });
-
-    await page.getByRole('button', { name: 'Place the order · ₹450' }).click();
-
-    const going = page.getByRole('button', { name: 'Placing…' });
-    await expect(going).toBeDisabled();
-    await expect(page.getByRole('button', { name: 'Go back and change something' })).toBeDisabled();
-    await expect(page.locator('section.card[aria-busy="true"]')).toBeVisible();
-
-    await expect(page.getByRole('heading', { name: 'That is placed.' })).toBeVisible();
-    expect(world.calls('orderService')).toHaveLength(1);
-  });
-
-  test('a service this catalogue does not sell is refused, not filed', async ({ page, world }) => {
-    await page.goto(`/app/records/${ID.parcel}/order?service=gold-plating`);
-
-    await expect(page.getByRole('heading', { name: 'That service is no longer offered' })).toBeVisible();
-    await expect(page.getByText('Nothing has been ordered.')).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Place/ })).toHaveCount(0);
-    expect(world.calls('orderService')).toHaveLength(0);
-
-    await page.getByRole('button', { name: 'Choose another' }).click();
-
-    await expect(page).toHaveURL(`/app/records/${ID.parcel}/order?step=pick`);
-    await expect(page.getByRole('button', { name: 'Answer what it needs' })).toBeDisabled();
-  });
-
-  test('a service named in a link that is still arriving is not called withdrawn', async ({ page, world }) => {
-    world.set('servicesOffered', World.slow(1_200, OFFERS));
-    await page.goto(`/app/records/${ID.parcel}/order?service=survey`);
-
-    await expect(page.getByText('Loading the list of services…')).toBeVisible();
-    await expect(page.getByText('That service is no longer offered')).toHaveCount(0);
-
-    await expect(svcTile(page, 'Boundary re-survey')).toHaveAttribute('aria-pressed', 'true');
-  });
-
-  // ── step 5 · that is placed ────────────────────────────────────────
-
-  test('the receipt names the job the server itself filed, and opens it', async ({ page, world }) => {
-    let filed = false;
-    world.set('orderService', () => { filed = true; return 1; });
-    world.set('orders', (vars: Record<string, unknown>) =>
-      // Nothing running before: the seeded corner surveys would make the
-      // survey tile an open request rather than something to order (8ee7822).
-      ordersAnswer(filed ? [newJob()] : [])(vars));
-    await toReview(page, ID.parcel, 'survey', { which_side: 'All four', dispute: 'No' });
-
-    await page.getByRole('button', { name: /^Place/ }).click();
-
-    await expect(page.getByRole('heading', { name: 'That is placed.' })).toBeVisible();
-    await expect(page).toHaveURL(`/app/records/${ID.parcel}/order?service=survey&step=done`);
-    // The reference is the server's own — `orderService` answers a count, so
-    // the new job is found by diffing the list rather than invented here.
-    await expect(page.locator('strong.mono')).toHaveText('W-2199');
-    await expect(page.getByText('we expect it back by 25/09/2026')).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Open the job' }))
-      .toHaveAttribute('href', '/app/services/w-tkt-new');
-    await expect(page.getByRole('link', { name: 'Back to this land' }))
-      .toHaveAttribute('href', `/app/records/${ID.parcel}/services`);
-  });
-
-  test('the reference can still be arriving without the order looking as though it is', async ({ page, world }) => {
-    let filed = false;
-    world.set('orderService', () => { filed = true; return 1; });
-    world.set('orders', async (vars: Record<string, unknown>) => {
-      if (filed) await new Promise((done) => setTimeout(done, 2_000));
-      return ordersAnswer(ORDERS)(vars);
-    });
-    await toReview(page, ID.parcel, 'patta_copy', { copies: '2' });
-
-    await page.getByRole('button', { name: 'Place the order · ₹450' }).click();
-
-    // The headline stands on the count, which is proof enough that it was
-    // filed. Only the reference waits.
-    await expect(page.getByRole('heading', { name: 'That is placed.' })).toBeVisible();
-    await expect(page.getByText('Loading your new order…')).toBeVisible();
-    await expect(page.getByText('did not go through')).toHaveCount(0);
-  });
-
-  test('a job that cannot be picked out of the list is still said to be filed, with somewhere to find it', async ({ page }) => {
-    // The list comes back unchanged — nothing new to diff against — so no
-    // reference is invented for it.
-    await toReview(page, ID.parcel, 'patta_copy', { copies: '2' });
-    await page.getByRole('button', { name: 'Place the order · ₹450' }).click();
-
-    await expect(page.getByRole('heading', { name: 'That is placed.' })).toBeVisible();
-    await expect(page.getByText(
-      'Certified patta copy is filed against Sy 214/2. It is under Services on this land.',
-    )).toBeVisible();
-    await expect(page.getByRole('link', { name: 'See what is running here' }))
-      .toHaveAttribute('href', `/app/records/${ID.parcel}/services`);
-    await expect(page.getByRole('link', { name: 'Open the job' })).toHaveCount(0);
-  });
-
-  test('a list that will not come back after the order is filed never reads as a failed order', async ({ page, world }) => {
-    let filed = false;
-    world.set('orderService', () => { filed = true; return 1; });
-    // Note the world's own shape here: a function answer that RETURNS a
-    // special replaces the field with it for good (world.ts:331-336), which is
-    // exactly what is wanted — from the moment the order is filed, the list
-    // is down and stays down.
-    world.set('orders', (vars: Record<string, unknown>) =>
-      (filed ? World.gqlError('the work queue is down') : ordersAnswer(ORDERS)(vars)));
-    await toReview(page, ID.parcel, 'patta_copy', { copies: '2' });
-
-    await page.getByRole('button', { name: 'Place the order · ₹450' }).click();
-
-    await expect(page.getByRole('heading', { name: 'That is placed.' })).toBeVisible();
-    // Either honest sentence will do, and it is the second one that arrives:
-    // `refetch()` RESOLVES with an error result rather than rejecting, so
-    // DoneStep's `read: 'failed'` branch (OrderService.tsx:1010) is never
-    // taken and the "could not pick it out of the list" sentence covers this
-    // too. What must never be said is that the order failed.
-    await expect(page.getByText('is under Services on this land')).toBeVisible();
-    await expect(page.getByText('did not go through')).toHaveCount(0);
-    await expect(page.getByText('was not accepted')).toHaveCount(0);
-  });
-
-  test('a step that cannot be honoured is corrected rather than drawn', async ({ page }) => {
-    // Reachable by hand, by a stale bookmark, and by Android's Back button
-    // landing on a step whose precondition has since gone.
-    await page.goto(`/app/records/${ID.parcel}/order?step=done`);
-    await expect(page).toHaveURL(`/app/records/${ID.parcel}/order?step=pick`);
-    await expect(page.getByRole('heading', { name: 'What do you want done on this land?' })).toBeVisible();
-
-    await page.goto(`/app/records/${ID.parcel}/order?step=check`);
-    await expect(page).toHaveURL(`/app/records/${ID.parcel}/order?step=pick`);
-    await expect(page.getByRole('heading', { name: 'Check this before it goes in' })).toHaveCount(0);
-  });
-
-  test('what has been typed survives a reload of the same half-composed order', async ({ page }) => {
-    await page.goto(`/app/records/${ID.parcel}/order?service=survey&step=tell`);
+    await expect(page.getByText('No boundary on record for Sy 88.')).toBeVisible();
+    const notes = page.getByLabel('Anything the surveyor should know');
+    await expect(notes).toHaveAttribute('aria-required', 'true');
     await page.getByLabel('Which boundary').selectOption('North');
-    await page.getByLabel('Anything the surveyor should know').fill('Ask at the temple');
-    await page.getByRole('checkbox', { name: 'Sale deed 4412 of 1998' }).check();
+    await page.getByLabel('Is a neighbour disputing it?').selectOption('No');
+    await page.getByRole('button', { name: /^Place 1 order/ }).click();
+    await expect(page.getByRole('alert').filter({ hasText: 'Anything the surveyor should know' })).toBeVisible();
+    expect(world.calls('orderService')).toHaveLength(0);
+  });
 
+  test('one property: its documents and photos can be sent, and go with the order by name', async ({ page, world }) => {
+    await toReview(page, ['Encumbrance certificate'], ID.parcel);
+
+    const files = page.locator('section.card').filter({ has: page.getByRole('heading', { name: 'Files to share with the provider' }) });
+    await expect(files).toContainText('Documents ·');
+    await files.getByRole('checkbox', { name: /Sale deed 4412 of 1998/ }).check();
+    await page.getByRole('button', { name: 'Place 1 order · ₹1,180' }).click();
+
+    await expect(page).toHaveURL('/services');
+    const vars = world.lastVars('orderService');
+    expect(vars.recordIds).toEqual([ID.parcel]);
+    expect(JSON.parse(String(vars.attachmentManifest))).toMatchObject({ documentIds: [PAPER.deed], photoIds: [] });
+    expect(JSON.parse(String(vars.params))).toMatchObject({ shared: 'Sale deed 4412 of 1998' });
+  });
+
+  test('several properties: no files are offered, because they belong to one property', async ({ page }) => {
+    await toReview(page, ['Encumbrance certificate'], ID.parcel, ID.plot);
+    await expect(page.getByRole('heading', { name: 'Files to share with the provider' })).toHaveCount(0);
+  });
+
+  test('a property already running a service is left out of that line, with its order to open', async ({ page, world }) => {
+    world.set('orders', ordersAnswer(OPEN_ORDERS));
+    await toReview(page, ['Site visit'], ID.parcel, ID.plot);
+    // Encumbrance certificate is running on Sy 214/2, not on Sy 88.
+    await steps(page).getByRole('button', { name: 'Services' }).click();
+    await pickSvc(page, 'Encumbrance certificate').check();
+    await page.getByRole('button', { name: 'Next: review' }).click();
+
+    await expect(line(page, 'ec', ID.parcel)).toContainText('Already on order');
+    await expect(line(page, 'ec', ID.parcel).getByRole('link', { name: 'Open order' }))
+      .toHaveAttribute('href', /\/services\//);
+    await expect(line(page, 'ec', ID.plot)).toContainText('₹1,180');
+    await expect(summary(page)).toContainText('3 new orders');
+  });
+
+  test('when one service is refused the others are still placed, and the review says which', async ({ page, world }) => {
+    world.set('orderService', (vars: Record<string, unknown>) => (vars.kind === 'site_visit' ? 0 : filesAll(vars)));
+    await toReview(page, ['Encumbrance certificate', 'Site visit'], ID.parcel);
+    await page.getByLabel('What to check').selectOption('Crop');
+    await page.getByRole('button', { name: /^Place 2 orders/ }).click();
+
+    await expect(page.getByRole('alert').filter({ hasText: '1 of 2 placed; Site visit could not be placed — try again.' })).toBeVisible();
+    await expect(page).toHaveURL(/step=review/);
+    await expect(page.getByRole('alert').filter({ hasText: 'If one shows under Services' })).toBeVisible();
+    // Trying again sends only what did not go. The server answered 0 on purpose
+    // and stored it under that key, so the retry goes under a fresh one.
+    const first = world.calls('orderService').find((c) => c.vars.kind === 'site_visit')!.vars.idempotencyKey;
+    world.set('orderService', filesAll);
+    await page.getByRole('button', { name: /^Place 1 order/ }).click();
+    await expect(page).toHaveURL('/services');
+    const kinds = world.calls('orderService').map((c) => c.vars.kind);
+    expect(kinds).toEqual(['ec', 'site_visit', 'site_visit']);
+    expect(world.calls('orderService')[2].vars.idempotencyKey).not.toBe(first);
+  });
+
+  test('nothing can be placed while what is already running cannot be checked', async ({ page, world }) => {
+    world.set('orders', World.gqlError('the work queue is down'));
+    await page.goto(`/order?for=${ID.parcel}&service=ec&step=review`);
+
+    await expect(page.getByText('Existing orders could not be checked, so nothing can be placed yet.')).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Place 1 order/ })).toBeDisabled();
+  });
+});
+
+test.describe('Ordering: an order that never came back', () => {
+  // The refused request is the point.
+  test.use({ allowConsole: true });
+
+  test('an order that never came back is reported, and points at Services before ordering again', async ({ page, world }) => {
+    world.set('orders', ordersAnswer([]));
+    world.set('orderService', World.gqlError('gateway timed out'));
+    await toReview(page, ['Encumbrance certificate'], ID.parcel);
+    await page.getByRole('button', { name: /^Place 1 order/ }).click();
+
+    const alert = page.getByRole('alert').filter({ hasText: '0 of 1 placed; Encumbrance certificate could not be placed' });
+    await expect(alert).toContainText('If one shows under Services, it was placed');
+  });
+
+});
+
+test.describe('Ordering from a property', () => {
+  test('a property’s own order address opens the flow with that property chosen, on its services', async ({ page }) => {
+    await page.goto(`/order?for=${ID.parcel}&step=services`);
+
+    await expect(page.getByRole('heading', { name: 'Choose the services' })).toBeVisible();
+    await expect(currentStep(page)).toContainText('Services');
+    await expect(page.getByRole('group', { name: 'Ordering for' })).toContainText('Sy 214/2');
+    await expect(page.getByText(/^1 property · \d+ services? offered$/)).toBeVisible();
+  });
+
+  test('the strip of chosen properties names each, drops one, and goes back to change them', async ({ page }) => {
+    await toServices(page, ID.parcel, ID.plot);
+    const strip = page.getByRole('group', { name: 'Ordering for' });
+    await expect(strip.locator('.fchip')).toHaveCount(2);
+    await expect(strip).toContainText('Sy 214/2');
+    await expect(strip).toContainText('Sy 88');
+    await expect(page.getByText(/^2 properties · \d+ services? offered$/)).toBeVisible();
+
+    await strip.getByRole('button', { name: 'Remove Sy 88' }).click();
+    await expect(strip.locator('.fchip')).toHaveCount(1);
+    await expect(strip).not.toContainText('Sy 88');
+    await expect(page.getByText(/^1 property · \d+ services? offered$/)).toBeVisible();
+    // The last one cannot be dropped: an order is always for something.
+    await expect(strip.getByRole('button', { name: /^Remove / })).toHaveCount(0);
+
+    await strip.getByRole('button', { name: 'Change' }).click();
+    await expect(page).toHaveURL(/step=properties/);
+    await expect(currentStep(page)).toContainText('Properties');
+  });
+
+  test('the service, the reason and a handed-over answer ride along on the order address', async ({ page, world }) => {
+    world.set('orders', ordersAnswer([]));
+    world.set('orderService', filesAll);
+    await page.goto(`/order?for=${ID.parcel}&step=services&service=site_visit&a.check=General+condition&why=photos`);
+
+    await expect(pickSvc(page, 'Site visit')).toBeChecked();
+    await page.getByRole('button', { name: 'Next: review' }).click();
+    await expect(page.getByLabel('What to check')).toHaveValue('General condition');
+    await page.getByRole('button', { name: /^Place 1 order/ }).click();
+    await expect(page).toHaveURL('/services');
+    expect(world.lastVars('orderService')).toMatchObject({ kind: 'site_visit', note: 'Asked for from the photos' });
+  });
+});
+
+test.describe('Ordering: the edges of the flow', () => {
+  test.beforeEach(({ world }) => {
+    world.set('orders', ordersAnswer([]));
+    world.set('orderService', filesAll);
+  });
+
+  test('an order the server refuses because it is already running is reported as on order, not as a failure', async ({ page, world }) => {
+    // Placed from another tab after this page read the open orders.
+    world.set('orderService', (vars: Record<string, unknown>, _q: string, w: World) => {
+      w.set('orders', ordersAnswer(OPEN_ORDERS));
+      return vars.kind === 'ec' ? 0 : filesAll(vars);
+    });
+    await toReview(page, ['Encumbrance certificate'], ID.parcel);
+    await page.getByRole('button', { name: 'Place 1 order · ₹1,180' }).click();
+
+    await expect(page).toHaveURL('/services');
+    await expect(page.locator('.toast').filter({ hasText: 'Encumbrance certificate was already on order' })).toBeVisible();
+  });
+
+  test('a review reached by link waits for the catalogue, and says so when it fails', async ({ page, world }) => {
+    world.set('servicesForRecords', World.never());
+    await page.goto(`/order?for=${ID.parcel}&service=ec&step=review`);
+    await expect(page.getByRole('status', { name: 'Loading the services offered there' })).toBeVisible();
+
+    world.set('servicesForRecords', World.gqlError('the catalogue service is down'));
     await page.reload();
-
-    await expect(page.getByLabel('Which boundary')).toHaveValue('North');
-    await expect(page.getByLabel('Anything the surveyor should know')).toHaveValue('Ask at the temple');
-    await expect(page.getByRole('checkbox', { name: 'Sale deed 4412 of 1998' })).toBeChecked();
+    await expect(page.getByRole('alert').filter({ hasText: 'The services offered there did not load' })).toBeVisible();
   });
 
-  // ── fixed ────────────────────────────────────────────────────────────
-  //
-  // Two of the defects this file used to record are fixed by the redesign and
-  // are ordinary tests again: the papers read that failed (below), and the
-  // refusal that outlived the property it was raised against — the in-page
-  // property picker that carried it is gone, and `err` is cleared whenever the
-  // service changes (OrderService.tsx:384).
+  test('one property can still ask a provider the owner works with; several cannot', async ({ page, world }) => {
+    await toServices(page, ID.parcel);
+    await expect(page.getByRole('link', { name: 'Ask a provider you already work with.' }))
+      .toHaveAttribute('href', `/properties/${ID.parcel}/request`);
 
-  test('papers that could not be read are named in the card that shows them, and the order still goes', async ({ page, world }) => {
-    world.set('papers', World.gqlError('the vault is down'));
-    world.set('photos', World.gqlError('the vault is down'));
-    await page.goto(`/app/records/${ID.parcel}/order?service=patta_copy&step=tell&a.copies=2`);
+    await toServices(page, ID.parcel, ID.plot);
+    await expect(page.getByRole('link', { name: 'Ask a provider you already work with.' })).toHaveCount(0);
 
-    const give = card(page, 'Documents to share with the provider');
-    await expect(give).toContainText('What is filed on this land did not load');
-    // And NOT the empty state: an outage is not an answer about what this
-    // record holds. The record's own header counts twelve papers.
-    await expect(give).not.toContainText('No documents on this property yet');
-
-    // A papers outage is not a reason to refuse to sell.
-    await page.getByRole('button', { name: 'Check the order' }).click();
-    await expect(kvRow(page, 'Goes with it')).toContainText('Nothing');
-    await page.getByRole('button', { name: 'Place the order · ₹450' }).click();
-
-    await expect.poll(() => world.calls('orderService')).toHaveLength(1);
-    expect(JSON.parse(String(world.lastVars('orderService').attachmentManifest)))
-      .toEqual({ documentIds: [], photoIds: [] });
-    await expect(page.getByRole('heading', { name: 'That is placed.' })).toBeVisible();
+    world.set('servicesForRecords', (vars: Record<string, unknown>) =>
+      (vars.recordIds as string[]).map((recordId) => ({ recordId, offers: [] })));
+    await page.goto(`/order?for=${ID.parcel}&step=services`);
+    await expect(page.getByRole('link', { name: 'Ask your own provider' }))
+      .toHaveAttribute('href', `/properties/${ID.parcel}/request`);
   });
 
-  test('a refusal raised against one order does not follow me onto the next service', async ({ page, world }) => {
-    world.set('orderService', 0);
-    await toReview(page, ID.parcel, 'patta_copy', { copies: '2' });
-    await page.getByRole('button', { name: 'Place the order · ₹450' }).click();
-    await expect(page.getByRole('alert')).toContainText('That order was not accepted');
+  test('files ticked for one property are not counted for another', async ({ page }) => {
+    await toReview(page, ['Encumbrance certificate'], ID.parcel);
+    const files = page.locator('section.card').filter({ has: page.getByRole('heading', { name: 'Files to share with the provider' }) });
+    await files.getByRole('checkbox', { name: /Sale deed 4412 of 1998/ }).check();
+    await expect(files).toContainText(/1 of \d+/);
 
-    await page.getByRole('button', { name: 'Go back and change something' }).click();
-    await page.getByRole('button', { name: 'Choose a different service' }).click();
-    await svcTile(page, 'Title opinion').click();
-    await page.getByRole('button', { name: 'Answer what it needs' }).click();
-    await page.getByLabel('How far back to trace').selectOption('30 years');
-    await page.getByRole('button', { name: 'Check the order' }).click();
+    await steps(page).getByRole('button', { name: 'Properties' }).click();
+    await include(page, 'Sy 214/2').uncheck();
+    await include(page, 'Sy 88').check();
+    await page.getByRole('button', { name: 'Next: choose services' }).click();
+    await page.getByRole('button', { name: 'Next: review' }).click();
+    await expect(files).toContainText(/0 of \d+/);
 
-    // The one sentence on this screen that sends an owner to check their
-    // money must never be pointing at the wrong order.
+    await steps(page).getByRole('button', { name: 'Properties' }).click();
+    await include(page, 'Sy 88').uncheck();
+    await include(page, 'Sy 214/2').check();
+    await page.getByRole('button', { name: 'Next: choose services' }).click();
+    await page.getByRole('button', { name: 'Next: review' }).click();
+    await expect(files.getByRole('checkbox', { name: /Sale deed 4412 of 1998/ })).not.toBeChecked();
+  });
+
+  test('several services: the files are said to go with every one of them', async ({ page }) => {
+    await toReview(page, ['Encumbrance certificate', 'Certified patta copy'], ID.parcel);
+    await expect(page.getByText('These files go with every service you picked.')).toBeVisible();
+  });
+
+  test('work on the ground is shut when more than one chosen property has no boundary, and says why', async ({ page, world }) => {
+    const plot = CARDS.find((c) => c.id === ID.plot)!;
+    world.set('properties', propertyList([CARDS[0], plot, { ...plot, id: 'w-sy-89', title: 'Sy 89' }]));
+    await toServices(page, ID.plot, 'w-sy-89');
+
+    await expect(pickSvc(page, 'Site visit')).toBeDisabled();
+    await expect(pickSvc(page, 'Site visit')).toHaveAccessibleDescription(/order one at a time/);
+    await expect(pickSvc(page, 'Encumbrance certificate')).toBeEnabled();
+
+    // One of them unmapped is one set of directions: allowed.
+    await toServices(page, ID.parcel, ID.plot);
+    await expect(pickSvc(page, 'Site visit')).toBeEnabled();
+  });
+
+  test('a disabled service names its reason to a screen reader', async ({ page }) => {
+    await toServices(page, ID.parcel, ID.plot);
+    await expect(pickSvc(page, 'Boundary re-survey')).toHaveAccessibleDescription('Ordered one property at a time');
+  });
+
+  test('the table shows every match, so select all and the tally agree', async ({ page, world }) => {
+    world.set('properties', propertyList(Array.from({ length: 30 }, (_, i) => ({
+      ...CARDS[0], id: `w-many-${i}`, title: `Sy ${400 + i}`, coverFileRef: '',
+    }))));
+    await page.goto('/order');
+    await page.getByRole('button', { name: 'Table' }).click();
+
+    await expect(landTable(page).locator('tbody tr')).toHaveCount(30);
+    await page.getByRole('checkbox', { name: 'Select all 30 properties' }).check();
+    await expect(bar(page, 'The chosen properties')).toContainText('30 properties selected');
+  });
+
+  test('the land table footer sums every row, then just the ticked ones, unit by unit', async ({ page, world }) => {
+    world.set('properties', propertyList(Array.from({ length: 3 }, (_, i) => ({
+      ...CARDS[0], id: `w-sum-${i}`, title: `Sy ${500 + i}`, coverFileRef: '',
+      extent: i < 2 ? 1.25 : 60, extentUnit: i < 2 ? 'ac' : 'sq.yd',
+    }))));
+    await page.goto('/order');
+    await page.getByRole('button', { name: 'Table' }).click();
+
+    const foot = landTable(page).locator('tfoot');
+    await expect(foot).toContainText('Total · 3 properties');
+    await expect(foot).toContainText('2.50 ac + 60 sq.yd');
+    await page.getByRole('checkbox', { name: 'Select Sy 502' }).check();
+    await expect(foot).toContainText('1 property selected');
+    await expect(foot).not.toContainText('ac');
+    await expect(foot).toContainText('60 sq.yd');
+  });
+
+  test('a partial choice shows the header boxes as mixed', async ({ page }) => {
+    await page.goto('/order');
+    await page.getByRole('button', { name: 'Table' }).click();
+    const all = page.getByRole('checkbox', { name: 'Select all 4 properties' });
+    await expect(all).toHaveJSProperty('indeterminate', false);
+    await page.getByRole('checkbox', { name: 'Select Sy 88' }).check();
+    await expect(all).toHaveJSProperty('indeterminate', true);
+
+    await toServices(page, ID.parcel);
+    const every = page.getByRole('checkbox', { name: /^Select all \d+ services$/ });
+    await pickSvc(page, 'Encumbrance certificate').check();
+    await expect(every).toHaveJSProperty('indeterminate', true);
+    await every.check();
+    await expect(every).toHaveJSProperty('indeterminate', false);
+  });
+
+  test('the address follows the choice, so a reload restores what was chosen', async ({ page }) => {
+    await page.goto(`/order?for=${ID.parcel}&service=ec&step=services`);
+    await steps(page).getByRole('button', { name: 'Properties' }).click();
+    await include(page, 'Sy 214/2').uncheck();
+    await include(page, 'Sy 88').check();
+    await page.getByRole('button', { name: 'Next: choose services' }).click();
+    await pickSvc(page, 'Certified patta copy').check();
+
+    await expect(page).toHaveURL(new RegExp(`for=${ID.plot}(&|$)`));
+    await expect(page).toHaveURL(/service=ec%2Cpatta_copy|service=ec,patta_copy/);
+    await page.reload();
+    await expect(page.getByRole('group', { name: 'Ordering for' })).toContainText('Sy 88');
+    await expect(pickSvc(page, 'Certified patta copy')).toBeChecked();
+  });
+
+  test('the reason and handed-over answer on the entry link stay with the property it named', async ({ page, world }) => {
+    await page.goto(`/order?for=${ID.parcel}&step=services&service=site_visit&a.check=General+condition&why=photos`);
+    await expect(pickSvc(page, 'Site visit')).toBeChecked();
+    await steps(page).getByRole('button', { name: 'Properties' }).click();
+    await include(page, 'Sy 214/2').uncheck();
+    await include(page, 'Flat 4B, Sai Residency').check();
+    await page.getByRole('button', { name: 'Next: choose services' }).click();
+    await pickSvc(page, 'Site visit').uncheck();
+    await pickSvc(page, 'Title opinion').check();
+    await page.getByRole('button', { name: 'Next: review' }).click();
+    await page.getByLabel('How far back to trace').selectOption({ index: 1 });
+    await page.getByRole('button', { name: /^Place 1 order/ }).click();
+
+    await expect(page).toHaveURL('/services');
+    expect(world.lastVars('orderService')).toMatchObject({ kind: 'title_opinion', note: 'Ordered against Flat 4B, Sai Residency' });
+  });
+
+  // Work on the ground needs to know which land (founder, 10/10/2026: "kml is
+  // very important for borewell"): a property with no boundary takes the
+  // owner's KML right on the review card, saved to the property.
+  const KML = Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2"><Placemark><name>Sy 88</name><Polygon><outerBoundaryIs><LinearRing><coordinates>
+79.2694,15.7410,0 79.2704,15.7410,0 79.2704,15.7402,0 79.2694,15.7402,0 79.2694,15.7410,0
+</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark></kml>`);
+
+  test('a property with no boundary takes a KML on the review card, saved to that property', async ({ page, world }) => {
+    await toReview(page, ['Boundary re-survey'], ID.plot);
+    await expect(page.getByText(/No boundary on record for/)).toBeVisible();
+    await page.locator('input[type="file"][accept*=".kml"]').setInputFiles(
+      { name: 'sy-88.kml', mimeType: 'application/vnd.google-earth.kml+xml', buffer: KML });
+
+    await expect.poll(() => world.calls('setBoundary')).toHaveLength(1);
+    const vars = world.lastVars('setBoundary') as { recordId: string; ring: number[] };
+    expect(vars.recordId).toBe(ID.plot);
+    // Four corners, as lat,lon pairs, from the file's lon,lat coordinates.
+    expect(vars.ring).toHaveLength(8);
+    expect(vars.ring.slice(0, 2)).toEqual([15.741, 79.2694]);
+    await expect(page.getByText('Boundary added to Sy 88 from sy-88.kml.')).toBeVisible();
     await expect(page.getByRole('alert')).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Place the order · ₹4,500' })).toBeEnabled();
   });
 
-  test('the receipt puts its comma where a comma goes', async ({ page, world }) => {
-    // Small, and on the one screen an owner is asked to trust with money. The
-    // due date hangs off a fragment, and that fragment used to open with a
-    // space, so the receipt read "It is job W-2199 , and we expect it back by".
-    let filed = false;
-    world.set('orderService', () => { filed = true; return 1; });
-    world.set('orders', (vars: Record<string, unknown>) =>
-      // Nothing running before: the seeded corner surveys would make the
-      // survey tile an open request rather than something to order (8ee7822).
-      ordersAnswer(filed ? [newJob()] : [])(vars));
-    await toReview(page, ID.parcel, 'survey', { which_side: 'All four', dispute: 'No' });
-    await page.getByRole('button', { name: /^Place/ }).click();
+  test('a file that is not a boundary says so on the card and saves nothing', async ({ page, world }) => {
+    await toReview(page, ['Boundary re-survey'], ID.plot);
+    await page.locator('input[type="file"][accept*=".kml"]').setInputFiles(
+      { name: 'notes.kml', mimeType: 'application/vnd.google-earth.kml+xml', buffer: Buffer.from('<kml>nothing here</kml>') });
 
-    await expect(page.getByText('It is job W-2199, and we expect it back by 25/09/2026.'))
-      .toBeVisible({ timeout: 3000 });
+    await expect(page.getByRole('alert').filter({ hasText: /./ }).first()).toBeVisible();
+    expect(world.calls('setBoundary')).toHaveLength(0);
+  });
+
+  test('going to draw the boundary and coming back keeps the answers and the files', async ({ page }) => {
+    await toReview(page, ['Boundary re-survey'], ID.plot);
+    await page.getByLabel('Which boundary').selectOption('North');
+    const draw = page.getByRole('link', { name: 'or draw it on the map' });
+    const href = (await draw.getAttribute('href'))!;
+    expect(href).toMatch(new RegExp(`^/properties/${ID.plot}/location\\?draw=1&back=`));
+    const back = decodeURIComponent(href.split('back=')[1]);
+    expect(back).toContain('a.survey.which_side=North');
+
+    await page.goto(back);
+    await expect(page.getByRole('heading', { name: 'Review and place' })).toBeVisible();
+    await expect(page.getByLabel('Which boundary')).toHaveValue('North');
   });
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// /app/records/:id/request — asking somebody to do a piece of work
+// /properties/:id/request — asking somebody to do a piece of work
 // ═══════════════════════════════════════════════════════════════════════
 
 test.describe('Asking for work on a record', () => {
@@ -2212,41 +1756,43 @@ test.describe('Asking for work on a record', () => {
 
   test('a job already running on the land is offered back instead of being asked for twice', async ({ page, world }) => {
     world.set('orders', ordersAnswer(ORDERS));
-    await page.goto(`/app/records/${ID.parcel}/request`);
+    await page.goto(`/properties/${ID.parcel}/request`);
 
-    await expect(page.getByRole('heading', { name: 'This request already exists' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'This service is already ordered for this property' })).toBeVisible();
     await expect(page.getByText('Corner survey is already running on Sy 214/2.')).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Open request' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Open order' })).toBeVisible();
     await expect(page.getByLabel('Message', { exact: true })).toHaveCount(0);
   });
 
   test('asking a surveyor opens with the words an owner would actually send', async ({ page }) => {
-    await page.goto(`/app/records/${ID.parcel}/request`);
+    await page.goto(`/properties/${ID.parcel}/request`);
 
     await expect(page.getByRole('heading', { name: 'Ask a surveyor' })).toBeVisible();
     await expect(page.getByLabel('Message', { exact: true })).toHaveValue(
-      'Hey dear surveyor, please do the survey for this location. The boundary is attached as a GeoJSON file.',
+      'Hey dear surveyor, please do the survey for this location. The boundary is attached as a map file.',
     );
-    await expect(page.getByRole('button', { name: 'Back to Sy 214/2' })).toBeVisible();
+    // The way back is the property's crumb (design.md § Page head, detail).
+    await expect(page.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('link', { name: 'Sy 214/2' }))
+      .toBeVisible();
   });
 
   test('the boundary goes as geometry only, and says so', async ({ page }) => {
-    await page.goto(`/app/records/${ID.parcel}/request`);
+    await page.goto(`/properties/${ID.parcel}/request`);
 
-    const geo = page.getByRole('checkbox', { name: /The boundary, as GeoJSON/ });
+    const geo = page.getByRole('checkbox', { name: /The boundary, as a map file/ });
     await expect(geo).toBeChecked();
     await expect(page.getByText('4 corners. Geometry only.')).toBeVisible();
     await expect(page.getByText('1 attached.')).toBeVisible();
   });
 
   test('a record with no boundary asks for the corners to be established instead of promising a file', async ({ page }) => {
-    await page.goto(`/app/records/${ID.plot}/request`);
+    await page.goto(`/properties/${ID.plot}/request`);
 
     await expect(page.getByLabel('Message', { exact: true })).toHaveValue(
       'Hey dear surveyor, please do the survey for this location. There is no boundary on record yet — '
       + 'please establish the corners on site and send the sheet back.',
     );
-    const geo = page.getByRole('checkbox', { name: /The boundary, as GeoJSON/ });
+    const geo = page.getByRole('checkbox', { name: /The boundary, as a map file/ });
     await expect(geo).toBeDisabled();
     await expect(geo).not.toBeChecked();
     await expect(page.getByText('No boundary saved yet.')).toBeVisible();
@@ -2260,18 +1806,18 @@ test.describe('Asking for work on a record', () => {
     // "there is no boundary on record yet" and send somebody to establish
     // corners that were walked in August.
     world.set('boundary', World.gqlError('the boundary store is down'));
-    await page.goto(`/app/records/${ID.parcel}/request`);
+    await page.goto(`/properties/${ID.parcel}/request`);
 
     await expect(page.getByLabel('Message', { exact: true }))
-      .toHaveValue(/The boundary is attached as a GeoJSON file\.$/);
-    const geo = page.getByRole('checkbox', { name: /The boundary, as GeoJSON/ });
+      .toHaveValue(/The boundary is attached as a map file\.$/);
+    const geo = page.getByRole('checkbox', { name: /The boundary, as a map file/ });
     await expect(geo).toBeChecked();
     await expect(geo).toBeEnabled();
     await expect(page.getByText('4 corners. Geometry only')).toBeVisible();
   });
 
   test('asking an advocate opens on the papers, not the boundary', async ({ page }) => {
-    await page.goto(`/app/records/${ID.parcel}/request?kind=opinion`);
+    await page.goto(`/properties/${ID.parcel}/request?kind=opinion`);
 
     await expect(page.getByRole('heading', { name: 'Ask an advocate' })).toBeVisible();
     await expect(page.getByLabel('Message', { exact: true }))
@@ -2284,20 +1830,20 @@ test.describe('Asking for work on a record', () => {
     // record with no ring cannot produce. An advocate asked to read the papers
     // is asked exactly the same thing either way — rewriting that sentence
     // would be inventing a job nobody asked for.
-    await page.goto(`/app/records/${ID.plot}/request?kind=opinion`);
+    await page.goto(`/properties/${ID.plot}/request?kind=opinion`);
 
     await expect(page.getByLabel('Message', { exact: true }))
       .toHaveValue('Please read these documents and tell me whether the title is clean.');
     // The box still says there is no boundary — the message just does not.
-    await expect(page.getByRole('checkbox', { name: /The boundary, as GeoJSON/ })).toBeDisabled();
+    await expect(page.getByRole('checkbox', { name: /The boundary, as a map file/ })).toBeDisabled();
     await expect(page.getByText('No boundary saved yet.')).toBeVisible();
     await expect(page.getByText('Nothing attached.')).toBeVisible();
   });
 
   test('asking somebody to visit opens on what they should send back', async ({ page }) => {
-    await page.goto(`/app/records/${ID.parcel}/request?kind=visit`);
+    await page.goto(`/properties/${ID.parcel}/request?kind=visit`);
 
-    await expect(page.getByRole('heading', { name: 'Ask someone to visit' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Ask a provider to visit' })).toBeVisible();
     await expect(page.getByLabel('Message', { exact: true }))
       .toHaveValue('Please visit this land and send me photos of what you find.');
   });
@@ -2310,7 +1856,7 @@ test.describe('Asking for work on a record', () => {
     // (RequestWork.tsx:120-121). `touched` is the only thing between that and
     // a typed message being thrown away.
     world.set('boundary', World.slow(1200, { recordId: ID.plot, title: 'Sy 88', ring: RING, marks: [] }));
-    await page.goto(`/app/records/${ID.plot}/request`);
+    await page.goto(`/properties/${ID.plot}/request`);
     await expect(page.getByLabel('Message', { exact: true })).toHaveValue(/establish the corners/);
 
     await page.getByLabel('Message', { exact: true }).fill('Ravi, the eastern edge first please.');
@@ -2323,9 +1869,9 @@ test.describe('Asking for work on a record', () => {
   });
 
   test('an advocate’s request is filed as an opinion, not as a survey', async ({ page, world }) => {
-    await page.goto(`/app/records/${ID.parcel}/request?kind=opinion`);
+    await page.goto(`/properties/${ID.parcel}/request?kind=opinion`);
 
-    await page.getByRole('button', { name: 'Send request' }).click();
+    await page.getByRole('button', { name: 'Place the order' }).click();
 
     await expect.poll(() => world.calls('createRequest')).toHaveLength(1);
     const vars = world.lastVars('createRequest');
@@ -2334,10 +1880,10 @@ test.describe('Asking for work on a record', () => {
   });
 
   test('there is nothing to raise without a message, and the button says why it is off', async ({ page, world }) => {
-    await page.goto(`/app/records/${ID.parcel}/request`);
+    await page.goto(`/properties/${ID.parcel}/request`);
     await page.getByLabel('Message', { exact: true }).fill('   ');
 
-    const raise = page.getByRole('button', { name: 'Send request' });
+    const raise = page.getByRole('button', { name: 'Place the order' });
     await expect(raise).toBeDisabled();
     await expect(page.getByText('Type your message first.')).toBeVisible();
     await raise.click({ force: true });
@@ -2345,13 +1891,13 @@ test.describe('Asking for work on a record', () => {
   });
 
   test('raising the request sends what was ticked, and nothing else', async ({ page, world }) => {
-    await page.goto(`/app/records/${ID.parcel}/request`);
+    await page.goto(`/properties/${ID.parcel}/request`);
     await page.getByRole('checkbox', { name: 'The well from the gate' }).check();
     await page.getByRole('checkbox', { name: 'Sale deed 4412 of 1998' }).check();
     await expect(page.getByText('3 attached.'))
       .toBeVisible();
 
-    await page.getByRole('button', { name: 'Send request' }).click();
+    await page.getByRole('button', { name: 'Place the order' }).click();
 
     await expect.poll(() => world.calls('createRequest')).toHaveLength(1);
     const vars = world.lastVars('createRequest');
@@ -2359,7 +1905,7 @@ test.describe('Asking for work on a record', () => {
       recordId: ID.parcel,
       kind: 'survey',
       requester: 'the owner',
-      shared: 'the boundary as GeoJSON, The well from the gate, Sale deed 4412 of 1998',
+      shared: 'the boundary as a map file, The well from the gate, Sale deed 4412 of 1998',
     });
     expect(String(vars.message)).toContain('please do the survey for this location');
     expect(JSON.parse(String(vars.attachmentManifest))).toEqual({
@@ -2372,7 +1918,7 @@ test.describe('Asking for work on a record', () => {
     // (RequestWork.tsx:322) and the sentence at :313-317 — and both read the
     // same `attachmentCount`. On this screen those two disagreeing is the
     // difference between a surveyor being handed a deed and not.
-    await page.goto(`/app/records/${ID.parcel}/request`);
+    await page.goto(`/properties/${ID.parcel}/request`);
     await expect(cardCount(page, 'Attachments')).toHaveText('1');
 
     await page.getByRole('checkbox', { name: 'The well from the gate' }).check();
@@ -2387,7 +1933,7 @@ test.describe('Asking for work on a record', () => {
   });
 
   test('a paper I tick and then untick does not travel with the request', async ({ page, world }) => {
-    await page.goto(`/app/records/${ID.parcel}/request`);
+    await page.goto(`/properties/${ID.parcel}/request`);
     const deed = page.getByRole('checkbox', { name: 'Sale deed 4412 of 1998' });
 
     await deed.check();
@@ -2395,23 +1941,23 @@ test.describe('Asking for work on a record', () => {
     await deed.uncheck();
     await expect(page.getByText('1 attached.')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Send request' }).click();
+    await page.getByRole('button', { name: 'Place the order' }).click();
 
     await expect.poll(() => world.calls('createRequest')).toHaveLength(1);
     const vars = world.lastVars('createRequest');
     // Not named in the sentence the worker reads, and not in the manifest.
-    expect(vars.shared).toBe('the boundary as GeoJSON');
+    expect(vars.shared).toBe('the boundary as a map file');
     expect(JSON.parse(String(vars.attachmentManifest))).toEqual({
       documentIds: [], photoIds: [], includeBoundary: true,
     });
   });
 
   test('a request with nothing ticked carries only the message', async ({ page, world }) => {
-    await page.goto(`/app/records/${ID.parcel}/request`);
-    await page.getByRole('checkbox', { name: /The boundary, as GeoJSON/ }).uncheck();
+    await page.goto(`/properties/${ID.parcel}/request`);
+    await page.getByRole('checkbox', { name: /The boundary, as a map file/ }).uncheck();
     await expect(page.getByText('Nothing attached.')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Send request' }).click();
+    await page.getByRole('button', { name: 'Place the order' }).click();
 
     await expect.poll(() => world.calls('createRequest')).toHaveLength(1);
     const vars = world.lastVars('createRequest');
@@ -2422,29 +1968,29 @@ test.describe('Asking for work on a record', () => {
   });
 
   test('somebody acting for the owner puts their own name on the request', async ({ page, world }) => {
-    await page.goto(`/app/records/${ID.parcel}/request`);
+    await page.goto(`/properties/${ID.parcel}/request`);
     await page.getByRole('button', { name: 'I am acting for the owner' }).click();
     await page.getByLabel('Your name').fill('Venkat, for my brother');
 
-    await page.getByRole('button', { name: 'Send request' }).click();
+    await page.getByRole('button', { name: 'Place the order' }).click();
 
     await expect.poll(() => world.calls('createRequest')).toHaveLength(1);
     expect(world.lastVars('createRequest')).toMatchObject({ requester: 'Venkat, for my brother' });
   });
 
   test('acting for the owner without giving a name still says it is not the owner asking', async ({ page, world }) => {
-    await page.goto(`/app/records/${ID.parcel}/request`);
+    await page.goto(`/properties/${ID.parcel}/request`);
     await page.getByRole('button', { name: 'I am acting for the owner' }).click();
     await expect(page.getByLabel('Your name')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Send request' }).click();
+    await page.getByRole('button', { name: 'Place the order' }).click();
 
     await expect.poll(() => world.calls('createRequest')).toHaveLength(1);
     expect(world.lastVars('createRequest')).toMatchObject({ requester: 'acting for the owner' });
   });
 
   test('going back to being the owner puts the name away, and the request goes as the owner', async ({ page, world }) => {
-    await page.goto(`/app/records/${ID.parcel}/request`);
+    await page.goto(`/properties/${ID.parcel}/request`);
     await page.getByRole('button', { name: 'I am acting for the owner' }).click();
     await page.getByLabel('Your name').fill('Venkat, for my brother');
 
@@ -2456,7 +2002,7 @@ test.describe('Asking for work on a record', () => {
     await expect(page.getByRole('button', { name: 'I am acting for the owner' }))
       .toHaveAttribute('aria-pressed', 'false');
 
-    await page.getByRole('button', { name: 'Send request' }).click();
+    await page.getByRole('button', { name: 'Place the order' }).click();
 
     await expect.poll(() => world.calls('createRequest')).toHaveLength(1);
     // The name that was typed and then taken back does not travel.
@@ -2466,72 +2012,72 @@ test.describe('Asking for work on a record', () => {
 
   test('while the request is being raised the button says so and cannot be pressed twice', async ({ page, world }) => {
     world.set('createRequest', World.slow(1500, 'w-req-new'));
-    await page.goto(`/app/records/${ID.parcel}/request`);
+    await page.goto(`/properties/${ID.parcel}/request`);
 
-    await page.getByRole('button', { name: 'Send request' }).click();
+    await page.getByRole('button', { name: 'Place the order' }).click();
 
-    const going = page.getByRole('button', { name: 'Sending…' });
+    const going = page.getByRole('button', { name: 'Placing…' });
     await expect(going).toBeVisible();
     await expect(going).toBeDisabled();
-    await expect(page.getByRole('link', { name: 'Open the job' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Open the order' })).toBeVisible();
     expect(world.calls('createRequest')).toHaveLength(1);
   });
 
   test('a filed request stays on screen and hands me the job rather than taking it away', async ({ page }) => {
-    await page.goto(`/app/records/${ID.parcel}/request`);
-    await page.getByRole('button', { name: 'Send request' }).click();
+    await page.goto(`/properties/${ID.parcel}/request`);
+    await page.getByRole('button', { name: 'Place the order' }).click();
 
-    await expect(page.getByText('Request sent. Not assigned yet.')).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Open the job' }))
-      .toHaveAttribute('href', '/app/services/w-req-new');
+    await expect(page.getByText('Order placed. Not assigned yet.')).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Open the order' }))
+      .toHaveAttribute('href', '/services/w-req-new');
     // Both exits are the owner's act; nothing redirects itself.
-    await expect(page).toHaveURL(new RegExp(`/app/records/${ID.parcel}/request`));
-    await expect(page.getByRole('button', { name: 'Send request' })).toHaveCount(0);
+    await expect(page).toHaveURL(new RegExp(`/properties/${ID.parcel}/request`));
+    await expect(page.getByRole('button', { name: 'Place the order' })).toHaveCount(0);
 
-    await page.getByRole('button', { name: 'Back to Services' }).click();
-    await expect(page).toHaveURL(`/app/records/${ID.parcel}/services`);
+    await page.getByRole('button', { name: 'Back to this property’s services' }).click();
+    await expect(page).toHaveURL(`/properties/${ID.parcel}/services`);
   });
 
   test('a request the server would not accept says what it wanted', async ({ page, world }) => {
     world.set('createRequest', '');
-    await page.goto(`/app/records/${ID.parcel}/request`);
-    await page.getByRole('button', { name: 'Send request' }).click();
+    await page.goto(`/properties/${ID.parcel}/request`);
+    await page.getByRole('button', { name: 'Place the order' }).click();
 
-    await expect(page.getByText('That request was not accepted. A message is required.')).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Open the job' })).toHaveCount(0);
+    await expect(page.getByText('That order was not accepted. A message is required.')).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Open the order' })).toHaveCount(0);
   });
 
   test('a request that died on the way back is reported, with the reason', async ({ page, world }) => {
     world.set('createRequest', World.gqlError('the gateway gave up'));
-    await page.goto(`/app/records/${ID.parcel}/request`);
-    await page.getByRole('button', { name: 'Send request' }).click();
+    await page.goto(`/properties/${ID.parcel}/request`);
+    await page.getByRole('button', { name: 'Place the order' }).click();
 
     // The shared mutation helper toasts the reason…
     const toast = page.locator('.toast').filter({ hasText: 'That request' });
     await expect(toast).toContainText('That request could not be saved. Nothing has changed.');
     await expect(toast).toContainText('the gateway gave up');
     // …and the button comes back, so the owner is not left pressing nothing.
-    await expect(page.getByRole('button', { name: 'Send request' })).toBeEnabled();
-    await expect(page.getByRole('link', { name: 'Open the job' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Place the order' })).toBeEnabled();
+    await expect(page.getByRole('link', { name: 'Open the order' })).toHaveCount(0);
   });
 
   test('a file added to a request is filed on the record first, then named on the request', async ({ page, world }) => {
     world.route(/\/api\/gateway\/storage\/files\?/, () => ({ json: storedNode() }));
-    await page.goto(`/app/records/${ID.parcel}/request`);
+    await page.goto(`/properties/${ID.parcel}/request`);
 
-    await page.getByLabel('Add a file to this request').setInputFiles({
+    await page.getByLabel('Add a file to this order').setInputFiles({
       name: 'Sale deed.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 deed'),
     });
     await expect(card(page, 'Other')).toContainText('Sale deed.pdf · 0.0 MB');
 
-    await page.getByRole('button', { name: 'Send request' }).click();
+    await page.getByRole('button', { name: 'Place the order' }).click();
 
     // Stored, then filed as a paper on the record — in that order.
     await expect.poll(() => world.restCalls(/storage\/files\?/)).toHaveLength(1);
     await expect.poll(() => world.calls('addPaper')).toHaveLength(1);
     expect(world.lastVars('addPaper')).toMatchObject({
       recordId: ID.parcel, fileRef: 'node-uploaded-1', name: 'Sale deed.pdf',
-      subtitle: 'Added for this request', shelf: 'unsorted',
+      subtitle: 'Added for this order', shelf: 'unsorted',
       mimeType: 'application/pdf', sizeBytes: 2048,
     });
 
@@ -2542,8 +2088,8 @@ test.describe('Asking for work on a record', () => {
   });
 
   test('the same file picked twice is one file, and the count says so', async ({ page }) => {
-    await page.goto(`/app/records/${ID.parcel}/request`);
-    const pick = page.getByLabel('Add a file to this request');
+    await page.goto(`/properties/${ID.parcel}/request`);
+    const pick = page.getByLabel('Add a file to this order');
     const file = { name: 'Sale deed.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 deed') };
 
     await pick.setInputFiles(file);
@@ -2556,8 +2102,8 @@ test.describe('Asking for work on a record', () => {
   });
 
   test('a second file is added to the first rather than put in its place', async ({ page }) => {
-    await page.goto(`/app/records/${ID.parcel}/request`);
-    const pick = page.getByLabel('Add a file to this request');
+    await page.goto(`/properties/${ID.parcel}/request`);
+    const pick = page.getByLabel('Add a file to this order');
 
     await pick.setInputFiles({ name: 'Sale deed.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 deed') });
     await pick.setInputFiles({ name: 'EC.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 ec') });
@@ -2572,7 +2118,7 @@ test.describe('Asking for work on a record', () => {
     // The point of RequestWork.tsx:395-411: a <label> around a hidden input
     // takes no focus, so the tab order used to skip this card entirely and a
     // deed could only be attached with a mouse.
-    await page.goto(`/app/records/${ID.parcel}/request`);
+    await page.goto(`/properties/${ID.parcel}/request`);
     const add = page.getByRole('button', { name: 'Add a file' });
     await add.focus();
     await expect(add).toBeFocused();
@@ -2584,15 +2130,15 @@ test.describe('Asking for work on a record', () => {
   });
 
   test('a file over the limit is refused by name before a byte is sent, and no request is raised', async ({ page, world }) => {
-    await page.goto(`/app/records/${ID.parcel}/request`);
-    await page.getByLabel('Add a file to this request').setInputFiles({
+    await page.goto(`/properties/${ID.parcel}/request`);
+    await page.getByLabel('Add a file to this order').setInputFiles({
       name: 'Scan.pdf', mimeType: 'application/pdf', buffer: Buffer.alloc(16 * 1024 * 1024, 1),
     });
 
-    await page.getByRole('button', { name: 'Send request' }).click();
+    await page.getByRole('button', { name: 'Place the order' }).click();
 
     await expect(page.getByText(
-      'Scan.pdf is 16.0 MB. The limit is 15.0 MB — it was not uploaded and no request was raised.',
+      'Scan.pdf is 16.0 MB. The limit is 15.0 MB — it was not uploaded and no order was placed.',
     )).toBeVisible();
     expect(world.restCalls(/storage\/files\?/)).toHaveLength(0);
     expect(world.calls('createRequest')).toHaveLength(0);
@@ -2601,15 +2147,15 @@ test.describe('Asking for work on a record', () => {
   test('a file that was stored but could not be filed stops the request', async ({ page, world }) => {
     world.route(/\/api\/gateway\/storage\/files\?/, () => ({ json: storedNode() }));
     world.set('addPaper', '');
-    await page.goto(`/app/records/${ID.parcel}/request`);
-    await page.getByLabel('Add a file to this request').setInputFiles({
+    await page.goto(`/properties/${ID.parcel}/request`);
+    await page.getByLabel('Add a file to this order').setInputFiles({
       name: 'Sale deed.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 deed'),
     });
 
-    await page.getByRole('button', { name: 'Send request' }).click();
+    await page.getByRole('button', { name: 'Place the order' }).click();
 
     await expect(page.getByText(
-      'That file was stored but could not be filed against this record, so no request was raised.',
+      'That file was stored but could not be saved on this property, so no order was placed.',
     )).toBeVisible();
     expect(world.calls('createRequest')).toHaveLength(0);
     // The file is still queued, so the owner can try again without re-picking.
@@ -2619,16 +2165,16 @@ test.describe('Asking for work on a record', () => {
   test('when the second file cannot be filed the first one stays filed, and only the failure is left queued', async ({ page, world }) => {
     world.route(/\/api\/gateway\/storage\/files\?/, () => ({ json: storedNode() }));
     world.set('addPaper', (vars) => (String(vars.name) === 'Sale deed.pdf' ? 'w-paper-new' : ''));
-    await page.goto(`/app/records/${ID.parcel}/request`);
-    await page.getByLabel('Add a file to this request').setInputFiles([
+    await page.goto(`/properties/${ID.parcel}/request`);
+    await page.getByLabel('Add a file to this order').setInputFiles([
       { name: 'Sale deed.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 deed') },
       { name: 'EC.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 ec') },
     ]);
 
-    await page.getByRole('button', { name: 'Send request' }).click();
+    await page.getByRole('button', { name: 'Place the order' }).click();
 
     await expect(page.getByText(
-      'That file was stored but could not be filed against this record, so no request was raised.',
+      'That file was stored but could not be saved on this property, so no order was placed.',
     )).toBeVisible();
     expect(world.calls('createRequest')).toHaveLength(0);
     // The deed is a paper on the record now, so it is ticked rather than
@@ -2645,69 +2191,76 @@ test.describe('Asking for work on a record', () => {
     // not save actually looks. A transport failure would be the same branch
     // plus a console error the guard would fail on.
     world.route(/\/api\/gateway\/storage\/files\?/, () => ({ json: {} }));
-    await page.goto(`/app/records/${ID.parcel}/request`);
-    await page.getByLabel('Add a file to this request').setInputFiles({
+    await page.goto(`/properties/${ID.parcel}/request`);
+    await page.getByLabel('Add a file to this order').setInputFiles({
       name: 'Sale deed.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 deed'),
     });
 
-    await page.getByRole('button', { name: 'Send request' }).click();
+    await page.getByRole('button', { name: 'Place the order' }).click();
 
     await expect(page.getByText('The upload service did not confirm that the file was saved.'))
       .toBeVisible();
     expect(world.calls('addPaper')).toHaveLength(0);
     expect(world.calls('createRequest')).toHaveLength(0);
-    await expect(page.getByRole('link', { name: 'Open the job' })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Open the order' })).toHaveCount(0);
   });
 
   test('the photos and papers on the record are the ones offered, and nothing else', async ({ page }) => {
-    await page.goto(`/app/records/${ID.parcel}/request`);
+    await page.goto(`/properties/${ID.parcel}/request`);
 
     await expect(card(page, 'Photos').getByRole('checkbox')).toHaveCount(3);
     await expect(card(page, 'Documents').getByRole('checkbox')).toHaveCount(5);
     // A photo with no caption is named by its file, not left blank.
     await expect(card(page, 'Photos')).toContainText('ne-stone.jpg');
     await expect(card(page, 'Photos')).toContainText('Video');
-    await expect(page.getByText('Papers name people.')).toBeVisible();
+    await expect(page.getByText('Documents name people.')).toBeVisible();
   });
 
   test('a record with nothing on it says so on both shelves', async ({ page }) => {
-    await page.goto(`/app/records/${ID.plot}/request`);
+    await page.goto(`/properties/${ID.plot}/request`);
 
-    await expect(page.getByText('No photos on this record.')).toBeVisible();
-    await expect(page.getByText('Nothing is filed against this record.')).toBeVisible();
+    // Owners count properties, never records (naming standard).
+    await expect(card(page, 'Photos')).toContainText('No photos on this property.');
+    await expect(card(page, 'Photos').getByRole('checkbox')).toHaveCount(0);
+    await expect(card(page, 'Documents').getByRole('checkbox')).toHaveCount(0);
+    // "No documents", matching the photos' line: "filed against" is a banned
+    // metaphor and "filed" became "saved" (naming standard T4).
+    await expect(card(page, 'Documents')).toContainText('No documents on this property.');
+    await expect(page.getByText(/filed against/)).toHaveCount(0);
   });
 
   test('the file shelf states the limit before a byte is picked, not after one is refused', async ({ page }) => {
-    await page.goto(`/app/records/${ID.parcel}/request`);
+    await page.goto(`/properties/${ID.parcel}/request`);
 
     await expect(cardCount(page, 'Other')).toHaveText('0');
     await expect(card(page, 'Other')).toContainText('Up to 15.0 MB each.');
   });
 
   test('the way back from asking is the record’s own boundary, which is where the ask came from', async ({ page, world }) => {
-    await page.goto(`/app/records/${ID.parcel}/request`);
+    await page.goto(`/properties/${ID.parcel}/request`);
 
-    await page.getByRole('button', { name: 'Back to Sy 214/2' }).click();
+    await page.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('link', { name: 'Sy 214/2' }).click();
 
-    await expect(page).toHaveURL(`/app/records/${ID.parcel}/map`);
+    await expect(page).toHaveURL(`/properties/${ID.parcel}/location`);
     expect(world.calls('createRequest')).toHaveLength(0);
   });
 
   test('Cancel leaves the record open and raises nothing', async ({ page, world }) => {
-    await page.goto(`/app/records/${ID.parcel}/request`);
+    await page.goto(`/properties/${ID.parcel}/request`);
 
     await page.getByRole('button', { name: 'Cancel' }).click();
 
-    await expect(page).toHaveURL(`/app/records/${ID.parcel}`);
+    await expect(page).toHaveURL(`/properties/${ID.parcel}`);
     expect(world.calls('createRequest')).toHaveLength(0);
   });
 
   test('while the record is still arriving the form is not drawn over an empty one', async ({ page, world }) => {
     world.set('record', World.never());
-    await page.goto(`/app/records/${ID.parcel}/request`);
+    await page.goto(`/properties/${ID.parcel}/request`);
 
-    await expect(page.getByRole('status', { name: 'Loading this record' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Send request' })).toHaveCount(0);
+    // The property frame holds the screen and says what it is waiting for.
+    await expect(page.getByRole('status', { name: 'Loading this property' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Place the order' })).toHaveCount(0);
   });
 
   // ── defects ──────────────────────────────────────────────────────────
@@ -2725,7 +2278,7 @@ test.describe('Asking for work on a record', () => {
     // know to wait rather than to send a surveyor out blind.
     test.fail();
     world.set('papers', World.gqlError('the vault is down'));
-    await page.goto(`/app/records/${ID.parcel}/request`);
+    await page.goto(`/properties/${ID.parcel}/request`);
     await expect(card(page, 'Documents')).toBeVisible();
 
     await expect(card(page, 'Documents'))
@@ -2749,7 +2302,7 @@ test.describe('Asking for work on a record', () => {
       id: `w-photo-many-${i}`, caption: `Corner ${i + 1}`, isCover: false,
     }));
     world.set('photos', { ...PHOTOS, photos: rows, total: rows.length });
-    await page.goto(`/app/records/${ID.parcel}/request`);
+    await page.goto(`/properties/${ID.parcel}/request`);
     await expect(card(page, 'Photos').getByRole('checkbox').first()).toBeVisible();
 
     await expect(card(page, 'Photos').getByRole('checkbox')).toHaveCount(14, { timeout: 3000 });
@@ -2766,8 +2319,8 @@ test.describe('Asking for work on a record', () => {
     // sentence, with the machine's words as the detail beneath it.
     test.fail();
     world.set('createRequest', World.gqlError('the gateway gave up'));
-    await page.goto(`/app/records/${ID.parcel}/request`);
-    await page.getByRole('button', { name: 'Send request' }).click();
+    await page.goto(`/properties/${ID.parcel}/request`);
+    await page.getByRole('button', { name: 'Place the order' }).click();
 
     await expect(page.getByText('look under Services before trying again'))
       .toBeVisible({ timeout: 3000 });
@@ -2784,13 +2337,13 @@ test.describe('Asking for work on a record', () => {
     // ends in "no request was raised"; this one is owed the same words.
     test.fail();
     world.route(/\/api\/gateway\/storage\/files\?/, () => ({ json: {} }));
-    await page.goto(`/app/records/${ID.parcel}/request`);
-    await page.getByLabel('Add a file to this request').setInputFiles({
+    await page.goto(`/properties/${ID.parcel}/request`);
+    await page.getByLabel('Add a file to this order').setInputFiles({
       name: 'Sale deed.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 deed'),
     });
-    await page.getByRole('button', { name: 'Send request' }).click();
+    await page.getByRole('button', { name: 'Place the order' }).click();
 
-    await expect(page.getByText(/no request was raised/i)).toBeVisible({ timeout: 3000 });
+    await expect(page.getByText(/no order was placed/i)).toBeVisible({ timeout: 3000 });
   });
 
   test('a link naming a kind nothing sells does not file a job of that kind', async ({ page, world }) => {
@@ -2804,9 +2357,9 @@ test.describe('Asking for work on a record', () => {
     // actually showing (or the link refused outright), not a job whose words
     // and whose kind disagree.
     test.fail();
-    await page.goto(`/app/records/${ID.parcel}/request?kind=banana`);
+    await page.goto(`/properties/${ID.parcel}/request?kind=banana`);
     await expect(page.getByRole('heading', { name: 'Ask a surveyor' })).toBeVisible();
-    await page.getByRole('button', { name: 'Send request' }).click();
+    await page.getByRole('button', { name: 'Place the order' }).click();
 
     await expect.poll(() => world.calls('createRequest')).toHaveLength(1);
     expect(world.lastVars('createRequest')).toMatchObject({ kind: 'survey' });

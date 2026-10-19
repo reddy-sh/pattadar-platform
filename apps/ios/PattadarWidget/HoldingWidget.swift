@@ -218,7 +218,7 @@ struct HoldingWidgetView: View {
                     .font(.recordTitle)
                     .foregroundStyle(Palette.ink)
                     .lineLimit(2)
-                Text("This is no longer in your records. Hold the widget to pick another.")
+                Text("This is no longer in your properties. Hold the widget to pick another.")
                     .font(.note)
                     .foregroundStyle(Palette.inkSoft)
             }
@@ -236,7 +236,7 @@ struct VerdictChip: View {
         switch line.verdict {
         case .ready: ("In order", "checkmark.seal.fill")
         case .untidy: ("\(line.checks - line.passed) to tidy", "circle.dashed")
-        case .blocked: ("Can’t be sold", "exclamationmark.octagon.fill")
+        case .blocked: ("Fix before selling", "exclamationmark.octagon.fill")
         }
     }
 

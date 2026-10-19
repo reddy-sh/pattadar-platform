@@ -1,0 +1,9 @@
+{
+  "verdict": "APPROVED",
+  "issues": [
+    "NON-BLOCKING apps/web/src/w360/w360.css:593 (with :576) — on the two-track phone Overview, the now-nowrap .ov-value has 86px at a 320px viewport (WCAG 1.4.10 reflow width): '₹12.40 Cr' (115px) likely ends ~4px past the Estimated value card's border and '₹123.45 Cr' (130.1px) ~19px past it, ~3px past the viewport (sideways scroll). Computed from the implementer's measured glyph widths, reproducing their 390px measurement within ~1px. Add a one-column or smaller-figure rule below ~20rem of Overview width, and start the sweep at tests/e2e-app/specs/02-dashboard.spec.ts:575 at 320 and 360.",
+    "NON-BLOCKING apps/web/src/w360/w360.css:583 — .ovcard keeps the default align-content, so a card stretched to its row's height spreads the spare over its label and value rows; already true at 1512, and the new two-by-two phone grid now puts Documents (no note) beside Properties (with note) at 390, so the first row's figures likely no longer line up. Add align-content: start to .ovcard.",
+    "NON-BLOCKING (Reddy's call, carried from pass 1) apps/web/src/w360/homeGaps.ts:63 and :69 — dedup is by property, not by gap: any reminder that names a property hides that property's gap row and its fix action from Home, leaving only the count chip. D2 as planned; unchanged until Reddy decides."
+  ],
+  "reviewDoc": "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/.agents/tasks/w360-home-final-ux/review.md"
+}

@@ -28,13 +28,13 @@ test.use({ sealed: false });
 
 /** The screens whose whole job is to ask the server something. */
 const LIVE_ROUTES: Array<{ path: string; asks: string }> = [
-  { path: '/app', asks: 'the portfolio' },
-  { path: '/app/properties', asks: 'the properties list' },
-  { path: '/app/papers', asks: 'the vault' },
-  { path: '/app/services', asks: 'the orders list' },
-  { path: '/app/wallet', asks: 'the wallet' },
-  { path: '/app/shared', asks: 'the shared kits' },
-  { path: '/app/map', asks: 'the map records' },
+  { path: '/home', asks: 'the portfolio' },
+  { path: '/properties', asks: 'the properties list' },
+  { path: '/papers', asks: 'the vault' },
+  { path: '/services', asks: 'the orders list' },
+  { path: '/wallet', asks: 'the wallet' },
+  { path: '/shared', asks: 'the shared kits' },
+  { path: '/map', asks: 'the map records' },
 ];
 
 for (const { path, asks } of LIVE_ROUTES) {
@@ -77,11 +77,11 @@ test('@live the token the app sends is one the gateway accepts', async ({ page }
 test('@live a record opens on the real data behind it', async ({ page }) => {
   // Whatever the founder's first record happens to be. The assertion is that
   // the list and the 360 agree with each other, which is true for any content.
-  await page.goto('/app/properties');
+  await page.goto('/properties');
   await expect(page.getByRole('navigation')).toBeVisible();
 
-  const firstCard = page.locator('a[href^="/app/records/"]').first();
-  const count = await page.locator('a[href^="/app/records/"]').count();
+  const firstCard = page.locator('a[href^="/properties/"]').first();
+  const count = await page.locator('a[href^="/properties/"]').count();
   test.skip(count === 0, 'this account has no records on the live stack, so there is nothing to open');
 
   const href = await firstCard.getAttribute('href');

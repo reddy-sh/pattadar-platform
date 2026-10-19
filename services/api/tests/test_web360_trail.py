@@ -62,6 +62,7 @@ BASE = [
     "CREATE TABLE waiting_items (id TEXT PRIMARY KEY,record_id TEXT)",
     "CREATE TABLE land_features (id TEXT PRIMARY KEY,entity_id TEXT)",
     "CREATE TABLE land_expenses (id TEXT PRIMARY KEY,entity_id TEXT)",
+    "CREATE TABLE record_field_claims (id TEXT PRIMARY KEY,record_id TEXT)",
 ]
 
 # Left out of BASE on purpose: the sweep at the end of delete_records names it,
@@ -181,6 +182,20 @@ def test_history_names_the_desk_by_kind_and_never_by_its_principal():
             hist = await w.WebQuery().record_history("owner-a", "record-a")
             assert [(e.action, e.by) for e in hist] == [("set_boundary", "Pattadar desk")]
             assert "desk-staff-7" not in {e.by for e in hist}
+    asyncio.run(run())
+
+
+def test_history_reads_the_events_filed_under_a_migrated_old_id():
+    async def run():
+        async with database() as pool:
+            a.bind(pool)
+            async with pool.connection() as conn:
+                await w._audit(conn, "owner-a", "set_pin", "rec-old", "Pin moved")
+                await w._audit(conn, "owner-a", "set_pin", "rec-other", "Not this one")
+                await conn.execute("INSERT INTO record_id_aliases (old_id,new_id) VALUES ('rec-old','record-a')")
+            await _drain()
+            hist = await w.WebQuery().record_history("owner-a", "record-a")
+            assert [(e.action, e.detail) for e in hist] == [("set_pin", "Pin moved")]
     asyncio.run(run())
 
 

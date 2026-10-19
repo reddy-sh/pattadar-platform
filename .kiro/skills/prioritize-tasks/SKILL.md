@@ -1,10 +1,10 @@
 ---
 name: prioritize-tasks
-description: Use this skill when the user supplies an explicit task list and wants it ordered, cut, or scoped against stated deadlines, capacity, or competing goals. Do not use it for active incidents, security/privacy acceptance, architecture decisions, release approval, migrations, or provider activation; those belong to specialist governance skills.
+description: "Use this skill when the user wants a set of tasks, given or still to be gathered, ordered, cut, or scoped against deadlines, capacity, or competing goals, such as prioritizing today's work or a week's Must/Should/Won't. Not for project-wide, roadmap or milestone priority or architecture decisions (reddy-governance) or active incidents (incident-triage)."
 metadata:
   project: pattadar-platform
   standard: agentskills.io
-  verified: "2026-09-16"
+  verified: "2026-10-09"
 ---
 
 # Prioritize Tasks
@@ -14,10 +14,16 @@ results in compact tables. Ask one thing at a time only when required informatio
 is missing; if the user already supplied a complete list and constraints, start
 classifying immediately.
 
+Not this skill: security/privacy acceptance (security-review), release approval (release-readiness), migrations (safe-data-migration), or provider activation (provider-activation).
+
 ## Workflow
 
 1. Gather every task, including small or nagging items. If needed, ask short
    questions about deadlines, who is waiting, the goal served, and capacity.
+   Pull out incident, security/privacy, data, release, provider, cost, and
+   compliance items: rank them by their owning skill's severity, never by
+   effort, and list any deferral, Won't, or delete of one as needing Reddy's
+   acceptance.
 2. Pick one framework from the table below and explain the choice in one line.
    Combine frameworks only when the second one resolves a real ambiguity.
 3. Put every item in a box. For an uncertain item, ask one focused question.

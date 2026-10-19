@@ -47,7 +47,7 @@ export default defineConfig({
     {
       command: `${bun} x vite build && ${bun} x vite preview --host 127.0.0.1 --port 5191 --strictPort`,
       cwd: path.join(platform, 'apps/web'),
-      url: 'http://127.0.0.1:5191/app',
+      url: 'http://127.0.0.1:5191/home',
       reuseExistingServer: false,
       timeout: 180_000,
       env: {

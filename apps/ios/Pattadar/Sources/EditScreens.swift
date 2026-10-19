@@ -24,7 +24,7 @@ struct EditParcelScreen: View {
             Form {
                 Section("Details") {
                     FormRow(label: "Survey number", text: $surveyNo, required: true)
-                    FormRow(label: "Sub-division", text: $subdivision)
+                    FormRow(label: "Subdivision", text: $subdivision)
                     LabeledContent("Extent") {
                         HStack(spacing: Space.sm) {
                             TextField("0", text: $extent)
@@ -74,7 +74,7 @@ struct EditParcelScreen: View {
             "classification": classification,
         ]
         if await app.load(Mutations.updateParcel, variables: vars, as: Ack.self) == nil {
-            problem = app.lastFailure ?? "Couldn’t save the changes."
+            problem = app.lastFailure ?? "Could not save the changes."
             return
         }
         onSaved(); dismiss()
@@ -104,7 +104,7 @@ struct EditPropertyScreen: View {
                     FormRow(label: "Village / town", text: $city)
                     FormRow(label: "Mandal", text: $locality)
                     FormRow(label: "District", text: $district)
-                    FormRow(label: "Land area", text: $landArea, keyboard: .decimalPad, suffix: "Sq.yd")
+                    FormRow(label: "Land area", text: $landArea, keyboard: .decimalPad, suffix: "sq.yd")
                     FormRow(label: "Purchase price", text: $price, keyboard: .numberPad, suffix: "₹")
                 }
                 if !problem.isEmpty { Section { Text(problem).foregroundStyle(Palette.danger).font(.callout) } }
@@ -141,7 +141,7 @@ struct EditPropertyScreen: View {
             "purchasePrice": Double(price) ?? 0,
         ]
         if await app.load(Mutations.updateProperty, variables: vars, as: Ack.self) == nil {
-            problem = app.lastFailure ?? "Couldn’t save the changes."
+            problem = app.lastFailure ?? "Could not save the changes."
             return
         }
         onSaved(); dismiss()
@@ -207,7 +207,7 @@ struct EditPassbookScreen: View {
             "district": district, "mandal": mandal, "village": village,
         ]
         if await app.load(Mutations.updatePassbook, variables: vars, as: Ack.self) == nil {
-            problem = app.lastFailure ?? "Couldn’t save the changes."
+            problem = app.lastFailure ?? "Could not save the changes."
             return
         }
         onSaved(); dismiss()
@@ -231,8 +231,7 @@ struct EditGroupScreen: View {
     @State private var saving = false
     @State private var problem = ""
 
-    private let types = [("family", "Family"), ("partnership", "Partnership"),
-                         ("company", "Company"), ("huf", "HUF"), ("trust", "Trust")]
+    private let types = groupTypeWords
 
     var body: some View {
         NavigationStack {
@@ -248,7 +247,7 @@ struct EditGroupScreen: View {
                 }
                 if !problem.isEmpty { Section { Text(problem).foregroundStyle(Palette.danger).font(.callout) } }
                 Section {
-                    PrimaryButton(title: group == nil ? "Create group" : "Save changes",
+                    PrimaryButton(title: group == nil ? "Add the group" : "Save changes",
                                   busy: saving,
                                   disabled: name.trimmingCharacters(in: .whitespaces).isEmpty) {
                         Task { await save() }
@@ -280,7 +279,7 @@ struct EditGroupScreen: View {
                                 as: MadeGroup.self) != nil
         }
         guard ok else {
-            problem = app.lastFailure ?? "Couldn’t save the group."
+            problem = app.lastFailure ?? "Could not save the group."
             return
         }
         onSaved(); dismiss()
@@ -322,8 +321,8 @@ struct AddMemberScreen: View {
                     // they accept. Saying so here beats a round trip that
                     // fails with the same sentence.
                     Text(isHeir
-                         ? "An heir's share is what the estate allocation divides; shares across a group should total 100%. A phone number is required — an heir has to be reachable to confirm they accept."
-                         : "An heir's share is what the estate allocation divides. Shares across a group should total 100%.")
+                         ? "An heir's share is their part of the inheritance; shares across a group should total 100%. A phone number is required — an heir has to be reachable to confirm they accept."
+                         : "An heir's share is their part of the inheritance. Shares across a group should total 100%.")
                 }
                 if !problem.isEmpty { Section { Text(problem).foregroundStyle(Palette.danger).font(.callout) } }
                 Section {
@@ -334,7 +333,7 @@ struct AddMemberScreen: View {
                     }
                 }
             }
-            .navigationTitle("Add member")
+            .navigationTitle("Add a member")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
         }
@@ -357,9 +356,21 @@ struct AddMemberScreen: View {
             "maritalStatus": "", "spouseName": "", "spouseContact": "", "spouseStatus": "",
         ]
         if await app.load(Mutations.addMember, variables: vars, as: Added.self) == nil {
-            problem = app.lastFailure ?? "Couldn’t add them."
+            problem = app.lastFailure ?? "Could not add them."
             return
         }
         onSaved(); dismiss()
     }
+}
+
+/// The group types an owner can choose, and the word each one is shown as
+/// (E4: an enum reaches the screen only through a word table). "Portfolio"
+/// is not a group type: keeping properties together is what a holding does.
+let groupTypeWords: [(String, String)] = [
+    ("family", "Family"), ("partnership", "Partnership"), ("company", "Company"),
+    ("huf", "HUF (Hindu Undivided Family)"), ("trust", "Trust"),
+]
+
+func groupTypeWord(_ raw: String) -> String {
+    groupTypeWords.first { $0.0 == raw.lowercased() }?.1 ?? humanize(raw)
 }

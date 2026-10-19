@@ -2,9 +2,8 @@
  * Every address resolves — apps/web/src/routes.tsx.
  *
  * The route table is the one file nobody opens on purpose and everybody
- * depends on. It is also the file with the longest memory: it carries the old
- * vocabulary (`/app/parcels`, `/app/deeds`, `/app/passbooks/:id`) forward into
- * the new one, it keeps the previous app alive under `/legacy`, and it decides
+ * depends on. It keeps the previous app alive under `/legacy` (whose own old
+ * addresses still redirect inside it), and it decides
  * what a person sees when the address is simply wrong. None of that has a
  * screen of its own, so none of it is covered by the fifteen specs beside
  * this one.
@@ -18,41 +17,39 @@
  *      The first test READS routes.tsx off disk and compares. A route added to
  *      the app and not to a sweep fails here, loudly, instead of going
  *      untested for a year.
- *   2. Every address under /app draws its own screen, inside the shell, with
+ *   2. Every signed-in address draws its own screen, inside the shell, with
  *      the rail still there — driven as a loop, not twenty copy-pasted tests.
  *      The desk's rail entry is the last row of that loop; the five screens
  *      behind it are a loop of their own, because an operator reaches them
  *      from the desk rather than from the rail.
- *   3. Every old address lands where routes.tsx promises, keeps the id it was
- *      carrying, and leaves no trap behind it for the back button — including
- *      the one old address whose redirect is NOT in routes.tsx and so cannot be
- *      in REDIRECTS: `/app/order?record=<id>`, which OrderLand.tsx turns into
- *      `/app/records/<id>/order?step=pick` now that the land is a path segment.
+ *   3. Every /legacy redirect lands where routes.tsx promises and leaves no
+ *      trap behind it for the back button. The signed-in app keeps NO old
+ *      addresses (no legacy links: `/parcels`, `/app/…`, `/tickets/:id` and
+ *      the rest were deleted with no redirect), so an old address is a 404.
  *   4. An address that matches nothing says which address failed and offers
  *      the way back — three different ways back, because there are three
- *      catch-alls (inside /app, inside /legacy, and at the top level).
+ *      mounts (signed in, inside /legacy, and signed out).
  *   5. RequireAuth: the doors that need a session, the doors that must not,
  *      and the address kept so a sign-in can finish the journey.
  *   6. The previous app, still routed under /legacy, with its own frame.
  *   7. A screen whose chunk will not download is contained to that screen.
  *
- * Four of these are `test.fail` — a defect found, written up against the file
+ * Three of these are `test.fail` — a defect found, written up against the file
  * and line that causes it, and left failing so that the day it is fixed this
- * file turns green on its own: a redirect that drops the filter the link was
- * carrying, a 404 whose way out is unstyled on two of its three mounts, the
+ * file turns green on its own: a 404 whose way out is unstyled under /legacy, the
  * previous app's menu ejecting you out of the previous app, and an
  * ErrorBoundary that never forgets. (A fifth, /legacy/profile looping on
  * itself while it waits, left with the screen: that address redirects now.)
  *
  * Five things a reader should know before changing anything below.
  *
- *  · The order flow is FOUR STEPS AT ONE ADDRESS. `/app/order` asks which land
- *    and composes nothing; the order itself is `records/:id/order`, with
- *    `?step=pick|tell|check|done` moving between the steps. Only the two paths
- *    are in routes.tsx, so only the two paths are in APP_ROUTES — the steps are
- *    swept in section 2 as addresses a bookmark can hold, not as routes.
- *  · /app/map is NOT a screen. MapFind.tsx is four lines of `<Navigate>` onto
- *    /app/properties?view=map, and it is in APP_ROUTES because it is an
+ *  · The order flow is THREE STEPS AT ONE ADDRESS. `/order` with
+ *    `?step=properties|services|review`, entered only through orderHref
+ *    (`?for=<ids>&step=services`). `records/:id/order` is gone, with no
+ *    redirect, and is a not-found like any other. The steps are swept in
+ *    section 2 as addresses a bookmark can hold, not as routes.
+ *  · /map is NOT a screen. MapFind.tsx is four lines of `<Navigate>` onto
+ *    /properties?view=map, and it is in APP_ROUTES because it is an
  *    address the rail and old bookmarks point at. It is the only member of
  *    that list whose URL changes under it, and the sweep says so explicitly.
  *  · The lazy-chunk tests ABORT a module request and then expect the app to
@@ -60,14 +57,13 @@
  *    purpose ("a boundary that hides the stack from the people fixing it is
  *    worse than the white screen it replaced"), so that describe block, and
  *    only that block, carries `allowConsole`.
- *  · The Pattadar desk (W17) is six addresses under /app/desk, and the only
+ *  · The Pattadar desk (W17) is six addresses under /desk, and the only
  *    part of this app that is not the owner's: the rail draws its entry, and
  *    the screens answer, only for `portfolio.isPlatformAdmin`. The sealed world
  *    seeds that TRUE (fixtures/seed.ts PORTFOLIO), so every sweep here opens
  *    the desk as an operator; the one test that sets it false is the other
- *    half of the same guarantee. `/app/admin` — the rail entry the desk
- *    replaced — is a redirect onto it now, and is proved with the rest of the
- *    old vocabulary rather than as a screen.
+ *    half of the same guarantee. `/admin` — the rail entry the desk
+ *    replaced — is no address at all now.
  *  · The /legacy screens speak the PREVIOUS API — `query { passbooks … }`,
  *    with no `web { <field>` for the world to route on — so the beforeEach
  *    below answers those documents itself and lets everything else fall
@@ -83,12 +79,12 @@ import { APP_ROUTES, HANGERS, ID, PAPER, PUBLIC_ROUTES, REDIRECTS, TICKET } from
 
 // ── addressing the two shells ──────────────────────────────────────────
 
-/** The W360 rail (Shell.tsx aria-label="Sections"). Present on every /app
+/** The W360 rail (Shell.tsx aria-label="Sections"). Present on every /home
  *  address, including the ones that resolve to nothing. */
 const rail = (page: Page) => page.getByRole('navigation', { name: 'Sections' });
 
 /** The W360 wordmark, which is also the link home (Shell.tsx .brand). `exact`
- *  because /app/account carries a mailto: link to grievance@pattadar.com, and
+ *  because /account carries a mailto: link to grievance@pattadar.com, and
  *  a substring match claims that one too. */
 const brand = (page: Page) => page.getByRole('link', { name: 'Pattadar.', exact: true });
 
@@ -166,17 +162,17 @@ const LEGACY_ROUTES = [
   '/legacy/parcels',
   '/legacy/documents',
   '/legacy/groups',
-  // '/legacy/invitations' is a redirect into /app/invitations now (EXTRA_REDIRECTS).
+  // '/legacy/invitations' is a redirect into /invitations now (EXTRA_REDIRECTS).
   '/legacy/notifications',
   '/legacy/wallet',
-  // '/legacy/tools' is a redirect into /app/tools now (fixtures/ids.ts REDIRECTS).
+  // '/legacy/tools' is a redirect into /tools now (fixtures/ids.ts REDIRECTS).
   '/legacy/audit',
   '/legacy/admin',
-  // '/legacy/profile' is a redirect into /app/profile now (EXTRA_REDIRECTS).
+  // '/legacy/profile' is a redirect into /profile now (EXTRA_REDIRECTS).
 ] as const;
 
 /* There is no UNDRAWN list any more. Invitations was the last section drawn
- * by the Section.tsx signpost; it is a real screen at /app/invitations and is
+ * by the Section.tsx signpost; it is a real screen at /invitations and is
  * swept in APP_SCREENS like any other. The tripwire below asserts the spread
  * stays gone from routes.tsx. */
 
@@ -189,40 +185,25 @@ const ASSOCIATE = {
   surveyor: 'as-ravi',
 } as const;
 
-/** `/app/admin` is a redirect now (routes.tsx:349) and belongs in REDIRECTS —
- *  but `fixtures/ids.ts` is read by the whole suite and still lists it as a
- *  section, so this file carries the entry and merges it in. Written as a merge
- *  rather than a second list so that the day ids.ts learns about it, nothing
- *  here is asserted twice. */
+/** /legacy redirects fixtures/ids.ts does not list, merged in so that the
+ *  day ids.ts learns about them, nothing here is asserted twice. */
 const EXTRA_REDIRECTS: Array<{ from: string; to: string | RegExp }> = [
-  { from: '/app/admin', to: '/app/desk' },
-  { from: '/app/villages', to: '/app/maps' },
-  // One ordered service is at /app/services/:id now — "ticket" was internal
-  // vocabulary that had reached the address bar. The old pair is NOT
-  // housekeeping and must never be deleted: apps/ios ServicesScreen.swift
-  // builds `https://pattadar.com/app/tickets/<id>/pay` and that is in a
-  // SHIPPED binary, so the phone cannot be told a new path. Every link already
-  // sent by SMS or email is in the same position. They live here rather than
-  // in fixtures/ids.ts for the same reason /app/admin does — that file is read
-  // by the whole suite and has not learned about them yet.
-  { from: `/app/tickets/${TICKET.placed}`, to: `/app/services/${TICKET.placed}` },
-  { from: `/app/tickets/${TICKET.placed}/pay`, to: `/app/services/${TICKET.placed}/pay` },
   // The old MUI Profile is deleted; its address carries into the drawn one
   // (w360/pages/Profile.tsx), the way /legacy/tools does.
-  { from: '/legacy/profile', to: '/app/profile' },
+  { from: '/legacy/profile', to: '/profile' },
   // The old MUI Invitations screen is deleted the same way.
-  { from: '/legacy/invitations', to: '/app/invitations' },
+  { from: '/legacy/invitations', to: '/invitations' },
 ];
 
-/** The three reference reads /app/tools makes (w360/pages/Tools.tsx). They go
+/** The three reference reads /tools makes (w360/pages/Tools.tsx). They go
  *  through the root schema, not `web`, so the world only routes them when a
  *  `root.` answer exists. Empty is enough: these sweeps prove the address
  *  draws Tools, and 19-sections-legacy owns what the tools do with rows. */
 const TOOL_READS = {
   // Not a tool, but read through the root schema the same way by
-  // /app/invitations (w360/invitationsData.ts); empty draws its empty state.
+  // /invitations (w360/invitationsData.ts); empty draws its empty state.
   'root.invitations': [],
-  // /app/refer reads the account's referral summary the same way.
+  // /refer reads the account's referral summary the same way.
   'root.myReferral': {
     code: 'SHANKAR123', path: '/r/SHANKAR123', joined: 0, qualified: 0, creditsEarned: 0,
     monthlyCap: 10, referredBy: '', rewards: [],
@@ -232,13 +213,17 @@ const TOOL_READS = {
   'root.marketValues': [],
 };
 
-/** The account row /app/profile reads (w360/pages/Profile.tsx). The sweeps
+/** The account row /profile reads (w360/pages/Profile.tsx). The sweeps
  *  only need its heading, which it draws whether or not `me` answers; the
  *  pending-state test below answers it itself. */
 const PROFILE_ME = {
   id: 'owner', name: 'Shankar Reddy', email: '', address: '', language: 'en',
   districtsOfInterest: '', notificationPrefs: 'email', kycRefMasked: '', mfaEnabled: false,
 };
+/** Hangers fixtures/ids.ts HANGERS does not list: the request form, and Notes (RecordNotes.tsx), which became a record tab after
+ *  ids.ts was written. Merged here for the same reason EXTRA_REDIRECTS is. */
+const EXTRA_HANGERS = ['request', 'notes'].filter((h) => !(HANGERS as readonly string[]).includes(h));
+
 const ALL_REDIRECTS = [
   ...REDIRECTS,
   ...EXTRA_REDIRECTS.filter((e) => !REDIRECTS.some((r) => r.from === e.from)),
@@ -266,35 +251,37 @@ interface Screen {
 const APP_SCREENS: Screen[] = [
   // The dashboard greets by the hour, so it is matched on the part that does
   // not move between a morning run and an evening one.
-  { path: '/app', heading: /Shankar Reddy/ },
-  { path: '/app/properties', heading: /^Properties$/ },
+  { path: '/home', heading: /Shankar Reddy/ },
+  { path: '/properties', heading: /^Properties$/ },
   // Not a screen: four lines of <Navigate> keeping saved map links on the
   // same live map and filters as Properties (MapFind.tsx).
-  { path: '/app/map', lands: '/app/properties?view=map', heading: /^Properties$/ },
-  { path: '/app/maps', heading: /^Cadastral maps$/ },
-  { path: '/app/shared', heading: /^Shared with me$/, level: 2 },
-  { path: '/app/assigned', heading: /^Waiting on you$/ },
-  { path: '/app/services', heading: /^Services$/ },
-  // Ordering starts by asking which land (OrderLand.tsx). The screen composes
-  // nothing — the order itself is composed at /app/records/:id/order, which is
-  // a hanger and is swept with the others below — so this address owes exactly
-  // one thing: the question, under the eyebrow "Order a service".
-  { path: '/app/order', heading: /^Choose the property$/ },
-  { path: '/app/papers', heading: /^Documents$/ },
-  { path: '/app/wallet', heading: /^Wallet$/ },
-  { path: '/app/account', heading: /^Your account and data$/ },
-  { path: '/app/groups', heading: /^Families & groups$/ },
-  { path: '/app/invitations', heading: /^Invitations$/ },
-  { path: '/app/notifications', heading: /^Notifications$/ },
-  { path: '/app/tools', heading: /^Tools$/ },
-  { path: '/app/audit', heading: /^Activity$/ },
-  { path: '/app/profile', heading: /^Profile$/ },
-  { path: '/app/help', heading: /^Help & support$/ },
-  { path: '/app/refer', heading: /^Invite & earn$/ },
+  { path: '/map', lands: '/properties?view=map', heading: /^Properties$/ },
+  { path: '/maps', heading: /^Cadastral maps$/ },
+  // Its h1 is the rail label; the open share is an h2 under it (design.md
+  // § Page head, "Shared with me").
+  { path: '/shared', heading: /^Shared with me$/ },
+  { path: '/assigned', heading: /^Waiting on you$/ },
+  { path: '/services', heading: /^Services$/ },
+  // The one order flow (OrderLand.tsx): properties, services, review.
+  { path: '/order', heading: /^Order a service$/ },
+  { path: '/papers', heading: /^Documents$/ },
+  { path: '/wallet', heading: /^Wallet$/ },
+  { path: '/account', heading: /^Privacy & your data$/ },
+  { path: '/groups', heading: /^Families & groups$/ },
+  { path: '/invitations', heading: /^Invitations$/ },
+  { path: '/notifications', heading: /^Notifications$/ },
+  { path: '/tools', heading: /^Tools$/ },
+  { path: '/audit', heading: /^Activity$/ },
+  { path: '/profile', heading: /^Profile$/ },
+  { path: '/help', heading: /^Help & support$/ },
+  { path: '/refer', heading: /^Invite & earn$/ },
+  // Several properties on one piece of ground (Holdings.tsx). The rail draws
+  // the entry only once the account has one, but the address is always live.
+  { path: '/holdings', heading: /^Holdings$/ },
   // Last in the rail, and drawn for one account (Shell.tsx:543). "Admin & Ref
   // Data" used to be this line; the desk took its address, and the reference
   // data it introduced is untouched at /legacy/admin.
-  { path: '/app/desk', heading: /^Unassigned and stalled jobs$/ },
+  { path: '/desk', heading: /^Pattadar desk$/ },
 ];
 
 /** The five screens behind the desk's own entry. Not addresses the rail can
@@ -302,26 +289,35 @@ const APP_SCREENS: Screen[] = [
  *  a path in routes.tsx, a bookmark, and a link an operator pastes to another
  *  operator, so each owes its own screen at its own address. */
 const DESK_SCREENS: Screen[] = [
-  // One job, titled with the service and carrying its reference in the eyebrow
-  // above (DeskJob.tsx:186-190). TICKET.placed is W-2101, with nobody on it.
-  { path: `/app/desk/jobs/${TICKET.placed}`, heading: /^Encumbrance Certificate$/, proves: /W-2101/ },
-  { path: '/app/desk/associates', heading: /^Company members$/ },
+  // One job, titled with the service and carrying its reference in the
+  // crumbs above it (DeskJob.tsx). TICKET.placed is PT-2101, with nobody on it.
+  { path: `/desk/jobs/${TICKET.placed}`, heading: /^Encumbrance certificate$/, proves: /PT-2101/ },
+  { path: '/desk/associates', heading: /^Company members$/ },
   // One associate, whose heading is their own name (DeskAssociate.tsx:643).
-  { path: `/app/desk/associates/${ASSOCIATE.surveyor}`, heading: /^G\. Srinivas$/,
+  { path: `/desk/associates/${ASSOCIATE.surveyor}`, heading: /^G\. Srinivas$/,
     proves: /Walks the Markapur side himself/ },
-  { path: '/app/desk/enrol', heading: /^Add a member$/ },
-  { path: '/app/desk/coverage', heading: /^Provider coverage$/ },
+  { path: '/desk/enrol', heading: /^Add a member$/ },
+  { path: '/desk/coverage', heading: /^Provider coverage$/ },
+  // The Administration group (Shell.tsx), drawn in the rail for a SUPER admin.
+  // The roster and enrolment are the desk's own screens at a second address.
+  { path: '/admin/members', heading: /^Company members$/ },
+  { path: '/admin/members/enrol', heading: /^Add a member$/ },
+  // The sealed world is a platform admin but not a super admin, so these two
+  // answer at their address with their own title and the screen's refusal
+  // under it — the screen this account is owed, and still not a 404.
+  { path: '/admin/catalogue', heading: /^Service catalogue$/, proves: /The service catalogue is restricted/ },
+  { path: '/admin/compliance', heading: /^Compliance rules$/, proves: /Compliance administration is restricted/ },
+  { path: '/admin/geography', heading: /^Government geography$/, proves: /Government reference data is restricted/ },
+  { path: '/admin/intelligence', heading: /^Intelligence$/, proves: /Intelligence settings are restricted/ },
 ];
 
-/** Every /app path that is a PATTERN rather than an address — a `:param`, or
+/** Every signed-in path that is a PATTERN rather than an address — a `:param`, or
  *  the catch-all — and therefore can never appear in a static sweep.
  *
  *  This list exists because the parity test below compares routes.tsx against
  *  APP_ROUTES by filtering for paths an address bar can reach by hand, which
  *  silently drops every one of these. Four of them arrived at once when the
- *  one-service screen was rebuilt (`services/:id`, `services/:id/pay`, and the
- *  two `tickets/:id` redirects that keep the shipped phone working), and the
- *  tripwire did not so much as blink. Each entry names where it is proved, and
+ *  one-service screen was rebuilt, and the tripwire did not so much as blink. Each entry names where it is proved, and
  *  the check runs both ways: a pattern added to the table and not tested here
  *  fails, and a pattern this file still tests after routes.tsx dropped it fails
  *  too. */
@@ -332,12 +328,9 @@ const APP_PATTERNS: string[] = [
   'papers/:id',              // "one paper opens by its own id, and not as a shelf"
   'desk/jobs/:id',           // DESK_SCREENS
   'desk/associates/:id',     // DESK_SCREENS
-  'parcels/:id',             // REDIRECTS — "an old link for ONE parcel…"
-  'properties/:id',          // REDIRECTS — the same test, second address
-  'tickets/:id',             // EXTRA_REDIRECTS — the old address for one service
-  'tickets/:id/pay',         // EXTRA_REDIRECTS — the address the shipped phone builds
   'heir/:id',                // 19-sections-legacy — the heir's own record
-  'passbooks/:id',           // REDIRECTS — "a passbook link goes to the screen…"
+  'groups/:id',              // 30-groups — one family or group by its own address
+  'admin/members/:id',       // the same screen as desk/associates/:id (DESK_SCREENS)
   '*',                       // section 4, "an address that matches nothing"
 ];
 
@@ -359,29 +352,34 @@ const LEGACY_SCREENS: Screen[] = [
 // ═══════════════════════════════════════════════════════════════════════
 
 test('a route added to the table but not to this sweep fails here, not quietly in production', async () => {
-  const appBlock = block("path: '/app',", "path: '/legacy',");
-  const legacyBlock = block("path: '/legacy',", '// Everything else');
-  const publicBlock = SOURCE.slice(SOURCE.indexOf('export const router'), SOURCE.indexOf("path: '/app',"));
-  // The record's hangers are nested INSIDE the /app block, and their paths
-  // ('features', 'money', …) are relative to the record, not to /app. Read
-  // apart, or `features` reads as a sibling of `properties`.
+  // The signed-in screens hang off one pathless layout route, `id: 'app'`.
+  const appBlock = block("id: 'app',", "path: '/legacy',");
+  const legacyBlock = block("path: '/legacy',", '\n]);');
+  const publicBlock = SOURCE.slice(SOURCE.indexOf('export const router'), SOURCE.indexOf("id: 'app',"));
+  // The record's hangers are nested INSIDE the app block, and their paths
+  // ('site-features', 'money', …) are relative to the record. Read apart, or
+  // `media` reads as a sibling of `properties`.
   //
   // The end marker is `groups` rather than the UNDRAWN spread because Families
   // & Groups became a real screen and was declared BETWEEN the two: read to the
   // spread and the record block swallows it, and `groups` is then reported both
   // as a hanger nobody opens and as an /app address routes.tsx no longer
   // declares. The first sibling after the record is the honest boundary.
-  const recordBlock = block("path: 'records/:id',", "path: 'groups',");
-  const appOwnBlock = appBlock.replace(recordBlock, '');
+  const recordBlock = block("path: 'properties/:id',", "path: 'groups',");
+  // One holding is a frame with tabs of its own, exactly like a record, and
+  // its tab paths ('surveys', 'fmb', …) are relative to the holding. Read
+  // apart for the same reason; 27-29 own what each tab draws.
+  const holdingBlock = block("path: 'holdings/:id',", "path: 'map',");
+  const appOwnBlock = appBlock.replace(recordBlock, '').replace(holdingBlock, '');
 
   // Every section is drawn now; the UNDRAWN spread and Section.tsx are gone,
   // and a signpost list coming back would be a regression worth failing on.
   expect(SOURCE, 'routes.tsx grew an UNDRAWN signpost list again').not.toMatch(/const UNDRAWN =/);
 
-  // Under /app: every hand-reachable path is either swept as a screen, or is
+  // Signed in: every hand-reachable path is either swept as a screen, or is
   // an old address with a redirect test. The desk's four static paths are in
   // DESK_SCREENS rather than in APP_ROUTES, so both sweeps are named here.
-  const declaredApp = literals(appOwnBlock, '/app').filter(isStatic).map((p) => `/app/${p}`);
+  const declaredApp = literals(appOwnBlock, '').filter(isStatic).map((p) => `/${p}`);
   const coveredApp = new Set<string>([
     ...APP_ROUTES,
     ...APP_SCREENS.map((sc) => sc.path),
@@ -390,11 +388,11 @@ test('a route added to the table but not to this sweep fails here, not quietly i
   ]);
   expect(
     declaredApp.filter((p) => !coveredApp.has(p)),
-    'routes.tsx declares an /app address that APP_ROUTES and REDIRECTS in fixtures/ids.ts have never heard of',
+    'routes.tsx declares a signed-in address that APP_ROUTES and REDIRECTS in fixtures/ids.ts have never heard of',
   ).toEqual([]);
 
   // And the other way: nothing in the fixture has quietly been deleted from
-  // the app. '/app' is the layout route itself.
+  // the app.
   const declaredSet = new Set(declaredApp);
   expect(
     [...new Set([...APP_ROUTES, ...APP_SCREENS.map((sc) => sc.path), ...DESK_SCREENS.map((sc) => sc.path)])]
@@ -402,27 +400,27 @@ test('a route added to the table but not to this sweep fails here, not quietly i
       // `desk/associates/:id` in the table, and a concrete id never matches a
       // param — they are proved by opening them, below, not by this list.
       .filter((p) => !p.includes(TICKET.placed) && !p.includes(ASSOCIATE.surveyor))
-      .filter((p) => p !== '/app' && !declaredSet.has(p)),
-    'this spec sweeps an /app address that routes.tsx no longer declares',
+      .filter((p) => !declaredSet.has(p)),
+    'this spec sweeps a signed-in address that routes.tsx no longer declares',
   ).toEqual([]);
 
   // And the paths an address bar cannot reach by hand, which the two sweeps
   // above filter out by construction. Both directions, because the whole point
   // is that a `:param` route can otherwise be added — or removed — without one
   // assertion in this suite noticing.
-  const declaredPatterns = literals(appOwnBlock, '/app').filter((p) => !isStatic(p));
+  const declaredPatterns = literals(appOwnBlock, '').filter((p) => !isStatic(p));
   expect(
     declaredPatterns.filter((p) => !APP_PATTERNS.includes(p)),
-    'routes.tsx declares an /app path with a :param that this spec never opens',
+    'routes.tsx declares a signed-in path with a :param that this spec never opens',
   ).toEqual([]);
   expect(
     APP_PATTERNS.filter((p) => !declaredPatterns.includes(p)),
-    'this spec opens an /app :param path that routes.tsx no longer declares',
+    'this spec opens a signed-in :param path that routes.tsx no longer declares',
   ).toEqual([]);
 
   // And the record's own hangers, which this file sweeps from HANGERS.
-  const declaredHangers = literals(recordBlock, 'records/:id').filter(isStatic);
-  const sweptHangers = new Set<string>([...HANGERS.filter(Boolean), 'order', 'request']);
+  const declaredHangers = literals(recordBlock, 'properties/:id').filter(isStatic);
+  const sweptHangers = new Set<string>([...HANGERS.filter(Boolean), ...EXTRA_HANGERS]);
   expect(
     declaredHangers.filter((p) => !sweptHangers.has(p)),
     'routes.tsx hangs something off a record that this spec never opens',
@@ -431,6 +429,11 @@ test('a route added to the table but not to this sweep fails here, not quietly i
     [...sweptHangers].filter((p) => !declaredHangers.includes(p)),
     'this spec opens a record hanger routes.tsx no longer declares',
   ).toEqual([]);
+
+  // The holding's own tabs, read apart above, so one added or dropped still
+  // trips a wire.
+  expect(literals(holdingBlock, 'holdings/:id'), 'routes.tsx changed the tabs a holding opens onto')
+    .toEqual(['surveys', 'papers', 'fmb', 'expenses', 'services']);
 
   // Under /legacy: the previous app, whose screen list lives in this file.
   const declaredLegacy = literals(legacyBlock, '/legacy').filter(isStatic).map((p) => `/legacy/${p}`);
@@ -461,12 +464,12 @@ test('a route added to the table but not to this sweep fails here, not quietly i
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// 2. Every address under /app draws its own screen
+// 2. Every signed-in address draws its own screen
 // ═══════════════════════════════════════════════════════════════════════
 
-test.describe('every address under /app', () => {
+test.describe('every signed-in address', () => {
   test('every address the rail can reach draws its own screen, with the shell still around it', async ({ page, world }) => {
-    // /app/tools opens on the SRO directory, a root-schema read the seal
+    // /tools opens on the SRO directory, a root-schema read the seal
     // would otherwise refuse with a logged 400.
     world.setAll(TOOL_READS);
     // Eighteen addresses typed in fresh, each its own React.lazy chunk. The
@@ -512,7 +515,7 @@ test.describe('every address under /app', () => {
     // it drawn for one account (Shell.tsx:543). Asserted here so that the test
     // below, which says it is absent for everybody else, is saying something.
     await expect(rail(page).getByRole('link', { name: /Pattadar desk/ }))
-      .toHaveAttribute('href', '/app/desk');
+      .toHaveAttribute('href', '/desk');
   });
 
   test('the desk is drawn for the account that runs Pattadar, and told plainly to anybody else', async ({ page, world }) => {
@@ -522,7 +525,7 @@ test.describe('every address under /app', () => {
     // screen listing every owner's jobs.
     world.patch('portfolio', { isPlatformAdmin: false });
 
-    await page.goto('/app');
+    await page.goto('/home');
     await expect(rail(page)).toBeVisible({ timeout: 20_000 });
     await expect(rail(page).getByRole('link', { name: /Pattadar desk/ }),
       'the desk entry was drawn for an account that is not the desk').toHaveCount(0);
@@ -531,25 +534,24 @@ test.describe('every address under /app', () => {
     // — and what it draws is a sentence, not an empty shell, not a skeleton
     // that never resolves, and not "The desk did not load", which is a failure
     // message for a read that did not fail (Desk.tsx:113-140).
-    await page.goto('/app/desk');
-    await expect(page).toHaveURL(at('/app/desk'));
+    await page.goto('/desk');
+    await expect(page).toHaveURL(at('/desk'));
     await expect(page.getByRole('heading', { level: 1, name: 'This screen is for Pattadar staff' }))
       .toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText('Nothing here belongs to this account.')).toBeVisible();
+    await expect(page.getByText('Nothing here belongs to this account')).toBeVisible();
     await expect(page.getByText(NOT_FOUND)).toHaveCount(0);
-    await expect(page.getByText('Loading the desk'), 'the refusal was drawn as a skeleton')
-      .toHaveCount(0);
+    await expect(page.getByRole('status', { name: /Loading the desk/ }), 'the refusal was drawn as a skeleton').toHaveCount(0);
     await expect(page.getByRole('alert'), 'a refusal was told as a failure').toHaveCount(0);
     // Sent somewhere that IS theirs, rather than left on a dead end.
     await expect(page.getByRole('link', { name: 'Work you have ordered' }))
-      .toHaveAttribute('href', '/app/services');
+      .toHaveAttribute('href', '/services');
     await expect(rail(page), 'the refusal dropped the frame as well').toBeVisible();
   });
 
   test('a record 360 opens on every one of its hangers, and every hanger knows which record it is', async ({ page, world }) => {
     test.slow();
-    for (const hanger of [...HANGERS, 'order', 'request']) {
-      const path = `/app/records/${ID.parcel}${hanger ? `/${hanger}` : ''}`;
+    for (const hanger of [...HANGERS, ...EXTRA_HANGERS]) {
+      const path = `/properties/${ID.parcel}${hanger ? `/${hanger}` : ''}`;
       await page.goto(path);
       await expect(page).toHaveURL(at(path));
       // Not every hanger draws an h1 — Photos is full-bleed and puts the
@@ -564,24 +566,19 @@ test.describe('every address under /app', () => {
     }
   });
 
-  /* The order flow is four steps at ONE address: `records/:id/order` is the
-   * only path routes.tsx declares for it, and `?step=` is what moves between
-   * them (OrderService.tsx:296-298). So the steps are deliberately not rows in
-   * APP_SCREENS — that table is checked against the path literals in routes.tsx
-   * by the first test in this file, and a query string is not a path. What they
-   * are owed instead is this: each one reachable by hand, because every step
-   * pushes a history entry and therefore ends up in somebody's Back stack and
-   * somebody's bookmarks. */
-  test('every step of the order flow is reachable by its own address', async ({ page }) => {
+  /* The order flow is three steps at ONE address, `/order`, and `?step=`
+   * moves between them. Every step pushes a history entry, so each one is in
+   * somebody's Back stack and somebody's bookmarks, and owes them a screen. */
+  test('every step of the order flow is reachable by its own address', async ({ page, world }) => {
     test.slow();
-    const base = `/app/records/${ID.parcel}/order`;
+    world.set('orders', []);
     for (const [query, heading] of [
-      ['?step=pick', 'What do you want done on this land?'],
-      ['?service=ec&step=tell', 'What we need to know'],
-      ['?service=ec&step=check', 'Check this before it goes in'],
+      ['?step=properties', 'Choose the properties'],
+      [`?for=${ID.parcel}&step=services`, 'Choose the services'],
+      [`?for=${ID.parcel}&service=patta_copy&step=review`, 'Review and place'],
     ] as const) {
-      await page.goto(base + query);
-      await expect(page, `${query} must resolve`).toHaveURL(at(base + query));
+      await page.goto('/order' + query);
+      await expect(page, `${query} must resolve`).toHaveURL(at('/order' + query));
       await expect(page.getByRole('heading', { level: 2, name: heading }),
         `${query} must draw its own step`).toBeVisible({ timeout: 20_000 });
       await expect(page.getByText(NOT_FOUND)).toHaveCount(0);
@@ -590,24 +587,20 @@ test.describe('every address under /app', () => {
   });
 
   test('an order step whose precondition is gone puts the address back, instead of drawing over nothing', async ({ page }) => {
-    // `?step=done` is a receipt for an order this tab never placed, and
-    // `?step=tell` with no service is a form with no questions behind it. Both
-    // are one stale bookmark or one Back press away, and OrderService.tsx
-    // :348-355 corrects the address rather than rendering an empty step.
-    for (const from of ['?step=done&service=ec', '?step=tell']) {
-      await page.goto(`/app/records/${ID.parcel}/order${from}`);
-      await expect(page, `${from} was drawn rather than corrected`)
-        .toHaveURL(at(`/app/records/${ID.parcel}/order?step=pick`));
-      await expect(page.getByRole('heading', { level: 2, name: 'What do you want done on this land?' }))
-        .toBeVisible({ timeout: 20_000 });
-    }
+    // A review with no service chosen, or services with no land, is one stale
+    // bookmark or one Back press away: the address is corrected instead.
+    await page.goto(`/order?for=${ID.parcel}&step=review`);
+    await expect(page).toHaveURL(at(`/order?for=${ID.parcel}&step=services`));
+    await page.goto('/order?step=services');
+    await expect(page).toHaveURL(at('/order?step=properties'));
+    await expect(page.getByRole('heading', { level: 2, name: 'Choose the properties' })).toBeVisible({ timeout: 20_000 });
   });
 
   test('a shelf is a shelf, not a paper called "shelf"', async ({ page, world }) => {
     // routes.tsx puts 'papers/shelf/:key' ABOVE 'papers/:id' on purpose: the
-    // other order let the Reader claim /app/papers/shelf and ask the API for a
+    // other order let the Reader claim /papers/shelf and ask the API for a
     // document whose id is the word "shelf".
-    await page.goto('/app/papers/shelf/title');
+    await page.goto('/papers/shelf/title');
     await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible({ timeout: 20_000 });
     // The Reader's query is `web { document(id:) }` (api.ts useDocument), so
     // that is the field that would carry the word "shelf" as an id.
@@ -619,18 +612,18 @@ test.describe('every address under /app', () => {
     // `papers/shelf/:key` takes any word at all. Shelf.tsx:35-37 refuses an
     // unknown one BY NAME rather than asking the API for it, which is the
     // difference between a stale bookmark and a spinner that never stops.
-    await page.goto('/app/papers/shelf/no-such-shelf');
+    await page.goto('/papers/shelf/no-such-shelf');
     // The shared `Empty` primitive titles itself with a <p class="blank-t">,
     // not a heading (ui.tsx:681), so the sentence is addressed as text.
     await expect(page.getByText('There is no shelf by that name'))
       .toBeVisible({ timeout: 20_000 });
-    await expect(page.getByRole('link', { name: 'Back to your documents' })).toHaveAttribute('href', '/app/papers');
+    await expect(page.getByRole('link', { name: 'Back to your documents' })).toHaveAttribute('href', '/papers');
     expect(world.calls('vaultPapers'), 'an unknown shelf key was sent to the API anyway').toHaveLength(0);
   });
 
   test('one paper opens by its own id, and not as a shelf', async ({ page, world }) => {
-    await page.goto(`/app/papers/${PAPER.deed}`);
-    await expect(page).toHaveURL(at(`/app/papers/${PAPER.deed}`));
+    await page.goto(`/papers/${PAPER.deed}`);
+    await expect(page).toHaveURL(at(`/papers/${PAPER.deed}`));
     await expect.poll(() => world.asked('document')).toBe(true);
     expect(world.lastVars('document')).toMatchObject({ id: PAPER.deed });
   });
@@ -640,8 +633,8 @@ test.describe('every address under /app', () => {
     // patta copy is not raising a support ticket, and the word had reached the
     // address bar from the API's internals. The GraphQL field behind it is
     // still `ticket`, which is why the world is asked about that name.
-    await page.goto(`/app/services/${TICKET.placed}`);
-    await expect(page).toHaveURL(at(`/app/services/${TICKET.placed}`));
+    await page.goto(`/services/${TICKET.placed}`);
+    await expect(page).toHaveURL(at(`/services/${TICKET.placed}`));
     // The screen is titled with the service that was ordered (Ticket.tsx h1),
     // so this proves the address drew the service rather than merely resolving.
     await expect(page.getByRole('heading', { level: 1, name: /^Encumbrance certificate$/ }))
@@ -663,8 +656,8 @@ test.describe('every address under /app', () => {
         mode: 'off', enabled: false, operations: [],
       },
     }));
-    await page.goto(`/app/services/${TICKET.placed}/pay`);
-    await expect(page).toHaveURL(at(`/app/services/${TICKET.placed}/pay`));
+    await page.goto(`/services/${TICKET.placed}/pay`);
+    await expect(page).toHaveURL(at(`/services/${TICKET.placed}/pay`));
     await expect(page.getByRole('heading', { level: 1, name: /^Encumbrance certificate$/ }))
       .toBeVisible({ timeout: 20_000 });
     expect(world.restCalls(/payments\/tickets\//)[0].path, 'the checkout asked about the wrong service')
@@ -673,27 +666,27 @@ test.describe('every address under /app', () => {
     // checkout is the one screen in the app a person can reach with no rail
     // entry pointing at it (PaymentsCheckout.tsx:127).
     await expect(page.getByRole('link', { name: '← Back to the service' }))
-      .toHaveAttribute('href', `/app/services/${TICKET.placed}`);
+      .toHaveAttribute('href', `/services/${TICKET.placed}`);
     await expect(page.getByText(NOT_FOUND)).toHaveCount(0);
   });
 
   test('an address pasted with a trailing slash still opens the list', async ({ page }) => {
     // Mail clients and chat apps append one often enough that this is a real
     // way to arrive. It must not be read as `properties/:id` with a blank id.
-    await page.goto('/app/properties/');
+    await page.goto('/properties/');
     await expect(page.getByRole('heading', { level: 1, name: /^Properties$/ })).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText(NOT_FOUND)).toHaveCount(0);
   });
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// 3. The old vocabulary still resolves
+// 3. The previous app's old vocabulary still resolves inside it
 // ═══════════════════════════════════════════════════════════════════════
 
 test.describe('the old addresses', () => {
-  test('every old address lands exactly where the table promises, query string and all', async ({ page, world }) => {
+  test('every /legacy redirect lands exactly where the table promises, query string and all', async ({ page, world }) => {
     test.slow();
-    // The four old tool addresses land on /app/tools, which reads them.
+    // The old tool addresses land on /tools, which reads them.
     world.setAll(TOOL_READS);
     for (const { from, to } of ALL_REDIRECTS) {
       await page.goto(from);
@@ -702,120 +695,44 @@ test.describe('the old addresses', () => {
     }
   });
 
-  test('an old link for ONE parcel still opens that parcel, not the list of everything I own', async ({ page, world }) => {
-    for (const from of [`/app/parcels/${ID.parcel}`, `/app/properties/${ID.parcel}`]) {
-      await page.goto(from);
-      await expect(page, `${from} threw the id away`).toHaveURL(at(`/app/records/${ID.parcel}`));
-      await expect(page.getByText(/Sy 214\/2/).first()).toBeVisible({ timeout: 20_000 });
-      expect(world.lastVars('record')).toMatchObject({ id: ID.parcel });
+  test('an old signed-in address is a wrong address, not a redirect', async ({ page }) => {
+    // No legacy links (founder): `/app/…`, `/parcels`, `/tickets/:id` and the
+    // rest were deleted with no alias, so each is the app's not-found.
+    for (const path of ['/dashboard', `/parcels/${ID.parcel}`, `/tickets/${TICKET.placed}/pay`, '/app/properties']) {
+      await page.goto(path);
+      await expect(page, `${path} was redirected`).toHaveURL(at(path));
+      await expect(page.getByText(NOT_FOUND).first(), `${path} drew a screen`).toBeVisible({ timeout: 20_000 });
+      await expect(rail(page)).toBeVisible();
     }
   });
 
-  test('an old link for a parcel that no longer exists gets the honest answer, not the list', async ({ page }) => {
-    await page.goto(`/app/parcels/${ID.missing}`);
-    await expect(page).toHaveURL(at(`/app/records/${ID.missing}`));
-    await expect(page.getByRole('heading', { name: "This property isn't in your account" }))
+  test('a link for a property that no longer exists gets the honest answer, not the list', async ({ page }) => {
+    await page.goto(`/properties/${ID.missing}`);
+    await expect(page).toHaveURL(at(`/properties/${ID.missing}`));
+    await expect(page.getByRole('heading', { name: "This property is not in your account" }))
       .toBeVisible({ timeout: 20_000 });
     // Still inside the app, with the way out in view.
     await expect(rail(page)).toBeVisible();
   });
 
-  /* The one old address whose redirect is NOT in routes.tsx, and therefore not
-   * in REDIRECTS: ordering used to carry the property in the query string
-   * (`/app/order?record=…`), and the land is a path segment now. OrderLand.tsx
-   * :165-170 is what turns the old form into the new one, with `replace`, the
-   * way every entry in the table does. It is asserted here rather than added to
-   * fixtures/ids.ts because that list is read back out of routes.tsx by the
-   * parity test at the top of this file, and this redirect is drawn by a
-   * screen. */
-  test('an old order link that named the property in the query string still opens that property', async ({ page, world }) => {
-    await page.goto(`/app/order?record=${ID.parcel}`);
-    await expect(page, 'the old ?record= form threw the property away')
-      .toHaveURL(at(`/app/records/${ID.parcel}/order?step=pick`));
-    await expect(page.getByRole('heading', { level: 2, name: 'What do you want done on this land?' }))
-      .toBeVisible({ timeout: 20_000 });
-    expect(world.lastVars('record'), 'the redirect opened the wrong record').toMatchObject({ id: ID.parcel });
-  });
-
-  test('an old order link that named the service as well arrives with the service still chosen', async ({ page }) => {
-    // The defect written up at the bottom of this describe is that the list
-    // redirects drop what the incoming address was carrying. This one does not,
-    // and that is worth pinning: both halves of the old two-question URL survive.
-    await page.goto(`/app/order?record=${ID.parcel}&service=ec`);
-    await expect(page).toHaveURL(at(`/app/records/${ID.parcel}/order?service=ec&step=pick`));
-    await expect(page.getByRole('heading', { level: 2, name: 'What do you want done on this land?' }))
-      .toBeVisible({ timeout: 20_000 });
-    // Carried into the screen, not merely into the address bar: the tile the
-    // link named is the one already pressed.
-    await expect(page.getByRole('button', { name: /Encumbrance Certificate/ }))
-      .toHaveAttribute('aria-pressed', 'true');
-  });
-
-  test('going back from an old order link leaves it behind, rather than redirecting me forward again', async ({ page }) => {
-    // `replace` on the <Navigate>, proved the way the table's own redirects are
-    // proved — without it, Back lands on /app/order?record=… and is sent
-    // straight forward again, and the owner cannot get out of the flow.
-    await backOutOf(page, '/app/properties', [`/app/order?record=${ID.parcel}`]);
-  });
-
-  test('the address a shipped phone builds still opens the checkout for that service', async ({ page, world }) => {
-    // This is the one redirect in the table that cannot ever be retired.
-    // apps/ios ServicesScreen.swift:251 builds
-    // `https://pattadar.com/app/tickets/<id>/pay` and that is in a SHIPPED
-    // binary — the phone cannot be told a new path, and neither can the links
-    // already sent out by SMS. So both halves are asserted: the old address
-    // lands on the new one carrying its id, and the checkout it lands on asked
-    // about that service rather than drawing whichever one it saw last.
-    world.route(/\/api\/gateway\/pattadar\/payments\/tickets\//, () => ({
-      json: {
-        status: 'unpaid', title: 'Encumbrance certificate', amount: 120_000, currency: 'INR',
-        mode: 'off', enabled: false, operations: [],
-      },
-    }));
-    await page.goto('/app/properties');
-    await page.goto(`/app/tickets/${TICKET.placed}/pay`);
-    await expect(page, 'the address the phone builds no longer lands on the checkout')
-      .toHaveURL(at(`/app/services/${TICKET.placed}/pay`));
-    await expect(page.getByRole('heading', { level: 1, name: /^Encumbrance certificate$/ }))
-      .toBeVisible({ timeout: 20_000 });
-    expect(world.restCalls(/payments\/tickets\//)[0].path, 'the redirect threw the service id away')
-      .toContain(TICKET.placed);
-    // `replace`, so the address the phone opened is not left in history for
-    // Back to bounce off. Without it there is no way out of the checkout on a
-    // phone at all: Back returns to /app/tickets/<id>/pay and is sent straight
-    // forward again.
-    await page.goBack();
-    await expect(page, 'Back off the phone\'s address landed in a redirect loop')
-      .toHaveURL(at('/app/properties'));
-  });
-
-  test('the rail entry the desk replaced still opens the desk, rather than nothing', async ({ page }) => {
-    // /app/admin was a rail entry for everybody for six months, and is in that
-    // many bookmarks and screenshots. It is a redirect now (routes.tsx:349),
-    // and the thing it lands on has to be the desk itself rather than the 404
-    // an unrouted path would draw.
-    await page.goto('/app/admin');
-    await expect(page, '/app/admin no longer lands anywhere').toHaveURL(at('/app/desk'));
-    await expect(page.getByRole('heading', { level: 1, name: 'Unassigned and stalled jobs' }))
-      .toBeVisible({ timeout: 20_000 });
-    // The reference data it used to introduce is untouched at /legacy/admin,
-    // which the previous app's own sweep opens further down this file.
-  });
-
-  test('a passbook link goes to the screen that can actually draw a passbook', async ({ page }) => {
-    // A passbook id is a `passbooks.id`, not a record id: the 360 would answer
-    // "not in your portfolio", which is false (routes.tsx ToLegacyPassbook).
-    await page.goto('/app/passbooks/pb-1');
-    await expect(page).toHaveURL(at('/legacy/passbooks/pb-1'));
-    await expect(legacyChrome(page)).toBeVisible({ timeout: 20_000 });
+  /* Ordering has one way in, orderHref's `/order?for=<ids>&step=services`
+   * (founder, 10/10/2026). The record's old `/order` hanger was deleted with no
+   * redirect (no legacy links), so it is an unknown address like any other:
+   * the app's not-found, inside the shell, naming the address that failed. */
+  test('a record\'s old order address is not found, not a second way into ordering', async ({ page }) => {
+    const path = `/properties/${ID.parcel}/order`;
+    await page.goto(path);
+    await expect(page).toHaveURL(at(path));
+    await expect(page.getByText(NOT_FOUND).first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(path).first()).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Choose the services' })).toHaveCount(0);
+    await expect(rail(page)).toBeVisible();
   });
 
   /* Every `<Navigate>` in the table carries `replace`, so the old address is
-   * never left in history for Back to bounce off. Asserted once per app rather
-   * than once per table, because each pass is two full document loads and
-   * doing all fourteen in one test is four minutes of navigation.
-   *
-   * Each pass ends where the next one starts, so the anchor loads once. */
+   * never left in history for Back to bounce off. Each pass is two full
+   * document loads, so the anchor loads once and each pass ends where the
+   * next one starts. */
   async function backOutOf(page: Page, anchor: string, froms: string[]) {
     await page.goto(anchor);
     await expect(page).toHaveURL(at(anchor));
@@ -826,34 +743,11 @@ test.describe('the old addresses', () => {
     }
   }
 
-  test('going back from an old /app address leaves it behind, instead of bouncing me forward again', async ({ page }) => {
-    test.slow();
-    await backOutOf(page, '/app/properties',
-      ALL_REDIRECTS.filter((r) => r.from.startsWith('/app/')).map((r) => r.from));
-  });
-
-  test('going back from an old /legacy address leaves it behind too', async ({ page, world }) => {
+  test('going back from an old /legacy address leaves it behind', async ({ page, world }) => {
     test.slow();
     world.setAll(TOOL_READS);
     await backOutOf(page, '/legacy/audit',
       ALL_REDIRECTS.filter((r) => r.from.startsWith('/legacy/')).map((r) => r.from));
-  });
-
-  // DEFECT — routes.tsx:295, :298, :300, :302 and :330-335 hardcode the
-  // destination of every list redirect, so whatever the incoming address was
-  // carrying is dropped on the floor. /app/parcels?q=Katragunta becomes
-  // /app/properties?kind=parcel and the search is gone; /legacy/properties?pb=…
-  // becomes /legacy/parcels?tab=properties and the passbook filter is gone —
-  // a filter LandPropertiesPage.tsx:9-11 documents as a supported deep link.
-  // The owner is owed what MapFind.tsx:5-8 already does four lines away:
-  // read the incoming search, set the one param the redirect is FOR, and
-  // carry the rest through. Bookmarks and shared links are the only reason
-  // these redirects exist at all, and they are exactly the links that carry
-  // a filter.
-  test.fail('an old link that carried a filter arrives with the filter still on it', async ({ page }) => {
-    await page.goto('/app/parcels?q=Katragunta');
-    await expect(page).toHaveURL(/kind=parcel/);
-    await expect(page, 'the search the link was carrying was thrown away').toHaveURL(/q=Katragunta/);
   });
 });
 
@@ -863,24 +757,24 @@ test.describe('the old addresses', () => {
 
 test.describe('an address that matches nothing', () => {
   test('a wrong address inside the app keeps the app around it and says which address failed', async ({ page }) => {
-    await page.goto('/app/no-such-screen');
+    await page.goto('/no-such-screen');
     await expect(page.getByRole('heading', { name: NOT_FOUND })).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText('/app/no-such-screen', { exact: true })).toBeVisible();
+    await expect(page.getByText('/no-such-screen', { exact: true })).toBeVisible();
     await expect(rail(page), 'a 404 inside the app must not strand me without the rail').toBeVisible();
     await expect(brand(page)).toBeVisible();
   });
 
   test('the way back off a wrong address actually goes somewhere', async ({ page }) => {
-    await page.goto('/app/no-such-screen');
-    await page.getByRole('link', { name: 'Go to your dashboard' }).click();
-    await expect(page).toHaveURL(at('/app'));
+    await page.goto('/no-such-screen');
+    await page.getByRole('link', { name: 'Go to Home' }).click();
+    await expect(page).toHaveURL(at('/home'));
     await expect(page.getByRole('heading', { level: 1, name: /Shankar Reddy/ })).toBeVisible({ timeout: 20_000 });
   });
 
   test('a wrong hanger on a real record is still the app saying so, not a bare error page', async ({ page }) => {
-    await page.goto(`/app/records/${ID.parcel}/no-such-hanger`);
+    await page.goto(`/properties/${ID.parcel}/no-such-hanger`);
     await expect(page.getByRole('heading', { name: NOT_FOUND })).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText(`/app/records/${ID.parcel}/no-such-hanger`, { exact: true })).toBeVisible();
+    await expect(page.getByText(`/properties/${ID.parcel}/no-such-hanger`, { exact: true })).toBeVisible();
     await expect(rail(page)).toBeVisible();
   });
 
@@ -893,32 +787,22 @@ test.describe('an address that matches nothing', () => {
     await expect(rail(page)).toHaveCount(0);
   });
 
-  test('a stale link from an old email offers the front page, and does not demand a sign-in first', async ({ page }) => {
-    await page.goto('/no-such-page-at-all');
-    await expect(page.getByRole('heading', { name: NOT_FOUND })).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText('/no-such-page-at-all', { exact: true })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Go to the front page' })).toHaveAttribute('href', '/');
-    // Neither shell: this one is outside both.
-    await expect(rail(page)).toHaveCount(0);
-    await expect(legacyChrome(page)).toHaveCount(0);
-  });
-
   test('a soft 404 tells crawlers not to index it, because the server answered 200', async ({ page }) => {
-    await page.goto('/app/no-such-screen');
+    await page.goto('/no-such-screen');
     await expect(page.getByRole('heading', { name: NOT_FOUND })).toBeVisible({ timeout: 20_000 });
     await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', 'noindex');
   });
 
   test('leaving a soft 404 takes the noindex with it, so a real screen is not left marked', async ({ page }) => {
-    await page.goto('/app/no-such-screen');
+    await page.goto('/no-such-screen');
     await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', 'noindex');
-    await page.getByRole('link', { name: 'Go to your dashboard' }).click();
-    await expect(page).toHaveURL(at('/app'));
+    await page.getByRole('link', { name: 'Go to Home' }).click();
+    await expect(page).toHaveURL(at('/home'));
     await expect(page.locator('meta[name="robots"]'),
       'the dashboard was left carrying the 404 page\'s noindex').toHaveCount(0);
   });
 
-  // DEFECT — routes.tsx:217-229 draws NotFound with the W360 vocabulary
+  // DEFECT — routes.tsx NotFound draws with the W360 vocabulary
   // (`className="lede"`, `"note mono"`, `"btn primary"`), and every one of
   // those rules is scoped `.w360 .btn { … }` in apps/web/src/w360/w360.css:378,
   // :102. Inside /app that scope exists, because Shell.tsx wraps the Outlet in
@@ -933,8 +817,9 @@ test.describe('an address that matches nothing', () => {
   // already does for precisely this reason) instead of borrowing a stylesheet
   // that is only present on one of its three mounts.
   test.fail('the way back off a 404 is drawn as a button wherever the 404 happens', async ({ page }) => {
+    // The signed-out mount draws the same NotFound; this file opens it signed
+    // in, where an unknown address is the shell's own 404 instead.
     for (const [path, label] of [
-      ['/no-such-page-at-all', 'Go to the front page'],
       ['/legacy/no-such-screen', 'Go to the previous app'],
     ] as const) {
       await page.goto(path);
@@ -953,22 +838,21 @@ test.describe('an address that matches nothing', () => {
 test.describe('the doors', () => {
   test('a signed-in owner who opens the sign-in page is taken back into the app, not asked again', async ({ page }) => {
     await page.goto('/login');
-    await expect(page).toHaveURL(at('/app'));
+    await expect(page).toHaveURL(at('/home'));
     await expect(page.getByRole('heading', { level: 1, name: /Shankar Reddy/ })).toBeVisible({ timeout: 20_000 });
   });
 
   test.describe('with no account at all', () => {
     test.use({ signedIn: false });
 
-    test('every part of the app asks me to sign in first, including the ones that do not exist', async ({ page }) => {
+    test('every part of the app asks me to sign in first, including /legacy addresses that do not exist', async ({ page }) => {
       test.slow();
       for (const path of [
-        '/app',
-        '/app/properties',
-        '/app/papers',
-        `/app/records/${ID.parcel}`,
-        `/app/services/${TICKET.placed}`,
-        '/app/no-such-screen',
+        '/home',
+        '/properties',
+        '/papers',
+        `/properties/${ID.parcel}`,
+        `/services/${TICKET.placed}`,
         '/legacy',
         '/legacy/tools',
         '/legacy/no-such-screen',
@@ -980,7 +864,7 @@ test.describe('the doors', () => {
     });
 
     test('the address I was aiming for is kept, so signing in finishes the journey', async ({ page }) => {
-      const aimed = `/app/records/${ID.parcel}/money?from=email`;
+      const aimed = `/properties/${ID.parcel}/money?from=email`;
       await page.goto(aimed);
       await expect(page).toHaveURL(at('/login'));
       // RequireAuth.tsx hands the attempted path to /login in router state, and
@@ -1004,13 +888,28 @@ test.describe('the doors', () => {
 
     test('a beneficiary following a verification link is never asked to sign in', async ({ page }) => {
       // routes.tsx's own header promises this: "invitees follow this link
-      // before they have accounts". Both spellings of the link are live.
-      for (const path of ['/verify/w-invite-token', '/active/w-invite-token']) {
-        await page.goto(path);
-        await expect(page, `${path} bounced an invitee to /login`).toHaveURL(at(path));
-        await expect(page.getByText('Verify membership')).toBeVisible({ timeout: 20_000 });
-        await expect(page.getByText('w-invite-token')).toBeVisible();
-      }
+      // before they have accounts". The token is carried in the address and
+      // used by the confirm button; it is not printed on the page.
+      await page.goto('/verify/w-invite-token');
+      await expect(page, '/verify bounced an invitee to /login').toHaveURL(at('/verify/w-invite-token'));
+      await expect(page.getByText('Confirm how you are listed')).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByRole('button', { name: 'Confirm my details' })).toBeVisible();
+    });
+
+    test('a safeguard message link is answered with no account, and confirms nothing on its own', async ({ page }) => {
+      // /active/:token is no longer a second spelling of /verify: it is the
+      // inactivity safeguard (ActivePage.tsx), which a mail scanner may follow,
+      // so it must never submit on arrival. Watched on the wire: the
+      // beforeEach above answers root-schema documents before the world sees them.
+      const acknowledged: string[] = [];
+      page.on('request', (r) => {
+        if ((r.postData() ?? '').includes('acknowledgeInactivity')) acknowledged.push(r.url());
+      });
+      await page.goto('/active/w-invite-token');
+      await expect(page, '/active bounced a recipient to /login').toHaveURL(at('/active/w-invite-token'));
+      await expect(page.getByRole('heading', { name: 'Confirm this safeguard message' })).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByRole('button', { name: 'Confirm this message' })).toBeEnabled();
+      expect(acknowledged, 'nothing was confirmed on arrival').toEqual([]);
     });
 
     test('a shared kit opens for whoever holds the link, with no account behind it', async ({ page, world }) => {
@@ -1056,12 +955,17 @@ test.describe('the doors', () => {
       await expect(page.getByRole('button', { name: 'Accept this job' })).toBeVisible();
     });
 
-    test('a wrong address is still a wrong address, not a sign-in wall', async ({ page }) => {
-      // The top-level catch-all sits outside RequireAuth on purpose: whoever
+    test('a stale link from an old email offers the front page, and does not demand a sign-in first', async ({ page }) => {
+      // AppLayout answers the catch-all before RequireAuth on purpose: whoever
       // followed a dead link may have no account to sign in with.
       await page.goto('/no-such-page-at-all');
       await expect(page).toHaveURL(at('/no-such-page-at-all'));
       await expect(page.getByRole('heading', { name: NOT_FOUND })).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByText('/no-such-page-at-all', { exact: true })).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Go to the front page' })).toHaveAttribute('href', '/');
+      // Neither shell: this one is outside both.
+      await expect(rail(page)).toHaveCount(0);
+      await expect(legacyChrome(page)).toHaveCount(0);
     });
   });
 });
@@ -1074,7 +978,7 @@ test.describe('the previous app', () => {
   // The console guard is off for this block: every legacy screen here asks
   // the old flat GraphQL surface, which the seal refuses with a logged 400.
   // (It used to be off for /legacy/profile's pending-state loop too; that
-  // screen is deleted and /legacy/profile redirects into /app/profile.)
+  // screen is deleted and /legacy/profile redirects into /profile.)
   test.use({ allowConsole: true });
 
   test('every screen the redesign has not reached is still at its own address', async ({ page }) => {
@@ -1095,7 +999,7 @@ test.describe('the previous app', () => {
   });
 
   // DEFECT — apps/web/src/layout/AppShell.tsx:79-90 points every entry in the
-  // previous app's own menu at /app/*, not /legacy/*. So from /legacy/wallet,
+  // previous app's own menu at /*, not /legacy/*. So from /legacy/wallet,
   // every entry in the menu beside it navigates into the new app, which means
   // the previous app cannot reach a single one of its own screens from its own
   // navigation; the only way in is a typed URL. The same
@@ -1115,7 +1019,7 @@ test.describe('the profile, while its API is thinking', () => {
   // WAS A DEFECT — the old /legacy/profile seeded its form from
   // useLiveOrSample's pending value, a brand-new object on every render, and
   // looped until React gave up with "Maximum update depth exceeded". That
-  // screen is deleted: /legacy/profile redirects to /app/profile, which seeds
+  // screen is deleted: /legacy/profile redirects to /profile, which seeds
   // only from the settled `me` read (w360/pages/Profile.tsx). This holds the
   // new screen to the promise the old one broke, and the console guard stays
   // ON so a loop fails it.
@@ -1134,8 +1038,8 @@ test.describe('the profile, while its API is thinking', () => {
       return route.fallback();
     });
     await page.goto('/legacy/profile');
-    await expect(page).toHaveURL(at('/app/profile'));
-    await expect(page.getByText('Loading your profile…')).toBeVisible();
+    await expect(page).toHaveURL(at('/profile'));
+    await expect(page.getByRole('status', { name: 'Loading your profile' })).toBeVisible();
     await expect(page.getByLabel('Your name')).toHaveValue('Shankar Reddy', { timeout: 20_000 });
   });
 });
@@ -1157,7 +1061,7 @@ test.describe('a screen that will not download', () => {
 
   test('a screen whose code will not download says so, and does not take the app down with it', async ({ page }) => {
     await breakChunk(page, /\/w360\/pages\/Wallet\.tsx$|\/Wallet-[A-Za-z0-9_-]+\.js$/);
-    await page.goto('/app/wallet');
+    await page.goto('/wallet');
 
     await expect(page.getByRole('alert')).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText('Pattadar updated while this tab was open')).toBeVisible();
@@ -1169,11 +1073,11 @@ test.describe('a screen that will not download', () => {
 
   test('a dead chunk offers the reload that actually fixes it, and nothing that does not', async ({ page }) => {
     await breakChunk(page, /\/w360\/pages\/Wallet\.tsx$|\/Wallet-[A-Za-z0-9_-]+\.js$/);
-    await page.goto('/app/wallet');
+    await page.goto('/wallet');
     await expect(page.getByRole('button', { name: 'Reload' })).toBeVisible({ timeout: 20_000 });
-    // ErrorBoundary.tsx keeps "Go to your dashboard" for a render fault. A
-    // stale chunk is not one, and the rail is already right there.
-    await expect(page.getByRole('button', { name: 'Go to your dashboard' })).toHaveCount(0);
+    // ErrorBoundary.tsx keeps "Go to Home" for a render fault. A stale chunk
+    // is not one, and the rail is already right there.
+    await expect(page.getByRole('button', { name: 'Go to Home' })).toHaveCount(0);
   });
 
   // DEFECT — one dead chunk poisons every screen after it, until a reload.
@@ -1184,7 +1088,7 @@ test.describe('a screen that will not download', () => {
   // ErrorBoundary of the same type in the same position and keeps the
   // instance, state and all. ErrorBoundary.tsx only ever SETS `state.error`
   // (getDerivedStateFromError); nothing anywhere clears it. So after
-  // /app/wallet fails to download, clicking Papers in the rail changes the
+  // /wallet fails to download, clicking Papers in the rail changes the
   // URL, lights the rail, and leaves "Pattadar updated while this tab was
   // open" sitting in the content pane — for Papers, for Properties, for every
   // address the person tries next.
@@ -1197,11 +1101,11 @@ test.describe('a screen that will not download', () => {
   // way out of the ONE broken screen rather than out of the whole app.
   test.fail('the rest of the app still works around the screen that could not load', async ({ page }) => {
     await breakChunk(page, /\/w360\/pages\/Wallet\.tsx$|\/Wallet-[A-Za-z0-9_-]+\.js$/);
-    await page.goto('/app/wallet');
+    await page.goto('/wallet');
     await expect(page.getByRole('alert')).toBeVisible({ timeout: 20_000 });
 
     await rail(page).getByRole('link', { name: 'Documents', exact: true }).click();
-    await expect(page).toHaveURL(at('/app/papers'));
+    await expect(page).toHaveURL(at('/papers'));
     await expect(page.getByRole('heading', { level: 1, name: 'Documents' }),
       'the screen after the broken one is still showing the broken one').toBeVisible({ timeout: 20_000 });
     await expect(page.getByRole('alert')).toHaveCount(0);
@@ -1209,7 +1113,7 @@ test.describe('a screen that will not download', () => {
 
   test('even the shell failing to arrive says something, instead of a white page', async ({ page }) => {
     await breakChunk(page, /\/w360\/Shell\.tsx$|\/Shell-[A-Za-z0-9_-]+\.js$/);
-    await page.goto('/app');
+    await page.goto('/home');
     await expect(page.getByRole('alert')).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText('Pattadar updated while this tab was open')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Reload' })).toBeVisible();
@@ -1226,7 +1130,7 @@ test('a failing shell query does not turn every address into a 404', async ({ pa
   // different sentences and must not be told with the same one.
   world.set('portfolio', World.gqlError('the portfolio store is down'));
   world.set('orders', World.gqlError('the work queue is down'));
-  await page.goto('/app/papers');
+  await page.goto('/papers');
   await expect(page.getByRole('heading', { level: 1, name: 'Documents' })).toBeVisible({ timeout: 20_000 });
   await expect(rail(page)).toBeVisible();
   await expect(page.getByText(NOT_FOUND)).toHaveCount(0);
@@ -1235,8 +1139,8 @@ test('a failing shell query does not turn every address into a 404', async ({ pa
 test('a shell query that never answers still lets every address resolve', async ({ page, world }) => {
   world.set('portfolio', World.never());
   world.set('orders', World.never());
-  await page.goto('/app/properties');
-  await expect(page).toHaveURL(at('/app/properties'));
+  await page.goto('/properties');
+  await expect(page).toHaveURL(at('/properties'));
   await expect(rail(page)).toBeVisible({ timeout: 20_000 });
   // The avatar is the one piece of chrome that waits on the portfolio, and it
   // says "Your account" rather than pretending to know whose it is.

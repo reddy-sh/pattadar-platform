@@ -3,8 +3,8 @@
  *
  * Five things a reader of this file has to know before the first test.
  *
- * 1. **There is no map screen.** `/app/map` is now four lines of redirect
- *    (pages/MapFind.tsx) onto `/app/properties?view=map`, so the map under
+ * 1. **There is no map screen.** `/map` is now four lines of redirect
+ *    (pages/MapFind.tsx) onto `/properties?view=map`, so the map under
  *    test is W02's third view — the `.pf` panel in pages/Properties.tsx:1034
  *    — drawing `PortfolioCanvas.tsx` over the same filtered answer the grid
  *    and the table draw. Everything here therefore goes through Properties:
@@ -100,7 +100,7 @@ const listOf = (cards: Card[], over: Record<string, unknown> = {}) => ({
 const inRealUnits = (cards: Card[]): Card[] =>
   cards.map((c) => ({ ...c, extentUnit: c.kind === 'parcel' ? 'ac' : 'sq.ft' }));
 
-const MAP = '/app/properties?view=map';
+const MAP = '/properties?view=map';
 
 // ── handles on the map ─────────────────────────────────────────────────
 
@@ -213,10 +213,10 @@ const tap = (shape: ReturnType<typeof pinFor>) => shape.click({ force: true });
 
 // ─────────────────────────────────────────────────────────────────────────
 test.describe('W09 · the link somebody saved', () => {
-  test('a link to /app/map opens the live map, on the same list and the same filters', async ({ page, world }) => {
-    await page.goto('/app/map');
+  test('a link to /map opens the live map, on the same list and the same filters', async ({ page, world }) => {
+    await page.goto('/map');
 
-    await expect(page).toHaveURL(/\/app\/properties\?view=map$/);
+    await expect(page).toHaveURL(/\/properties\?view=map$/);
     await expect(stage(page)).toBeVisible({ timeout: 20_000 });
     await expect.poll(() => world.asked('properties')).toBe(true);
     // `exact`, because the accessible name of a results row — "Sy 214/2
@@ -226,20 +226,23 @@ test.describe('W09 · the link somebody saved', () => {
     // The same list, and not merely a screen that loaded: the redirect carried
     // no filter, so what arrives is the whole unfiltered answer the grid shows.
     expect(world.lastVars('properties')).toMatchObject({ statuses: [], kinds: [] });
-    await expect(results(page).getByText('4 matching records · 3 on map')).toBeVisible();
+    await expect(results(page).getByText('4 matching properties · 3 on map')).toBeVisible();
   });
 
   test('a filter riding in that link is still on when the map opens', async ({ page, world }) => {
-    await openMap(page, '/app/map?status=watch');
+    await openMap(page, '/map?status=watch');
 
-    await expect(page).toHaveURL(/\/app\/properties\?status=watch&view=map$/);
-    expect(world.lastVars('properties')).toMatchObject({ statuses: ['watch'] });
+    await expect(page).toHaveURL(/\/properties\?status=watch&view=map$/);
+    // The head's summary reads the unfiltered portfolio (totals), so the
+    // narrowed read is one of the `properties` calls, not necessarily the last.
+    expect(world.calls('properties').map((c) => c.vars))
+      .toContainEqual(expect.objectContaining({ statuses: ['watch'] }));
     await expect(onMap(page)).toHaveCount(1);
     await expect(pinFor(page, 'Sy 301')).toHaveCount(1);
   });
 
   test('the map costs the one answer the list already had, not a second round trip', async ({ page, world }) => {
-    await page.goto('/app/properties');
+    await page.goto('/properties');
     await expect(page.locator('.cards .rec')).toHaveCount(4);
     expect(world.askedFields()).toContain('properties');
     const alreadyPaidFor = world.calls('properties').length;
@@ -257,7 +260,7 @@ test.describe('W09 · the link somebody saved', () => {
   });
 
   test('the map is not mounted until the map view is asked for', async ({ page }) => {
-    await page.goto('/app/properties');
+    await page.goto('/properties');
     await expect(page.locator('.cards .rec')).toHaveCount(4);
 
     // ~150 kB of Leaflet behind a lazy seam. A map that mounted on the landing
@@ -291,15 +294,15 @@ test.describe('W09 · what is on the map, and what is not', () => {
     // A map is the one view that can look complete while leaving records out,
     // because what is missing takes up no space.
     await expect(pinFor(page, 'Sy 88')).toHaveCount(0);
-    await expect(drawnLine(page)).toContainText('3 records drawn — 1 from a survey, 2 from a pin.');
+    await expect(drawnLine(page)).toContainText('3 properties on the map — 1 from a boundary, 2 from a pin.');
     await expect(drawnLine(page)).toContainText(
-      '1 record is not here: Sy 88 — no boundary and no pin.');
+      '1 property is not here: Sy 88 — no boundary and no pin.');
   });
 
   test('the count beside the list says how many matched and how many of those are on the map', async ({ page }) => {
     await openMap(page);
 
-    await expect(results(page).getByText('4 matching records · 3 on map')).toBeVisible();
+    await expect(results(page).getByText('4 matching properties · 3 on map')).toBeVisible();
     await expect(page.getByText('4 of 5 shown')).toBeVisible();
   });
 
@@ -328,8 +331,8 @@ test.describe('W09 · what is on the map, and what is not', () => {
 
     await expect(shapes(page)).toHaveCount(2);
     await expect(pins(page)).toHaveCount(0);
-    await expect(drawnLine(page)).toContainText('2 records drawn — every one from a survey.');
-    // Not "2 from a survey, 0 from a pin" — a breakdown of a set with nothing
+    await expect(drawnLine(page)).toContainText('2 properties on the map — every one from a boundary.');
+    // Not "2 from a boundary, 0 from a pin" — a breakdown of a set with nothing
     // in the other half (Properties.tsx:1183).
     await expect(drawnLine(page)).not.toContainText('from a pin');
   });
@@ -376,10 +379,10 @@ test.describe('W09 · what is on the map, and what is not', () => {
     await expect(page.getByText(
       'No property here has a pin or boundary yet.',
     )).toBeVisible();
-    // "0 records drawn — every one from a pin" used to be said here, under a
+    // "0 properties on the map — every one from a pin" used to be said here, under a
     // band already explaining that nothing is drawn (Properties.tsx:1159).
     await expect(drawnLine(page)).toHaveCount(0);
-    await expect(results(page).getByText('4 matching records · 0 on map')).toBeVisible();
+    await expect(results(page).getByText('4 matching properties · 0 on map')).toBeVisible();
     // And the ground under the explanation is still Andhra Pradesh and
     // Telangana at zoom 7 (PortfolioCanvas.tsx:73), not the Atlantic — which is
     // where a fitBounds over nothing lands a map.
@@ -397,7 +400,7 @@ test.describe('W09 · what is on the map, and what is not', () => {
     await expect(shapes(page)).toHaveCount(0);
     await expect(pins(page)).toHaveCount(3);
     await expect(row(page, 'Sy 214/2')).toContainText('Location pin only');
-    await expect(drawnLine(page)).toContainText('3 records drawn — every one from a pin, none from a survey.');
+    await expect(drawnLine(page)).toContainText('3 properties on the map — every one from a pin, none from a boundary.');
   });
 
   test('the list beside the map says, record by record, what the map could do with it', async ({ page }) => {
@@ -406,14 +409,14 @@ test.describe('W09 · what is on the map, and what is not', () => {
     await expect(row(page, 'Sy 214/2')).toContainText('Katragunta, Markapur');
     await expect(row(page, 'Sy 214/2')).toContainText('Boundary on map');
     await expect(row(page, 'Sy 214/2').getByRole('link', { name: 'View / measure boundary' }))
-      .toHaveAttribute('href', `/app/records/${ID.parcel}/map`);
+      .toHaveAttribute('href', `/properties/${ID.parcel}/location`);
 
     await expect(row(page, 'Flat 4B')).toContainText('Location pin only');
     await expect(row(page, 'Sy 301')).toContainText('Watch');
 
     await expect(row(page, 'Sy 88')).toContainText('Add a location to show on map');
     await expect(row(page, 'Sy 88').getByRole('link', { name: 'Locate / draw boundary' }))
-      .toHaveAttribute('href', `/app/records/${ID.plot}/map`);
+      .toHaveAttribute('href', `/properties/${ID.plot}/location`);
   });
 
   test('a record with no place at all still says so where its village would be', async ({ page, world }) => {
@@ -426,11 +429,11 @@ test.describe('W09 · what is on the map, and what is not', () => {
   });
 
   test('an archived record comes back onto the map when the Archived facet asks for it', async ({ page }) => {
-    await openMap(page, '/app/properties?view=map&status=archived');
+    await openMap(page, '/properties?view=map&status=archived');
 
     await expect(onMap(page)).toHaveCount(1);
     await expect(pinFor(page, 'Shop 7, Market Road')).toHaveCount(1);
-    await expect(drawnLine(page)).toContainText('1 record drawn — every one from a pin, none from a survey.');
+    await expect(drawnLine(page)).toContainText('1 property on the map — every one from a pin, none from a boundary.');
   });
 
   test('the ground the land is drawn on is named under the map', async ({ page }) => {
@@ -453,9 +456,9 @@ test.describe('W09 · picking one out of the map', () => {
     await expect(pickCard(page)).toContainText('Sy 214/2');
     await expect(pickCard(page)).toContainText('Katragunta, Markapur · 4.30 ac');
     await expect(pickCard(page).getByRole('link', { name: 'Open' }))
-      .toHaveAttribute('href', `/app/records/${ID.parcel}`);
+      .toHaveAttribute('href', `/properties/${ID.parcel}`);
     await expect(pickCard(page).getByRole('link', { name: 'Boundary' }))
-      .toHaveAttribute('href', `/app/records/${ID.parcel}/map`);
+      .toHaveAttribute('href', `/properties/${ID.parcel}/location`);
   });
 
   test('the pointer resting on a piece of land names it without my having to take it', async ({ page, world }) => {
@@ -557,7 +560,7 @@ test.describe('W09 · picking one out of the map', () => {
 
     await pickCard(page).getByRole('link', { name: 'Open' }).click();
 
-    await expect(page).toHaveURL(new RegExp(`/app/records/${ID.flat}$`));
+    await expect(page).toHaveURL(new RegExp(`/properties/${ID.flat}$`));
   });
 
   test('Boundary on the card is the way to its own ground', async ({ page, world }) => {
@@ -568,7 +571,7 @@ test.describe('W09 · picking one out of the map', () => {
 
     await pickCard(page).getByRole('link', { name: 'Boundary' }).click();
 
-    await expect(page).toHaveURL(new RegExp(`/app/records/${ID.parcel}/map$`));
+    await expect(page).toHaveURL(new RegExp(`/properties/${ID.parcel}/location$`));
   });
 
   test('clicking the same pin a second time opens the record', async ({ page, world }) => {
@@ -580,7 +583,7 @@ test.describe('W09 · picking one out of the map', () => {
     await expect(pickCard(page)).toContainText('Flat 4B, Sai Residency');
     await tap(pin);
 
-    await expect(page).toHaveURL(new RegExp(`/app/records/${ID.flat}$`));
+    await expect(page).toHaveURL(new RegExp(`/properties/${ID.flat}/location$`));
   });
 
   test('clicking bare ground lets the record go again', async ({ page, world }) => {
@@ -664,7 +667,7 @@ test.describe('W09 · picking one out of the map', () => {
 
     await page.keyboard.press(' ');
 
-    await expect(page).toHaveURL(new RegExp(`/app/records/${ID.parcel}$`));
+    await expect(page).toHaveURL(new RegExp(`/properties/${ID.parcel}/location$`));
   });
 
   test('picking one from the list beside the map moves the map onto it', async ({ page }) => {
@@ -697,7 +700,7 @@ test.describe('W09 · picking one out of the map', () => {
 
     await row(page, 'Sy 88').getByRole('button').click();
 
-    await expect(page).toHaveURL(new RegExp(`/app/records/${ID.plot}/map$`));
+    await expect(page).toHaveURL(new RegExp(`/properties/${ID.plot}/location$`));
   });
 
   test('the record I picked is still picked after the map has moved', async ({ page }) => {
@@ -750,7 +753,7 @@ test.describe('W09 · picking one out of the map', () => {
     await box.click();
     await expect(box).toBeChecked();
 
-    await expect(page.getByRole('group', { name: 'Act on the selected records' }))
+    await expect(page.getByRole('group', { name: 'Act on the selected properties' }))
       .toContainText('1 property selected');
   });
 });
@@ -766,8 +769,8 @@ test.describe('W09 · finding one by name', () => {
     await expect(page).toHaveURL(/q=Kukatpally/);
     await expect(onMap(page)).toHaveCount(1);
     await expect(pinFor(page, 'Flat 4B, Sai Residency')).toHaveCount(1);
-    await expect(results(page).getByText('1 matching record · 1 on map')).toBeVisible();
-    await expect(drawnLine(page)).toContainText('1 record drawn — every one from a pin, none from a survey.');
+    await expect(results(page).getByText('1 matching property · 1 on map')).toBeVisible();
+    await expect(drawnLine(page)).toContainText('1 property on the map — every one from a pin, none from a boundary.');
     // One record framed alone is framed at street level, not at the tile
     // server's maximum (PortfolioCanvas.tsx:226).
     await expect.poll(() => tileZoom(page)).toBe(15);
@@ -787,7 +790,7 @@ test.describe('W09 · finding one by name', () => {
 
     await expect(searchBox(page)).toHaveValue('Katragunta');
     await expect(onMap(page)).toHaveCount(2);
-    await expect(drawnLine(page)).toContainText('2 records drawn — 1 from a survey, 1 from a pin.');
+    await expect(drawnLine(page)).toContainText('2 properties on the map — 1 from a boundary, 1 from a pin.');
 
     await page.getByRole('button', { name: 'Clear the search for Katragunta' }).click();
 
@@ -804,9 +807,9 @@ test.describe('W09 · finding one by name', () => {
     // The box writes the URL on every keystroke and DELETES the parameter when
     // it is emptied (Properties.tsx:1053) — an empty `?q=` left behind would
     // keep a chip in the filter row for a search that is no longer on.
-    await expect(page).toHaveURL(/\/app\/properties\?view=map$/);
+    await expect(page).toHaveURL(/\/properties\?view=map$/);
     await expect(onMap(page)).toHaveCount(3);
-    await expect(results(page).getByText('4 matching records · 3 on map')).toBeVisible();
+    await expect(results(page).getByText('4 matching properties · 3 on map')).toBeVisible();
     await expect(page.getByRole('button', { name: /^Clear the search/ })).toHaveCount(0);
   });
 
@@ -819,7 +822,7 @@ test.describe('W09 · finding one by name', () => {
     // outside the seal (see tests/e2e-app/specs/17-villages.spec.ts), and this
     // spec has no business opening them.
     await expect(page.getByRole('link', { name: 'Search cadastral maps' }))
-      .toHaveAttribute('href', '/app/maps');
+      .toHaveAttribute('href', '/maps');
   });
 
   /**
@@ -881,7 +884,7 @@ test.describe('W09 · finding one by name', () => {
     await expect(page.getByText('The ones being held back are in Markapur.')).toBeVisible();
     await expect(stage(page)).toHaveCount(0);
 
-    await page.getByRole('button', { name: 'Clear filters' }).click();
+    await page.locator('.emptypanel, .blank').getByRole('button', { name: 'Clear all' }).click();
 
     // The view survives what cleared the filter — it is still the map.
     await expect(page).toHaveURL(/view=map/);
@@ -959,7 +962,7 @@ test.describe('W09 · ground that will not load', () => {
     // and the sentence has to name it rather than the layer they might switch
     // to (PortfolioCanvas.tsx:371).
     await expect(page.getByText(
-      'Street map could not be fully loaded. Your saved locations are still shown.',
+      'Street map could not be fully loaded.',
     )).toBeVisible();
     await expect(page.getByText(/Satellite imagery could not/)).toHaveCount(0);
     // The land came from the records, not from the tile server.
@@ -976,7 +979,7 @@ test.describe('W09 · ground that will not load', () => {
     await page.getByRole('button', { name: 'Satellite' }).click();
 
     await expect(page.getByText(
-      'Satellite imagery could not be fully loaded. Your saved locations are still shown.',
+      'Satellite imagery could not be fully loaded.',
     )).toBeVisible();
     // The record's own geometry came from the record, not from the tile server.
     await expect(onMap(page)).toHaveCount(3);
@@ -1025,7 +1028,7 @@ test.describe('W09 · ground that will not load', () => {
     await page.getByRole('button', { name: 'Retry map' }).click();
 
     await expect(page.getByText(
-      'Satellite imagery could not be fully loaded. Your saved locations are still shown.',
+      'Satellite imagery could not be fully loaded.',
     )).toBeVisible();
     // And the way out is still offered: a retry that failed must not take its
     // own button away (PortfolioCanvas.tsx:372).
@@ -1042,30 +1045,30 @@ test.describe('W09 · adding land from the map', () => {
     world.set('saveRecord', ID.plot);
     await openMap(page);
 
-    await page.getByRole('button', { name: 'Add', exact: true }).click();
+    await page.getByRole('button', { name: 'Add a property', exact: true }).click();
     const drawer = page.getByRole('dialog', { name: 'Add a property' });
     await drawer.getByRole('button', { name: 'Enter the details by hand instead' }).click();
     await drawer.getByLabel('Survey number').fill('Sy 500');
-    await drawer.getByRole('button', { name: 'Add property' }).click();
+    await drawer.getByRole('button', { name: 'Add the property' }).click();
 
     await expect.poll(() => world.calls('saveRecord')).toHaveLength(1);
-    await expect(page).toHaveURL(new RegExp(`/app/records/${ID.plot}/map$`));
+    await expect(page).toHaveURL(new RegExp(`/properties/${ID.plot}/location$`));
   });
 
   test('the same record added from the grid stays on the list, because there is no map to put it on', async ({ page, world }) => {
     world.set('saveRecord', ID.plot);
-    await page.goto('/app/properties');
+    await page.goto('/properties');
     await expect(page.locator('.cards .rec')).toHaveCount(4);
 
-    await page.getByRole('button', { name: 'Add', exact: true }).click();
+    await page.getByRole('button', { name: 'Add a property', exact: true }).click();
     const drawer = page.getByRole('dialog', { name: 'Add a property' });
     await drawer.getByRole('button', { name: 'Enter the details by hand instead' }).click();
     await drawer.getByLabel('Survey number').fill('Sy 500');
-    await drawer.getByRole('button', { name: 'Add property' }).click();
+    await drawer.getByRole('button', { name: 'Add the property' }).click();
 
     await expect.poll(() => world.calls('saveRecord')).toHaveLength(1);
     await expect(drawer).toHaveCount(0);
-    await expect(page).toHaveURL(/\/app\/properties$/);
+    await expect(page).toHaveURL(/\/properties$/);
   });
 });
 
@@ -1095,7 +1098,7 @@ test.describe('W09 · nothing to draw, still drawing, and not drawing at all', (
 
     await expect(page.getByText('All properties are archived')).toBeVisible();
     await expect(page.getByText(
-      '3 records are archived.',
+      '3 properties are archived.',
     )).toBeVisible();
     await expect(page.getByRole('button', { name: 'Show archived' })).toBeVisible();
     await expect(stage(page)).toHaveCount(0);
@@ -1108,7 +1111,7 @@ test.describe('W09 · nothing to draw, still drawing, and not drawing at all', (
     await expect(page.getByRole('status', { name: 'Loading the map of your properties' })).toBeVisible();
     await expect(stage(page)).toHaveCount(0);
     await expect(page.getByText('No properties yet')).toHaveCount(0);
-    await expect(page.getByText(/records drawn/)).toHaveCount(0);
+    await expect(page.getByText(/properties? on the map —/)).toHaveCount(0);
     // The shape of a map, and not a grey line where one will be: the stand-in
     // holds the panel's own height (skeletons.tsx:174), so the page does not
     // jump by a third of a screen when the answer lands.
@@ -1164,7 +1167,7 @@ test.describe('W09 · the map on a card', () => {
     // (Properties.tsx:172), and two of the seeded five do. Taking the covers
     // away is what leaves the card's second choice on screen to be read.
     world.set('properties', listOf(ACTIVE().map((c) => ({ ...c, coverFileRef: '' }))));
-    await page.goto('/app/properties');
+    await page.goto('/properties');
     await expect(page.locator('.cards .rec')).toHaveCount(4);
 
     const surveyed = page.getByRole('img', { name: 'Where Sy 214/2 is' });
@@ -1192,7 +1195,7 @@ test.describe('W09 · the map on a card', () => {
       await page.route(/server\.arcgisonline\.com/, (route) =>
         route.fulfill({ status: 404, contentType: 'text/plain', body: 'no imagery' }));
       world.set('properties', listOf(ACTIVE().map((c) => ({ ...c, coverFileRef: '' }))));
-      await page.goto('/app/properties');
+      await page.goto('/properties');
 
       const surveyed = page.getByRole('img', { name: 'Where Sy 214/2 is' });
       await expect(surveyed).toBeVisible();

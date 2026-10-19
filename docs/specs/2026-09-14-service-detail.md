@@ -1,5 +1,12 @@
 # BUILD SPEC — the one-service screen
 
+> **Superseded 10/10/2026 (historical).** The owner's order page was rebuilt to
+> the service order spec approved by Reddy (`.local/ux-audits/2026-10-10-service-order/spec.md`):
+> a stage tracker, one Next step panel, one Activity stream and one Details
+> card, with the roster, dispatch, Withdraw, Mark on site and Record submitted
+> work moved to the desk (`/app/desk/jobs/:id`). Read this file as the record
+> of the 14/09 build, not as the current screen.
+
 **Spine:** `order-receipt` ("Order sheet"). Everything below is that proposal with its five verified defects fixed, every judge "keep" grafted in, and every conflict decided. Line numbers below were re-verified against the working tree today; where the source proposals drifted, these numbers win.
 
 **Three commits, in order.** (1) web route + links + redirect. (2) web screen + copy + CSS + specs. (3) API strings. Commit 2 is the big one and must not be split, because the copy and the structure are asserted by the same specs.

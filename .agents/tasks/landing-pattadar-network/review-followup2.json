@@ -1,0 +1,49 @@
+{
+  "verdict": "APPROVED",
+  "findings": [
+    {
+      "source": "security",
+      "severity": "info",
+      "blocking": false,
+      "confidence": "possible",
+      "title": "Shared masker context fallback",
+      "file": "services/api/src/main.py",
+      "detail": "MaskUnexpectedErrors() is passed as an instance, so Strawberry 0.323.2 reuses it and overwrites self.execution_context per request; under concurrency the anonymise_error fallback can read another request's query. The primary error.source.body check covers every value-bearing error on this path, so no leak path was found. Concurrent interleaving is untested.",
+      "fix": "Pass MaskUnexpectedErrors as a class/factory so each request gets its own context; also clears Strawberry's shared-instance deprecation."
+    },
+    {
+      "source": "security",
+      "severity": "info",
+      "blocking": false,
+      "confidence": "confirmed",
+      "title": "Traceback dropped for unexpected faults on this root",
+      "file": "services/api/src/main.py",
+      "detail": "For registerNetworkInterest requests, unexpected non-psycopg resolver faults log only ref, field and class name, with no message or stack. Debuggability only.",
+      "fix": "Optionally log a stack without exception message or frame locals, or rely on ref plus local reproduction."
+    },
+    {
+      "source": "correctness",
+      "severity": "nit",
+      "blocking": false,
+      "confidence": "likely",
+      "title": "Control-character refusals labelled as ID numbers",
+      "file": "apps/web/src/pages/landing/NetworkInterestForm.tsx",
+      "detail": "serverError maps any server 'invalid' on name/district/mandal/note that passes check() to COPY.errors.idNumber. The server's _free_text_ok also refuses C0 control characters (e.g. a pasted tab), which the client does not check, so those refusals show the Aadhaar sentence.",
+      "fix": "Mirror the control-character test in check(), or apply the ID-number mapping only to text containing a non-ASCII digit run."
+    },
+    {
+      "source": "correctness",
+      "severity": "nit",
+      "blocking": false,
+      "confidence": "confirmed",
+      "title": "Stale 'wording unchanged' comment",
+      "file": "apps/web/src/pages/landing/landingContent.ts",
+      "detail": "The NETWORK doc comment still says the former ROADMAP items keep 'their wording unchanged', but the lawyer card title changed in this commit.",
+      "fix": "Reword the comment."
+    }
+  ],
+  "reviewDoc": [
+    "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/.worktrees/landing-pattadar-network/.agents/tasks/landing-pattadar-network/correctness-review-followup2.md",
+    "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/.worktrees/landing-pattadar-network/.agents/tasks/landing-pattadar-network/security-review-followup2.md"
+  ]
+}

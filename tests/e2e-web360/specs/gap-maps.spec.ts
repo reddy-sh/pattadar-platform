@@ -29,7 +29,7 @@
  *     false rather than throwing. This file therefore reads the adopted ring
  *     back from the API. The sibling “Add to Properties” path is covered in
  *     `crud-360.spec.ts`, which now requires the new Sy-number card on
- *     `/app/properties` and reads its boundary back before continuing.
+ *     `/properties` and reads its boundary back before continuing.
  *
  * Every scratch record is registered in MADE and deleted in afterEach, never at
  * the end of a test body — Playwright abandons a test at its first failed
@@ -122,7 +122,7 @@ test.describe('removing a saved boundary', () => {
 
   test('a boundary removed from the edit bar leaves the record, not just the screen', async ({ page, request }) => {
     const id = await surveyed(request, 'Sy 996/1');
-    await page.goto(`/app/records/${id}/map`);
+    await page.goto(`/properties/${id}/location`);
 
     await expect(page.locator('path.w-ring')).toHaveCount(1, { timeout: 20_000 });
     // Measurements only render for a surveyed record (RecordBoundary.tsx:579),
@@ -171,7 +171,7 @@ test.describe('removing a saved boundary', () => {
     // courtesy reaches the most expensive thing on the record.
     test.fail();
     const id = await surveyed(request, 'Sy 996/2');
-    await page.goto(`/app/records/${id}/map`);
+    await page.goto(`/properties/${id}/location`);
     await expect(page.locator('path.w-ring')).toHaveCount(1, { timeout: 20_000 });
 
     await page.getByRole('button', { name: 'Redraw boundary', exact: true }).click();
@@ -200,7 +200,7 @@ test.describe('the record map with no tiles at all', () => {
     // than 404ing is the real case — a phone in a field, no route to the host.
     await page.route(TILE_HOSTS, (route) => route.abort());
 
-    await page.goto(`/app/records/${PARCEL}/map`);
+    await page.goto(`/properties/${PARCEL}/location`);
     await expect(page.locator('.leaflet-container')).toBeVisible({ timeout: 20_000 });
 
     // The screen opens on satellite (RecordBoundary.tsx:260), so the first
@@ -246,7 +246,7 @@ test.describe('handing a village plot to a record that already exists', () => {
   const FIXTURE_NO = '845';
 
   const open = async (page: Pg) => {
-    await page.goto('/app/maps');
+    await page.goto('/maps');
     await expect(page.getByRole('heading', { name: /Villages on record/ })).toBeVisible();
     await page.getByRole('button', { name: new RegExp(`^${VILLAGE}`) }).click();
     await expect(page.locator('.vc-badge')).toContainText(VILLAGE, { timeout: 30_000 });
@@ -284,7 +284,7 @@ test.describe('handing a village plot to a record that already exists', () => {
     // "All plots" list further down, and an unscoped match hits both.
     await card.locator('.vm-list .villagerow', { hasText: FIXTURE_NO }).click();
 
-    await expect(page).toHaveURL(new RegExp(`/app/records/${id}/map`), { timeout: 30_000 });
+    await expect(page).toHaveURL(new RegExp(`/properties/${id}/location`), { timeout: 30_000 });
     // Arriving at the map is not evidence. linkTo navigates on the mutation's
     // answer, and its own comment names the bug: a refused write answers false
     // rather than throwing, "which is how a boundary that was never saved came

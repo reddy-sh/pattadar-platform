@@ -36,6 +36,6 @@ export function PrivacyPage() {
     <Typography variant="h4" component="h1">{lang==='en'?'Privacy notice':'గోప్యతా ప్రకటన'}</Typography>
     <p>12/09/2026 · <button onClick={()=>setLang(lang==='en'?'te':'en')}>{lang==='en'?'తెలుగులో చదవండి':'Read in English'}</button></p>
     <div lang={lang}>{sections[lang].map(([title,text])=><section key={title} style={{marginBlock:'1.5rem'}}><Typography component="h2" variant="h6">{title}</Typography><Typography>{text}</Typography></section>)}</div>
-    <RouterLink to="/app/account">{lang==='en'?'Manage my data and choices':'నా సమాచారం, ఎంపికలు'}</RouterLink>
+    <RouterLink to="/account">{lang==='en'?'Manage my data and choices':'నా సమాచారం, ఎంపికలు'}</RouterLink>
   </LegalLayout>;
 }

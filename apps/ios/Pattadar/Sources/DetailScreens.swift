@@ -83,8 +83,8 @@ struct PassbookDetailScreen: View {
                 .onDisappear { Task { await load(); onChanged() } }
         }
         .confirmationDialog("Delete this passbook?", isPresented: $confirmDelete, titleVisibility: .visible) {
-            Button("Delete", role: .destructive) { Task { await remove() } }
-            Button("Keep it", role: .cancel) { }
+            Button("Delete passbook", role: .destructive) { Task { await remove() } }
+            Button("Cancel", role: .cancel) { }
         } message: {
             Text("\(passbook.pattadarNo) and its \(parcels.count) parcel\(parcels.count == 1 ? "" : "s") will be removed. This cannot be undone.")
         }
@@ -182,9 +182,9 @@ struct MemberDetailScreen: View {
         }
         .navigationTitle(member.name)
         .navigationBarTitleDisplayMode(.inline)
-        .confirmationDialog("Remove this person?", isPresented: $confirmRemove, titleVisibility: .visible) {
-            Button("Remove", role: .destructive) { Task { await remove() } }
-            Button("Keep them", role: .cancel) { }
+        .confirmationDialog("Remove this member?", isPresented: $confirmRemove, titleVisibility: .visible) {
+            Button("Remove member", role: .destructive) { Task { await remove() } }
+            Button("Cancel", role: .cancel) { }
         } message: {
             Text(member.isBeneficiary
                  ? "\(member.name) and their \(Int(member.sharePct))% share are removed from this group."

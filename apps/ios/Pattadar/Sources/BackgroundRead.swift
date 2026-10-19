@@ -333,7 +333,7 @@ extension BackgroundRead: URLSessionDataDelegate {
             guard active else { return }
             onFinished?(.failure(PattadarAPI.APIError.http(
                 status, String(data: rawBody, encoding: .utf8) ?? "")))
-            let n = readFailedNotification("The server answered \(status).")
+            let n = readFailedNotification("Pattadar could not read this document (code \(status)). Try again in a moment.")
             notify(title: n.title, body: n.body)
             return
         }

@@ -30,9 +30,9 @@ public enum RequestKind: String, CaseIterable, Sendable, Identifiable {
         case .survey: "Licensed surveyor, chain measurement"
         case .legal: "Advocate opinion before you buy"
         case .drafting: "Sale, gift, partition, lease"
-        case .photos: "Someone visits and shoots it"
+        case .photos: "A provider visits and takes photos"
         case .errand: "MRO, SRO, EC, certified copies"
-        case .rent: "Follow up and receipt it"
+        case .rent: "Collects the rent and gives a receipt"
         }
     }
 

@@ -12,7 +12,7 @@ import { contentForModule } from '../content';
 import { courseBySlug } from '../data/catalog';
 import { coverageForModule } from '../data/complianceCoverage';
 import { officialReferenceById, officialReferencesById } from '../data/officialReferences';
-import { recordGuidePath, recordGuidesForModule, recordVideoUrl } from '../data/recordGuides';
+import { hasRecordVideo, recordGuidePath, recordGuidesForModule, recordVideoUrl } from '../data/recordGuides';
 import type { Course } from '../domain/types';
 import { downloadCourseGuide } from '../pdf/coursePdf';
 import { useUniversity } from '../state/UniversityProvider';
@@ -49,7 +49,7 @@ export function LessonPage({ onTutor }: { onTutor: (course: Course) => void }) {
   const next = course.modules[moduleIndex + 1];
   const references = officialReferencesById(content.referenceIds);
   const complianceCoverage = coverageForModule(module.id);
-  const recordVideos = recordGuidesForModule(module.id);
+  const recordVideos = recordGuidesForModule(module.id).filter(hasRecordVideo);
 
   return (
     <main className="lesson-page">

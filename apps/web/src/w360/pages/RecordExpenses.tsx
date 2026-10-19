@@ -18,6 +18,7 @@
  *  house that it had a tenant. Rent that has actually been recorded is the
  *  only tenancy this client can attest to. */
 import { useState } from 'react';
+import { perUnit } from '../perUnit';
 import AddOutlined from '@mui/icons-material/AddOutlined';
 import FileDownloadOutlined from '@mui/icons-material/FileDownloadOutlined';
 import SouthWestOutlined from '@mui/icons-material/SouthWestOutlined';
@@ -26,15 +27,20 @@ import PhotoCameraOutlined from '@mui/icons-material/PhotoCameraOutlined';
 
 import { useExpenses, useSaveExpense } from '../api';
 import {
-  Cell, Chip, Empty, Failed, Icon, Loading, ddmmyyyy, downloadCsv, inGroup, inr, inrFullish,
+  Card, Cell, Chip, Empty, FacetFilter, Failed, Icon, SelectAllBox, SelectCell, SelectionBar, TablePager,
+  ToolbarBand, YearSelect, ddmmyyyy, downloadCsv, inGroup, inr, inrFullish, num, plural, usePaged,
+  useRowSelection,
 } from '../ui';
 import { Drawer, DrawerAction, drawerEyebrow } from '../Drawer';
 import { useToast } from '../Toast';
 import { useRecordCtx } from './Record';
+import { Sk, SkTable } from '../skeletons';
 import { SectionHead } from './RecordHead';
 import { downloadBlob, fetchFileBlob } from '../../pages/documents/storage';
 
-const KINDS = ['Repair', 'Power bill', 'Labour', 'Seed & inputs', 'Tax / kist', 'Caretaker',
+const rowId = (r: { id: string }) => r.id;
+
+const KINDS = ['Repair', 'Power bill', 'Labour', 'Seed & inputs', 'Land tax (kist)', 'Caretaker',
   'Legal', 'New work'];
 
 /** Money in, on a let property. 'Rent' is spelled exactly as the monthly rent
@@ -43,9 +49,9 @@ const KINDS = ['Repair', 'Power bill', 'Labour', 'Seed & inputs', 'Tax / kist', 
 const RENT_KINDS = ['Rent', 'Deposit', 'Advance'];
 
 const PAID_BY = ['Caretaker', 'You · UPI', 'You · card', 'Wallet · auto', 'Pattadar order',
-  'Letting agent'];
+  'Rental agent'];
 /** Rent arrives; it is not paid out. The list is who it came from. */
-const RECEIVED_FROM = ['Bank transfer', 'Tenant · UPI', 'Cash', 'Cheque', 'Letting agent'];
+const RECEIVED_FROM = ['Bank transfer', 'Tenant · UPI', 'Cash', 'Cheque', 'Rental agent'];
 
 function fiscalYearOf(isoDate: string) {
   const [yearText, monthText] = isoDate.split('-');
@@ -77,7 +83,7 @@ function todayIso(): string {
  * instead of being the last thing you scroll to.
  */
 export function ExpenseDrawer({
-  recordId, recordTitle, features, mode, wholeLabel, onClose,
+  recordId, recordTitle, features, mode, wholeLabel, onClose, returnFocus,
 }: {
   recordId: string;
   recordTitle: string;
@@ -92,6 +98,8 @@ export function ExpenseDrawer({
    *  picked, so a flat's power bill stops reading "Whole parcel". */
   wholeLabel: string;
   onClose: () => void;
+  /** Where focus goes if the opener is gone when the drawer closes. */
+  returnFocus?: React.RefObject<HTMLElement | null>;
 }) {
   const income = mode === 'income';
   const save = useSaveExpense(income ? 'That rent' : 'That expense');
@@ -110,7 +118,7 @@ export function ExpenseDrawer({
   const [kind, setKind] = useState<'capital' | 'running'>('capital');
   const [recover, setRecover] = useState(false);
 
-  const heading = income ? 'Record rent' : 'Add an expense';
+  const heading = income ? 'Add rent' : 'Add an expense';
   const enough = Number(amount) > 0 && !!date;
   const dirty = !!(amount || title.trim() || on || recover || date !== todayIso());
 
@@ -126,7 +134,7 @@ export function ExpenseDrawer({
       // Said out loud because the row does not always appear where the drawer
       // closed: a category chip may be filtering it out, and the selected
       // category or year may keep it out of sight.
-      toast.ok(income ? 'Rent recorded.' : 'Expense saved.');
+      toast.ok(income ? 'Rent saved.' : 'Expense saved.');
       onClose();
     },
   });
@@ -136,6 +144,7 @@ export function ExpenseDrawer({
       eyebrow={drawerEyebrow(recordTitle, 'Money')}
       title={heading}
       onClose={onClose}
+      returnFocus={returnFocus}
       onSubmit={commit}
       busy={save.isPending}
       dirty={dirty}
@@ -207,13 +216,13 @@ export function ExpenseDrawer({
         {!income && (
           <>
             <div className="field">
-              <label>Does it add to what the land cost you?</label>
+              <label>Does it improve the land (borewell, fence, building)?</label>
               <div className="choice">
                 <button type="button" aria-pressed={kind === 'capital'} onClick={() => setKind('capital')}>
-                  Yes — capital
+                  Yes — improvement
                 </button>
                 <button type="button" aria-pressed={kind === 'running'} onClick={() => setKind('running')}>
-                  No — running
+                  No — upkeep
                 </button>
               </div>
             </div>
@@ -246,20 +255,52 @@ export function ExpenseDrawer({
   );
 }
 
+/** The ledger's headings, for its first-read skeleton (the real <thead> below). */
+const EXPENSE_COLS = [
+  { head: 'Date', w: '5rem' }, { head: 'What it was' }, { head: 'On' }, { head: 'Kind', w: '4rem' },
+  { head: 'Paid by' }, { head: 'Amount', right: true, w: '4rem' }, { head: '', w: '1rem' },
+];
+
 export function RecordExpenses() {
   const rec = useRecordCtx();
   const toast = useToast();
   const [year, setYear] = useState<string | undefined>();
   const [cat, setCat] = useState('all');
   const [drawer, setDrawer] = useState<'expense' | 'income' | null>(null);
-  const { data, isLoading, error } = useExpenses(rec.id, year);
+  const { data, isLoading, isPlaceholderData, error } = useExpenses(rec.id, year);
+  // Before the early returns: the pager is a hook. Newest-first as the server
+  // sends it; a new year or category goes back to page 1.
+  const rows = (data?.rows ?? []).filter((r) => cat === 'all' || r.category === cat);
+  const paged = usePaged(rows, { resetKey: `${data?.year ?? ''}|${cat}`, storeKey: 'pattadar.table.expenses' });
+  // Ticked rows are how a reader sums a handful of them in the footer; a new
+  // year or category drops the ticks rather than sum rows out of sight.
+  const sel = useRowSelection(rows, rowId, `${data?.year ?? ''}|${cat}`);
 
   // Inside the property's frame now (Money › Expenses), so no <main> of its
   // own: the shell draws the record, the breadcrumb and the tab strip.
-  if (isLoading) return <Loading h="40vh" what="the expenses" />;
+  // First read: the ledger's own shape (design.md § Loading) — the head, the
+  // strip's real labels, the table's real headings — so nothing moves on landing.
+  if (isLoading) return (
+    <>
+      <div aria-hidden>
+        <SectionHead title="Expenses" sub={<Sk w="8rem" />} />
+        <div className="strip">
+          <Cell k="Spent this year" v={<Sk w="4.5rem" />} />
+          <Cell k="Improvements · add to land cost" v={<Sk w="4rem" />} />
+          <Cell k="Upkeep" v={<Sk w="4rem" />} />
+        </div>
+        <div className="filterbar band" style={{ margin: 'var(--space-lg) 0' }}>
+          {['5rem', '4.5rem'].map((w) => <Sk key={w} w={w} h="1.75rem" r="var(--radius-pill)" />)}
+        </div>
+      </div>
+      <SkTable label="Loading the expenses" cols={EXPENSE_COLS} />
+    </>
+  );
   if (!data) return <Failed what="The expenses" error={error} boxed h="26rem" />;
+  /** Another year is being read: the last one stays up, dimmed and inert. */
+  const dim = { opacity: isPlaceholderData ? 0.6 : 1, pointerEvents: isPlaceholderData ? 'none' : undefined,
+    transition: 'opacity var(--dur-fast) var(--ease-out)' } as const;
 
-  const rows = data.rows.filter((r) => cat === 'all' || r.category === cat);
   /** Nothing has ever been spent on this record — not "nothing matches the
    *  filter". The two used to share one sentence, so a brand-new record was
    *  told a category it had never chosen was hiding its rows. */
@@ -271,6 +312,23 @@ export function RecordExpenses() {
    *  A real answer needs the server to send `isLet` off a lease or a tenant
    *  row in record_people. */
   const isLet = data.income > 0;
+  // The footer sums every row the category lets through, not just this page —
+  // or only the ticked ones, while any are — and keeps money out and money in
+  // apart: they are one column, not one sum.
+  const picking = sel.picked.length > 0;
+  const footRows = picking ? sel.picked : rows;
+  const outRows = footRows.filter((r) => r.kind !== 'income');
+  const inRows = footRows.filter((r) => r.kind === 'income');
+  const sum = (rs: typeof rows) => rs.reduce((n, r) => n + r.amount, 0);
+  /** One noun in the footer, the tick-all box and the bar: "expenses", or
+   *  "entries" once money in is among them (design.md § Tables). */
+  const nounFor = (rs: typeof rows) => (rs.some((r) => r.kind === 'income')
+    ? ['entry', 'entries'] as const : ['expense', 'expenses'] as const);
+  const yearPick = data.years.length > 1 || !bare ? (
+    /* On an empty ledger a lone option is not a choice at all — it is the
+       server's fallback year, not a year any row attests to. */
+    <YearSelect years={data.years} value={year ?? data.year} onChange={setYear} />
+  ) : undefined;
 
   const downloadReceipt = async (fileRef: string, fileName: string) => {
     try {
@@ -285,10 +343,11 @@ export function RecordExpenses() {
    *  The record and the year are in the name, so a ledger cannot be mistaken
    *  for another record's or for the properties list's own export. Silent on
    *  success, like the Cost sheet; only a refusal is said. */
-  const exportCsv = () => {
+  const exportCsv = (which: typeof rows = rows) => {
     const head = ['Date', 'What it was', 'Detail', 'On', 'Kind', 'Paid by', 'Amount (₹)',
-      'Recoverable', 'Receipt'];
-    const lines = rows.map((r) => [ddmmyyyy(r.spentOn), r.title, r.subtitle, r.onLabel, r.kind,
+      'Owed back', 'Receipt'];
+    const lines = which.map((r) => [ddmmyyyy(r.spentOn), r.title, r.subtitle, r.onLabel,
+      r.kind === 'capital' ? 'Improvement' : r.kind === 'income' ? 'Money in' : 'Upkeep',
       r.paidBy, Math.round(r.amount), r.recoverable ? 'yes' : 'no',
       r.hasReceipt ? 'filed' : 'none']);
     try {
@@ -300,6 +359,8 @@ export function RecordExpenses() {
 
   /** Who owes the money back, in the row's own words ("Half owed back by
    *  Venkat") — the strip used to say "by tenant" for any recoverable cost. */
+  const nOut = data.rows.filter((r) => r.kind !== 'income').length;
+  const nIn = data.rows.length - nOut;
   const owedNotes = data.rows.filter((r) => r.recoverable && r.recoverableNote)
     .map((r) => r.recoverableNote);
 
@@ -307,58 +368,54 @@ export function RecordExpenses() {
     <>
       {/* The ledger's own section heading, inside the property's frame: the
           record is the <h1>, and Money stays the tab you are on. */}
-      {/* One noun for the ledger, "Expenses", under Money. The extent is the
-          frame's chip and the year is the picker's, so the line under the
-          heading says only what neither does: that rent is on file, and the
-          year when there is no picker to show it. */}
+      {/* One noun for the ledger, "Expenses", under Money. The line under it
+          is facts only (design.md § Page head, one level down): the year's
+          row counts, which neither the strip's sums nor the chips' per-category
+          counts state, and that rent is on file. The extent is the frame's
+          chip and the year the picker's. Nothing on a first-run empty ledger. */}
       {/* "Let to a tenant" only on a built property: money in on a parcel is a
           harvest or a lease payment, not proof of a tenant — the rule the
           old page-head line kept (" · let to a tenant" on built records). */}
       <SectionHead
         title={data.isBuilt && isLet ? 'Expenses & rent' : 'Expenses'}
-        sub={[
-          data.isBuilt && isLet && 'Let to a tenant',
-          bare && data.years.length <= 1 && data.year,
+        sub={bare ? undefined : [
+          nOut > 0 && plural(nOut, 'expense'),
+          nIn > 0 && (data.isBuilt ? plural(nIn, 'rent payment') : plural(nIn, 'payment in', 'payments in')),
+          data.isBuilt && isLet && 'rented out',
         ].filter(Boolean).join(' · ') || undefined}
-        actions={(
-          <>
-          {/* On an empty ledger a lone option is not a choice at all — it is
-              the server's fallback year, not a year any row attests to. */}
-          {(!bare || data.years.length > 1) && (
-            <select value={data.year} onChange={(e) => setYear(e.target.value)}
-                    aria-label="Financial year" style={{ width: 'auto' }}>
-              {data.years.map((y) => <option key={y}>{y}</option>)}
-            </select>
-          )}
-          {/* Recording rent is an action, not a claim about the property, so it
-              is offered on any built record — it is the only way into the
-              income side of the ledger, and it used to do nothing at all. */}
-          {data.isBuilt && (
-            <button type="button" className="btn" onClick={() => setDrawer('income')}>
-              <SouthWestOutlined sx={{ fontSize: 16 }} /> Record rent
-            </button>
-          )}
-          {/* Export was gated behind !isBuilt, so the one ledger with rent in
-              it could not be exported. It follows the visible list instead. */}
-          {rows.length > 0 && (
-            <button type="button" className="btn" onClick={exportCsv}>
-              <FileDownloadOutlined sx={{ fontSize: 16 }} /> Export
-            </button>
-          )}
-          <button type="button" className="btn primary" onClick={() => setDrawer('expense')}>
-            <AddOutlined sx={{ fontSize: 17 }} /> Add an expense
-          </button>
-          </>
-        )}
+        actions={{
+          /* Add rent and Export live in the More menu (Reddy, 13/10/2026).
+             Rent is offered on any built record — the only way into the
+             income side of the ledger. Export follows the visible list, rent
+             included, and waits while another year is read. */
+          overflowHeader: rec.title,
+          overflow: [
+            ...(data.isBuilt ? [{
+              label: 'Add rent',
+              icon: <SouthWestOutlined sx={{ fontSize: 17 }} />,
+              onClick: () => setDrawer('income'),
+            }] : []),
+            ...(rows.length > 0 ? [{
+              label: 'Export',
+              icon: <FileDownloadOutlined sx={{ fontSize: 17 }} />,
+              disabled: isPlaceholderData,
+              onClick: () => exportCsv(),
+            }] : []),
+          ],
+          primary: {
+            label: 'Add an expense', icon: <AddOutlined sx={{ fontSize: 17 }} />,
+            onClick: () => setDrawer('expense'),
+          },
+        }}
       />
 
-      <div className="strip">
+      <div className="strip" aria-busy={isPlaceholderData} style={dim}>
         {data.isBuilt && isLet ? (
           <>
             <Cell k="Rent received" v={inr(data.income)} tone="up" />
             <Cell k="Spent" v={inr(data.spent)} />
-            <Cell k="Capital · adds to cost" v={inr(data.capital)} tone="info" />
-            <Cell k="Net yield on value" v={`${data.netYield.toFixed(2)}%`} />
+            <Cell k="Improvements · add to land cost" v={inr(data.capital)} tone="info" />
+            <Cell k="Rent as % of value" v={`${data.netYield.toFixed(2)}%`} />
             {/* The same total the other shape carries, under the same guard:
                 the server sums owed_back for every record, and on a let flat
                 it used to appear in no total at all — on exactly the records
@@ -372,8 +429,12 @@ export function RecordExpenses() {
         ) : (
           <>
             <Cell k="Spent this year" v={inr(data.spent)} />
-            <Cell k="Capital · adds to cost" v={inr(data.capital)} />
-            <Cell k="Running" v={inr(data.running)} />
+            <Cell k="Improvements · add to land cost" v={inr(data.capital)} />
+            {/* What holding it costs, per unit of its extent — said once,
+                here, as the upkeep figure's own footnote. */}
+            <Cell k="Upkeep" v={inr(data.running)}
+                  note={data.perUnitRunning > 0 && perUnit(data.extentUnit)
+                    ? `${inr(data.perUnitRunning)} ${perUnit(data.extentUnit)}` : undefined} />
             {/* Only when something is actually marked to claim back, and
                 naming who from the row's own note. "Owed back by tenant"
                 asserted a tenant on every record — the seed's is owed by a
@@ -387,38 +448,48 @@ export function RecordExpenses() {
         )}
       </div>
 
-      {!bare && (
-        <div className="row between" style={{ margin: 'var(--space-lg) 0 var(--space-md)', gap: 'var(--space-lg)' }}>
-          <span className="row tight">
-            {/* Washed when pressed: a filter is not an action, and the one
-                amber fill here is "Add an expense". */}
-            {data.categories.map((c) => (
-              <Chip key={c.key} wash active={cat === c.key} count={c.count} onClick={() => setCat(c.key)}>
-                {c.label}
-              </Chip>
-            ))}
-          </span>
-        </div>
-      )}
+      {/* The band: the year the ledger is read for, then the category as a
+          filter group with its tally (design.md § Page head, slot 5). */}
+      {!bare ? (
+        <FacetFilter
+          lead={yearPick} busy={isPlaceholderData}
+          groups={[{ key: 'cat', label: 'Category',
+            options: data.categories.filter((c) => c.key !== 'all') }]}
+          selected={{ cat: cat === 'all' ? [] : [cat] }}
+          onToggle={(_, key) => setCat(cat === key ? 'all' : key)}
+          onClear={() => setCat('all')}
+          tally={`${num(rows.length)} of ${num(data.rows.length)}`}
+        />
+      ) : yearPick && <ToolbarBand left={yearPick} busy={isPlaceholderData} />}
+
+      <div aria-busy={isPlaceholderData} style={dim}>
 
       {bare ? (
         // No second "Add an expense": the head's is the one way in, and a
         // second filled button under it was a second fill in the viewport.
         <div style={{ marginTop: 'var(--space-lg)' }}>
-          <Empty boxed h="18rem" icon="tax" title="No costs recorded yet" />
+          <Empty boxed h="18rem" icon="tax" title="No expenses yet" />
         </div>
       ) : (
-        <div className="card scroll-x" style={{ padding: 0 }}>
-          <table style={{ minWidth: '44rem' }}>
+        <>
+        <Card flush className="scroll-x edgefade">
+          <table className="rectable" aria-label="Expenses" style={{ minWidth: '44rem' }}>
             <thead>
               <tr>
+                <th className="selcol">
+                  <SelectAllBox total={rows.length} picked={sel.picked.length} noun={nounFor(rows)}
+                                onToggle={sel.toggleAll} />
+                </th>
                 <th>Date</th><th>What it was</th><th>On</th><th>Kind</th><th>Paid by</th>
                 <th className="right">Amount</th><th aria-label="Receipt" />
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
-                <tr key={r.id} className={r.kind === 'income' ? 'income' : r.recoverable ? 'flagged' : ''}>
+              {paged.shown.map((r) => (
+                <tr key={r.id} className={[r.kind === 'income' ? 'income' : r.recoverable ? 'flagged' : '',
+                  sel.selected.has(r.id) ? 'selected' : ''].filter(Boolean).join(' ')}>
+                  <SelectCell checked={sel.selected.has(r.id)} label={`Select ${r.title}`}
+                              onToggle={() => sel.toggle(r.id)} />
                   <td className="num" style={{ whiteSpace: 'nowrap' }}>{ddmmyyyy(r.spentOn)}</td>
                   <td>
                     {r.title}
@@ -439,7 +510,7 @@ export function RecordExpenses() {
                       status pills' colours (For sale amber, Owned green) said
                       something about the property that a ledger row does not. */}
                   <td>
-                    <Chip>{r.kind === 'capital' ? 'Capital' : r.kind === 'income' ? 'Income' : 'Running'}</Chip>
+                    <Chip>{r.kind === 'capital' ? 'Improvement' : r.kind === 'income' ? 'Money in' : 'Upkeep'}</Chip>
                   </td>
                   <td className="muted">{r.paidBy}</td>
                   {/* inrFullish, not inr: a ledger row is the receipt, and a
@@ -467,12 +538,45 @@ export function RecordExpenses() {
                 </tr>
               ))}
               {rows.length === 0 && (
-                <tr><td colSpan={7} className="note">Nothing under {catLabel} for {data.year}.</td></tr>
+                <tr><td colSpan={8} className="note">Nothing under {catLabel} for {data.year}.</td></tr>
               )}
             </tbody>
+            {rows.length > 0 && (
+              <tfoot>
+                {outRows.length > 0 && (
+                  <tr>
+                    <th scope="row" colSpan={6}>
+                      {picking ? `Spent · ${plural(outRows.length, 'expense')} selected`
+                        : `Total spent · ${plural(outRows.length, 'expense')}`}
+                    </th>
+                    <td className="right num">{inrFullish(sum(outRows))}</td>
+                    <td />
+                  </tr>
+                )}
+                {inRows.length > 0 && (
+                  <tr>
+                    <th scope="row" colSpan={6}>
+                      {picking ? `Money in · ${plural(inRows.length, 'entry', 'entries')} selected`
+                        : `Total money in · ${plural(inRows.length, 'entry', 'entries')}`}
+                    </th>
+                    <td className="right num up">{inrFullish(sum(inRows))}</td>
+                    <td />
+                  </tr>
+                )}
+              </tfoot>
+            )}
           </table>
-        </div>
+        </Card>
+        <TablePager {...paged} onSize={paged.setSize} label="Expenses pages" />
+        <SelectionBar count={sel.picked.length} noun={nounFor(sel.picked)}
+                      label="Act on the selected expenses" onClear={sel.clear}>
+          <button type="button" className="btn sm" onClick={() => exportCsv(sel.picked)}>
+            <FileDownloadOutlined sx={{ fontSize: 15 }} /> Export
+          </button>
+        </SelectionBar>
+        </>
       )}
+      </div>
 
       {drawer && (
         <ExpenseDrawer
@@ -502,11 +606,12 @@ export function RecordExpenses() {
  * Until it lands the panel is not drawn — a form whose "On what" list is empty
  * would quietly file every row against the whole parcel.
  */
-export function ExpenseDrawerFor({ recordId, recordTitle, mode, onClose }: {
+export function ExpenseDrawerFor({ recordId, recordTitle, mode, onClose, returnFocus }: {
   recordId: string;
   recordTitle: string;
   mode: 'expense' | 'income';
   onClose: () => void;
+  returnFocus?: React.RefObject<HTMLElement | null>;
 }) {
   const { data } = useExpenses(recordId);
   if (!data) return null;
@@ -519,6 +624,7 @@ export function ExpenseDrawerFor({ recordId, recordTitle, mode, onClose }: {
       built={data.isBuilt}
       wholeLabel={data.isBuilt ? data.title : 'The whole parcel'}
       onClose={onClose}
+      returnFocus={returnFocus}
     />
   );
 }

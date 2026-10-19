@@ -95,12 +95,12 @@ export async function markJobRead(job: string, qc?: QueryClient) {
 export async function fetchReading(job: string): Promise<Reading> {
   const res = await apiFetch(`${BASE}/import-status/${encodeURIComponent(job)}`);
   if (!res.ok) {
-    throw new Error(await apiErrorMessage(res, 'This reading is no longer available. Send the document again.'));
+    throw new Error(await apiErrorMessage(res, "This document's results are no longer available. Add the document again."));
   }
   const body = await res.json() as { state?: string };
-  if (body.state !== 'done') throw new Error('This reading has not finished yet.');
+  if (body.state !== 'done') throw new Error('This document is still being read.');
   return readingFromBody(body);
 }
 
 /** Where a notice opens: Add property, filled from that reading. */
-export const reviewPath = (job: string) => `/app/properties?reading=${encodeURIComponent(job)}`;
+export const reviewPath = (job: string) => `/properties?reading=${encodeURIComponent(job)}`;

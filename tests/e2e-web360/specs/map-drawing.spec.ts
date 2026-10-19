@@ -23,7 +23,7 @@ async function saveFixtureBoundary(request: APIRequestContext, recordId: string)
 }
 
 async function openMap(page: Page, id: string) {
-  await page.goto(`/app/records/${id}/map`);
+  await page.goto(`/properties/${id}/location`);
   await expect(page.locator('.plot .leaflet-container')).toBeVisible();
 }
 
@@ -146,7 +146,7 @@ test('drawing over a village plot adds corners and double-click does not zoom', 
       geometry: JSON.parse(GEOJSON) }],
   } }));
   await openMap(page, recordId);
-  await page.getByRole('button', { name: 'Village map', exact: true }).click();
+  await page.getByRole('button', { name: 'Cadastral map', exact: true }).click();
   await expect(page.locator('.vmnote')).toContainText('1 plots');
   await expect(page.locator('.plot .leaflet-overlay-pane canvas')).toBeVisible();
   await page.locator('#w360-maptools').getByRole('button', { name: 'Draw boundary', exact: true }).click();

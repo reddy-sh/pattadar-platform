@@ -23,3 +23,17 @@ test('a fresh reading files its registration date as DD/MM/YYYY', () => {
   );
   expect(row.subtitle).toBe('Registered 26/08/2013 · Tarlupadu');
 });
+
+test('a reading already written day-first keeps its day and month', () => {
+  // Readings write DD/MM/YYYY. "04/03/1998" is 4 March; reading it month-first
+  // filed the paper as registered on 3 April.
+  const row = describeReading(
+    { docType: 'sale_deed', docTypeLabel: 'Sale Deed', fields: { registration_date: '04/03/1998', sro: 'Markapur SRO', village: 'Katragunta' } } as never,
+    new File([''], 'deed.pdf', { type: 'application/pdf' }),
+  );
+  expect(row.subtitle).toBe('Registered 04/03/1998 · Markapur SRO · Katragunta');
+});
+
+test('an FMB stored under its old name reads as an FMB sheet', () => {
+  expect(displayDetail('FMB / survey sheet')).toBe('FMB sheet');
+});

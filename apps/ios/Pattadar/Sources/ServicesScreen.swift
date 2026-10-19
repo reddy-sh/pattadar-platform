@@ -30,14 +30,14 @@ struct ServicesScreen: View {
             }
             if let data {
                 Section {
-                    Text("Services for your \(data.properties.cards.count) land records")
+                    Text(data.properties.cards.count == 1 ? "Services for your property" : "Services for your \(data.properties.cards.count) properties")
                         .font(.note).foregroundStyle(.secondary)
-                    Text("Placing an order records a request. Payment and provider assignment are shown separately.")
+                    Text("Placing a service order does not charge you.")
                         .font(.note).foregroundStyle(.secondary)
                 }
                 if !dismissedBundle, bundle.count == 2 {
                     Section("Prepare for a sale") {
-                        Text("An EC and boundary survey for a record you choose.")
+                        Text("An EC and boundary survey for a property you choose.")
                         Text(rupees(bundle.reduce(0) { $0 + $1.price })).font(.headline)
                         Button("Order both") { selection = ServiceSelection(offers: bundle) }
                             .disabled(data.properties.cards.isEmpty)
@@ -57,18 +57,18 @@ struct ServicesScreen: View {
                                     Text(rupees(offer.price)).font(.callout)
                                 }
                                 Text(offer.blurb).font(.note).foregroundStyle(.secondary)
-                                Text("Typically \(offer.days) days").font(.caption).foregroundStyle(.secondary)
+                                Text(offer.days == 1 ? "Typically 1 day" : "Typically \(offer.days) days").font(.caption).foregroundStyle(.secondary)
                             }.padding(.vertical, Space.xs)
                         }.buttonStyle(.plain).disabled(data.properties.cards.isEmpty)
                     }
                     if data.properties.cards.isEmpty {
-                        Text("Add a land record before ordering a service.").font(.note)
+                        Text("Add a property before ordering a service.").font(.note)
                     }
                     NavigationLink { GetItDoneScreen() } label: {
                         Label("Other work and your requests", systemImage: "list.bullet.rectangle")
                     }
                 }
-                Section("Your orders") {
+                Section("Your service orders") {
                     if data.orders.isEmpty { Text("No orders yet.").foregroundStyle(.secondary) }
                     ForEach(data.orders) { order in
                         NavigationLink { ConfirmedOrderDetail(order: order) } label: {
@@ -132,9 +132,9 @@ private struct ServiceOrderSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Land record") {
-                    Picker("Record", selection: $recordID) {
-                        Text("Choose a record").tag("")
+                Section("Property") {
+                    Picker("Property", selection: $recordID) {
+                        Text("Choose a property").tag("")
                         ForEach(records) { Text("\($0.title) · \($0.subtitle)").tag($0.id) }
                     }.disabled(attempted)
                 }
@@ -160,7 +160,7 @@ private struct ServiceOrderSheet: View {
                 }
                 Section {
                     if complete {
-                        Text("All \(confirmed.count) orders were confirmed by the server.")
+                        Text(confirmed.count == 1 ? "Your order was confirmed." : "All \(confirmed.count) orders were confirmed.")
                         Button("Done") { dismiss() }
                     } else {
                         Button {
@@ -171,10 +171,10 @@ private struct ServiceOrderSheet: View {
                         }.disabled(!ready || busy)
                     }
                 } footer: {
-                    Text("No payment is taken here. If a connection is interrupted, retrying the same request will not create a duplicate.")
+                    Text("No payment is taken here. If a connection is interrupted, trying the same order again will not create a duplicate.")
                 }
             }
-            .navigationTitle(offers.count > 1 ? "Order both" : "Order service")
+            .navigationTitle(offers.count > 1 ? "Order both" : "Order a service")
             .toolbar { ToolbarItem(placement: .cancellationAction) {
                 Button("Close") { dismiss() }.disabled(busy)
             } }
@@ -219,7 +219,7 @@ private struct ServiceOrderSheet: View {
             guard session == app.sessionID else { return }
             guard response?.web.orderService == 1 else {
                 problem = "\(confirmed.count) of \(offers.count) orders confirmed. "
-                    + (app.lastFailure ?? "This order was not accepted; check your record and answers.")
+                    + (app.lastFailure ?? "This order was not accepted. Check the property and your answers.")
                 onChanged()
                 return
             }
@@ -242,12 +242,12 @@ private struct ConfirmedOrderDetail: View {
             Section {
                 Fact(label: "Status", value: order.statusLabel)
                 Fact(label: "Quoted", value: rupees(order.cost))
-                Fact(label: "Assigned to", value: order.assignee.isEmpty ? "Awaiting assignment" : order.assignee)
+                Fact(label: "Provider", value: order.assignee.isEmpty ? "Not assigned yet" : order.assignee)
                 if !order.dueDate.isEmpty { Fact(label: "Due", value: order.dueDate) }
             }
             if app.api.config.baseURL.host() == "pattadar.com" {
                 Section {
-                    Link("Payment and settlement status", destination: URL(string: "https://pattadar.com")!
+                    Link("Payment status", destination: URL(string: "https://pattadar.com")!
                         .appendingPathComponent("app/tickets").appendingPathComponent(order.id).appendingPathComponent("pay"))
                     Text("Opens the secure web checkout. Sign in with the same account if asked.")
                         .font(.note).foregroundStyle(.secondary)

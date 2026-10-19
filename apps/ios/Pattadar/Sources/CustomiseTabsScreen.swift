@@ -16,9 +16,9 @@ enum BarTab: String, CaseIterable, Identifiable {
         switch self {
         case .home: "Home"
         case .properties: "Properties"
-        case .papers: "Papers"
+        case .papers: "Documents"
         case .maps: "Maps"
-        case .groups: "Groups"
+        case .groups: "Families & groups"
         case .services: "Services"
         }
     }
@@ -126,7 +126,7 @@ struct CustomiseTabsScreen: View {
             } header: {
                 Text("Under More")
             } footer: {
-                Text("Swapping one in pushes the last tab down into More. Papers cannot be removed — it is where every shared document lands.")
+                Text("Swapping one in pushes the last tab down into More. Documents cannot be removed — it is where every shared document lands.")
             }
         }
         // Grabbers always showing: this screen IS the edit mode; a hidden
@@ -198,7 +198,7 @@ struct GroupsTabScreen: View {
                     }
                 }
             }
-            .navigationTitle("Groups")
+            .navigationTitle("Families & groups")
             .sheet(isPresented: $showFamily) {
                 FamilyScreen().onDisappear { Task { await load() } }
             }

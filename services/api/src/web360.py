@@ -26,8 +26,9 @@ import json
 import secrets
 import hashlib
 from contextlib import asynccontextmanager
+from urllib.parse import quote
 import strawberry
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional, List
 
 # Only for the ONE conflict a partial unique index arbitrates — two tabs putting
@@ -41,14 +42,18 @@ from psycopg import errors as _pg_errors
 # ways: main.py imports it as `src.web360`, and services/api/tests/test_located.py
 # imports it bare off src/. A relative-only import breaks the second.
 try:                                    # inside the `src` package, as main.py loads it
-    from . import (associates, combined_geometry, feature_schema, governance,
-                   notify, ticketing)
+    from . import (associates, catalogue, combined_geometry, compliance, feature_schema,
+                   governance, notify, record_master as rm, terrain, ticketing)
 except ImportError:                     # imported bare off src/, as the pure tests do
     import associates                   # type: ignore[no-redef]
+    import record_master as rm          # type: ignore[no-redef]
+    import catalogue                    # type: ignore[no-redef]
     import combined_geometry            # type: ignore[no-redef]
+    import compliance                   # type: ignore[no-redef]
     import feature_schema               # type: ignore[no-redef]
     import governance                   # type: ignore[no-redef]
     import notify                       # type: ignore[no-redef]
+    import terrain                      # type: ignore[no-redef]
     import ticketing                    # type: ignore[no-redef]
 
 # Bound by main.py at import time so this module never imports main (circular).
@@ -161,8 +166,8 @@ _DDL = [
     # targets, so a split (one seller, two buyers), a merge (two sellers, one
     # buyer) and a further-down chain are all the same shape.
     #
-    # `deed_document_id` is a registered_documents.id when the event came off a
-    # paper and '' when somebody entered it by hand — an owner knows their own
+    # `deed_document_id` is the filed paper's documents.id when the event came
+    # off a paper and '' when somebody entered it by hand — an owner knows their own
     # succession long before the deed is scanned, and refusing the entry until
     # then would lose the knowledge. `prior_transfer_id` is the link down the
     # chain: the transfer that gave THIS transfer's sellers their title.
@@ -413,6 +418,10 @@ _DDL = [
     # table is an envelope around one portable JSON document, so the planned
     # NoSQL move does not require rebuilding checklists from normalized rows.
     *governance.DDL,
+    # Published price and availability overrides over SERVICE_CATALOGUE
+    # (docs/specs/2026-10-09-service-team-vetting-and-catalogue.md §7). After
+    # ticketing's, because it adds work_requests.catalogue_revision.
+    *catalogue.DDL,
 
     # W01 — the two things with a deadline.
     """CREATE TABLE IF NOT EXISTS waiting_items (
@@ -521,6 +530,12 @@ _DDL = [
     "ALTER TABLE documents ADD COLUMN IF NOT EXISTS consideration DOUBLE PRECISION NOT NULL DEFAULT 0",
     "ALTER TABLE documents ADD COLUMN IF NOT EXISTS record_id TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE documents ADD COLUMN IF NOT EXISTS sort INTEGER NOT NULL DEFAULT 0",
+    # The deed's own registration number, as the owner typed it (main.py's
+    # base table already has it; this keeps a web360-only schema whole).
+    "ALTER TABLE documents ADD COLUMN IF NOT EXISTS doc_no TEXT NOT NULL DEFAULT ''",
+    # True once the owner chose this paper's name, so a later reading never
+    # overwrites a name a person gave it.
+    "ALTER TABLE documents ADD COLUMN IF NOT EXISTS name_set BOOLEAN NOT NULL DEFAULT false",
     # One FMB sheet that covers several survey numbers (a joint FMB), filed
     # from a combined property. Every covered member gets its OWN documents
     # row — same stored file, shelf 'map' — so the sheet stays on the survey it
@@ -602,6 +617,29 @@ _DDL = [
     "ALTER TABLE parcels ADD COLUMN IF NOT EXISTS boundary TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE properties ADD COLUMN IF NOT EXISTS boundary TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE properties ADD COLUMN IF NOT EXISTS owner_name TEXT NOT NULL DEFAULT ''",
+
+    # Deed facts a record can be created with (saveRecord, from the drawer or
+    # from the assistant's confirmation card — docs/specs/2026-10-04-assistant-
+    # write-actions.md §4.1). Parcels already carry boundary_* / reg_doc_no /
+    # sro / reg_date / purchase_date (main.py's dossier columns); properties
+    # had no survey number and no N/S/E/W boundary text. `boundary` above is
+    # the surveyed ring, not these.
+    #
+    # `source_ref` names the public deed a record was copied from
+    # ("pr:<rid>:<s_no>"), so the same deed saved twice — two proposals, two
+    # tabs — resolves to the record that already exists. Properties carry
+    # their owner, so a partial unique index is the backstop; a parcel's owner
+    # is on its passbook, so saveRecord checks it under an advisory lock.
+    "ALTER TABLE properties ADD COLUMN IF NOT EXISTS survey_no TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE properties ADD COLUMN IF NOT EXISTS boundary_north TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE properties ADD COLUMN IF NOT EXISTS boundary_south TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE properties ADD COLUMN IF NOT EXISTS boundary_east TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE properties ADD COLUMN IF NOT EXISTS boundary_west TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE properties ADD COLUMN IF NOT EXISTS source_ref TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE parcels ADD COLUMN IF NOT EXISTS source_ref TEXT NOT NULL DEFAULT ''",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_properties_owner_source"
+    " ON properties (owner_user_id, source_ref) WHERE source_ref <> ''",
+    "CREATE INDEX IF NOT EXISTS idx_parcels_source_ref ON parcels (source_ref) WHERE source_ref <> ''",
 
     # W02 — archived records leave every list and sum but are never deleted;
     # the Properties rail grows an "Archived" facet only while any exist.
@@ -749,6 +787,15 @@ _DDL = [
     "CREATE INDEX IF NOT EXISTS idx_combined_expenses_parent"
     " ON combined_property_expenses"
     " (owner_user_id, combined_property_id, fiscal_year, created_at DESC)",
+
+    # The property master record (docs/specs/2026-10-11-property-overview.md):
+    # the new master columns, the chain's added facts, and one claims table
+    # that keeps every source's word per field. Additive only.
+    *rm.DDL,
+
+    # The Hydrogeology layer's cached readings, one per record and boundary
+    # (docs/specs/2026-10-13-water-flow-layer.md).
+    *terrain.DDL,
 ]
 
 
@@ -1051,6 +1098,61 @@ class RecordCard:
     #: scan is at least about THIS land, which the classification illustration
     #: is not. Only ever an image: see _paper_heroes.
     paper_file_ref: str = ""
+    #: The deed facts saveRecord can carry, read back so an update that sends
+    #: the form whole cannot erase them (every writable field round-trips).
+    #: A parcel's survey number is its title's "214/2"; `doc_no` is the
+    #: registrar's "1234/2019"; `reg_date` is ISO yyyy-mm-dd or "".
+    #: `source_ref` is the public deed it was copied from, "" when typed in.
+    survey_no: str = ""
+    doc_no: str = ""
+    sro: str = ""
+    reg_date: str = ""
+    boundary_north: str = ""
+    boundary_south: str = ""
+    boundary_east: str = ""
+    boundary_west: str = ""
+    source_ref: str = ""
+    # ── Who holds it, and which holding it is part of ─────────────────
+    #
+    # Two different questions (decision memo 06/10/2026): the HOLDER is the
+    # family or group that holds the land (through the khata, for a parcel),
+    # and the HOLDING is the piece of ground it is combined into. Either can
+    # be empty, and a holding's properties may have different holders.
+    #: The family or group's name, or "" when it is held in your own name.
+    group_name: str = ""
+    #: What the "Held by" column prints: the group's name, or "In your own name".
+    holder_label: str = ""
+    #: The holding this property is part of, or "" when it stands alone.
+    holding_id: str = ""
+    holding_name: str = ""
+    # ── The register's facts: whose, what it cost, its standing, its trail ──
+    #
+    # What a land register states per row beyond place and extent. All are
+    # read from columns the record already stores (or the audit trail it
+    # already writes); '' / 0 is "not recorded", never a value.
+    #: The pattadar's father or husband ("S/o …" on the passbook); parcels only.
+    parentage: str = ""
+    #: Current owners beyond the pattadar, from the record's Owners list.
+    co_owner_count: int = 0
+    #: Who looks after it: the first caretaker/agent on the People tab
+    #: ("K. Ramaiah · Caretaker"), and how many people are listed in all.
+    manager_line: str = ""
+    manager_count: int = 0
+    #: What was paid and when (ISO date as stored, '' when not recorded).
+    purchase_price: float = 0.0
+    purchase_date: str = ""
+    #: Mutation and encumbrance-certificate standing, as entered ('' = not recorded).
+    mutation_status: str = ""
+    ec_status: str = ""
+    #: When the record was added (UTC ISO, as stored).
+    created_at: str = ""
+    #: The newest audited change to it (or to its khata, for a parcel): when
+    #: (UTC ISO), who in the owner's words ("You", "Pattadar desk" — never an
+    #: identity key), and the audit action ("update_parcel"), which the client
+    #: words. All '' when nothing is on the trail.
+    last_activity_at: str = ""
+    last_activity_by: str = ""
+    last_activity_action: str = ""
 
 
 @strawberry.type
@@ -1111,6 +1213,162 @@ class GovernancePolicy:
     created_at: str = ""
     published_by: str = ""
     published_at: str = ""
+
+
+# ── Intelligence (super-admin): which AI reads documents ──────────────
+# ai_reading/admin.py holds the logic; credentials are write-only, so a
+# credential is only ever described by where it comes from.
+
+@strawberry.type
+class IntelligenceModel:
+    id: str
+    name: str
+
+
+@strawberry.type
+class IntelligenceCredential:
+    source: str          # "form" | "server" | "unreadable" | "" (none)
+    updated_at: str = ""
+
+
+@strawberry.type
+class IntelligenceProvider:
+    id: str              # admin.PROVIDERS key: "anthropic", "gemini", ...
+    name: str
+    vendor: str
+    model: str
+    models: List[IntelligenceModel]
+    models_checked_at: str
+    key: IntelligenceCredential
+    needs: str           # why it cannot read yet; "" = ready
+
+
+@strawberry.type
+class IntelligenceOcr:
+    enabled: bool
+    processor: str
+    account: IntelligenceCredential
+
+
+@strawberry.type
+class IntelligenceSettings:
+    reader: str          # the choice
+    active_reader: str   # what reads now: the choice when ready, else Claude
+    providers: List[IntelligenceProvider]
+    ocr: IntelligenceOcr
+    updated_at: str
+    can_store_credentials: bool  # PLATFORM_SECRETS_KEY is set; else env only
+
+
+@strawberry.type
+class IntelligenceCheck:
+    ok: bool
+    message: str
+    count: int
+
+
+def _intelligence(raw: dict) -> IntelligenceSettings:
+    return IntelligenceSettings(
+        reader=raw["reader"], active_reader=raw["active_reader"],
+        providers=[IntelligenceProvider(
+            id=p["id"], name=p["name"], vendor=p["vendor"], model=p["model"],
+            models=[IntelligenceModel(id=m["id"], name=m["name"]) for m in p["models"]],
+            models_checked_at=p["models_checked_at"], key=IntelligenceCredential(**p["key"]),
+            needs=p["needs"]) for p in raw["providers"]],
+        ocr=IntelligenceOcr(enabled=raw["ocr"]["enabled"], processor=raw["ocr"]["processor"],
+                            account=IntelligenceCredential(**raw["ocr"]["account"])),
+        updated_at=raw["updated_at"], can_store_credentials=raw["can_store_credentials"])
+
+
+def _intelligence_admin():
+    """ai_reading/admin.py, imported at call time: ai_reading reaches main."""
+    try:                                  # inside the `src` package
+        from .ai_reading import admin
+    except ImportError:                   # imported bare off src/
+        from ai_reading import admin      # type: ignore[no-redef]
+    return admin
+
+
+async def _intelligence_write(info: strawberry.Info, write) -> Optional[IntelligenceSettings]:
+    """One Intelligence write in a transaction, super-admin only. None =
+    refused (or PLATFORM_SECRETS_KEY missing): nothing changed."""
+    uid = _uid(info)
+    admin = _intelligence_admin()
+    try:
+        async with _ticket_transaction() as conn:
+            if not await _is_super_admin(conn, uid) or not await write(admin, conn, uid):
+                return None
+            return _intelligence(await admin.snapshot(conn))
+    except RuntimeError:
+        # protect() could not encrypt; the transaction rolled back.
+        return None
+
+
+@strawberry.type
+class CatalogueSet:
+    """One revision of a scope's price and availability overrides."""
+    id: str
+    scope_key: str
+    state_code: str
+    district_code: str
+    revision: int
+    status: str
+    document: str
+    source_digest: str
+    created_by: str = ""
+    created_at: str = ""
+    published_by: str = ""
+    published_at: str = ""
+
+
+@strawberry.type
+class CatalogueEntry:
+    """A service as owners at a scope would be offered it. `source` is the
+    scope that last changed it ('' = the code baseline)."""
+    key: str
+    label: str
+    group: str
+    blurb: str
+    price: float
+    days: int
+    enabled: bool
+    source: str
+    #: Where it is offered (catalogue.offered_in): no states = everywhere.
+    states: List[str] = strawberry.field(default_factory=list)
+    #: "AP/GUNTUR": a chosen state with districts listed is limited to them.
+    districts: List[str] = strawberry.field(default_factory=list)
+    #: What the owner receives ("You get …"); editable per scope.
+    deliverable: str = ""
+
+
+@strawberry.type
+class CatalogueEvent:
+    id: str
+    set_id: str
+    scope_key: str
+    revision: int
+    actor: str
+    action: str
+    detail: str
+    source_digest: str
+    created_at: str
+
+
+@strawberry.type
+class CatalogueAdmin:
+    """The super-admin's view of one scope (country '*' or a state).
+
+    `current` is the newest draft-or-published revision at exactly this
+    scope. `services` is what owners there would be offered with `current`
+    in force; `inherited` is the same without it, so an edit can be saved as
+    only what differs from the wider scope."""
+    scope_key: str
+    state_code: str
+    district_code: str
+    current: Optional[CatalogueSet]
+    services: List[CatalogueEntry]
+    inherited: List[CatalogueEntry]
+    scopes: List[CatalogueSet]
 
 
 @strawberry.type
@@ -1196,6 +1454,7 @@ class RecordDetail:
     people_count: int
     service_count: int
     photo_count: int
+    media_count: int           # every kind the Media tab lists: photo, video, recording
     photo_note: str
     tags: List[str]
     note_body: str
@@ -1216,6 +1475,25 @@ class RecordDetail:
     # working unchanged.
     combined_id: str = ""
     combined_name: str = ""
+    #: Who holds it — the record page's "Held by {name}". `group_id` is "" and
+    #: `holder_label` is "In your own name" when no family or group does.
+    group_id: str = ""
+    group_name: str = ""
+    holder_label: str = ""
+    #: The deed facts saveRecord can carry, read back so an update that sends
+    #: the form whole cannot erase them (every writable field round-trips).
+    #: A parcel's survey number is its title's "214/2"; `doc_no` is the
+    #: registrar's "1234/2019"; `reg_date` is ISO yyyy-mm-dd or "".
+    #: `source_ref` is the public deed it was copied from, "" when typed in.
+    survey_no: str = ""
+    doc_no: str = ""
+    sro: str = ""
+    reg_date: str = ""
+    boundary_north: str = ""
+    boundary_south: str = ""
+    boundary_east: str = ""
+    boundary_west: str = ""
+    source_ref: str = ""
 
 
 @strawberry.type
@@ -1249,6 +1527,15 @@ class Paper:
     # A kept Aadhaar card filed under <person> › Aadhaar. The record it points
     # at is never sent; a client only needs to know the row is one.
     aadhaar_card: bool = False
+    # The paper's registration details, as the owner keeps them.
+    doc_no: str = ""
+    registered_on: str = ""
+    office: str = ""
+    # True once the owner chose this paper's name themselves.
+    name_set: bool = False
+    # The uploaded file's original name; the document's name when nothing
+    # kept one.
+    file_name: str = ""
 
 
 @strawberry.type
@@ -1468,6 +1755,18 @@ class BoundaryMark:
 
 
 @strawberry.type
+class WaterFlowView:
+    """The Hydrogeology layer for one record. `status` is ready | computing |
+    unavailable | failed; a reading takes about half a minute, so the screen
+    asks again while it is computing. `data` is JSON (empty until ready): the
+    parcel's relief, this map's lines (GeoJSON), up to 3 pins with their
+    drainage areas, the main stream, and every map's best pin."""
+    status: str
+    reason: str
+    data: str
+
+
+@strawberry.type
 class BoundaryView:
     record_id: str
     title: str
@@ -1676,6 +1975,10 @@ class CombinedMember:
     sheet_id: str
     archived: bool
     sort: int
+    #: Who holds this member: its family or group, "" for your own name.
+    group_id: str = ""
+    #: The group's name, or "In your own name".
+    holder_label: str = ""
 
 
 @strawberry.type
@@ -1708,6 +2011,9 @@ class Combined:
     created_at: str
     updated_at: str
     members: List[CombinedMember]
+    #: "Held by": each holder of the members, largest first. Looked up through
+    #: each member's khata (parcel) or its own group (built property).
+    held_by: List[CombinedHolder] = strawberry.field(default_factory=list)
 
 
 @strawberry.type
@@ -1876,6 +2182,82 @@ class CombinedExpenseView:
 
 
 @strawberry.type
+class CombinedHolder:
+    """One line of a holding's "Held by": a family or group (or the owner's
+    own name) and how many of the holding's properties it holds.
+
+    Read-only by design. A holding says WHICH properties make one piece of
+    ground; who holds each of them is the family or group's business, and the
+    two may differ inside one farm (decision memo 06/10/2026, section 4.3)."""
+    #: The group's id, or "" for properties held in your own name.
+    group_id: str
+    #: The group's name, or "In your own name".
+    name: str
+    count: int
+
+
+@strawberry.type
+class HolderChangeRecord:
+    """One property a "Set holder" act moves — asked for, or carried along."""
+    id: str
+    kind: str                  # parcel | property
+    title: str
+    #: The khata it sits under ("" for a built property).
+    passbook_id: str
+    khata_no: str
+    #: False for a parcel that was not chosen but moves anyway, because a
+    #: parcel's holder is its khata's holder and the whole khata moves.
+    requested: bool
+    #: Who held it before this act ("" / "In your own name" when nobody did).
+    from_group_id: str
+    from_holder_label: str
+
+
+@strawberry.type
+class HolderChangeShare:
+    """A member's share tied to a parcel that this act moves out of the
+    member's group. The share stays on the member's row (it is the group's
+    word about its own people), but the group no longer holds that land, so
+    the screen says so before the move and the group page flags it after."""
+    member_id: str
+    member_name: str
+    group_id: str
+    group_name: str
+    record_id: str
+    record_title: str
+    share_pct: float
+
+
+@strawberry.type
+class EmptiedHolding:
+    """A holding a delete would empty — and so delete, with its shared
+    expenses (`deleteImpact`)."""
+    id: str
+    name: str
+    #: Sum of the holding's own (shared) expenses, in rupees.
+    expense_total: float
+    expense_count: int
+
+
+@strawberry.type
+class HolderChange:
+    """What setting a holder does, or did: every property that moves.
+
+    The same shape answers the preview (`holderChange`) and the write
+    (`setRecordHolder`), so the screen can say "Sy 78 and Sy 91 move too —
+    they are on the same khata" before anything changes, and the result
+    confirms exactly that list."""
+    group_id: str
+    holder_label: str
+    records: List[HolderChangeRecord]
+    #: Parcels that move only because they share a khata with a chosen one.
+    sibling_count: int
+    #: Members' shares tied to a moving parcel, in a group that will no
+    #: longer hold it.
+    member_shares: List[HolderChangeShare] = strawberry.field(default_factory=list)
+
+
+@strawberry.type
 class Shelf:
     key: str
     label: str
@@ -1927,6 +2309,26 @@ class HistoryEvent:
     field: str = ""
     was: str = ""
     now: str = ""
+    # What the record was created from, or the deed bound as its source, from
+    # the chained envelope (D2): "Created from deed.pdf", "Created from public
+    # record · RID … · schedule 3". '' for every other event.
+    source: str = ""
+
+
+def _source_line(action: str, meta: dict) -> str:
+    """The trace line D2 asks the Activity tab to show, from the event's
+    allow-listed metadata (audit._CREATED_FROM)."""
+    name = str(meta.get("file_name") or "").strip()
+    if action in ("create_parcel", "create_property"):
+        if name:
+            return f"Created from {name}"
+        if meta.get("rid"):
+            sno = str(meta.get("s_no") or "")
+            return f"Created from public record · RID {meta['rid']}" + (
+                f" · schedule {sno}" if sno else "")
+    if action == "record.source_bound" and name:
+        return f"Deed {name} filed as the title deed"
+    return ""
 
 
 @strawberry.type
@@ -1956,6 +2358,19 @@ class ServiceVisual:
 
 
 @strawberry.type
+class ServiceGuide:
+    """A University page that explains a service in one state: a record guide
+    (`slug`) or a topic on the state guide (`topic` + `title`). `own_paper`
+    False means it explains the paper the service works from, so its
+    "cannot prove" line is about that other paper."""
+    state: str
+    slug: str
+    topic: str
+    title: str
+    own_paper: bool
+
+
+@strawberry.type
 class ServiceOffer:
     key: str
     label: str
@@ -1966,6 +2381,24 @@ class ServiceOffer:
     shelves: List[str]
     fields: List[ServiceField]
     visual: ServiceVisual
+    # The rest is catalogue.SERVICE_CATALOGUE's, so no client keeps its own copy.
+    deliverable: str = ""
+    files_to: str = ""
+    aliases: List[str] = strawberry.field(default_factory=list)
+    per_record: bool = False
+    directions_field: str = ""
+    guides: List[ServiceGuide] = strawberry.field(default_factory=list)
+    synonyms: List[str] = strawberry.field(default_factory=list)
+    also_called: str = ""
+    flat_price_note: str = ""
+    featured: bool = False
+
+
+@strawberry.type
+class RecordServices:
+    """The catalogue as one chosen property's place offers it."""
+    record_id: str
+    offers: List[ServiceOffer]
 
 
 @strawberry.type
@@ -2018,6 +2451,8 @@ class DocumentView:
     shared: bool
     versions: List[DocumentVersion]
     link: Optional[ShareLink]
+    doc_no: str = ""
+    name_set: bool = False
 
 
 @strawberry.type
@@ -2149,7 +2584,8 @@ class AssignedResourceTrust:
     role: str
     rating_average: float
     rating_count: int
-    jobs_open: int
+    # No open-work count: it is counted across every customer, so it would
+    # tell one owner another's business volume (service order spec §7, §13).
     professional_verified: bool
     professional_credentials: List[AssignedProfessionalCredential]
     training_certificates: List[AssignedTrainingCertificate]
@@ -2212,7 +2648,7 @@ _STAGES = ["Placed", "Assigned", "On site", "Delivered"]
 
 # ── Read helpers ──────────────────────────────────────────────────────
 
-_UNIT_ALT = {"ac": "Sq.yd", "sq.ft": "sq.m", "sq.yd": "sq.m"}
+_UNIT_ALT = {"ac": "sq.yd", "sq.ft": "sq.m", "sq.yd": "sq.m"}
 
 
 def _batch_ref(batch_id: str) -> str:
@@ -2252,166 +2688,9 @@ def _place_line(*parts: str) -> str:
     return ", ".join(keep)
 
 
-# The services this system sells.
-#
-# A dict and not four buttons on a page: the catalogue is meant to grow into
-# the hundreds, so it is queried and searched like any other list rather than
-# drawn by hand. Each entry carries the questions that service actually needs
-# answering — a survey needs to know which boundary, an EC needs a year range
-# — because a work order with no parameters is one a caretaker cannot act on.
-#
-# fields: (name, label, type, required, options, help)
-#   type is one of: text | date | year | select | number | textarea
-SERVICE_CATALOGUE: dict = {
-    "ec": {
-        "label": "Encumbrance Certificate",
-        "price": 1180.0,
-        "group": "Records",
-        "blurb": "The registrar's list of every transaction on this land, for a period you choose.",
-        "days": 7,
-        "shelves": ["search"],
-        "fields": [
-            ("from_year", "From year", "year", False, [],
-             "Leave both empty for the full history, which is what the registrar gives by default."),
-            ("to_year", "To year", "year", False, [], ""),
-            ("purpose", "What it is for", "select", False,
-             ["Sale", "Loan", "Court", "Own records"], ""),
-        ],
-    },
-    "survey": {
-        "label": "Boundary re-survey",
-        "price": 2900.0,
-        "group": "On the ground",
-        "blurb": "A licensed surveyor walks the boundary and pins each corner against the FMB sheet.",
-        "days": 21,
-        "shelves": [],
-        "fields": [
-            ("which_side", "Which boundary", "select", True,
-             ["All four", "North", "South", "East", "West"], ""),
-            ("dispute", "Is a neighbour disputing it?", "select", True, ["No", "Yes"],
-             "A disputed boundary is surveyed with both parties present."),
-            ("notes", "Anything the surveyor should know", "textarea", False, [], ""),
-        ],
-    },
-    "site_visit": {
-        "label": "Site visit",
-        "price": 1200.0,
-        "group": "On the ground",
-        "blurb": "Someone stands on the land, photographs it and reports what they found.",
-        "days": 7,
-        "shelves": [],
-        "fields": [
-            ("visit_on", "Preferred date", "date", False, [], "Left empty, we go within the week."),
-            ("check", "What to check", "select", True,
-             ["General condition", "Crop", "Encroachment", "Water", "Fencing"], ""),
-            ("meet", "Who to meet on site", "text", False, [], ""),
-        ],
-    },
-    "title_opinion": {
-        "label": "Title opinion",
-        "price": 4500.0,
-        "group": "Legal",
-        "blurb": "An advocate reads the chain of documents and writes whether the title is clean.",
-        "days": 14,
-        "shelves": [],
-        "fields": [
-            ("years", "How far back to trace", "select", True,
-             ["13 years", "30 years"], "Banks usually ask for 30."),
-            ("for_bank", "Which bank, if it is for a loan", "text", False, [], ""),
-        ],
-    },
-    "mutation": {
-        "label": "Mutation / name transfer",
-        "price": 2200.0,
-        "group": "Records",
-        "blurb": "Getting the revenue record moved into the new owner's name after a sale.",
-        "days": 30,
-        "shelves": [],
-        "fields": [
-            ("new_owner", "Name to transfer into", "text", True, [], ""),
-            ("deed_no", "Registered deed number", "text", True, [], ""),
-        ],
-    },
-    "patta_copy": {
-        "label": "Certified patta copy",
-        "price": 450.0,
-        "group": "Records",
-        "blurb": "A stamped copy of the pattadar passbook entry from the village office.",
-        "days": 5,
-        "shelves": ["revenue"],
-        "fields": [
-            ("copies", "How many copies", "number", False, [],
-             "One certified copy is requested when this is left empty."),
-        ],
-    },
-    "deed_copy": {
-        "label": "Certified sale deed copy",
-        "price": 900.0,
-        "group": "Records",
-        "blurb": "A certified copy from the registration office when the original deed is unavailable.",
-        "days": 10,
-        "shelves": ["title"],
-        "fields": [
-            ("document_number", "Document number, if known", "text", False, [], ""),
-            ("registration_year", "Registration year, if known", "year", False, [], ""),
-        ],
-    },
-    "revenue_extract": {
-        "label": "1-B / Adangal extract",
-        "price": 650.0,
-        "group": "Records",
-        "blurb": "The latest revenue extract showing the recorded pattadar and cultivation entry.",
-        "days": 5,
-        "shelves": ["revenue"],
-        "fields": [
-            ("as_of_year", "Year, if not the latest", "year", False, [], ""),
-        ],
-    },
-    "tax_receipt": {
-        "label": "Land tax receipt",
-        "price": 400.0,
-        "group": "Records",
-        "blurb": "The latest land or property tax receipt and arrears position from the local office.",
-        "days": 5,
-        "shelves": ["search"],
-        "fields": [
-            ("financial_year", "Financial year, if not the latest", "text", False, [], ""),
-        ],
-    },
-    "fmb_copy": {
-        "label": "FMB / survey map copy",
-        "price": 750.0,
-        "group": "Records",
-        "blurb": "A certified field measurement sketch or survey map from the revenue office.",
-        "days": 7,
-        "shelves": ["map"],
-        "fields": [
-            ("sheet_number", "Sheet number, if known", "text", False, [], ""),
-        ],
-    },
-    "approval_copy": {
-        "label": "Approved plan copy",
-        "price": 1100.0,
-        "group": "Records",
-        "blurb": "A certified layout or building approval copy from the issuing authority.",
-        "days": 10,
-        "shelves": ["identity"],
-        "fields": [
-            ("authority", "Issuing authority, if known", "text", False, [], ""),
-        ],
-    },
-    "occupancy_copy": {
-        "label": "Occupancy certificate copy",
-        "price": 1200.0,
-        "group": "Records",
-        "blurb": "A certified occupancy certificate copy for the completed building or flat.",
-        "days": 10,
-        "shelves": ["identity"],
-        "fields": [
-            ("approval_number", "Approval number, if known", "text", False, [], ""),
-        ],
-    },
-}
+# The catalogue lives in catalogue.py so ticketing and associates can derive
+# from it without importing this module; re-exported for existing callers.
+SERVICE_CATALOGUE: dict = catalogue.SERVICE_CATALOGUE
 
 
 _DEFAULT_SERVICE_VISUALS = {
@@ -2419,7 +2698,9 @@ _DEFAULT_SERVICE_VISUALS = {
     for item in governance.BASELINE_DOCUMENT.get("serviceVisuals") or []
     if isinstance(item, dict) and item.get("serviceKey")
 }
-_SERVICE_VISUAL_ASSET_KEYS = frozenset(SERVICE_CATALOGUE)
+# shortcut: bore_point has no bundled .webp yet, so it is not a valid asset key
+# (an override naming it would render a broken image); remove it from this set once drawn.
+_SERVICE_VISUAL_ASSET_KEYS = frozenset(SERVICE_CATALOGUE) - {"bore_point"}
 
 
 def _service_visual_for(service_key: str, document: dict,
@@ -2476,6 +2757,21 @@ def _service_batch_items(raw: str) -> Optional[list[tuple[str, dict, dict]]]:
     return checked
 
 
+def _deed_keys(r: dict, survey_no: str) -> dict:
+    """The deed facts one parcel/property row carries, keyed as RecordInput
+    names them. Both tables use the same column names; a parcel's survey
+    number is composed from its two columns by the caller."""
+    return {
+        "survey_no": (survey_no or "").strip(),
+        "reg_date": r.get("reg_date") or "",
+        "boundary_north": r.get("boundary_north") or "",
+        "boundary_south": r.get("boundary_south") or "",
+        "boundary_east": r.get("boundary_east") or "",
+        "boundary_west": r.get("boundary_west") or "",
+        "source_ref": r.get("source_ref") or "",
+    }
+
+
 async def _cards(conn, uid: str) -> List[dict]:
     """Every record the user owns, parcel and built, in one shape.
 
@@ -2516,8 +2812,12 @@ async def _cards(conn, uid: str) -> List[dict]:
             "land_area": 0.0, "land_unit": "", "built_area": 0.0, "built_unit": "",
             "market_value": _f(r.get("market_value")),
             "purchase_price": _f(r.get("purchase_price")),
+            "purchase_date": r.get("purchase_date") or "",
+            "mutation_status": r.get("mutation_status") or "",
+            "ec_status": r.get("ec_status") or "",
             "loan_amount": _f(r.get("loan_amount")),
             "reg_doc_no": r.get("reg_doc_no") or "", "sro": r.get("sro") or "",
+            **_deed_keys(r, f"{r['survey_no']}" + (f"/{sub}" if sub else "")),
             "litigation": bool(r.get("litigation")),
             "geo_point": r.get("geo_point") or "", "shape": r.get("shape") or "",
             "boundary": r.get("boundary") or "",
@@ -2552,8 +2852,12 @@ async def _cards(conn, uid: str) -> List[dict]:
             "built_area": built, "built_unit": r.get("builtup_unit") or "Sq.ft",
             "market_value": _f(r.get("market_value")) or _f(r.get("current_value")),
             "purchase_price": _f(r.get("purchase_price")),
+            "purchase_date": r.get("purchase_date") or "",
+            "mutation_status": r.get("mutation_status") or "",
+            "ec_status": r.get("ec_status") or "",
             "loan_amount": 0.0,
             "reg_doc_no": r.get("reg_doc_no") or "", "sro": r.get("sro") or "",
+            **_deed_keys(r, r.get("survey_no") or ""),
             "litigation": bool(r.get("litigation")),
             "geo_point": r.get("geo_point") or "", "shape": r.get("shape") or "",
             "boundary": r.get("boundary") or "",
@@ -2573,6 +2877,293 @@ def _active(rows: List[dict]) -> List[dict]:
     """Archived records leave every aggregate, map and search — the Properties
     screen's own Archived facet is the one place they still answer from."""
     return [r for r in rows if not r.get("archived")]
+
+
+# ── Holder and holding: WHO holds a property, and WHICH ground it is ────
+#
+# Decision memo 06/10/2026: a family or group says who holds land; a holding
+# says which properties make one piece of ground. Every list that shows a
+# property can now say both, read through these three helpers so the
+# Properties grid, a record's page, a holding's "Held by" and a group's khata
+# list cannot disagree about either.
+
+#: What a property held by no family or group says about its holder.
+OWN_NAME = "In your own name"
+
+#: Facet key for "not part of any holding". Like PERSONAL, a named sentinel:
+#: an empty string cannot ride in a URL parameter unambiguously.
+NOT_IN_HOLDING = "none"
+
+
+async def _tables_exist(conn, *names: str) -> bool:
+    """True when every named table is visible on this connection. The holder
+    and holding look-ups are additive reads, and a narrow schema (a test, or a
+    database mid-boot) without these tables answers "nobody, nothing"."""
+    cols = ", ".join(f"to_regclass(%s) AS t{i}" for i in range(len(names)))
+    row = await (await conn.execute(f"SELECT {cols}", names)).fetchone() or {}
+    return all(row.get(f"t{i}") for i in range(len(names)))
+
+
+async def _group_names(conn, uid: str) -> dict:
+    """{group_id: name} for this account's families and groups."""
+    if not await _tables_exist(conn, "groups"):
+        return {}
+    cur = await conn.execute(
+        "SELECT id, name FROM groups WHERE owner_user_id=%s ORDER BY created_at, id", (uid,))
+    return {g["id"]: ((g.get("name") or "").strip() or "Unnamed group")
+            for g in await cur.fetchall()}
+
+
+async def _holdings_by_record(conn, uid: str) -> dict:
+    """{record_id: {"id", "name"}} — the one holding each record is part of.
+    A record is in at most one holding (uq_combined_member_parcel/_property)."""
+    if not await _tables_exist(conn, "combined_property_members", "combined_properties"):
+        return {}
+    cur = await conn.execute(
+        "SELECT COALESCE(m.parcel_id, m.property_id) AS rid, c.id, c.name"
+        " FROM combined_property_members m JOIN combined_properties c"
+        " ON c.id = m.combined_property_id AND c.owner_user_id = m.owner_user_id"
+        " WHERE m.owner_user_id=%s", (uid,))
+    return {r["rid"]: {"id": r["id"],
+                       "name": (r.get("name") or "").strip() or "Untitled holding"}
+            for r in await cur.fetchall() if r.get("rid")}
+
+
+def _holder_label(group_id: str, names: dict) -> str:
+    if not group_id:
+        return OWN_NAME
+    return names.get(group_id) or "Unnamed group"
+
+
+async def _with_holders(conn, uid: str, rows: List[dict]) -> List[dict]:
+    """Annotate `_cards` rows in place with group_name / holder_label /
+    holding_id / holding_name, and return them."""
+    names = await _group_names(conn, uid)
+    held = await _holdings_by_record(conn, uid)
+    for r in rows:
+        gid = r.get("group_id") or ""
+        r["group_name"] = _holder_label(gid, names) if gid else ""
+        r["holder_label"] = _holder_label(gid, names)
+        h = held.get(r["id"]) or {}
+        r["holding_id"] = h.get("id") or ""
+        r["holding_name"] = h.get("name") or ""
+    return rows
+
+
+async def holdings_of_records(conn, uid: str, record_ids: List[str]) -> List[str]:
+    """The ids of the holdings these records are members of. Read BEFORE a
+    record delete (membership rows go with the record), so the sweep after it
+    can be limited to exactly the holdings that delete could have emptied."""
+    ids = [r for r in (record_ids or []) if r]
+    if not ids or not await _tables_exist(conn, "combined_property_members"):
+        return []
+    cur = await conn.execute(
+        "SELECT DISTINCT combined_property_id AS hid FROM combined_property_members"
+        " WHERE owner_user_id=%s AND (parcel_id = ANY(%s) OR property_id = ANY(%s))",
+        (uid, ids, ids))
+    return [r["hid"] for r in await cur.fetchall() if r.get("hid")]
+
+
+async def emptied_holdings_preview(conn, uid: str, record_ids: List[str]) -> List[dict]:
+    """The holdings that deleting exactly these records would empty — and so
+    delete, with their shared expenses — as [{id, name, expense_total,
+    expense_count}]. A holding with any member outside `record_ids` survives
+    the delete and is not listed."""
+    ids = [r for r in (record_ids or []) if r]
+    if not ids or not await _tables_exist(conn, "combined_properties",
+                                          "combined_property_members"):
+        return []
+    hids = await holdings_of_records(conn, uid, ids)
+    if not hids:
+        return []
+    cur = await conn.execute(
+        "SELECT c.id, c.name FROM combined_properties c"
+        " WHERE c.owner_user_id=%s AND c.id = ANY(%s)"
+        " AND NOT EXISTS (SELECT 1 FROM combined_property_members m"
+        "  WHERE m.owner_user_id=c.owner_user_id AND m.combined_property_id=c.id"
+        "  AND NOT (COALESCE(m.parcel_id,'') = ANY(%s) OR COALESCE(m.property_id,'') = ANY(%s)))"
+        " ORDER BY c.name, c.id", (uid, hids, ids, ids))
+    rows = list(await cur.fetchall())
+    if not rows:
+        return []
+    totals: dict = {}
+    if await _tables_exist(conn, "combined_property_expenses"):
+        cur = await conn.execute(
+            "SELECT combined_property_id AS hid, COALESCE(SUM(amount),0) AS total,"
+            " count(*) AS n FROM combined_property_expenses"
+            " WHERE owner_user_id=%s AND combined_property_id = ANY(%s)"
+            " GROUP BY combined_property_id", (uid, [r["id"] for r in rows]))
+        totals = {t["hid"]: t for t in await cur.fetchall()}
+    return [{"id": r["id"],
+             "name": (r.get("name") or "").strip() or "Untitled holding",
+             "expense_total": float((totals.get(r["id"]) or {}).get("total") or 0),
+             "expense_count": int((totals.get(r["id"]) or {}).get("n") or 0)}
+            for r in rows]
+
+
+async def drop_emptied_holdings(conn, uid: str,
+                                holding_ids: Optional[List[str]] = None) -> List[str]:
+    """Delete this owner's holdings that have no member property left.
+
+    `holding_ids` limits the sweep to those holdings — a record delete passes
+    the holdings its records were in (read with `holdings_of_records` before
+    the DELETE), so it never takes an unrelated empty holding along. None
+    sweeps every empty holding on the account (the one-shot migration only).
+
+    A holding is one piece of ground made of properties; when the last of them
+    is deleted (from Properties, the legacy passbook screen, anywhere) there is
+    no ground left for it to describe, so it goes too — decision memo
+    06/10/2026, item 3. Membership rows cascade off the record, so this runs
+    AFTER a record delete, in the same transaction. A holding still short by
+    one stays, and says "incomplete".
+
+    It removes exactly what `delete_combined_property` removes: the holding,
+    its own costs and its document links — never a record or a file.
+    Returns the ids it deleted."""
+    if holding_ids is not None and not holding_ids:
+        return []
+    if not await _tables_exist(conn, "combined_properties", "combined_property_members"):
+        return []
+    only = "" if holding_ids is None else " AND c.id = ANY(%s)"
+    params = (uid,) if holding_ids is None else (uid, list(holding_ids))
+    cur = await conn.execute(
+        "SELECT c.id, c.name FROM combined_properties c WHERE c.owner_user_id=%s" + only +
+        " AND NOT EXISTS (SELECT 1 FROM combined_property_members m"
+        "  WHERE m.owner_user_id=c.owner_user_id AND m.combined_property_id=c.id)"
+        " FOR UPDATE", params)
+    gone = list(await cur.fetchall())
+    if not gone:
+        return []
+    ids = [g["id"] for g in gone]
+    has_links = await _tables_exist(conn, "document_record_links")
+    has_costs = await _tables_exist(conn, "combined_property_expenses")
+    if has_costs:
+        await conn.execute(
+            "DELETE FROM combined_property_expenses WHERE owner_user_id=%s"
+            " AND combined_property_id = ANY(%s)", (uid, ids))
+    if has_links:
+        await conn.execute(
+            "DELETE FROM document_record_links WHERE owner_user_id=%s AND record_id = ANY(%s)",
+            (uid, ids))
+    await conn.execute(
+        "DELETE FROM combined_properties WHERE owner_user_id=%s AND id = ANY(%s)", (uid, ids))
+    for g in gone:
+        name = (g.get("name") or "").strip()
+        await _audit(conn, uid, "delete_combined_property", g["id"],
+                     "Deleted with its last property", label=name,
+                     metadata={"count": 0})
+    return ids
+
+
+def khata_key(pattadar_no: str, village: str, passbook_id: str) -> tuple:
+    """What makes two passbook rows the same khata: one owner's khata number
+    in one village. A khata is NOT one passbooks row — a save that clones a
+    passbook, or a second scan of the same khata, leaves several rows for one
+    khata number, and "a khata has one holder" has to hold across all of
+    them. A row with no khata number is only ever itself."""
+    no = (pattadar_no or "").strip().casefold()
+    if not no:
+        return ("pb", passbook_id or "")
+    return ("no", no, (village or "").strip().casefold())
+
+
+def _card_khata_key(r: dict) -> tuple:
+    return khata_key(r.get("khata_no") or "", r.get("village") or "",
+                     r.get("passbook_id") or "")
+
+
+async def _khata_passbook_ids(conn, uid: str, keys: set) -> List[str]:
+    """Every passbooks row of this owner that belongs to one of these khatas
+    (`khata_key`s) — including a row that has no parcel on it."""
+    if not keys:
+        return []
+    cur = await conn.execute(
+        "SELECT id, pattadar_no, village FROM passbooks WHERE owner_user_id=%s", (uid,))
+    return [r["id"] for r in await cur.fetchall()
+            if khata_key(r.get("pattadar_no") or "", r.get("village") or "", r["id"]) in keys]
+
+
+async def _holder_plan(conn, uid: str, record_ids: List[str]) -> List[dict]:
+    """Every property that moves when these get a new holder, chosen ones
+    first. A built property moves alone; a parcel's holder is its khata's
+    holder, so every parcel on that khata moves with it. Refusals are the
+    owner's sentence (ValueError)."""
+    wanted = [r for r in dict.fromkeys((i or "").strip() for i in (record_ids or [])) if r]
+    if not wanted:
+        raise ValueError("Choose at least one property.")
+    rows = await _with_holders(conn, uid, await _cards(conn, uid))
+    by_id = {r["id"]: r for r in rows}
+    missing = [i for i in wanted if i not in by_id]
+    if missing:
+        raise ValueError("One of these properties is no longer in your account."
+                         " Reload the page and try again.")
+    out: List[dict] = []
+    seen: set = set()
+    for rid in wanted:
+        seen.add(rid)
+        out.append({**by_id[rid], "requested": True})
+    # A khata is its number in its village (`khata_key`), not one passbooks
+    # row: siblings on a second row with the same khata number move too.
+    khatas = {_card_khata_key(by_id[rid]) for rid in wanted
+              if by_id[rid]["kind"] == "parcel" and by_id[rid].get("passbook_id")}
+    for r in rows:
+        if (r["kind"] == "parcel" and r.get("passbook_id") and _card_khata_key(r) in khatas
+                and r["id"] not in seen):
+            seen.add(r["id"])
+            out.append({**r, "requested": False})
+    return out
+
+
+async def _holder_member_shares(conn, uid: str, plan: List[dict],
+                                group_id: str) -> List[dict]:
+    """Members whose share is tied to a parcel in `plan` and whose group will
+    not hold that parcel once the act is done (target `group_id`, "" = own
+    name)."""
+    parcels = {r["id"]: r for r in plan if r["kind"] == "parcel"}
+    if not parcels or not await _tables_exist(conn, "family_members", "groups"):
+        return []
+    cur = await conn.execute(
+        "SELECT fm.id, fm.name, fm.group_id, fm.parcel_id, fm.share_pct, g.name AS gname"
+        " FROM family_members fm JOIN groups g ON g.id = fm.group_id"
+        " AND g.owner_user_id = fm.owner_user_id"
+        " WHERE fm.owner_user_id=%s AND fm.parcel_id = ANY(%s) AND fm.group_id <> %s"
+        " ORDER BY g.name, fm.name, fm.id", (uid, list(parcels), group_id or ""))
+    return [{"member_id": m["id"], "member_name": (m.get("name") or "").strip() or "Unnamed member",
+             "group_id": m["group_id"],
+             "group_name": (m.get("gname") or "").strip() or "Unnamed group",
+             "record_id": m["parcel_id"], "record_title": parcels[m["parcel_id"]]["title"],
+             "share_pct": float(m.get("share_pct") or 0)}
+            for m in await cur.fetchall()]
+
+
+def _holder_change(plan: List[dict], group_id: str, label: str,
+                   before: Optional[dict] = None,
+                   shares: Optional[List[dict]] = None) -> "HolderChange":
+    before = before or {}
+    return HolderChange(
+        member_shares=[HolderChangeShare(**m) for m in (shares or [])],
+        group_id=group_id, holder_label=label,
+        records=[HolderChangeRecord(
+            id=r["id"], kind=r["kind"], title=r["title"],
+            passbook_id=r.get("passbook_id") or "", khata_no=r.get("khata_no") or "",
+            requested=bool(r["requested"]),
+            from_group_id=before.get(r["id"], (r.get("group_id") or "", ""))[0],
+            from_holder_label=before.get(r["id"], ("", r.get("holder_label") or OWN_NAME))[1])
+            for r in plan],
+        sibling_count=len([r for r in plan if not r["requested"]]))
+
+
+async def _holder_target(conn, uid: str, group_id: str) -> str:
+    """The label of the holder being set; refuses a group that is not this
+    account's. '' means "In your own name"."""
+    gid = (group_id or "").strip()
+    if not gid or gid == PERSONAL:
+        return OWN_NAME
+    names = await _group_names(conn, uid)
+    if gid not in names:
+        raise ValueError("That family or group is no longer in your account."
+                         " Reload the page and try again.")
+    return names[gid]
 
 
 async def _tags_for(conn, uid: str, entity_type: str) -> dict:
@@ -2617,12 +3208,12 @@ def _extent_detail(extent: float, unit: str) -> str:
     # space; the other units are alternatives and take the separator.
     head = []
     if acres:
-        head.append(f"{acres} Acre" + ("s" if acres != 1 else ""))
+        head.append(f"{acres} acre" + ("s" if acres != 1 else ""))
     if guntas:
-        head.append(f"{guntas:g} Gunta" + ("s" if guntas != 1 else ""))
-    bits = [" ".join(head)] if head else ["0 Acres"]
-    bits.append(f"{_in_group(extent * 100)} Cents")
-    bits.append(f"{_in_group(extent * 4840)} Sq.yd")
+        head.append(f"{guntas:g} gunta" + ("s" if guntas != 1 else ""))
+    bits = [" ".join(head)] if head else ["0 acres"]
+    bits.append(f"{_in_group(extent * 100)} cents")
+    bits.append(f"{_in_group(extent * 4840)} sq.yd")
     return " · ".join(bits)
 
 
@@ -2644,8 +3235,10 @@ def _card_extent_detail(d: dict) -> str:
         return _extent_detail(d["extent"], d["extent_unit"])
     built, land = _f(d.get("built_area")), _f(d.get("land_area"))
     if built and land:
-        return (f"{_in_group(built)} {d.get('built_unit') or 'Sq.ft'} built"
-                f" · {_in_group(land)} {d.get('land_unit') or 'Sq.yd'} land")
+        # design.md U1: a unit after a number is lower case, whatever the
+        # stored code's casing ("Sq.ft" is a stored default, not a label).
+        return (f"{_in_group(built)} {(d.get('built_unit') or 'sq.ft').lower()} built"
+                f" · {_in_group(land)} {(d.get('land_unit') or 'sq.yd').lower()} land")
     return _extent_detail(d["extent"], d["extent_unit"])
 
 
@@ -3009,11 +3602,24 @@ def _located(geo: str, ring: List[float]) -> tuple:
     return sum(lats) / len(lats), sum(lons) / len(lons)
 
 
+def _deed_fields(d: dict) -> dict:
+    """The deed facts of a `_cards` row as RecordCard / RecordDetail kwargs."""
+    return {
+        "survey_no": d.get("survey_no") or "", "doc_no": d.get("reg_doc_no") or "",
+        "sro": d.get("sro") or "", "reg_date": d.get("reg_date") or "",
+        "boundary_north": d.get("boundary_north") or "",
+        "boundary_south": d.get("boundary_south") or "",
+        "boundary_east": d.get("boundary_east") or "",
+        "boundary_west": d.get("boundary_west") or "",
+        "source_ref": d.get("source_ref") or "",
+    }
+
+
 def _to_card(d: dict, tags: List[str], cover: str = "",
              counts: Optional[dict] = None, paper: str = "") -> RecordCard:
     alt = ""
     if d["extent_unit"] == "ac":
-        alt = f"{_in_group(d['extent'] * 4840)} Sq.yd"
+        alt = f"{_in_group(d['extent'] * 4840)} sq.yd"
     elif d["extent_unit"] == "sq.ft":
         alt = f"{_in_group(d['extent'] * 0.092903)} sq.m"
     elif d["extent_unit"] == "sq.yd":
@@ -3050,7 +3656,103 @@ def _to_card(d: dict, tags: List[str], cover: str = "",
         feature_count=_i(n.get("features")),
         deed_line=deed, litigation=bool(d.get("litigation")),
         paper_file_ref=paper,
+        # Set by `_with_holders`; a row that skipped it says nothing rather
+        # than claiming "In your own name" for land a group may hold.
+        group_name=d.get("group_name") or "", holder_label=d.get("holder_label") or "",
+        holding_id=d.get("holding_id") or "", holding_name=d.get("holding_name") or "",
+        parentage=d.get("parentage") or "",
+        purchase_price=_f(d.get("purchase_price")), purchase_date=d.get("purchase_date") or "",
+        mutation_status=d.get("mutation_status") or "", ec_status=d.get("ec_status") or "",
+        created_at=str(d.get("created_at") or ""),
+        # Set by `_register_facts`; a row that skipped it states none of them.
+        co_owner_count=_i(d.get("co_owner_count")),
+        manager_line=d.get("manager_line") or "", manager_count=_i(d.get("manager_count")),
+        last_activity_at=d.get("last_activity_at") or "",
+        last_activity_by=d.get("last_activity_by") or "",
+        last_activity_action=d.get("last_activity_action") or "",
+        **_deed_fields(d),
     )
+
+
+async def _register_facts(conn, uid: str, rows: List[dict]) -> None:
+    """Who looks after each record, its other owners, and its newest audited
+    change — written onto the `_cards` dicts in place, for `_to_card`.
+
+    Three account-wide queries however many rows, on `_counts`' reasoning: a
+    register of forty properties asking per row is the N+1 every list read
+    here is shaped to avoid. Scoped by `owner_user_id` / `affected_owner`, so
+    only this account's own people, owners and trail are ever read."""
+    if not rows:
+        return
+    people: dict = {}
+    cur = await conn.execute(
+        "SELECT record_id, person_name, role, count(*) OVER (PARTITION BY record_id) AS n,"
+        " row_number() OVER (PARTITION BY record_id ORDER BY sort, created_at, id) AS rk"
+        " FROM record_people WHERE owner_user_id=%s", (uid,))
+    for r in await cur.fetchall():
+        if r["rk"] == 1:
+            role = (r.get("role") or "").strip()
+            people[r["record_id"]] = (
+                " · ".join(x for x in ((r.get("person_name") or "").strip(), role) if x),
+                _i(r["n"]))
+    cur = await conn.execute(
+        "SELECT record_id, name FROM record_owners WHERE owner_user_id=%s AND is_current", (uid,))
+    owners: dict = {}
+    for r in await cur.fetchall():
+        owners.setdefault(r["record_id"], set()).add(" ".join((r.get("name") or "").lower().split()))
+
+    # What was paid, by the rule the record's Money tab uses (`money`): the
+    # registrations broken out as purchase lots when there are any, else the
+    # record's own purchase_price — so the register and the tab never disagree.
+    cur = await conn.execute(
+        "SELECT record_id, sum(paid) AS paid,"
+        " (array_agg(bought_on ORDER BY sort))[1] AS first_on"
+        " FROM purchase_lots WHERE owner_user_id=%s GROUP BY record_id", (uid,))
+    lots = {r["record_id"]: r for r in await cur.fetchall()}
+
+    # The pattadar's parentage is printed on the passbook, so a parcel reads it
+    # from its khata; a built property has no passbook and states none.
+    cur = await conn.execute(
+        "SELECT id, father_husband_name FROM passbooks WHERE owner_user_id=%s", (uid,))
+    parentage = {r["id"]: (r.get("father_husband_name") or "").strip()
+                 for r in await cur.fetchall()}
+
+    # A parcel's khata edits are filed against the passbook, so a parcel's
+    # newest change is the newer of its own and its khata's.
+    ids = sorted({r["id"] for r in rows} | {r["passbook_id"] for r in rows if r.get("passbook_id")})
+    cols = "action, occurred_at, actor_principal, actor_kind, event_id"
+    # A migrated property's earlier events stay chained under its old id, so
+    # each id also reads every id aliased to it (see _trail).
+    scope = ("affected_owner=%s AND action NOT LIKE '%%_read' AND (resource_id=ids.rid"
+             " OR resource_id IN (SELECT old_id FROM record_id_aliases WHERE new_id=ids.rid))")
+    cur = await conn.execute(
+        f"SELECT ids.rid, e.* FROM unnest(%s::text[]) AS ids(rid) CROSS JOIN LATERAL ("
+        f" SELECT {cols} FROM audit_events_v2 WHERE {scope}"
+        f" UNION ALL SELECT {cols} FROM audit_outbox WHERE state='pending' AND {scope}"
+        " ORDER BY occurred_at DESC, event_id DESC LIMIT 1) e", (ids, uid, uid))
+    latest = {r["rid"]: r for r in await cur.fetchall()}
+
+    for d in rows:
+        d["parentage"] = parentage.get(d.get("passbook_id") or "", "")
+        lot = lots.get(d["id"])
+        if lot:
+            d["purchase_price"] = _f(lot.get("paid"))
+        d["purchase_date"] = (d.get("purchase_date") or d.get("reg_date")
+                              or ((lot or {}).get("first_on") or ""))
+        line, n = people.get(d["id"], ("", 0))
+        d["manager_line"], d["manager_count"] = line, n
+        # The Owners list may or may not name the pattadar too (a deed's buyer
+        # usually is them), so "other owners" are the names that are not.
+        own = " ".join((d.get("owner_name") or "").lower().split())
+        d["co_owner_count"] = len(owners.get(d["id"], set()) - {own, ""})
+        cands = [e for e in (latest.get(d["id"]), latest.get(d.get("passbook_id") or "")) if e]
+        if cands:
+            e = max(cands, key=lambda x: (str(x["occurred_at"]), str(x["event_id"])))
+            at = e["occurred_at"]
+            d["last_activity_at"] = at.isoformat() if hasattr(at, "isoformat") else str(at or "")
+            d["last_activity_by"] = _actor_word(uid, e.get("actor_principal") or "",
+                                                e.get("actor_kind") or "")
+            d["last_activity_action"] = e.get("action") or ""
 
 
 # ── Combined properties: the reads every tab shares ───────────────────
@@ -3135,9 +3837,9 @@ def _combined_extent_line(farm: float, plot: float, built: float) -> str:
     if farm:
         bits.append(f"{farm:,.2f} ac")
     if plot:
-        bits.append(f"{_in_group(plot)} Sq.yd")
+        bits.append(f"{_in_group(plot)} sq.yd")
     if built:
-        bits.append(f"{_in_group(built)} Sq.ft built")
+        bits.append(f"{_in_group(built)} sq.ft built")
     return " · ".join(bits) or "No extent recorded"
 
 
@@ -3190,6 +3892,16 @@ async def _combined_view(conn, uid: str, row: dict,
     mine = [(mid, rid, kind, sort) for (mid, rid, kind, sort) in pairs_ if rid in cards]
     ids = [rid for (_m, rid, _k, _s) in mine]
     counts = await _counts(conn, uid, ids) if ids else {}
+    await _with_holders(conn, uid, [cards[rid] for rid in ids])
+    # "Held by": who holds each member, counted. Insertion order is member
+    # order, so a tie keeps the order the owner put the properties in.
+    holders: dict = {}
+    for rid in ids:
+        gid = cards[rid].get("group_id") or ""
+        h = holders.setdefault(gid, {"name": cards[rid].get("holder_label") or OWN_NAME, "n": 0})
+        h["n"] += 1
+    held_by = [CombinedHolder(group_id=gid, name=h["name"], count=h["n"])
+               for gid, h in sorted(holders.items(), key=lambda kv: -kv[1]["n"])]
 
     farm = plot = built = worth = invested = 0.0
     papers = surveyed = parcels_n = built_n = 0
@@ -3231,7 +3943,9 @@ async def _combined_view(conn, uid: str, row: dict,
                 ground=ground,
                 sheet_title=await _fmb_sheet(conn, rid, d["title"]),
                 sheet_id=str((await _fmb_sheet_row(conn, rid)).get("id") or ""),
-                archived=bool(d.get("archived")), sort=sort))
+                archived=bool(d.get("archived")), sort=sort,
+                group_id=d.get("group_id") or "",
+                holder_label=d.get("holder_label") or OWN_NAME))
 
     # A joint sheet linked to three members is one file. Include files linked
     # directly to the combined view, even when it has lost all its members.
@@ -3245,7 +3959,7 @@ async def _combined_view(conn, uid: str, row: dict,
     papers = _i((await cur.fetchone() or {}).get("c"))
 
     return Combined(
-        id=cid, name=row.get("name") or "Combined property",
+        id=cid, name=row.get("name") or "Untitled holding",
         note=row.get("note") or "",
         member_count=len(mine), parcel_count=parcels_n, property_count=built_n,
         farm_extent=farm, plot_extent=plot, built_extent=built,
@@ -3259,7 +3973,7 @@ async def _combined_view(conn, uid: str, row: dict,
         # member record is deleted from Properties, not by anything done here.
         is_complete=len(mine) >= COMBINED_MIN_MEMBERS,
         created_at=row.get("created_at") or "", updated_at=row.get("updated_at") or "",
-        members=members)
+        members=members, held_by=held_by)
 
 
 async def _combined_member_ids(conn, uid: str, cid: str) -> List[str]:
@@ -3304,49 +4018,189 @@ async def _combined_joint_sheets(conn, uid: str, ids: List[str],
     return out
 
 
-async def _combined_members_for(conn, uid: str, record_ids: List[str],
-                                cid: str = "") -> Optional[List[tuple]]:
-    """[(record_id, kind)] when every id may join this holding, else None.
+#: The stakes a holding may be made of. Founder override of rule 3,
+#: 04/10/2026: a holding is all Mine or all Managed, never Watching and never
+#: a mix. See docs/specs/2026-09-25-combined-properties.md, "Amendment".
+COMBINED_STAKES = ("owned", "managed")
 
-    Four refusals, and all four are about what a combined property MEANS rather
-    than about types:
+#: How the refusals name a stake — the words the Properties stake chip uses.
+_COMBINED_STAKE_WORDS = {"owned": "Owned", "managed": "Managed", "watch": "Watching"}
+
+
+def _quoted(title: str) -> str:
+    return f"“{(title or '').strip() or 'A property'}”"
+
+
+async def _lock_holdings_of(conn, uid: str) -> None:
+    """One membership write per owner at a time, for the rest of this
+    transaction.
+
+    Without it, two Combine presses over the same records in a different order
+    each inserted their first member and then waited on the other's second:
+    a deadlock, not the clean "already part of" the race is meant to end in.
+    Taken first, before the exact-match read, so the press that waits sees the
+    winner's committed holding and returns that one."""
+    await conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                       (f"holdings:{uid}",))
+
+
+async def _combined_members_for(conn, uid: str, record_ids: List[str],
+                                cid: str = "") -> List[tuple]:
+    """[(record_id, kind)] when every id may join this holding; otherwise a
+    ValueError whose text is the sentence the owner reads.
+
+    Five refusals, all about what a combined property MEANS rather than about
+    types:
 
       · fewer than two records, or more than the ceiling;
       · a record that is not this account's — `_cards` is the owner-scoped read
         every other 360 surface trusts, and an id it does not return is
         answered exactly like one that does not exist;
-      · a record the account does not hold outright (`stake` managed or watch).
-        Combining land is a statement about your own holding; land you watch or
-        look after for somebody else is not yours to group, and its costs are
-        not yours to total;
+      · a record the account only watches (`stake = 'watch'`). Watched land is
+        somebody else's; there is nothing of yours to group or total;
+      · records of different stakes. A holding is ONE stake — all Mine or all
+        managed for somebody — so its totals are either your own money or the
+        money of the land you look after, never the two added together
+        (founder override of rule 3, 04/10/2026);
       · a record already inside another combined property. One acre cannot be
         in two holdings, or both would report it.
 
-    None, never a partial list: dropping the ids it did not like would build a
+    Never a partial list: dropping the ids it did not like would build a
     holding quietly short of what the owner asked for.
     """
     wanted = list(dict.fromkeys(i.strip() for i in (record_ids or []) if i and i.strip()))
-    if not (COMBINED_MIN_MEMBERS <= len(wanted) <= COMBINED_MAX_MEMBERS):
-        return None
+    if len(wanted) < COMBINED_MIN_MEMBERS:
+        raise ValueError("A holding needs at least two properties.")
+    if len(wanted) > COMBINED_MAX_MEMBERS:
+        raise ValueError(f"A holding can have at most {COMBINED_MAX_MEMBERS} properties.")
+    # Lock the member rows before reading their stakes, so a stake change
+    # (which takes the same row lock — `_guard_holding_stake`) cannot land
+    # between this check and the insert and leave the holding mixed.
+    await conn.execute(
+        "SELECT p.id FROM parcels p JOIN passbooks pb ON pb.id=p.passbook_id"
+        " WHERE pb.owner_user_id=%s AND p.id = ANY(%s) FOR SHARE OF p", (uid, wanted))
+    await conn.execute(
+        "SELECT id FROM properties WHERE owner_user_id=%s AND id = ANY(%s) FOR SHARE",
+        (uid, wanted))
     cards = {c["id"]: c for c in await _cards(conn, uid)}
     out: List[tuple] = []
+    stakes: dict = {}
     for rid in wanted:
         card = cards.get(rid)
         if not card:
-            return None
-        if (card.get("stake") or "owned") != "owned":
-            return None
+            raise ValueError("One of these properties is no longer in your account."
+                             " Reload the list and try again.")
+        stake = card.get("stake") or "owned"
+        if stake not in COMBINED_STAKES:
+            raise ValueError(
+                f"{_quoted(card.get('title'))} is land you are watching, and watched"
+                " land cannot be part of a holding.")
+        stakes.setdefault(stake, card.get("title") or "")
         out.append((rid, card["kind"]))
+    if len(stakes) > 1:
+        owned_t, managed_t = stakes.get("owned", ""), stakes.get("managed", "")
+        raise ValueError(
+            "Every property in a holding must have the same stake: all Owned or all"
+            f" Managed. {_quoted(owned_t)} is Owned and {_quoted(managed_t)} is"
+            " Managed.")
     # Locked, so a concurrent create cannot slip between this check and the
     # insert. The unique indexes are still the backstop.
     cur = await conn.execute(
-        "SELECT parcel_id, property_id FROM combined_property_members"
-        " WHERE owner_user_id=%s AND combined_property_id <> %s"
-        " AND (parcel_id = ANY(%s) OR property_id = ANY(%s)) FOR UPDATE",
+        "SELECT m.parcel_id, m.property_id, c.name FROM combined_property_members m"
+        " JOIN combined_properties c ON c.id = m.combined_property_id"
+        " WHERE m.owner_user_id=%s AND m.combined_property_id <> %s"
+        " AND (m.parcel_id = ANY(%s) OR m.property_id = ANY(%s)) FOR UPDATE OF m",
         (uid, cid, wanted, wanted))
-    if await cur.fetchone():
-        return None
+    taken = await cur.fetchone()
+    if taken:
+        rid = taken.get("parcel_id") or taken.get("property_id") or ""
+        raise ValueError(
+            f"{_quoted((cards.get(rid) or {}).get('title'))} is already part of the"
+            f" holding {_quoted(taken.get('name'))}. Take it out of that one first.")
     return out
+
+
+async def _combined_exactly(conn, uid: str, record_ids: List[str]) -> str:
+    """The id of this owner's holding whose members are exactly these records,
+    or "".
+
+    What makes createCombinedProperty safe to press twice: a retry after a
+    dropped answer, or the assistant's "Group as one holding" step run again,
+    finds the holding the first press made instead of being refused because
+    its records are 'already in another holding'. Exactly the same set, never
+    a superset — a holding with one more member is a different holding."""
+    wanted = sorted(set(i.strip() for i in (record_ids or []) if i and i.strip()))
+    if len(wanted) < COMBINED_MIN_MEMBERS:
+        return ""
+    cur = await conn.execute(
+        "SELECT combined_property_id AS cid,"
+        " array_agg(COALESCE(parcel_id, property_id)) AS ids"
+        " FROM combined_property_members WHERE owner_user_id=%s"
+        " AND combined_property_id IN (SELECT combined_property_id"
+        "   FROM combined_property_members WHERE owner_user_id=%s"
+        "   AND (parcel_id = %s OR property_id = %s))"
+        " GROUP BY combined_property_id", (uid, uid, wanted[0], wanted[0]))
+    for row in await cur.fetchall():
+        if sorted(row.get("ids") or []) == wanted:
+            return str(row["cid"])
+    return ""
+
+
+async def _guard_holding_stake(conn, uid: str, rid: str, stake: Optional[str]) -> None:
+    """Refuse a stake change on a record that is inside a holding.
+
+    A holding is one stake (see `COMBINED_STAKES`), so changing one member's
+    stake would leave it mixed — or, to Watching, holding land that is not
+    yours to group. Refused rather than quietly taking the record out: removing
+    it silently would shrink the holding (possibly below two records) and move
+    costs the owner filed against it out of view, and the owner would find out
+    only by noticing. The sentence names the holding, so the fix — take it out
+    first, then change the stake — is one the owner can make.
+
+    Takes the record's row lock, the one `_combined_members_for` waits on, so
+    a stake change and a combine cannot interleave. Run inside a transaction.
+    """
+    want = (stake or "").strip()
+    if not want or not rid or want not in _STAKES:
+        # An invalid stake is `_check_record_input`'s refusal, not this one.
+        return
+    row = await (await conn.execute(
+        "SELECT p.stake FROM parcels p JOIN passbooks pb ON pb.id=p.passbook_id"
+        " WHERE p.id=%s AND pb.owner_user_id=%s FOR UPDATE OF p", (rid, uid))).fetchone()
+    if not row:
+        row = await (await conn.execute(
+            "SELECT stake FROM properties WHERE id=%s AND owner_user_id=%s FOR UPDATE",
+            (rid, uid))).fetchone()
+    if not row or (row.get("stake") or "owned") == want:
+        return
+    has = await (await conn.execute(
+        "SELECT to_regclass('combined_property_members') AS t")).fetchone()
+    if not (has or {}).get("t"):
+        return
+    held = await (await conn.execute(
+        "SELECT c.id, c.name FROM combined_property_members m"
+        " JOIN combined_properties c ON c.id = m.combined_property_id"
+        " WHERE m.owner_user_id=%s AND (m.parcel_id=%s OR m.property_id=%s) LIMIT 1",
+        (uid, rid, rid))).fetchone()
+    if not held:
+        return
+    # A change that leaves the holding one stake is allowed: it is how a
+    # holding made before the 04/10/2026 amendment (when a member's stake could
+    # still change after combining, so it may be mixed) is put right one
+    # record at a time.
+    if want in COMBINED_STAKES:
+        others = {c["id"]: c for c in await _cards(conn, uid)}
+        rows = await (await conn.execute(
+            "SELECT COALESCE(parcel_id, property_id) AS rid FROM combined_property_members"
+            " WHERE owner_user_id=%s AND combined_property_id=%s", (uid, held["id"]))).fetchall()
+        rest = [(others.get(r["rid"]) or {}).get("stake") or "owned"
+                for r in rows if r["rid"] != rid]
+        if rest and all(s == want for s in rest):
+            return
+    raise ValueError(
+        f"This property is part of the holding {_quoted(held.get('name'))}, and every"
+        " property in a holding has the same stake. To change it, change the stake of"
+        " the whole holding (Edit the holding), or take this property out of it first.")
 
 
 async def _write_combined_members(conn, uid: str, cid: str,
@@ -3393,7 +4247,7 @@ def _combined_relation_detail(verdict: dict) -> str:
     if relation == "overlapping":
         return ("The saved outlines overlap by about"
                 f" {_metres_word(verdict['depth_m'])}. One of the two boundaries"
-                " needs checking against its paper.")
+                " needs checking against its FMB sheet.")
     if relation == "corner":
         return "They meet only near a corner, not along a boundary."
     return f"About {_metres_word(gap)} apart."
@@ -3410,12 +4264,12 @@ def _combined_fmb_caption(members: int, drawn: int, pieces: int,
     # boundary is "saved", never "surveyed" (a member is one of Pattadar's own
     # people). The claim this line exists to make is unchanged.
     if not drawn:
-        return ("No record in this view has a saved boundary yet, so there is"
+        return ("No property in this holding has a saved boundary yet, so there is"
                 " nothing to place side by side.")
     if drawn == 1:
-        return ("One record has a saved boundary. It is drawn as filed; the"
+        return ("One property has a saved boundary. It is drawn as filed; the"
                 " others need a boundary before they can sit beside it.")
-    head = f"{drawn} saved boundaries, each drawn as its own record filed it"
+    head = f"{drawn} saved boundaries, each drawn as its own property filed it"
     if any(r.relation == "overlapping" for r in relations):
         tail = (". Two of them overlap — the sources disagree and a person has"
                 " to look.")
@@ -3455,11 +4309,21 @@ class Pair:
 
 
 @strawberry.type
+class TicketAttachment:
+    """A file sent with a message: the storage node id and what it is called.
+    The bytes stay behind the gateway's own access check."""
+    file_ref: str
+    file_name: str
+    mime_type: str
+    size_bytes: int
+
+
+@strawberry.type
 class TicketEvent:
     """One line of the trail. Written at the moment it happened, headline and
     all, so code written next year cannot re-word an event from this one."""
     id: str
-    kind: str                 # status | dispatch | deliverable | filed | payment | refused
+    kind: str                 # status | message | nudge | deliverable | filed | dispatch | payment | refused
     action: str
     headline: str
     detail: str
@@ -3468,6 +4332,17 @@ class TicketEvent:
     tone: str                 # plain | up | down | accent
     at: str
     at_label: str
+    attachments: List[TicketAttachment] = strawberry.field(default_factory=list)
+
+
+@strawberry.type
+class TicketFile:
+    """One of the owner's own documents or photos that went with the order,
+    as its manifest froze it when the order was placed."""
+    id: str
+    kind: str                 # document | parcel_photo | property_photo
+    title: str
+    file_ref: str
 
 
 @strawberry.type
@@ -3585,9 +4460,9 @@ class Associate:
 
     `contact` is the real number and `contact_masked` is beside it, because
     this type is only ever returned by an `_is_admin`-guarded resolver and the
-    desk's whole job in phase 1 is to pick up the phone. Every owner-facing
-    shape — AssociateCard, AssignedPerson — carries either no number at all or
-    one that has passed the four conditions listed over AssignedPerson.
+    desk's whole job in phase 1 is to pick up the phone. The one owner-facing
+    shape, AssignedPerson, carries a number only when it has passed the four
+    conditions listed over its own definition.
 
     Ratings are owner verdicts on completed services. They are aggregated here;
     individual owner identities never leave the service trail."""
@@ -3633,28 +4508,6 @@ class Associate:
     last_offered_at: str
     note: str
     created_at: str
-
-
-@strawberry.type
-class AssociateCard:
-    """The same person, to the owner whose job is being assigned.
-
-    No contact of any kind, deliberately. An owner choosing who to put on their
-    job needs a name, a line of work and a place; the number becomes theirs
-    when somebody is actually on the job, through AssignedPerson, and not one
-    moment earlier."""
-    id: str
-    name: str
-    firm: str
-    initials: str
-    disciplines: List[str]
-    discipline_labels: List[str]
-    areas: List[str]
-    verified: bool
-    jobs_open: int
-    jobs_done: int
-    accepts_more: bool
-    why: List[str]
 
 
 @strawberry.type
@@ -3750,7 +4603,6 @@ class AssignedPerson:
     contact_masked: str
     contact_shown: bool
     contact_why: str
-    jobs_open: int
     assigned_at: str
     via: str                  # the desk | you | they took it
 
@@ -3788,6 +4640,8 @@ class DeskJob:
     last_response: str
     candidate_count: int
     stuck: bool
+    # When the owner last asked for an update (dd/mm/yyyy), '' when never.
+    asked_at: str = ""
 
 
 @strawberry.type
@@ -3939,22 +4793,42 @@ class TicketView:
     outcome_note: str
     accepted_at: str
     created_at: str
+    # The owner's legal actions, a subset of ticketing.OWNER_ACTIONS: cancel,
+    # accept, send_back, message, nudge, rate. Never a desk move.
     can: List[str]
     answers: List[Pair]
     money: TicketMoney
+    # The requester's trail: no dispatch or payment rows, no desk offer moves,
+    # no refused moves, and `detail` only on a message.
+    events: List[TicketEvent]
+    deliverables: List[TicketDeliverable]
+    ledger: List[TicketLedgerRow]
+    # `assigned_to` is None on every job whose assignee is a hand-typed name,
+    # which is what the owner's card reads to know whether it may offer a
+    # Call control at all.
+    assigned_to: Optional[AssignedPerson] = None
+    assigned_resource: Optional[AssignedResourceTrust] = None
+    my_rating: int = 0
+    my_rating_note: str = ""
+    # Whole days past `due_date` while open; 0 when on time, closed or undated.
+    overdue_days: int = 0
+    # ISO time the owner last asked Pattadar desk for an update, '' when never.
+    asked_at: str = ""
+    # The owner's own files that went with the order (its frozen manifest).
+    files: List[TicketFile] = strawberry.field(default_factory=list)
+
+
+@strawberry.type
+class DeskTicket:
+    """One order as the desk works it: the desk row, the desk's moves, the
+    whole trail with every detail, what came back, and every time it left the
+    building. The owner's page reads none of the dispatch half (service order
+    spec §7), and the desk still gets no record id, owner or ledger here."""
+    job: DeskJob
+    can: List[str]
     events: List[TicketEvent]
     deliverables: List[TicketDeliverable]
     dispatches: List[TicketDispatch]
-    ledger: List[TicketLedgerRow]
-    # W17, appended with defaults so older selection sets still parse.
-    # `assigned_to` is None on every job whose assignee is a hand-typed name,
-    # which is what the owner's card reads to know whether it may offer a
-    # Call control at all. `dispatch_state` is '' until a dispatcher exists.
-    assigned_to: Optional[AssignedPerson] = None
-    assigned_resource: Optional[AssignedResourceTrust] = None
-    dispatch_state: str = ""
-    my_rating: int = 0
-    my_rating_note: str = ""
 
 
 @strawberry.type
@@ -4032,6 +4906,22 @@ def _quoted_of(r: dict) -> float:
     return _f(r.get("quoted")) or _f(r.get("cost"))
 
 
+def _service_title(title: str) -> str:
+    """A stored service title in sentence case (naming standard N1). A
+    catalogue service is named exactly as the catalogue names it, so a proper
+    noun ("1-B / Adangal extract") survives; anything else goes through
+    `ticketing.sentence_case`.
+
+    >>> _service_title("Encumbrance Certificate"), _service_title("1-B / ADANGAL extract")
+    ('Encumbrance certificate', '1-B / Adangal extract')
+    """
+    wanted = " ".join((title or "").split()).lower()
+    for offer in SERVICE_CATALOGUE.values():
+        if offer["label"].lower() == wanted:
+            return offer["label"]
+    return ticketing.sentence_case(title)
+
+
 def _answers(kind: str, params: str) -> List[Pair]:
     """What the owner answered when ordering, under the labels the form asked
     them. A key the catalogue no longer has is shown as its own name rather
@@ -4071,6 +4961,71 @@ def _card_place(card: dict) -> str:
 
 # ── Ticket reads ──────────────────────────────────────────────────────
 
+@strawberry.input
+class MessageFile:
+    """A file already uploaded to storage, sent with a message."""
+    file_ref: str
+    file_name: str = ""
+    mime_type: str = ""
+    size_bytes: int = 0
+
+
+# A storage node id is the gateway's UUID (apps/web storage.ts isStorageRef).
+_STORAGE_REF = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
+
+
+def _message_files(files: Optional[List[MessageFile]]) -> Optional[list]:
+    """The attachment rows a message stores, or None when any one is not a
+    storage node id, is unnamed past 240 characters, or there are over ten."""
+    out = []
+    for f in files or []:
+        ref = (f.file_ref or "").strip()
+        name = (f.file_name or "").strip()
+        if not _STORAGE_REF.fullmatch(ref) or len(name) > 240 or _i(f.size_bytes) < 0:
+            return None
+        out.append({"file_ref": ref, "file_name": name or "File",
+                    "mime_type": (f.mime_type or "").strip()[:120],
+                    "size_bytes": _i(f.size_bytes)})
+    return out if len(out) <= 10 else None
+
+
+def _attachments_of(raw) -> List[TicketAttachment]:
+    try:
+        items = json.loads(raw or "[]")
+    except (TypeError, ValueError):
+        return []
+    return [TicketAttachment(
+        file_ref=str(a.get("file_ref") or ""), file_name=str(a.get("file_name") or ""),
+        mime_type=str(a.get("mime_type") or ""), size_bytes=_i(a.get("size_bytes")))
+        for a in (items if isinstance(items, list) else []) if isinstance(a, dict)]
+
+
+def _owner_sees(r: dict) -> bool:
+    """Whether a trail row belongs on the requester's page. Dispatch and
+    payment rows and the desk's offer moves are desk working (spec §3.2, §7).
+    A refused move is the machine's own language ("not a legal move"); the
+    owner's page already says a refusal beside the button that was pressed,
+    so the trail keeps it for the desk only."""
+    kind, action = r.get("kind") or "", r.get("action") or ""
+    if kind in ("dispatch", "payment"):
+        return False
+    if kind == "status" and action in ("dispatch", "withdraw"):
+        return False
+    return kind != "refused"
+
+
+def _files_of(params: str) -> List[TicketFile]:
+    """The owner's files frozen into the order's manifest at placing time."""
+    try:
+        manifest = json.loads(params or "{}").get("attachment_manifest") or {}
+        items = manifest.get("items") or []
+    except (ValueError, AttributeError):
+        return []
+    return [TicketFile(id=str(x.get("id") or ""), kind=str(x.get("kind") or ""),
+                       title=str(x.get("title") or "File"),
+                       file_ref=str(x.get("file_ref") or ""))
+            for x in items if isinstance(x, dict)]
+
 async def _ticket_row(conn, uid: str, ticket_id: str, *, lock: bool = False) -> dict:
     """One ticket, or {} — scoped by owner, so no id off the wire reaches a
     ticket the caller does not own."""
@@ -4095,14 +5050,22 @@ async def _ledger_of(conn, uid: str, ticket_id: str) -> List[dict]:
     return list(await cur.fetchall())
 
 
-def _ev(r: dict) -> TicketEvent:
+def _ev(r: dict, *, owner: bool = False) -> TicketEvent:
+    """One trail row. For the owner, `detail` is kept only on a message: the
+    stored detail of every other kind is desk working — a batch
+    ref, a record id, a dispatch note — and the trail is append-only, so old
+    rows are cut here rather than rewritten."""
     kind, action = r.get("kind") or "", r.get("action") or ""
     at = r.get("at") or ""
+    detail = r.get("detail") or ""
+    if owner and kind != "message":
+        detail = ""
     return TicketEvent(
         id=r["id"], kind=kind, action=action, headline=r.get("headline") or "",
-        detail=r.get("detail") or "", actor_label=r.get("actor_label") or "",
+        detail=detail, actor_label=r.get("actor_label") or "",
         actor_kind=r.get("actor_kind") or "", tone=ticketing.event_tone(kind, action),
-        at=at, at_label=_ddmmyyyy(at[:10]))
+        at=at, at_label=_ddmmyyyy(at[:10]),
+        attachments=_attachments_of(r.get("attachments")))
 
 
 def _dv(r: dict, ticket_kind: str) -> TicketDeliverable:
@@ -4170,13 +5133,40 @@ def _money_of(ticket: dict, rows: List[dict]) -> TicketMoney:
         honesty=ticketing.money_honesty(provider, payee))
 
 
+def _overdue_days(row: dict, status: str) -> int:
+    """Whole days an open order is past its due date; 0 otherwise."""
+    due = row.get("due_date") or ""
+    if not due or ticketing.is_closed(status):
+        return 0
+    return max(0, ticketing.days_between(due, _today()))
+
+
+def _owner_can_of(row: dict, status: str, money: "TicketMoney") -> List[str]:
+    """The owner's actions on one order: the same answer for the page's
+    buttons and for every owner write that checks them."""
+    quiet = ticketing.days_between(
+        (row.get("status_at") or row.get("created_at") or "")[:10], _today())
+    return ticketing.owner_can(
+        status, quiet_days=quiet, overdue_days=_overdue_days(row, status),
+        asked_recently=_asked_recently(row.get("asked_at") or ""),
+        unpaid=status in ("placed", "sent") and money.quoted > 0 and money.held <= 0,
+        rateable=bool((row.get("assignee_ref") or "").strip()))
+
+
+def _asked_recently(asked_at: str) -> bool:
+    """Whether the owner asked for an update in the last 24 hours. An ISO
+    string compare, chronological for this format (as `_desk_job_rows`)."""
+    cut = (datetime.now() - timedelta(hours=24)).isoformat(timespec="seconds")
+    return bool(asked_at) and asked_at > cut
+
+
 # ── Ticket writes ─────────────────────────────────────────────────────
 
 async def _event(conn, uid: str, ticket_id: str, *, kind: str, action: str = "",
                  from_status: str = "", to_status: str = "", actor: str = "",
                  actor_kind: str = "owner", actor_label: str = "You",
                  headline: str = "", detail: str = "", ref_table: str = "",
-                 ref_id: str = "") -> str:
+                 ref_id: str = "", attachments: Optional[list] = None) -> str:
     """Append one line to the ticket's trail.
 
     Nothing here is ever updated; a correction is another row. This is the file
@@ -4187,11 +5177,57 @@ async def _event(conn, uid: str, ticket_id: str, *, kind: str, action: str = "",
     await conn.execute(
         "INSERT INTO ticket_events (id, owner_user_id, ticket_id, kind, action,"
         " from_status, to_status, actor, actor_kind, actor_label, headline, detail,"
-        " ref_table, ref_id, at)"
-        " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+        " ref_table, ref_id, at, attachments)"
+        " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
         (eid, uid, ticket_id, kind, action, from_status, to_status, actor or uid,
-         actor_kind, actor_label, headline, detail, ref_table, ref_id, _now_iso()))
+         actor_kind, actor_label, headline, detail, ref_table, ref_id, _now_iso(),
+         json.dumps(attachments or [])))
     return eid
+
+
+async def _desk_task(conn, row: dict, *, kind: str, headline: str, detail: str = "",
+                     dedupe: str = "") -> None:
+    """Put one line about this order on the desk's own inbox (associates.py
+    DDL). Inside a savepoint and never raising: a desk that cannot be told
+    must not cost the owner the message or request that told it."""
+    import uuid as _uuid
+    try:
+        async with conn.transaction():
+            await conn.execute(
+                "INSERT INTO desk_tasks (id, kind, ticket_id, owner_user_id, headline,"
+                " detail, dedupe_key, created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)"
+                " ON CONFLICT (dedupe_key) WHERE dedupe_key <> '' DO NOTHING",
+                (f"dt-{_uuid.uuid4().hex[:12]}", kind, row["id"],
+                 row.get("owner_user_id") or "", headline, detail, dedupe, _now_iso()))
+    except Exception as exc:  # noqa: BLE001 — the inbox line is best-effort
+        import logging
+        logging.getLogger("pattadar.web360").warning(
+            "[desk-task-unwritten] ticket=%s kind=%s error=%s",
+            row.get("id"), kind, type(exc).__name__)
+
+
+async def _desk_row(conn, uid: str, ticket_id: str) -> dict:
+    """The desk's locked read of one order, or {} — for a non-admin exactly as
+    for an order that does not exist, so a non-admin cannot map ids. Writes
+    that follow are scoped to the row's own owner (see `_desk_ticket_row`)."""
+    if not await _is_admin(conn, uid):
+        return {}
+    row = await _desk_ticket_row(conn, ticket_id, lock=True)
+    return row if (row.get("owner_user_id") or "") else {}
+
+
+async def _unpaid(conn, owner: str, row: dict) -> bool:
+    """While payments are on, an order whose price is not held — the payment
+    failed or never happened — is not sent out or given to a provider, because
+    nobody could be paid for the work (service order spec §6, §12.9). Under the
+    stub nothing is gated: a hold is optional there and moves no money."""
+    try:
+        from . import payments
+    except ImportError:
+        import payments
+    if not payments.enabled() or _quoted_of(row) <= 0:
+        return False
+    return ticketing.held_for(await _ledger_of(conn, owner, row["id"])) <= 0
 
 
 async def _move(conn, uid: str, ticket: dict, action: str, *,
@@ -4214,6 +5250,8 @@ async def _move(conn, uid: str, ticket: dict, action: str, *,
     falls back to `uid`, which is what every owner-driven caller wants."""
     was = _status_of(ticket)
     step = ticketing.transition(was, action, actor_kind)
+    if step.get("ok") and action in ("dispatch", "assign") and await _unpaid(conn, uid, ticket):
+        step = {"ok": False, "why": "not paid yet"}
     if not step.get("ok"):
         await _event(conn, uid, ticket["id"], kind="refused", action=action,
                      from_status=was, actor=actor, actor_kind=actor_kind,
@@ -4226,7 +5264,7 @@ async def _move(conn, uid: str, ticket: dict, action: str, *,
         conn, uid, ticket["id"], kind="status", action=action, from_status=was,
         to_status=step["to"], actor=actor, actor_kind=actor_kind, actor_label=actor_label,
         headline=ticketing.event_headline("status", action, {
-            "actor_label": actor_label, "actor": actor_label,
+            "actor_label": actor_label, "actor_kind": actor_kind,
             "assignee": ticket.get("assignee") or "", "to": step["to"]}),
         detail=note or detail)
     cur = await conn.execute(
@@ -4355,8 +5393,9 @@ async def _live_dispatches(conn, uid: str, ticket_id: str) -> List[dict]:
 async def _dispatch(conn, uid: str, ticket: dict, card: dict, *, contact: str,
                     person_name: str = "", channel: str = "auto",
                     purpose: str = "invite", note: str = "",
-                    expires_days: int = 14) -> str:
-    """Write to one person on the owner's behalf and keep the copy.
+                    expires_days: int = 14, actor: str = "") -> str:
+    """Write to one person on the owner's behalf and keep the copy. `uid` is
+    the order's owner; `actor` the admin who sent it, when the desk did.
 
     Each message carries a scoped worker link. Its token hash controls expiry
     and revocation; the owner can copy the recorded message for manual delivery.
@@ -4395,7 +5434,7 @@ async def _dispatch(conn, uid: str, ticket: dict, card: dict, *, contact: str,
          (date.today() + timedelta(days=span)).strftime("%d/%m/%Y"), _now_iso(), sort, json.dumps(manifest)))
     await _event(
         conn, uid, ticket["id"], kind="dispatch", ref_table="ticket_dispatches",
-        ref_id=did,
+        ref_id=did, actor=actor, actor_kind="system", actor_label="Pattadar desk",
         headline=(f"Could not send to {person_name or ticketing.mask_contact(contact)}" if sent["status"] == "failed" else ticketing.event_headline("dispatch", "", {
             "channel": chan, "person_name": person_name or ticketing.mask_contact(contact),
             "provider": sent["provider"], "purpose": purpose})),
@@ -4467,11 +5506,9 @@ async def _file_deliverable(conn, uid: str, dv: dict, ticket: dict, card: dict) 
 # who they are — a note of what they did here, which is all this account has
 # ever seen of them.
 _TICKET_ROLE = {
-    "survey": "Surveyor", "site_visit": "Caretaker", "visit": "Caretaker",
-    "title_opinion": "Advocate", "opinion": "Advocate", "ec": "Agent",
-    "mutation": "Agent", "patta_copy": "Agent", "fencing": "Contractor",
-    "deed_copy": "Agent", "revenue_extract": "Agent", "tax_receipt": "Agent",
-    "fmb_copy": "Agent", "approval_copy": "Agent", "occupancy_copy": "Agent",
+    **{k: v["role"] for k, v in SERVICE_CATALOGUE.items()},
+    **{old: SERVICE_CATALOGUE[k]["role"] for old, k in catalogue.ALIASES.items()},
+    "fencing": "Contractor",
 }
 
 
@@ -4519,12 +5556,12 @@ async def _remember_person(conn, uid: str, ticket: dict, card: dict) -> None:
 #   `_coverage_rows`   parcels/properties, place names and counts only
 #   `_open_by_area`    work_requests, (place, kind) counts only
 #   `_roster`          associates, joined to a grouped count over work_requests
-#   `_open_jobs_of` / `_open_kinds_of`   counts per associate, nothing else
+#   `_open_kinds_of`   counts per associate, nothing else
 #
 # Every one of them is reachable only from a resolver that has already proved
-# `_is_admin` and written its `desk_read` audit row, with a single stated
-# exception — `_open_jobs_of`, described over its own definition, which the
-# owner's own picker needs and which can return nothing but integers.
+# `_is_admin` and written its `desk_read` audit row. The owner's page no longer
+# has a picker or a workload line, so nothing here is read for an owner except
+# `_roster` by the ids already on that owner's own rows (`_owner_assignee_proofs`).
 #
 # `_candidates_from` and `_coverage_cells` read no database at all: they run
 # the pure rules in associates.py over rows one of the above already fetched.
@@ -4552,18 +5589,17 @@ _GRAIN_WORD = {
     "state": "anywhere in the state",
 }
 
-#: Both `kind` vocabularies in one map, for the same reason associates.py
-#: carries both: SERVICE_CATALOGUE writes ec/survey/site_visit/title_opinion/
-#: mutation/patta_copy and create_request writes survey/opinion/visit/fencing
-#: into the same column.
+#: Every `kind` the column holds: catalogue keys, their legacy aliases (as
+#: their service), and the two kinds that are not catalogue services. Baseline
+#: labels: the readers below have no place to resolve a scope's label for.
 _KIND_LABEL = {k: str(v.get("label") or k) for k, v in SERVICE_CATALOGUE.items()}
-_KIND_LABEL.update({"opinion": "Title opinion", "visit": "Site visit",
-                    "fencing": "Fencing", "errand": "Errand"})
+_KIND_LABEL.update({old: _KIND_LABEL[k] for old, k in catalogue.ALIASES.items()})
+_KIND_LABEL.update({"fencing": "Fencing", "errand": "Errand"})
 
 # One stable name for a service everywhere it can be raised. The older custom
 # request path called two catalogue services `opinion` and `visit`; treating
 # those as different keys is how the same work could be opened twice.
-_SERVICE_KIND_ALIASES = {"opinion": "title_opinion", "visit": "site_visit"}
+_SERVICE_KIND_ALIASES = catalogue.ALIASES
 
 
 def canonical_service_kind(kind: str) -> str:
@@ -4767,6 +5803,102 @@ def _governance_policy(row: dict) -> GovernancePolicy:
         published_by=row.get("published_by") or "", published_at=row.get("published_at") or "")
 
 
+def _catalogue_set(row: dict) -> CatalogueSet:
+    return CatalogueSet(
+        id=row.get("id") or "", scope_key=row.get("scope_key") or "",
+        state_code=row.get("state_code") or "*", district_code=row.get("district_code") or "*",
+        revision=_i(row.get("revision")),
+        status=row.get("status") or "", document=row.get("document") or "{}",
+        source_digest=row.get("source_digest") or "",
+        created_by=row.get("created_by") or "", created_at=row.get("created_at") or "",
+        published_by=row.get("published_by") or "", published_at=row.get("published_at") or "")
+
+
+def _state_code_of(card: Optional[dict]) -> str:
+    """The catalogue/governance state code for a record, as
+    services/api/data/states.csv spells it. Records store state NAMES; the two
+    states served are mapped, a record with no state is treated as AP (the
+    first market), and any other name as the country."""
+    name = str((card or {}).get("state") or "").strip().lower()
+    if not name or name in {"ap", "andhra pradesh"}:
+        return "AP"
+    return "TS" if name in {"ts", "tg", "telangana"} else "*"
+
+
+def _catalogue_document(row: Optional[dict]) -> dict:
+    try:
+        doc = json.loads((row or {}).get("document") or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return doc if isinstance(doc, dict) else {}
+
+
+async def _catalogue_published(conn, state: str, district: str = "*") -> list[dict]:
+    """The published revision at the country, the state and the district (each
+    if any), widest first, so the nearest place's price wins."""
+    rows = []
+    for key in catalogue.scope_chain(state, district):
+        row = await (await conn.execute(
+            "SELECT * FROM service_catalogue_sets WHERE scope_key=%s AND status='published'"
+            " ORDER BY revision DESC LIMIT 1", (key,))).fetchone()
+        if row:
+            rows.append(row)
+    return rows
+
+
+async def _effective_catalogue(conn, state: str, district: str = "*") -> tuple[dict, str]:
+    """(offers by key, revision tag) as owners in `state` / `district` are
+    offered them. A service not offered there comes back `enabled: False`,
+    so every caller that hides or refuses a switched-off service does the
+    same for one offered elsewhere."""
+    rows = await _catalogue_published(conn, state, district)
+    layers = [(r["scope_key"], _catalogue_document(r)) for r in rows]
+    offers = catalogue.effective(SERVICE_CATALOGUE, layers)
+    for offer in offers.values():
+        offer["enabled"] = catalogue.offered_in(offer, state, district)
+    return offers, catalogue.revision_tag(rows)
+
+
+async def _catalogue_offer(conn, uid: str, kind: str, record_id: str = "") -> dict:
+    """The effective entry for `kind` (or a legacy alias of it) where this
+    owner's record is, with `enabled` and the pricing `revision`; {} when the
+    kind is not a catalogue service. Without a record it is the Andhra Pradesh
+    catalogue, as an unscoped `servicesOffered` shows it."""
+    key = canonical_service_kind(kind)
+    if key not in SERVICE_CATALOGUE:
+        return {}
+    state, district = "AP", "*"
+    if record_id:
+        card = next((c for c in await _cards(conn, uid) if c.get("id") == record_id), None)
+        if card:
+            state = _state_code_of(card)
+            if state != "*":
+                district = str(card.get("district") or "*")
+    offers, tag = await _effective_catalogue(conn, state, district)
+    return {**offers[key], "key": key, "revision": tag}
+
+
+async def _record_catalogue_event(conn, row: dict, actor: str, action: str, detail: str) -> None:
+    await conn.execute(
+        "INSERT INTO service_catalogue_events"
+        " (id,set_id,scope_key,revision,actor,action,detail,source_digest,created_at)"
+        " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+        ("sce-" + secrets.token_hex(8), row.get("id") or "", row.get("scope_key") or "",
+         _i(row.get("revision")), actor, action, detail[:4000],
+         row.get("source_digest") or "", _now_iso()))
+
+
+def _catalogue_entries(offers: dict) -> List[CatalogueEntry]:
+    return sorted((CatalogueEntry(
+        key=k, label=str(v["label"]), group=str(v["group"]), blurb=str(v["blurb"]),
+        price=_f(v["price"]), days=_i(v.get("days")), enabled=bool(v.get("enabled", True)),
+        source=str(v.get("source") or ""),
+        states=list((v.get("areas") or {}).get("states") or []),
+        districts=list((v.get("areas") or {}).get("districts") or []),
+        deliverable=str(v.get("deliverable") or "")) for k, v in offers.items()),
+        key=lambda e: (e.group, e.label))
+
+
 async def _policy_row(conn, country_code: str, state_code: str, district_code: str,
                       mandal_code: str = "*", village_code: str = "*",
                       published_only: bool = True) -> dict:
@@ -4862,7 +5994,8 @@ async def _desk_audit(conn, uid: str, action: str, target: str,
 
 
 async def _audit(conn, uid: str, action: str, record_id: str, detail: str = "",
-                 label: str = "") -> None:
+                 label: str = "", metadata: Optional[dict] = None, *, actor: str = "",
+                 actor_kind: str = "") -> None:
     """Record one change to a record on the shared audit trail.
 
     `target` is the record id, so the record's Audit tab can read every event
@@ -4903,8 +6036,16 @@ async def _audit(conn, uid: str, action: str, record_id: str, detail: str = "",
                 kind = await _record_kind(conn, uid, record_id)
                 if kind:
                     name = await _record_label(conn, kind, record_id)
+            # `metadata` is filtered against the action's allowlist in
+            # audit.filter_metadata, so only declared keys reach the envelope.
+            meta = {k: v for k, v in (metadata or {}).items() if v not in (None, "")}
+            if name:
+                meta["label"] = name
+            # `actor` acted FOR the owner `uid` (an operator's script): the
+            # envelope names them; the legacy words stay on the owner's trail.
             await _main.log_audit(conn, uid, action, record_id, detail,
-                                  metadata={"label": name} if name else None)
+                                  actor_principal=actor, actor_kind=actor_kind,
+                                  metadata=meta or None)
     except Exception:                     # noqa: BLE001 — never block the write
         pass
 
@@ -4947,10 +6088,15 @@ async def _trail(conn, uid: str, record_id: str, action: str = "") -> List[dict]
     The two stores are written one row each per `log_audit` call, in order, so
     they are paired by position within a slot: the action, plus the corrected
     field label when there is one, so two edits to two fields in the same save
-    cannot swap their old values."""
-    scope = ("affected_owner=%s AND resource_id=%s AND action "
+    cannot swap their old values.
+
+    A property whose id was migrated keeps its earlier events under the old
+    id (the chain cannot be rewritten), so every id aliased to it is read too."""
+    cur = await conn.execute("SELECT old_id FROM record_id_aliases WHERE new_id=%s", (record_id,))
+    ids = [record_id] + [r["old_id"] for r in await cur.fetchall()]
+    scope = ("affected_owner=%s AND resource_id = ANY(%s) AND action "
              + ("= %s" if action else "NOT LIKE '%%_read'"))
-    args = [uid, record_id] + ([action] if action else [])
+    args = [uid, ids] + ([action] if action else [])
     cols = "event_id, action, occurred_at, actor_principal, actor_kind, metadata"
     cur = await conn.execute(
         f"SELECT {cols} FROM audit_events_v2 WHERE {scope}"
@@ -4960,7 +6106,7 @@ async def _trail(conn, uid: str, record_id: str, action: str = "") -> List[dict]
 
     said: dict = {}
     cur = await conn.execute(
-        "SELECT action, details FROM audit_events WHERE actor=%s AND target=%s AND action "
+        "SELECT action, details FROM audit_events WHERE actor=%s AND target = ANY(%s) AND action "
         + ("= %s" if action else "NOT LIKE '%%_read'")
         + " ORDER BY timestamp DESC, id DESC LIMIT 200", tuple(args))
     for r in await cur.fetchall():
@@ -4988,35 +6134,12 @@ async def _trail(conn, uid: str, record_id: str, action: str = "") -> List[dict]
             "by": r["actor_principal"], "kind": r.get("actor_kind") or "", "detail": detail,
             "field": str(meta.get("field") or values.get("field") or ""),
             "was": str(values.get("from") or ""), "now": str(values.get("to") or ""),
+            "meta": meta if isinstance(meta, dict) else {},
         })
     return out
 
 
 # ── Reading the roster ────────────────────────────────────────────────
-
-async def _open_jobs_of(conn, ids: List[str]) -> dict:
-    """{associate_id: (open, done)} — how many jobs each of these people holds.
-
-    This is the one cross-owner read of `work_requests` that is not behind the
-    admin gate, and the exception is stated rather than hidden: it returns two
-    integers per associate and it is physically incapable of returning a row,
-    an owner, a place or a rupee. "Is this person free" is a fact about the
-    person, not about anybody's land, and the owner's own picker cannot honestly
-    say "takes more work" without it.
-
-    A COUNT, every time, and never a stored counter — see AssociateDiscipline.
-    """
-    if not ids:
-        return {}
-    cur = await conn.execute(
-        "SELECT assignee_ref,"
-        " COUNT(*) FILTER (WHERE closed = false) AS open_jobs,"
-        " COUNT(*) FILTER (WHERE closed = true)  AS done_jobs"
-        " FROM work_requests WHERE assignee_ref = ANY(%s) GROUP BY assignee_ref",
-        (list(ids),))
-    return {r["assignee_ref"]: (_i(r.get("open_jobs")), _i(r.get("done_jobs")))
-            for r in await cur.fetchall()}
-
 
 async def _open_kinds_of(conn, ids: List[str]) -> dict:
     """{associate_id: {kind: n}} — what the jobs in their hands actually are.
@@ -5253,9 +6376,8 @@ def _associate_of(row: dict, today: str) -> Associate:
     either — a number that does not dial, in the one field a client will hand
     to a tel: link. So the two are separate fields and the client chooses.
 
-    Every owner-facing shape is the other way round: AssociateCard has no
-    contact field at all, and AssignedPerson fills one only when the four
-    conditions over its own definition hold."""
+    The owner-facing shape is the other way round: AssignedPerson fills one
+    only when the four conditions over its own definition hold."""
     per = _attribute_open(row)
     state = row.get("state") or "invited"
     ok, why = _dispatch_view(row, today)
@@ -5416,7 +6538,8 @@ def _desk_job_of(row: dict, *, place: tuple, held: float, assignee: Optional[dic
         # Phase 1 makes no offers and runs no timer. These four are the shape
         # the client renders in both phases and the honest answer in this one.
         next_round_at="", offers_out=0, offers_declined=0, last_response="",
-        candidate_count=candidates, stuck=bool(waiting and not candidates))
+        candidate_count=candidates, stuck=bool(waiting and not candidates),
+        asked_at=_ddmmyyyy((row.get("asked_at") or "")[:10]))
 
 
 def _candidates_from(roster: List[dict], kind: str, area_key: str,
@@ -5553,7 +6676,7 @@ def _assigned_resource_of(row: dict, certificates: List[dict], kind: str,
         firm=row.get("firm") or "", initials=_initials(row.get("name") or ""),
         role=associates.label_of(discipline) if discipline else "Pattadar associate",
         rating_average=round(_f(row.get("rating_average")), 2),
-        rating_count=_i(row.get("rating_count")), jobs_open=_i(row.get("open_jobs")),
+        rating_count=_i(row.get("rating_count")),
         professional_verified=any(c.state in ("verified", "expiring") for c in professional),
         professional_credentials=professional, training_certificates=training)
 
@@ -5596,30 +6719,17 @@ async def _desk_ticket_row(conn, ticket_id: str, *, lock: bool = False) -> dict:
     return dict(await cur.fetchone() or {})
 
 
-def _desk_actor(status: str, action: str) -> str:
-    """Which actor_kind the desk may move a ticket as.
-
-    `ticketing.TRANSITIONS` carries `"system"` on the pairs a desk or a
-    dispatcher is meant to move — placed→assigned, assigned→placed,
-    on_site→placed and the dispatch and cancel pairs — so those moves are
-    recorded as what they are rather than as something the owner did.
-
-    Three pairs deliberately do NOT carry it. `("sent","assign")` belongs to
-    the worker accepting an offer, and `("assigned","assign")` and
-    `("changes", …)` are the owner's own corrections. The desk still has to be
-    able to put somebody on a job that is out with three people, so the kind
-    asked for degrades to `owner` on those rather than refusing outright —
-    `actor_label` stays "Pattadar desk" either way, so the trail never claims
-    the owner did it, and the ticket never silently fails to move because the
-    operator pressed the button one status too late."""
-    if ticketing.transition(status, action, "system").get("ok"):
-        return "system"
-    return "owner"
-
-
 # ── Where the work is, and who covers it ──────────────────────────────
 
 _STATE_NOT_RECORDED = "State not recorded"
+
+
+def _person_hit_route(record_id: str, person_id: str) -> str:
+    """Where a person found by the jump box opens: their record's People tab,
+    on the Caretakers & staff side (record_people holds nobody else), with
+    their drawer open. The bare tab opens on Owners, where they are not."""
+    return (f"/properties/{quote(str(record_id), safe='')}/people"
+            f"?section=staff&person={quote(str(person_id), safe='')}")
 
 
 def _coverage_scope_key(level: str, state_key: str, district_key: str = "",
@@ -5775,11 +6885,10 @@ _MODE_WORD = {"off": "Off — the desk sends everything by hand",
               "shadow": "Proposing only — nothing is sent",
               "live": "Sending offers"}
 
-#: Which statuses let the OWNER see the number of whoever is on their job.
-#: `accepted` is in deliberately: the moment an owner is most likely to phone
-#: somebody is right after the work has come back.
-_CONTACT_STATUSES = frozenset(
-    ("assigned", "on_site", "submitted", "changes", "accepted"))
+#: Which statuses let the OWNER see the number of whoever is on their job:
+#: while it is open. Work that has come back is `submitted`, which is in; a
+#: closed order no longer carries the number (service order spec §4).
+_CONTACT_STATUSES = frozenset(("assigned", "on_site", "submitted", "changes"))
 
 
 def _parse_areas(entries: List[str]) -> List[tuple]:
@@ -5855,7 +6964,7 @@ async def _take_off_job(conn, owner: str, row: dict, *, reason: str, actor: str,
     """Take whoever is on this job off it, and put the job back on the queue.
 
     The identity is cleared AFTER the move, so the trail line can still say who
-    came off — the same order, and the same reason, as `assign_request`.
+    came off — the same order, and the same reason, as `_put_on_job`.
 
     Nothing here touches money. The job goes back to 'placed' with whatever
     was set aside still set aside against it, and no ledger row is written in
@@ -5886,7 +6995,7 @@ async def _assigned_person(conn, uid: str, row: dict) -> Optional[AssignedPerson
 
     The unmasked number is granted on four conditions all holding: the caller
     owns the ticket (this is only ever called from the owner-scoped `ticket`
-    resolver), the job is live or freshly accepted, `assignee_ref` points at a
+    resolver), the order is open, `assignee_ref` points at a
     real associate, and that associate agreed at enrolment that an owner may
     see their number while they are on that owner's job.
 
@@ -5909,7 +7018,7 @@ async def _assigned_person(conn, uid: str, row: dict) -> Optional[AssignedPerson
         why = ("They asked that their number not be shared. "
                "Send them a message instead and Pattadar does the writing.")
     elif not live:
-        why = "This job is closed, so their number is no longer shown."
+        why = "This order is closed, so their number is no longer shown."
     # Which line of work this job actually is, so the card can say "Licensed
     # surveyor" rather than repeating the service name back at the owner. The
     # best fit for the kind first; failing that, whatever they do at all,
@@ -5931,7 +7040,6 @@ async def _assigned_person(conn, uid: str, row: dict) -> Optional[AssignedPerson
     kind = (ev.get("actor_kind") or "").strip()
     via = ("the desk" if (kind == "system" or label == "Pattadar desk")
            else "they took it" if kind == "worker" else "you")
-    open_jobs = (await _open_jobs_of(conn, [aid])).get(aid, (0, 0))[0]
     return AssignedPerson(
         associate_id=aid, name=assoc.get("name") or "", firm=assoc.get("firm") or "",
         initials=_initials(assoc.get("name") or ""), discipline=discipline,
@@ -5939,9 +7047,353 @@ async def _assigned_person(conn, uid: str, row: dict) -> Optional[AssignedPerson
         contact=contact if (visible and live) else "",
         contact_masked=associates.mask_contact(contact),
         contact_shown=bool(visible and live and contact), contact_why=why,
-        jobs_open=open_jobs,
         assigned_at=_ddmmyyyy((ev.get("at") or row.get("status_at") or "")[:10]),
         via=via)
+
+
+# ── The property master record: Overview read model ──────────────────
+# docs/specs/2026-10-11-property-overview.md §3. The values live in the
+# record's own columns (record_master); these types say where each came from.
+
+@strawberry.type
+class RecordFieldSource:
+    source: str            # deed_reading | public_record | passbook_reading | manual | legacy
+    label: str             # owner words: "Deed 1576/1989", "Public record", "You entered"
+    source_ref: str
+    document_id: str       # the filed deed's documents.id, when the source is one
+    set_at: str
+    confidence: str        # high | medium | low from a reading; '' otherwise
+    # A deed reading not yet bound to its paper: the reading's job id (never a
+    # paper to link to); '' otherwise.
+    reading_job_id: str = ""
+
+
+@strawberry.type
+class RecordFieldClaim:
+    id: str
+    value: str
+    display: str
+    source: RecordFieldSource
+
+
+@strawberry.type
+class RecordField:
+    key: str
+    group: str             # identity | physical | title | status
+    label: str
+    value: str
+    display: str
+    important: bool
+    how_to_fill: str
+    source: Optional[RecordFieldSource]
+    conflicts: List[RecordFieldClaim]
+
+
+@strawberry.type
+class AcquisitionParty:
+    name: str
+    parentage: str
+    role: str
+    relationship: str
+    share_num: int
+    share_den: int
+    is_gpa: bool
+
+
+@strawberry.type
+class RecordAcquisition:
+    mode: str
+    mode_label: str
+    registered: str
+    doc_no: str
+    reg_date: str
+    exec_date: str
+    sro: str
+    consideration: float
+    govt_value: float
+    stamp_duty: float
+    proof_no: str
+    transfer_id: str
+    deed_document_id: str
+    from_parties: List[AcquisitionParty]
+    to_parties: List[AcquisitionParty]
+    chain_length: int
+    source: Optional[RecordFieldSource]
+
+
+@strawberry.type
+class RecordSummary:
+    paper_count: int
+    newest_paper: str
+    newest_paper_at: str
+    feature_count: int
+    feature_attention: int
+    owner_count: int
+    has_pin: bool
+    has_outline: bool
+    photo_count: int
+    media_count: int
+    note_count: int
+    newest_note_at: str
+    services_open: int
+    services_done: int
+    paid_total: float
+    market_total: float
+    newest_activity: str
+    newest_activity_at: str
+
+
+@strawberry.type
+class ConvertTarget:
+    """What convertRecordKind would do to this property, decided by the same
+    code (_convert_plan): the extent in its own unit and in acres, and the
+    khata — the owner's existing one (reuse) or a new one carrying khata_no."""
+    reuse: bool
+    khata_no: str
+    village: str
+    from_area: float
+    from_unit: str
+    acres: float
+
+
+@strawberry.type
+class ComplianceCheck:
+    """One line of the Overview's compliance check (compliance.evaluate).
+    status: pass | warn | fail | unknown. action: add | upload | order | none;
+    field_key names the field an Add opens, service_kind the catalogue
+    service an Order presets."""
+    key: str
+    label: str
+    status: str
+    detail: str
+    action: str
+    field_key: str
+    service_kind: str
+
+
+@strawberry.type
+class RecordCompliance:
+    checked_at: str
+    passed: int
+    total: int
+    checks: List[ComplianceCheck]
+
+
+@strawberry.type
+class RecordOverview:
+    id: str
+    fields: List[RecordField]
+    acquisition: Optional[RecordAcquisition]
+    summary: RecordSummary
+    conflict_count: int
+    missing: List[RecordField]
+    # D1: 'parcel' when a property reads as farmland saved as a plot, with the
+    # reason in words; the Overview asks the owner, and convertRecordKind moves it.
+    suggest_kind: str = ""
+    suggest_reason: str = ""
+    # A property's move to the farmland register, previewed; None for a parcel,
+    # or when its unit cannot convert (the move itself then says why).
+    convert_target: Optional[ConvertTarget] = None
+    compliance: Optional[RecordCompliance] = None
+
+
+@strawberry.input
+class FieldValueInput:
+    key: str
+    value: str
+
+
+@strawberry.input
+class AcquisitionPartyInput:
+    name: str
+    parentage: str = ""
+    relationship: str = ""
+    role: str = ""
+    share_num: int = 0
+    share_den: int = 0
+
+
+@strawberry.input
+class AcquisitionInput:
+    mode: str
+    registered: str = ""
+    doc_no: str = ""
+    reg_date: str = ""
+    exec_date: str = ""
+    sro: str = ""
+    consideration: float = 0
+    govt_value: float = 0
+    stamp_duty: float = 0
+    proof_no: str = ""
+    from_parties: List[AcquisitionPartyInput] = strawberry.field(default_factory=list)
+
+
+def _src_type(s: Optional[dict]) -> Optional[RecordFieldSource]:
+    return RecordFieldSource(**s) if s else None
+
+
+def _field_type(f: dict) -> RecordField:
+    return RecordField(
+        key=f["key"], group=f["group"], label=f["label"], value=f["value"],
+        display=f["display"], important=f["important"], how_to_fill=f["how_to_fill"],
+        source=_src_type(f["source"]),
+        conflicts=[RecordFieldClaim(id=c["id"], value=c["value"], display=c["display"],
+                                    source=_src_type(c["source"])) for c in f["conflicts"]])
+
+
+#: A property's papers: filed on it, or linked to it. Args (uid, rid, rid, rid, rid).
+_PAPER_SCOPE = ("d.owner_user_id=%s AND (d.record_id=%s OR"
+                " d.parcel_id=%s OR d.property_id=%s OR EXISTS (SELECT 1 FROM"
+                " document_record_links l WHERE l.owner_user_id=d.owner_user_id"
+                " AND l.document_id=d.id AND l.record_id=%s))")
+
+
+async def _record_compliance(conn, uid: str, rid: str, kind: str, o: dict,
+                             has_outline: bool) -> RecordCompliance:
+    """The facts compliance.evaluate needs, read in three owner-scoped
+    queries, plus the property's governance checklist (most specific published
+    policy for its state/district/mandal/village). Computed on every read."""
+    vals = {f["key"]: f["value"] for f in o["fields"]}
+    deed_id = (o.get("acquisition") or {}).get("deed_document_id") or ""
+    # A map is a filed FMB or survey sketch: the Map shelf, or a paper typed as one.
+    # Optional columns go through to_jsonb so an older table without them reads ''.
+    dt = "concat_ws(' ', to_jsonb(d)->>'doc_type', to_jsonb(rd)->>'doc_type')"
+    cur = await conn.execute(
+        "SELECT count(DISTINCT d.id) FILTER (WHERE d.shelf='title') AS t,"
+        " count(DISTINCT d.id) FILTER (WHERE d.shelf='revenue') AS r,"
+        f" count(DISTINCT d.id) FILTER (WHERE d.shelf='map' OR {dt} ~* '(\\mfmb\\M|survey[ _-]*sketch)') AS m,"
+        " coalesce(bool_or(d.id=%s), false) AS deed,"
+        f" coalesce(bool_or(concat_ws(' ', d.name, {dt}) ~* '(legal[ _-]*heir|succession)'), false) AS heir,"
+        r" coalesce(bool_or(d.name ~* '(encumbrance|\mEC\M)' OR rd.doc_type ~* '^encumbrance'), false) AS ec,"
+        " coalesce(jsonb_agg(DISTINCT jsonb_build_object('name', d.name, 'shelf', d.shelf,"
+        f" 'doc_type', {dt}, 'date', coalesce(nullif(to_jsonb(d)->>'registered_on', ''),"
+        " nullif(to_jsonb(rd)->>'registration_date', ''), nullif(to_jsonb(d)->>'reg_year', ''), '')))"
+        f" FILTER (WHERE concat_ws(' ', d.name, {dt}) ~* 'tax'), '[]'::jsonb) AS tax"
+        " FROM documents d LEFT JOIN registered_documents rd ON rd.id=d.reading_id"
+        " AND rd.owner_user_id=d.owner_user_id WHERE " + _PAPER_SCOPE,
+        (deed_id or None, uid, rid, rid, rid, rid))
+    p = await cur.fetchone() or {}
+    tax_papers = p.get("tax") or []
+    if isinstance(tax_papers, str):
+        tax_papers = json.loads(tax_papers)
+    cur = await conn.execute(
+        "SELECT coalesce(array_agg(spent_on) FILTER (WHERE has_receipt), '{}') AS dates FROM land_expenses"
+        " WHERE owner_user_id=%s AND entity_id=%s AND (category ~* 'tax' OR title ~* 'tax')"
+        " AND NOT (concat_ws(' ', category, title) ~* '(income|demand|notice)')",
+        (uid, rid))
+    tax_expense = list((await cur.fetchone() or {}).get("dates") or [])
+    # A level below an unknown one cannot be a scope (normalize_scope), so
+    # the walk stops at the first gap.
+    levels, gap = [], False
+    for k in ("district", "mandal", "village"):
+        gap = gap or not vals.get(k, "").strip()
+        levels.append("*" if gap else vals[k])
+    row = await _policy_row(conn, "IN", _state_code_of(vals), *levels)
+    checklist = None
+    if row:
+        try:
+            doc = row.get("document") or "{}"
+            checklist = governance.record_checklist(
+                json.loads(doc) if isinstance(doc, str) else doc, kind, vals.get("classification", ""))
+        except ValueError:
+            checklist = None
+    checks = compliance.evaluate(
+        kind, vals, o.get("claims") or {}, o["acquisition"],
+        {"title_papers": _i(p.get("t")), "revenue_papers": _i(p.get("r")),
+         "map_papers": _i(p.get("m")), "deed_paper": bool(p.get("deed")),
+         "heir_paper": bool(p.get("heir")), "ec_paper": bool(p.get("ec")), "tax_papers": tax_papers,
+         "tax_expense": tax_expense, "has_outline": has_outline,
+         "passbook_owner": o.get("passbook_owner") or ""},
+        checklist, date.today())
+    return RecordCompliance(
+        checked_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        passed=sum(c["status"] == "pass" for c in checks), total=len(checks),
+        checks=[ComplianceCheck(**c) for c in checks])
+
+
+async def _record_summary(conn, uid: str, rid: str, kind: str) -> RecordSummary:
+    """One line per tab, for the Overview's strip. Each figure is the same
+    read its tab makes, so the strip and the tab cannot disagree."""
+    async def one(sql: str, args: tuple) -> dict:
+        cur = await conn.execute(sql, args)
+        return await cur.fetchone() or {}
+
+    paper_scope = "FROM documents d WHERE " + _PAPER_SCOPE
+    pargs = (uid, rid, rid, rid, rid)
+    papers = await one(f"SELECT count(DISTINCT d.id) AS c {paper_scope}", pargs)
+    newest = await one(f"SELECT d.name, d.created_at {paper_scope}"
+                       " ORDER BY d.created_at DESC LIMIT 1", pargs)
+    feats = await one("SELECT count(*) AS c, count(*) FILTER (WHERE condition_state IN"
+                      " ('warn','bad')) AS bad FROM land_features WHERE entity_id=%s", (rid,))
+    owners = await one("SELECT count(*) AS c FROM record_owners WHERE owner_user_id=%s"
+                       " AND record_id=%s AND is_current", (uid, rid))
+    photos = await one(f"SELECT count(*) AS c FROM {_photo_table(kind)}"
+                       f" WHERE {_photo_key(kind)}=%s AND media_kind='photo'", (rid,))
+    media = await one(f"SELECT count(*) AS c FROM {_photo_table(kind)}"
+                      f" WHERE {_photo_key(kind)}=%s AND owner_user_id=%s", (rid, uid))
+    notes = await one("SELECT count(*) AS c, max(created_at) AS at FROM notes"
+                      " WHERE entity_id=%s AND owner_user_id=%s", (rid, uid))
+    services = await one("SELECT count(*) FILTER (WHERE NOT closed) AS o,"
+                         " count(*) FILTER (WHERE closed) AS d FROM work_requests"
+                         " WHERE entity_id=%s", (rid,))
+    table = "parcels" if kind == "parcel" else "properties"
+    row = await one(f"SELECT * FROM {table} WHERE id=%s", (rid,))
+    # Bought in lots: what the lots say was paid; otherwise the deed's price.
+    lots = await one("SELECT coalesce(sum(paid),0) AS p FROM purchase_lots WHERE record_id=%s",
+                     (rid,))
+    trail = await _trail(conn, uid, rid)
+    act = trail[0] if trail else {}
+    act_line = (f"{act['field']} changed" if act.get("action") == "record.corrected" and act.get("field")
+                else act.get("detail") or "")
+    market = _f(row.get("current_value")) or _f(row.get("market_value"))
+    return RecordSummary(
+        paper_count=_i(papers.get("c")), newest_paper=newest.get("name") or "",
+        newest_paper_at=newest.get("created_at") or "",
+        feature_count=_i(feats.get("c")), feature_attention=_i(feats.get("bad")),
+        owner_count=_i(owners.get("c")),
+        has_pin=bool(_txt(row.get("geo_point"))), has_outline=bool(_ring(row.get("boundary") or "")),
+        photo_count=_i(photos.get("c")), media_count=_i(media.get("c")),
+        note_count=_i(notes.get("c")),
+        newest_note_at=notes.get("at") or "",
+        services_open=_i(services.get("o")), services_done=_i(services.get("d")),
+        paid_total=_f(lots.get("p")) or _f(row.get("purchase_price")), market_total=market,
+        newest_activity=act_line if act else "", newest_activity_at=act.get("at") or "")
+
+
+async def _record_overview(conn, uid: str, rid: str) -> Optional[RecordOverview]:
+    kind = await _record_kind(conn, uid, rid)
+    if not kind:
+        return None
+    o = await rm.overview(conn, uid, rid, kind)
+    a = o["acquisition"]
+    acq = None
+    if a:
+        party = lambda p: AcquisitionParty(**p)  # noqa: E731
+        acq = RecordAcquisition(
+            **{k: v for k, v in a.items() if k not in ("from_parties", "to_parties", "source")},
+            from_parties=[party(p) for p in a["from_parties"]],
+            to_parties=[party(p) for p in a["to_parties"]], source=_src_type(a["source"]))
+    reason, target = "", None
+    if kind == "property":
+        cur = await conn.execute("SELECT * FROM properties WHERE id=%s", (rid,))
+        prop = await cur.fetchone() or {}
+        ref = prop.get("source_ref") or ""
+        reason = rm.farmland_reason(
+            prop, await rm.public_record_row(conn, ref) if ref.startswith("pr:") else None)
+        try:
+            plan = await _convert_plan(conn, uid, prop)
+            target = ConvertTarget(reuse=bool(plan["pb_id"]), khata_no=plan["khata"],
+                                   village=plan["village"], from_area=plan["area"],
+                                   from_unit=plan["unit"], acres=plan["acres"])
+        except ValueError:
+            pass
+    summary = await _record_summary(conn, uid, rid, kind)
+    return RecordOverview(
+        id=rid, fields=[_field_type(f) for f in o["fields"]], acquisition=acq,
+        summary=summary,
+        conflict_count=o["conflict_count"], missing=[_field_type(f) for f in o["missing"]],
+        suggest_kind="parcel" if reason else "", suggest_reason=reason, convert_target=target,
+        compliance=await _record_compliance(conn, uid, rid, kind, o, summary.has_outline))
 
 
 @strawberry.type
@@ -5968,7 +7420,7 @@ class WebQuery:
             # "Where the value sits" — grouped by village, never stored.
             by_village: dict = {}
             for r in rows:
-                key = r["village"] or r["district"] or "Unplaced"
+                key = r["village"] or r["district"] or "Village not set"
                 by_village[key] = by_village.get(key, 0.0) + r["market_value"]
             ranked = sorted(by_village.items(), key=lambda kv: -kv[1])[:6]
             top = ranked[0][1] if ranked else 1.0
@@ -6076,6 +7528,7 @@ class WebQuery:
             shown_ids = [r["id"] for r in rows[:4]]
             countmap = await _counts(conn, uid, shown_ids)
             heroes = await _paper_heroes(conn, uid, shown_ids)
+            await _with_holders(conn, uid, rows[:4])
             recent = [_to_card(r, tags.get(r["id"], []), covers.get(r["id"], ""),
                                countmap.get(r["id"]), heroes.get(r["id"], ""))
                       for r in rows[:4]]
@@ -6137,6 +7590,73 @@ class WebQuery:
             return _governance_policy(row) if row else None
 
     @strawberry.field
+    async def service_catalogue_admin(
+        self, info: strawberry.Info, state_code: str = "*", district_code: str = "*",
+    ) -> Optional[CatalogueAdmin]:
+        """Services and prices for one scope (all states, a state, or a
+        district), as the super-admin edits them. None for anyone else: this
+        is the authorization boundary."""
+        uid = _uid(info)
+        state = catalogue.state_code(state_code)
+        district = catalogue.district_code(district_code) if state != "*" else "*"
+        key = catalogue.scope_key(state, district)
+        async with _pool.connection() as conn:
+            if not await _is_super_admin(conn, uid):
+                return None
+            current = await (await conn.execute(
+                "SELECT * FROM service_catalogue_sets WHERE scope_key=%s"
+                " AND status IN ('draft','published') ORDER BY revision DESC LIMIT 1",
+                (key,))).fetchone()
+            # What this scope inherits: every wider published revision (the
+            # country for a state; the country and the state for a district).
+            wider = [r for r in await _catalogue_published(conn, state, district) if r["scope_key"] != key]
+            inherited = [(r["scope_key"], _catalogue_document(r)) for r in wider]
+            with_current = inherited + ([(key, _catalogue_document(current))] if current else [])
+            scopes = await (await conn.execute(
+                "SELECT DISTINCT ON (scope_key) * FROM service_catalogue_sets"
+                " ORDER BY scope_key, revision DESC")).fetchall()
+        return CatalogueAdmin(
+            scope_key=key, state_code=state, district_code=district,
+            current=_catalogue_set(current) if current else None,
+            services=_catalogue_entries(catalogue.effective(SERVICE_CATALOGUE, with_current)),
+            inherited=_catalogue_entries(catalogue.effective(SERVICE_CATALOGUE, inherited)),
+            scopes=[_catalogue_set(r) for r in scopes])
+
+    @strawberry.field
+    async def service_catalogue_revisions(
+        self, info: strawberry.Info, state_code: str = "*", district_code: str = "*",
+    ) -> List[CatalogueSet]:
+        """Every revision at one scope, newest first: the versions a
+        super-admin can reopen, restore as a new draft, or publish."""
+        uid = _uid(info)
+        key = catalogue.scope_key(state_code, district_code)
+        async with _pool.connection() as conn:
+            if not await _is_super_admin(conn, uid):
+                return []
+            rows = await (await conn.execute(
+                "SELECT * FROM service_catalogue_sets WHERE scope_key=%s ORDER BY revision DESC",
+                (key,))).fetchall()
+        return [_catalogue_set(r) for r in rows]
+
+    @strawberry.field
+    async def service_catalogue_history(
+        self, info: strawberry.Info, state_code: str = "*", district_code: str = "*",
+    ) -> List[CatalogueEvent]:
+        """Every saved, published and archived revision at one scope, newest first."""
+        uid = _uid(info)
+        key = catalogue.scope_key(state_code, district_code)
+        async with _pool.connection() as conn:
+            if not await _is_super_admin(conn, uid):
+                return []
+            rows = await (await conn.execute(
+                "SELECT * FROM service_catalogue_events WHERE scope_key=%s"
+                " ORDER BY created_at DESC, id DESC", (key,))).fetchall()
+        return [CatalogueEvent(
+            id=r["id"], set_id=r["set_id"], scope_key=r["scope_key"], revision=_i(r["revision"]),
+            actor=r["actor"], action=r["action"], detail=r["detail"],
+            source_digest=r["source_digest"], created_at=r["created_at"]) for r in rows]
+
+    @strawberry.field
     async def governance_admin_policies(
         self, info: strawberry.Info, country_code: str = "IN",
     ) -> List[GovernancePolicy]:
@@ -6155,6 +7675,15 @@ class WebQuery:
                 "SELECT DISTINCT ON (scope_key) * FROM governance_policy_sets"
                 " WHERE country_code=%s ORDER BY scope_key,revision DESC", (country,))
             return [_governance_policy(row) for row in await cur.fetchall()]
+
+    @strawberry.field
+    async def intelligence_settings(self, info: strawberry.Info) -> Optional[IntelligenceSettings]:
+        """The Intelligence page. None for anyone but a super-admin."""
+        uid = _uid(info)
+        async with _pool.connection() as conn:
+            if not await _is_super_admin(conn, uid):
+                return None
+            return _intelligence(await _intelligence_admin().snapshot(conn))
 
     @strawberry.field
     async def governance_policy_history(
@@ -6206,6 +7735,7 @@ class WebQuery:
         owners: Optional[List[str]] = None,
         tags: Optional[List[str]] = None,
         groups: Optional[List[str]] = None,
+        holdings: Optional[List[str]] = None,
     ) -> PropertyList:
         uid = _uid(info)
         kinds, statuses = kinds or [], statuses or []
@@ -6217,8 +7747,11 @@ class WebQuery:
         # each an OR over its own field, matching every other facet here.
         villages, khatas, owners = villages or [], khatas or [], owners or []
         groups = groups or []
+        # Which holding: a holding id, or NOT_IN_HOLDING for properties that
+        # stand alone. ORed within itself like every other facet here.
+        holdings = holdings or []
         async with _pool.connection() as conn:
-            all_rows = await _cards(conn, uid)
+            all_rows = await _with_holders(conn, uid, await _cards(conn, uid))
             tagmap = await _tags_for(conn, uid, "record")
             covers = await _covers(conn, uid)
             # Both are account-wide grouped aggregates rather than anything
@@ -6228,6 +7761,8 @@ class WebQuery:
             # the account and the filter runs in Python below.
             countmap = await _counts(conn, uid)
             heroes = await _paper_heroes(conn, uid)
+            # Before the archived copies below are taken, so they carry it too.
+            await _register_facts(conn, uid, all_rows)
             # The account's groups, for the facet's labels. Read here rather
             # than derived from the cards so a group shows up under its own
             # name, and so the facet can be built at all for a group whose
@@ -6266,6 +7801,10 @@ class WebQuery:
                 if groups:
                     gid = r.get("group_id") or ""
                     if not (gid in groups if gid else PERSONAL in groups):
+                        return False
+                if holdings:
+                    hid = r.get("holding_id") or ""
+                    if not (hid in holdings if hid else NOT_IN_HOLDING in holdings):
                         return False
                 # Village, khata and owner each narrow within themselves by OR
                 # (one of the ticked villages) and across each other by AND
@@ -6317,6 +7856,12 @@ class WebQuery:
                 if r["owner_name"] and r["owner_name"] not in all_owners:
                     all_owners.append(r["owner_name"])
             personal_n = len([r for r in base if not (r.get("group_id") or "")])
+            # The holdings the active records are part of, in first-seen order.
+            holding_name: dict = {}
+            for r in base:
+                if r.get("holding_id") and r["holding_id"] not in holding_name:
+                    holding_name[r["holding_id"]] = r.get("holding_name") or "Untitled holding"
+            loose_n = len([r for r in base if not r.get("holding_id")])
 
             status_group = group(
                 "status", "Status",
@@ -6331,8 +7876,8 @@ class WebQuery:
                 group("kind", "Kind", [("parcel", "Land parcels"), ("property", "Properties")],
                       kinds, lambda r: r["kind"]),
                 status_group,
-                group("stake", "My stake",
-                      [("owned", "Owned"), ("managed", "Managed"), ("watch", "Watch")],
+                group("stake", "Your stake",
+                      [("owned", "Owned"), ("managed", "Managed"), ("watch", "Watching")],
                       stakes, lambda r: r["stake"]),
                 # Village and khata are their own sections now — a khata is a
                 # revenue-record number and a village is a place, and folding
@@ -6357,30 +7902,44 @@ class WebQuery:
                                 count=len([r for r in base if t in tagmap.get(r["id"], [])]))
                     for t in all_tags]),
                 # Family / group. This is what makes "show me everything the
-                # Telukutla Family holds" one URL — /app/properties?group=<id>
+                # Telukutla Family holds" one URL — /properties?group=<id>
                 # — instead of a second, thinner list screen inside Families &
                 # Groups that would have to re-earn filtering, sorting, the map,
                 # search and bulk actions. A group with nothing in it is left
                 # out, exactly like every other facet here.
-                FacetGroup(key="group", label="Family / group", options=[
+                FacetGroup(key="group", label="Holder", options=[
                     *[FacetOption(key=gid, label=name, active=gid in groups,
                                   count=len([r for r in base if (r.get("group_id") or "") == gid]))
                       for gid, name in group_name.items()
                       if len([r for r in base if (r.get("group_id") or "") == gid])],
-                    *([FacetOption(key=PERSONAL, label="In your own name",
+                    *([FacetOption(key=PERSONAL, label=OWN_NAME,
                                    active=PERSONAL in groups, count=personal_n)]
                       if personal_n else []),
+                ]),
+                # Holding: which piece of ground a property is part of. No
+                # options at all until one holding exists — an account that
+                # has never combined anything never meets the word.
+                FacetGroup(key="holding", label="Holding", options=[
+                    *[FacetOption(key=hid, label=name, active=hid in holdings,
+                                  count=len([r for r in base if r.get("holding_id") == hid]))
+                      for hid, name in holding_name.items()],
+                    *([FacetOption(key=NOT_IN_HOLDING, label="Not in a holding",
+                                   active=NOT_IN_HOLDING in holdings, count=loose_n)]
+                      if holding_name and loose_n else []),
                 ]),
             ]
 
             bits = [*villages, *khatas, *owners, *tags,
-                    *[group_name.get(g, "In your own name" if g == PERSONAL else g)
+                    *[group_name.get(g, OWN_NAME if g == PERSONAL else g)
                       for g in groups],
+                    *[holding_name.get(h, "Not in a holding" if h == NOT_IN_HOLDING else h)
+                      for h in holdings],
                     *[o.label.lower() for g in facets if g.key == "status"
                       for o in g.options if o.active]]
             summary = " · ".join(bits)
             active_count = (len(kinds) + len(statuses) + len(stakes) + len(villages)
-                            + len(khatas) + len(owners) + len(tags) + len(groups))
+                            + len(khatas) + len(owners) + len(tags) + len(groups)
+                            + len(holdings))
 
             return PropertyList(
                 shown=len(shown), total=len(rows), hidden=len(hidden),
@@ -6392,13 +7951,37 @@ class WebQuery:
                 facets=facets)
 
     @strawberry.field
+    async def holder_change(self, info: strawberry.Info, record_ids: List[str],
+                            group_id: str = "") -> HolderChange:
+        """Preview of `setRecordHolder`: every property that would move,
+        including the parcels that share a khata with a chosen one. Writes
+        nothing. `group_id` "" (or "personal") is "In your own name"."""
+        uid = _uid(info)
+        async with _pool.connection() as conn:
+            label = await _holder_target(conn, uid, group_id)
+            plan = await _holder_plan(conn, uid, record_ids)
+            gid = "" if (group_id or "").strip() in ("", PERSONAL) else group_id.strip()
+            shares = await _holder_member_shares(conn, uid, plan, gid)
+            return _holder_change(plan, gid, label, shares=shares)
+
+    @strawberry.field
+    async def delete_impact(self, info: strawberry.Info, ids: List[str]) -> List[EmptiedHolding]:
+        """The holdings that deleting exactly these properties would empty.
+        Each goes with its last property, its shared expenses with it — the
+        delete dialog says so before the owner confirms. Writes nothing."""
+        uid = _uid(info)
+        async with _pool.connection() as conn:
+            return [EmptiedHolding(**h)
+                    for h in await emptied_holdings_preview(conn, uid, ids)]
+
+    @strawberry.field
     async def record(self, info: strawberry.Info, id: str) -> Optional[RecordDetail]:
         uid = _uid(info)
         async with _pool.connection() as conn:
             rows = [r for r in await _cards(conn, uid) if r["id"] == id]
             if not rows:
                 return None
-            d = rows[0]
+            d = (await _with_holders(conn, uid, rows[:1]))[0]
             tagmap = await _tags_for(conn, uid, "record")
             lat, lon = _latlon(d["geo_point"])
 
@@ -6431,6 +8014,11 @@ class WebQuery:
             photos = await count(
                 f"SELECT count(*) AS c FROM {_photo_table(d['kind'])} "
                 f"WHERE {_photo_key(d['kind'])}=%s AND media_kind='photo'", (id,))
+            # The Media tab's own number: every row its gallery lists, read with
+            # the gallery's owner filter, so the tab and its tally agree.
+            media = await count(
+                f"SELECT count(*) AS c FROM {_photo_table(d['kind'])} "
+                f"WHERE {_photo_key(d['kind'])}=%s AND owner_user_id=%s", (id, uid))
 
             cur = await conn.execute(
                 "SELECT * FROM notes WHERE entity_id=%s AND owner_user_id=%s "
@@ -6513,13 +8101,26 @@ class WebQuery:
                 map_caption=_map_caption(sheet, d["kind"],
                                          bool(_ring(d.get("boundary") or ""))),
                 paper_count=papers, feature_count=features, people_count=people,
-                service_count=services, photo_count=photos, photo_note=photo_note,
+                service_count=services, photo_count=photos, media_count=media,
+                photo_note=photo_note,
                 tags=tagmap.get(id, []),
                 note_body=note.get("body", ""),
                 note_author=note.get("author") or d["owner_name"] or "You",
                 note_at=note.get("created_at", ""),
                 combined_id=holding.get("id") or "",
-                combined_name=holding.get("name") or "")
+                combined_name=holding.get("name") or "",
+                group_id=d.get("group_id") or "", group_name=d.get("group_name") or "",
+                holder_label=d.get("holder_label") or "",
+                **_deed_fields(d))
+
+    @strawberry.field
+    async def record_overview(self, info: strawberry.Info, id: str) -> Optional[RecordOverview]:
+        """The property's master record: every field with where it came from,
+        how it is held and from whom, what is missing, and a line per tab.
+        None when the record is not the caller's."""
+        uid = _uid(info)
+        async with _pool.connection() as conn:
+            return await _record_overview(conn, uid, id)
 
     @strawberry.field
     async def corrections(self, info: strawberry.Info, record_id: str) -> List[Correction]:
@@ -6565,27 +8166,34 @@ class WebQuery:
                 at=e["at"], by=_actor_word(uid, e["by"], e["kind"]),
                 field=e["field"] if e["action"] == "record.corrected" else "",
                 was=e["was"] if e["action"] == "record.corrected" else "",
-                now=e["now"] if e["action"] == "record.corrected" else "")
+                now=e["now"] if e["action"] == "record.corrected" else "",
+                source=_source_line(e["action"], e["meta"]))
                 for e in await _trail(conn, uid, record_id)]
 
     @strawberry.field
-    async def assignable(self, info: strawberry.Info) -> List[str]:
-        """Names that can take a request on.
+    async def services_for_records(self, info: strawberry.Info,
+                                   record_ids: List[str]) -> List[RecordServices]:
+        """What each chosen property can order, priced for its own state and
+        district — the order page's second step, once the land is chosen.
 
-        Whoever has done work here before, plus the people already named on
-        this account's records. Not an invented roster — a suggestion list
-        drawn from what the account has actually seen."""
+        One servicesOffered answer per distinct place, shared by every record
+        there, so forty parcels in one village cost one catalogue read, not
+        forty. Records the caller does not own are left out, never errors."""
         uid = _uid(info)
+        ids = list(dict.fromkeys(r for r in record_ids if r))[:200]
         async with _pool.connection() as conn:
-            cur = await conn.execute(
-                "SELECT DISTINCT assignee AS n FROM work_requests"
-                " WHERE owner_user_id=%s AND assignee <> ''", (uid,))
-            names = {r["n"] for r in await cur.fetchall()}
-            cur = await conn.execute(
-                "SELECT DISTINCT person_name AS n FROM record_people"
-                " WHERE owner_user_id=%s AND person_name <> ''", (uid,))
-            names |= {r["n"] for r in await cur.fetchall()}
-        return sorted(names)
+            cards = {c["id"]: c for c in await _cards(conn, uid)}
+        by_place: dict[tuple[str, str], List[ServiceOffer]] = {}
+        out: List[RecordServices] = []
+        for rid in ids:
+            card = cards.get(rid)
+            if not card:
+                continue
+            place = (_state_code_of(card), str(card.get("district") or "*"))
+            if place not in by_place:
+                by_place[place] = await self.services_offered(info, record_id=rid)
+            out.append(RecordServices(record_id=rid, offers=by_place[place]))
+        return out
 
     @strawberry.field
     async def services_offered(self, info: strawberry.Info, q: str = "",
@@ -6606,14 +8214,15 @@ class WebQuery:
                 record = next((item for item in await _cards(conn, uid)
                                if item.get("id") == record_id), None)
                 if record:
-                    state_name = str(record.get("state") or "").strip().lower()
-                    if state_name and state_name not in {"ap", "andhra pradesh"}:
-                        # This schema stores state names, while governance uses
-                        # official codes. Unknown names inherit the country
-                        # baseline until a canonical state code is available.
-                        state_code = "*"
+                    # This schema stores state names, while governance uses
+                    # official codes. Unknown names inherit the country
+                    # baseline until a canonical state code is available.
+                    state_code = _state_code_of(record)
                     if state_code != "*":
                         district = str(record.get("district") or "*")
+            # The same state prices the order (order_service), so what an
+            # owner is shown here is what they are charged.
+            offers, _tag = await _effective_catalogue(conn, state_code, district)
             policy_row = await _policy_row(conn, "IN", state_code, district,
                                            published_only=True)
             if policy_row:
@@ -6633,13 +8242,23 @@ class WebQuery:
                 fields=[ServiceField(name=n, label=lb, kind=ty, required=req,
                                      options=list(opts), help=hlp)
                         for (n, lb, ty, req, opts, hlp) in v["fields"]],
-                visual=_service_visual_for(k, visual_document, source_scope))
+                visual=_service_visual_for(k, visual_document, source_scope),
+                deliverable=str(v.get("deliverable") or ""),
+                files_to=v["files_to"], aliases=list(v["aliases"]),
+                per_record=v["per_record"], directions_field=v["directions_field"],
+                guides=[ServiceGuide(state=st, slug=g.get("slug", ""), topic=g.get("topic", ""),
+                                     title=g.get("title", ""), own_paper=g.get("own_paper", True))
+                        for st, targets in v["guides"].items() for g in targets],
+                synonyms=list(v["synonyms"]), also_called=v["also_called"],
+                flat_price_note=v["flat_price_note"], featured=v["featured"])
 
+        # A service switched off for this scope is not offered at all.
+        live = {k: v for k, v in offers.items() if v.get("enabled", True)}
         if key:
-            v = SERVICE_CATALOGUE.get(key)
+            v = live.get(key)
             return [build(key, v)] if v else []
         needle = q.strip().lower()
-        out = [build(k, v) for k, v in SERVICE_CATALOGUE.items()
+        out = [build(k, v) for k, v in live.items()
                if not needle
                or needle in v["label"].lower()
                or needle in v["blurb"].lower()
@@ -6664,8 +8283,9 @@ class WebQuery:
             cur = await conn.execute(
                 "SELECT document_id FROM share_links WHERE owner_user_id=%s AND revoked=false", (uid,))
             shared = {r["document_id"] for r in await cur.fetchall()}
+            names = await _original_file_names(conn, [d.get("file_ref") or "" for d in docs])
             return [Paper(
-                id=d["id"], title=d.get("title") or d.get("name") or "Paper",
+                id=d["id"], title=d.get("title") or d.get("name") or "Untitled document",
                 detail=d.get("subtitle") or "", shelf=d.get("shelf") or "unsorted",
                 icon=d.get("shelf") or "unsorted", tags=tagmap.get(d["id"], []),
                 shared=d["id"] in shared, page_count=_i(d.get("page_count")),
@@ -6675,7 +8295,8 @@ class WebQuery:
                 created_at=d.get("created_at") or "",
                 joint_fmb_id=d.get("joint_fmb_id") or "",
                 folder_id=d.get("folder_id") or "",
-                size_bytes=_i(d.get("size_bytes")))
+                size_bytes=_i(d.get("size_bytes")),
+                **_paper_details(d, names))
                 for d in docs]
 
     @strawberry.field
@@ -6683,7 +8304,7 @@ class WebQuery:
         """Every paper on one shelf, across the whole account.
 
         The Papers wall (W13) drew eight shelf cards, each a link to
-        ``/app/papers?shelf=<key>`` — which is the Papers wall itself. The
+        ``/papers?shelf=<key>`` — which is the Papers wall itself. The
         param was never read and no papers-by-shelf read existed: ``papers()``
         above is keyed on one record, and a vault is explicitly the view ACROSS
         records. So every shelf card navigated to the page it was already on.
@@ -6731,8 +8352,9 @@ class WebQuery:
                 "SELECT document_id FROM share_links WHERE owner_user_id=%s AND revoked=false", (uid,))
             shared = {r["document_id"] for r in await cur.fetchall()}
             cards = {c["id"]: c["title"] for c in await _cards(conn, uid)}
+            names = await _original_file_names(conn, [d.get("file_ref") or "" for d in docs])
             return [Paper(
-                id=d["id"], title=d.get("title") or d.get("name") or "Paper",
+                id=d["id"], title=d.get("title") or d.get("name") or "Untitled document",
                 detail=d.get("subtitle") or "", shelf=d.get("shelf") or "unsorted",
                 icon=d.get("shelf") or "unsorted", tags=tagmap.get(d["id"], []),
                 shared=d["id"] in shared, page_count=_i(d.get("page_count")),
@@ -6745,7 +8367,8 @@ class WebQuery:
                 joint_fmb_id=d.get("joint_fmb_id") or "",
                 folder_id=d.get("folder_id") or "",
                 size_bytes=_i(d.get("size_bytes")),
-                aadhaar_card=bool(d.get("aadhaar_record_id")))
+                aadhaar_card=bool(d.get("aadhaar_record_id")),
+                **_paper_details(d, names))
                 for d in docs]
 
     @strawberry.field
@@ -6928,7 +8551,7 @@ class WebQuery:
             else:
                 note = "paying from Pattadar is not switched on"
             if escrowed:
-                note = f"{_inr_short(escrowed)} more held in escrow · {note}"
+                note = f"{_inr_short(escrowed)} more held · {note}"
             if not wallet:
                 note = "no wallet yet · auto top-up off" if wallet_live \
                     else "no wallet yet — paying from Pattadar is not switched on"
@@ -7001,6 +8624,22 @@ class WebQuery:
             return TransfersView(
                 transfers=transfers, count=len(transfers),
                 unverified_count=sum(1 for t in transfers if not t.verified))
+
+    @strawberry.field
+    async def water_flow(self, info: strawberry.Info, record_id: str,
+                         source: str = "combined", retry: bool = False) -> Optional[WaterFlowView]:
+        """Drainage lines and bore-point suggestions over the record's saved
+        boundary. None when the record is not the caller's. `retry` reads a
+        failed answer again at once (the owner's Try again)."""
+        uid = _uid(info)
+        async with _pool.connection() as conn:
+            kind = await _record_kind(conn, uid, record_id)
+            if not kind:
+                return None
+            table = "parcels" if kind == "parcel" else "properties"
+            cur = await conn.execute(f"SELECT boundary FROM {table} WHERE id=%s", (record_id,))
+            row = await cur.fetchone() or {}
+        return WaterFlowView(**await terrain.reading(_pool, record_id, row.get("boundary") or "", source, retry))
 
     @strawberry.field
     async def boundary(self, info: strawberry.Info, record_id: str) -> Optional[BoundaryView]:
@@ -7378,13 +9017,13 @@ class WebQuery:
                 rid = id if id in linked else primary_member or next(
                     (k for k in ids if k in linked), "")
                 out.append(CombinedPaper(
-                    id=d["id"], title=d.get("title") or d.get("name") or "Paper",
+                    id=d["id"], title=d.get("title") or d.get("name") or "Untitled document",
                     detail=d.get("subtitle") or "", shelf=d.get("shelf") or "unsorted",
                     icon=d.get("shelf") or "unsorted", tags=tagmap.get(d["id"], []),
                     shared=d["id"] in shared, page_count=_i(d.get("page_count")),
                     file_ref=d.get("file_ref") or "",
                     record_id=rid,
-                    record_title=(row.get("name") or "Combined view") if rid == id
+                    record_title=(row.get("name") or "Untitled holding") if rid == id
                                  else titles.get(rid, "")))
             # Holding-level files first, then members in their chosen order.
             out.sort(key=lambda p: order.get(p.record_id, len(order)))
@@ -7442,7 +9081,7 @@ class WebQuery:
                     note = ("Only a location pin is on file — no surveyed"
                             " outline to draw.")
                 elif ground == "unplaced":
-                    note = ("Nothing on this record says where it is."
+                    note = ("Nothing on this property says where it is."
                             + (" Its sheet is filed; open it to place the corners."
                                if sheet else ""))
                 if corners:
@@ -7503,7 +9142,7 @@ class WebQuery:
             missing = [cards[rid]["title"] for rid, _k in mine if rid not in metres]
 
             return CombinedFmb(
-                id=id, name=row.get("name") or "Combined property",
+                id=id, name=row.get("name") or "Untitled holding",
                 shapes=shapes, relations=relations,
                 drawn_count=len(drawn),
                 surveyed_count=len([s for s in shapes if s.ground == "surveyed"]),
@@ -7591,12 +9230,12 @@ class WebQuery:
                 FacetOption(key="combined", label="The whole holding",
                             count=len([x for x in rows if x.scope == "combined"]),
                             active=False),
-                FacetOption(key="record", label="One survey",
+                FacetOption(key="record", label="One property",
                             count=len([x for x in rows if x.scope == "record"]),
                             active=False),
             ]
             return CombinedExpenseView(
-                id=id, name=row.get("name") or "Combined property",
+                id=id, name=row.get("name") or "Untitled holding",
                 year=yr, years=years,
                 spent=capital + running, capital=capital, running=running,
                 income=income, owed_back=owed,
@@ -7631,14 +9270,14 @@ class WebQuery:
             counts["photos"] = parcel_photo_count + property_photo_count + unfiled_photo_count
 
             spec = [
-                ("title", "Title", "Deeds, wills, agreements"),
-                ("revenue", "Revenue record", "Passbooks, ROR, mutations"),
+                ("title", "Title deeds", "Deeds, wills, agreements"),
+                ("revenue", "Revenue records", "Passbooks, ROR, mutations"),
                 ("map", "Map", "FMB, tippons, sketches"),
                 ("identity", "Identity", "Masked until you unlock"),
-                ("search", "Search & tax", "ECs, receipts, challans"),
-                ("old", "Old record", "Sethwar, khasra"),
-                ("photos", "Photos", "Of the land itself"),
-                ("unsorted", "Unsorted", "Nothing recognised it"),
+                ("search", "EC & tax receipts", "ECs, receipts, challans"),
+                ("old", "Old records", "Sethwar, khasra"),
+                ("photos", "Photos & video", "Of the land itself"),
+                ("unsorted", "Not sorted yet", "Nothing recognised it"),
             ]
             shelves = [Shelf(key=k, label=l, note=n, count=counts.get(k, 0)) for k, l, n in spec]
 
@@ -7678,7 +9317,7 @@ class WebQuery:
 
             size = _i(d.get("size_bytes")) or _i(d.get("file_size"))
             return DocumentView(
-                id=id, title=d.get("title") or d.get("name") or "Paper",
+                id=id, title=d.get("title") or d.get("name") or "Untitled document",
                 subtitle=d.get("subtitle") or "", shelf=d.get("shelf") or "unsorted",
                 record_id=d.get("record_id") or "", record_title=rec_title,
                 page_count=_i(d.get("page_count")),
@@ -7691,7 +9330,8 @@ class WebQuery:
                 reader_flag=d.get("reader_flag") or "",
                 reader_flag_page=_i(d.get("reader_flag_page")),
                 tags=tagmap.get(id, []), shared=bool(lrow),
-                versions=versions, link=_link(lrow) if lrow else None)
+                versions=versions, link=_link(lrow) if lrow else None,
+                doc_no=d.get("doc_no") or "", name_set=bool(d.get("name_set")))
 
     @strawberry.field
     async def shared_kits(self, info: strawberry.Info) -> List[SharedKit]:
@@ -7730,7 +9370,7 @@ class WebQuery:
                     out.append(SearchHit(
                         id=d["id"], kind="record", title=d["title"],
                         subtitle=_place_line(d["village"], d["mandal"]) or d["district"],
-                        route=f"/app/records/{d['id']}"))
+                        route=f"/properties/{d['id']}"))
                 if len(out) >= 6:
                     break
             cur = await conn.execute(
@@ -7738,18 +9378,21 @@ class WebQuery:
                 "AND name ILIKE %s ORDER BY name LIMIT 5", (uid, like))
             for r in await cur.fetchall():
                 out.append(SearchHit(
-                    id=r["id"], kind="paper", title=r.get("name") or "Paper",
+                    id=r["id"], kind="paper", title=r.get("name") or "Untitled document",
                     subtitle=(r.get("subtitle") or r.get("shelf") or "")[:70],
-                    route=f"/app/papers/{r['id']}"))
+                    route=f"/papers/{r['id']}"))
             cur = await conn.execute(
                 "SELECT DISTINCT ON (person_name) id, person_name, role, record_id "
                 "FROM record_people WHERE owner_user_id=%s AND person_name ILIKE %s "
                 "ORDER BY person_name, id LIMIT 5", (uid, like))
             for r in await cur.fetchall():
+                # Everyone in record_people is a caretaker or staff, never an
+                # owner, so the hit names that side of the People tab and the
+                # person, and the tab opens their drawer (RecordPeople.tsx).
                 out.append(SearchHit(
                     id=r["id"], kind="person", title=r["person_name"],
                     subtitle=r.get("role") or "",
-                    route=f"/app/records/{r['record_id']}/people"))
+                    route=_person_hit_route(r["record_id"], r["id"])))
         return out
 
     @strawberry.field
@@ -7829,7 +9472,7 @@ class WebQuery:
                     record_id=r.get("entity_id") or "",
                     record_title=card.get("title") or "",
                     params=r.get("params") or "{}",
-                    status=status, status_label=ticketing.label_of(status),
+                    status=status, status_label=ticketing.owner_label(status),
                     status_state=ticketing.state_of(status),
                     ref=ticketing.ticket_ref(r["id"]),
                     held=max(0.0, held.get(r["id"], 0.0)),
@@ -7868,15 +9511,11 @@ class WebQuery:
             cur = await conn.execute(
                 "SELECT * FROM ticket_events WHERE ticket_id=%s AND owner_user_id=%s"
                 " ORDER BY at, id", (id, uid))
-            events = [_ev(r) for r in await cur.fetchall()]
+            events = [_ev(r, owner=True) for r in await cur.fetchall() if _owner_sees(r)]
             cur = await conn.execute(
                 "SELECT * FROM ticket_deliverables WHERE ticket_id=%s AND owner_user_id=%s"
                 " ORDER BY sort, id", (id, uid))
             deliverables = [_dv(r, kind) for r in await cur.fetchall()]
-            cur = await conn.execute(
-                "SELECT * FROM ticket_dispatches WHERE ticket_id=%s AND owner_user_id=%s"
-                " ORDER BY sort, id", (id, uid))
-            dispatches = [_dx(r) for r in await cur.fetchall()]
             ledger = await _ledger_of(conn, uid, id)
             cur = await conn.execute(
                 "SELECT rating,note FROM associate_reviews"
@@ -7889,12 +9528,15 @@ class WebQuery:
             # phone, and it needs a date to say it from.
             quiet_days = ticketing.days_between(
                 (row.get("status_at") or row.get("created_at") or "")[:10], _today())
+            overdue = _overdue_days(row, status)
+            money = _money_of(row, ledger)
+            asked = row.get("asked_at") or ""
             return TicketView(
                 id=row["id"], ref=ticketing.ticket_ref(row["id"]), kind=kind,
                 title=row.get("title") or "", detail=row.get("note") or "",
                 record_id=rid, record_title=card.get("title") or "",
                 record_place=_card_place(card),
-                status=status, status_label=ticketing.label_of(status),
+                status=status, status_label=ticketing.owner_label(status),
                 status_state=ticketing.state_of(status),
                 stage=_i(row.get("stage")),
                 stage_label=_STAGES[min(max(_i(row.get("stage")), 0), len(_STAGES) - 1)],
@@ -7905,10 +9547,9 @@ class WebQuery:
                 outcome_note=row.get("outcome_note") or "",
                 accepted_at=_ddmmyyyy((row.get("accepted_at") or "")[:10]),
                 created_at=row.get("created_at") or "",
-                can=ticketing.can(status),
+                can=_owner_can_of(row, status, money),
                 answers=_answers(kind, row.get("params") or "{}"),
-                money=_money_of(row, ledger), events=events,
-                deliverables=deliverables, dispatches=dispatches,
+                money=money, events=events, deliverables=deliverables,
                 ledger=[_lr(r) for r in ledger],
                 # Who is on it, and whether this owner may have their number.
                 # None on every job whose assignee is a hand-typed name, which
@@ -7918,9 +9559,10 @@ class WebQuery:
                 assigned_resource=_assigned_resource_of(
                     people.get(assignee_id, {}), training.get(assignee_id, []),
                     kind, _today()),
-                dispatch_state=row.get("dispatch_state") or "",
                 my_rating=_i(own_review.get("rating")),
-                my_rating_note=own_review.get("note") or "")
+                my_rating_note=own_review.get("note") or "",
+                overdue_days=overdue, asked_at=asked,
+                files=_files_of(row.get("params") or "{}"))
 
     @strawberry.field
     async def wallet(self, info: strawberry.Info, limit: int = 60) -> WalletView:
@@ -7974,7 +9616,7 @@ class WebQuery:
                         ticket_id=r["id"], ref=ticketing.ticket_ref(r["id"]),
                         title=r.get("title") or "",
                         record_title=titles.get(r.get("entity_id") or "", ""),
-                        status_label=ticketing.label_of(_status_of(r)),
+                        status_label=ticketing.owner_label(_status_of(r)),
                         held=holding.get(r["id"], 0.0)))
                 jobs.sort(key=lambda j: -j.held)
             cur = await conn.execute(
@@ -8149,7 +9791,7 @@ class WebQuery:
 
             # A place with land and nobody enrolled for ANY line of work in it.
             # Every order placed there will land on this desk, which is the
-            # sentence /app/desk/coverage prints under the grid.
+            # sentence /desk/coverage prints under the grid.
             cells = _coverage_cells(await _coverage_rows(conn, "mandal"), roster,
                                     await _open_by_area(conn), "mandal")
             covered: dict = {}
@@ -8314,6 +9956,57 @@ class WebQuery:
                 for c in found[:max(1, min(_i(limit) or 12, 50))]]
 
     @strawberry.field
+    async def desk_ticket(self, info: strawberry.Info, id: str) -> Optional[DeskTicket]:
+        """One order as the desk works it: its desk row, the desk's moves, the
+        whole trail (dispatch, payment and refused rows, every detail), what
+        came back and every time it left the building.
+
+        None for a non-admin and for an id that does not exist — the same
+        answer, so a non-admin cannot map ids. Cross-owner, so it writes its
+        `desk_read` row first. No record id, owner, answers or ledger: the
+        desk works the order, not the owner's records."""
+        uid = _uid(info)
+        async with _pool.connection() as conn:
+            if not await _is_admin(conn, uid):
+                return None
+            await _desk_read(conn, uid, "desk_ticket", id)
+            row = await _desk_ticket_row(conn, id)
+            owner = row.get("owner_user_id") or ""
+            if not owner:
+                return None
+            today = _today()
+            place = (await _place_of(conn, [row])).get(row["id"], ("", ""))
+            roster = [r for r in await _roster(conn, limit=500)
+                      if (r.get("state") or "") in associates.OFFERABLE]
+            free = [c for c in _candidates_from(roster, row.get("kind") or "", place[0], today)
+                    if c.get("eligible")]
+            job = _desk_job_of(
+                row, place=place, held=(await _held_of(conn, [row["id"]])).get(row["id"], 0.0),
+                assignee=(await _assignees_of(conn, [row])).get(
+                    (row.get("assignee_ref") or "").strip()),
+                candidates=len(free), today=today)
+            kind, status = row.get("kind") or "", _status_of(row)
+            cur = await conn.execute(
+                "SELECT * FROM ticket_events WHERE ticket_id=%s AND owner_user_id=%s"
+                " ORDER BY at, id", (row["id"], owner))
+            events = [_ev(r) for r in await cur.fetchall()]
+            cur = await conn.execute(
+                "SELECT * FROM ticket_deliverables WHERE ticket_id=%s AND owner_user_id=%s"
+                " ORDER BY sort, id", (row["id"], owner))
+            deliverables = [_dv(r, kind) for r in await cur.fetchall()]
+            cur = await conn.execute(
+                "SELECT * FROM ticket_dispatches WHERE ticket_id=%s AND owner_user_id=%s"
+                " ORDER BY sort, id", (row["id"], owner))
+            dispatches = [_dx(r) for r in await cur.fetchall()]
+            # The desk's moves: every `system` pair but cancel, which has no
+            # desk mutation, plus answering on the thread while it is open.
+            can = [a for a in ticketing.can(status, "system") if a != "cancel"]
+            if status != "cancelled":
+                can.append("message")
+            return DeskTicket(job=job, can=sorted(can), events=events,
+                              deliverables=deliverables, dispatches=dispatches)
+
+    @strawberry.field
     async def coverage(self, info: strawberry.Info, level: str = "state",
                        state_key: str = "", district_key: str = "") -> List[CoverageCell]:
         """Every place Pattadar holds land, against every line of work.
@@ -8412,8 +10105,8 @@ class WebQuery:
                     associate_id=aid, ticket_id=tid,
                     # Decided here so the client never has to guess which of the
                     # two ids on the row is the one worth clicking.
-                    to=(f"/app/desk/jobs/{tid}" if tid else
-                        f"/app/desk/associates/{aid}" if aid else ""),
+                    to=(f"/desk/jobs/{tid}" if tid else
+                        f"/desk/associates/{aid}" if aid else ""),
                     at=_ddmmyyyy((r.get("created_at") or "")[:10])))
             return out
 
@@ -8429,63 +10122,6 @@ class WebQuery:
             key=d.key, label=d.label, blurb=_discipline_blurb(d), kinds=list(d.kinds),
             area_grain=d.grain, credential=d.credential, fanout=d.fanout)
             for d in associates.DISCIPLINES.values()]
-
-    @strawberry.field
-    async def associates_for_ticket(self, info: strawberry.Info,
-                                    ticket_id: str) -> List[AssociateCard]:
-        """The people the OWNER of this ticket can put on it.
-
-        Owner-scoped, and the one associates query a non-admin may make. The
-        roster query above is admin-only, so without this the owner's picker on
-        their own ticket would have nothing behind it and the founder's first
-        ask — see who is on my job — would only work on jobs an admin had
-        assigned.
-
-        No contact of any kind on the card. The owner gets a name, a line of
-        work and a place; the number becomes theirs through AssignedPerson when
-        somebody is actually on the job."""
-        uid = _uid(info)
-        async with _pool.connection() as conn:
-            row = await _ticket_row(conn, uid, ticket_id)
-            if not row:
-                return []
-            key, _label = (row.get("area_key") or ""), (row.get("area_label") or "")
-            if not key:
-                # The owner's own records, so `_cards` is free here in a way it
-                # never is on the desk.
-                rid = row.get("entity_id") or ""
-                card = next((c for c in await _cards(conn, uid) if c["id"] == rid), {})
-                key = associates.area_key_of(card)[0] if card else ""
-            roster = [r for r in await _roster(conn, limit=500)
-                      if (r.get("state") or "") in associates.OFFERABLE]
-            today = _today()
-            found = _candidates_from(roster, row.get("kind") or "", key, today)
-            if not found:
-                # A kind no discipline covers — 'other', the legacy 'errand' —
-                # still needs a picker. Everybody available is a better answer
-                # than an empty list the owner cannot act on.
-                found = associates.rank([{
-                    "id": r["id"], "name": r.get("name") or "",
-                    "open_jobs": _i(r.get("open_jobs")),
-                    "last_offered_at": r.get("last_offered_at") or "",
-                    "eligible": _dispatch_view(r, today)[0]} for r in roster], today)
-            by_id = {r["id"]: r for r in roster}
-            out: List[AssociateCard] = []
-            for c in found:
-                r = by_id.get(c["id"]) or {}
-                keys = [d.get("discipline") or "" for d in r.get("disciplines") or []]
-                out.append(AssociateCard(
-                    id=c["id"], name=c["name"], firm=r.get("firm") or "",
-                    initials=_initials(c["name"]), disciplines=keys,
-                    discipline_labels=[associates.label_of(k) for k in keys],
-                    areas=[_area_label(a.get("level") or "", a.get("name") or "")
-                           for a in r.get("areas") or []],
-                    verified=any((x.get("review") or "") == "verified"
-                                 for x in r.get("credentials") or []),
-                    jobs_open=_i(r.get("open_jobs")), jobs_done=_i(r.get("done_jobs")),
-                    accepts_more=bool(c.get("eligible")),
-                    why=list(c.get("why") or [])))
-            return out
 
 
 def _word(n: int) -> str:
@@ -8563,6 +10199,126 @@ class RecordInput:
     extent_unit: Optional[str] = None  # ac | sq.yd | sq.ft
     market_value: Optional[float] = None
     purchase_price: Optional[float] = None
+    # ── Deed facts (docs/specs/2026-10-04-assistant-write-actions.md §4.1) ──
+    # Appended and optional, so every caller written before them is unchanged.
+    survey_no: Optional[str] = None    # parcel: wins over `title`; property: own column
+    doc_no: Optional[str] = None       # → reg_doc_no ("1234/2019")
+    sro: Optional[str] = None
+    reg_date: Optional[str] = None     # ISO yyyy-mm-dd → reg_date (+ purchase_date on create)
+    boundary_north: Optional[str] = None
+    boundary_south: Optional[str] = None
+    boundary_east: Optional[str] = None
+    boundary_west: Optional[str] = None
+    # The deed's parties. Create only, and never for a watched record: a
+    # record you are only watching keeps the land's facts, not third parties'
+    # names (spec §5 question 6).
+    seller_name: Optional[str] = None
+    buyer_name: Optional[str] = None
+    # The public deed this was copied from ("pr:<rid>:<s_no>"). Create only;
+    # the same ref saved again returns the record that already holds it.
+    source_ref: Optional[str] = None
+    # Which surface asked: "assistant" | "drawer". Audit metadata only.
+    origin: Optional[str] = None
+    # ── Master record (docs/specs/2026-10-11-property-overview.md §3) ──
+    acquisition_mode: Optional[str] = None   # sale | gift | inheritance | … | ''
+    exec_date: Optional[str] = None          # ISO yyyy-mm-dd
+    govt_value: Optional[float] = None       # the registrar's value, not the owner's estimate
+    plot_no: Optional[str] = None            # property only
+    door_no: Optional[str] = None            # property only
+    land_class: Optional[str] = None
+    lp_no: Optional[str] = None
+    # The caller's own finished reading this record was filled from. Create
+    # only; the server checks it is theirs and names the source from it.
+    reading_job_id: Optional[str] = None
+
+
+#: What a record's stake and status may be. `setStake` checked the first and
+#: saveRecord checked neither, so any string reached the column and fell out
+#: of every stake filter and portfolio count.
+_STAKES = ("owned", "managed", "watch")
+_STATUSES = ("owned", "for_sale", "disputed")
+_ORIGINS = ("assistant", "drawer")
+_SOURCE_REF_MAX = 64
+_SOURCE_REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9:._/-]*$")
+_DEED_TEXT_MAX = 500
+_PARTY_MAX = 300
+#: Square yards and feet in one acre — a parcel is stored in acres, so a
+#: deed's yards are converted here rather than relabelled.
+_SQYD_PER_AC = 4840.0
+_SQFT_PER_AC = 43560.0
+_UNIT_ALIASES = {
+    "ac": "ac", "acre": "ac", "acres": "ac",
+    "sq.yd": "sq.yd", "sqyd": "sq.yd", "sq yd": "sq.yd", "sq.yds": "sq.yd", "yd": "sq.yd",
+    "sq.ft": "sq.ft", "sqft": "sq.ft", "sq ft": "sq.ft", "ft": "sq.ft",
+}
+
+
+def _unit(raw: Optional[str]) -> str:
+    """A RecordInput extent unit, canonical — '' when none was given."""
+    if raw is None or not raw.strip():
+        return ""
+    unit = _UNIT_ALIASES.get(raw.strip().lower())
+    if not unit:
+        raise ValueError("Extent unit must be ac, sq.yd or sq.ft")
+    return unit
+
+
+def _to_acres(extent: Optional[float], unit: str) -> float:
+    """A parcel's extent in acres, the only unit the parcels table holds."""
+    value = _f(extent)
+    if unit == "sq.yd":
+        return value / _SQYD_PER_AC
+    if unit == "sq.ft":
+        return value / _SQFT_PER_AC
+    return value
+
+
+def _check_record_input(inp: "RecordInput", creating: bool) -> None:
+    """Refuse what the columns cannot honestly hold. Raised as a GraphQL error
+    — a refusal the caller can read, not a silent ''."""
+    if inp.stake is not None and inp.stake.strip() not in _STAKES:
+        raise ValueError("Choose your stake.")
+    if inp.status is not None and inp.status.strip() not in _STATUSES:
+        raise ValueError("Status must be owned, for_sale or disputed")
+    if inp.origin is not None and inp.origin.strip() and inp.origin.strip() not in _ORIGINS:
+        raise ValueError("Origin must be assistant or drawer")
+    if creating and inp.kind not in ("parcel", "property"):
+        raise ValueError("Kind must be parcel or property")
+    ref = (inp.source_ref or "").strip()
+    if ref and (len(ref) > _SOURCE_REF_MAX or not _SOURCE_REF_RE.match(ref)):
+        raise ValueError("Source reference is not valid")
+    day = (inp.reg_date or "").strip()
+    if day:
+        try:
+            datetime.strptime(day, "%Y-%m-%d")
+        except ValueError:
+            raise ValueError("Enter the registration date as DD/MM/YYYY.") from None
+    for val in (inp.survey_no, inp.doc_no, inp.sro, inp.boundary_north,
+                inp.boundary_south, inp.boundary_east, inp.boundary_west):
+        if val is not None and len(val) > _DEED_TEXT_MAX:
+            raise ValueError("A deed field is too long")
+    for val in (inp.seller_name, inp.buyer_name):
+        if val is not None and len(val) > _PARTY_MAX:
+            raise ValueError("A party name is too long")
+    _unit(inp.extent_unit)
+    kind = inp.kind if creating else "parcel"
+    if creating and inp.land_class is not None:
+        # The assistant passes the public record's land type ('AGRICULTURAL',
+        # 'SITE'), which is not a soil class: dropped, never a refused save.
+        # An owner typing in the drawer (setRecordFields) is still refused.
+        try:
+            rm.clean(rm.FIELDS["land_class"], inp.land_class, kind)
+        except ValueError:
+            inp.land_class = None
+    for key, val in (("acquisition_mode", inp.acquisition_mode), ("exec_date", inp.exec_date),
+                     ("govt_value", inp.govt_value), ("land_class", inp.land_class),
+                     ("lp_no", inp.lp_no), ("plot_no", inp.plot_no), ("door_no", inp.door_no)):
+        rm.clean(rm.FIELDS[key], val, kind)
+    if creating and inp.kind == "parcel" and (_txt(inp.plot_no) or _txt(inp.door_no)):
+        raise ValueError("A land parcel has no plot or door number; save it as a property")
+    job = _txt(inp.reading_job_id)
+    if job and (len(job) > 64 or not job.isalnum()):
+        raise ValueError("Reading reference is not valid")
 
 
 def _survey_parts(title: str) -> tuple:
@@ -8857,6 +10613,55 @@ async def _owned_document_ids(conn, uid: str, ids: List[str]) -> List[str]:
     return [i for i in ids if i in found]
 
 
+async def _original_file_names(conn, file_refs: List[str]) -> dict:
+    """file_ref → the name the file was uploaded under, from the storage
+    gateway's node table. Read-only and best-effort: those tables are the
+    gateway's, and an API-only database has none, so the guard asks first
+    rather than failing a query mid-read."""
+    refs = sorted({r for r in file_refs if r})
+    if not refs:
+        return {}
+    try:
+        reg = await (await conn.execute(
+            "SELECT to_regclass('storage_nodes') IS NOT NULL AS present")).fetchone()
+        if not reg or not reg.get("present"):
+            return {}
+        cur = await conn.execute(
+            "SELECT id::text AS id, name FROM storage_nodes WHERE id::text = ANY(%s)", (refs,))
+        return {r["id"]: r.get("name") or "" for r in await cur.fetchall() if r.get("name")}
+    except Exception:
+        return {}
+
+
+def _paper_details(d: dict, names: dict) -> dict:
+    """The registration details and naming facts every Paper carries."""
+    title = d.get("title") or d.get("name") or "Untitled document"
+    return dict(
+        doc_no=d.get("doc_no") or "", registered_on=d.get("registered_on") or "",
+        office=d.get("office") or "", name_set=bool(d.get("name_set")),
+        file_name=names.get(d.get("file_ref") or "") or d.get("name") or title)
+
+
+# The shelves a paper can be filed on: the filing shelves plus Photos.
+_PAPER_SHELVES = frozenset(ticketing.SHELVES) | {"photos"}
+
+_DDMMYYYY = re.compile(r"^\d{2}/\d{2}/\d{4}$")
+
+
+def _valid_ddmmyyyy(value: str) -> bool:
+    """'' or a real day-first date. Never re-read as month-first: 03/04/2026
+    is the 3rd of April, and 31/02/2026 is refused, not rolled over."""
+    if value == "":
+        return True
+    if not _DDMMYYYY.fullmatch(value):
+        return False
+    try:
+        datetime.strptime(value, "%d/%m/%Y")
+    except ValueError:
+        return False
+    return True
+
+
 async def _paper_property_map(conn, uid: str, document_ids: List[str]) -> dict:
     """Owned record and combined-view links per private vault document."""
     if not document_ids:
@@ -8882,7 +10687,7 @@ async def _paper_property_map(conn, uid: str, document_ids: List[str]) -> dict:
             continue
         out.setdefault(row["document_id"], []).append(PaperProperty(
             id=row["record_id"],
-            title=card["title"] if card else holding["name"] or "Combined view",
+            title=card["title"] if card else holding["name"] or "Untitled holding",
             kind=(card.get("kind") or "parcel") if card else "combined",
             document_id=row["document_id"]))
     return out
@@ -8906,10 +10711,109 @@ async def _record_label(conn, kind: str, rid: str) -> str:
     return ((await cur.fetchone() or {}).get("label") or "").strip()
 
 
+def _txt(val: Optional[str]) -> str:
+    return (val or "").strip()
+
+
+async def _record_by_source(conn, uid: str, ref: str) -> Optional[dict]:
+    """This owner's record already copied from `ref` ({id, stake, archived,
+    kind}), or None.
+
+    Both tables, because the same deed may have been saved once as a parcel
+    and is now offered as a property; it is still the same land."""
+    cur = await conn.execute(
+        "SELECT id, stake, archived FROM properties WHERE owner_user_id=%s AND source_ref=%s"
+        " ORDER BY created_at LIMIT 1", (uid, ref))
+    row = await cur.fetchone()
+    if row:
+        return {**row, "kind": "property"}
+    cur = await conn.execute(
+        "SELECT p.id, p.stake, p.archived FROM parcels p JOIN passbooks pb ON pb.id=p.passbook_id"
+        " WHERE pb.owner_user_id=%s AND p.source_ref=%s ORDER BY p.created_at LIMIT 1",
+        (uid, ref))
+    row = await cur.fetchone()
+    return {**row, "kind": "parcel"} if row else None
+
+
+_STAKE_WORDS = {"owned": "Owned", "managed": "Managed", "watch": "Watching"}
+
+
 async def _create_record(conn, uid: str, inp: RecordInput) -> str:
+    """Create one record — and, when it carries a source_ref this owner has
+    already saved, answer with that record instead of a second copy.
+
+    One transaction: the record, its deed facts, its ownership chain and its
+    audit line commit together, so a failure halfway never leaves a record
+    without the parties it was saved with. The advisory lock makes the
+    source_ref check-then-insert safe against two saves of the same deed
+    racing (two tabs, two proposals); `uq_properties_owner_source` is the
+    database's own backstop for properties.
+
+    A source_ref hit under a DIFFERENT stake is refused rather than answered
+    with the old record: a Watching save must never be reported as saved
+    while the account holds the deed as Mine (with its party names), nor a
+    Mine save quietly left as a watch. An archived hit is brought back, so
+    "saved" never points at a record the owner cannot see."""
+    _check_record_input(inp, creating=True)
+    ref = _txt(inp.source_ref)
+    async with conn.transaction():
+        if ref:
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                (f"w360-source:{uid}:{ref}",))
+            existing = await _record_by_source(conn, uid, ref)
+            if existing:
+                want = _txt(inp.stake) or "owned"
+                have = _txt(existing.get("stake")) or "owned"
+                if have != want:
+                    raise ValueError(
+                        f"This deed is already in your properties as {_STAKE_WORDS.get(have, have)}."
+                        " Change its stake on the property itself.")
+                if existing.get("archived"):
+                    table = "parcels" if existing["kind"] == "parcel" else "properties"
+                    await conn.execute(
+                        f"UPDATE {table} SET archived=false WHERE id=%s", (existing["id"],))
+                    label = await _record_label(conn, existing["kind"], existing["id"])
+                    await _audit(conn, uid, "archive_record", existing["id"],
+                                 "Brought back " + (label or "a property"), label=label)
+                return existing["id"]
+        return await _insert_record(conn, uid, inp, ref)
+
+
+async def _insert_record(conn, uid: str, inp: RecordInput, ref: str) -> str:
     import uuid as _uuid
-    rid = f"rec-{_uuid.uuid4().hex[:12]}"
+    from .ids import uuid7
+    rid = uuid7()
     now = _now_iso()
+    stake = _txt(inp.stake) or "owned"
+    status = _txt(inp.status) or "owned"
+    unit = _unit(inp.extent_unit)
+    reg_date = _txt(inp.reg_date)
+    # A watched record keeps the land's facts and not the parties' names.
+    seller = "" if stake == "watch" else _txt(inp.seller_name)
+    buyer = "" if stake == "watch" else _txt(inp.buyer_name)
+    owner_name = "" if stake == "watch" else (_txt(inp.owner_name) or buyer)
+    deed_cols = ("reg_doc_no", "sro", "reg_date", "purchase_date", "boundary_north",
+                 "boundary_south", "boundary_east", "boundary_west", "source_ref")
+    deed_vals = (_txt(inp.doc_no), _txt(inp.sro), reg_date, reg_date,
+                 _txt(inp.boundary_north), _txt(inp.boundary_south),
+                 _txt(inp.boundary_east), _txt(inp.boundary_west), ref)
+    meta = {"origin": _txt(inp.origin), "source_ref": ref,
+            **await _creation_trace(conn, uid, inp, ref)}
+    if ref.startswith("pr:"):
+        # The deed row's own kind of land beats whatever the card sent (a card
+        # default was never the owner's word); with none, the server picks
+        # the default, which stays unclaimed (B4).
+        pr_row = await rm.public_record_row(conn, ref)
+        said = rm.pr_classification(pr_row, inp.kind) if pr_row else ""
+        if said:
+            inp.classification = said
+        elif not _txt(inp.classification) and inp.kind == "property":
+            inp.classification = ("house" if pr_row and rm.no_value(pr_row.get("house_no"))
+                                  else "open_plot")
+    # Not set unless something says so: the old column defaults ('purchase',
+    # 'sale') claimed a sale nobody had stated.
+    mode = rm.clean(rm.FIELDS["acquisition_mode"], inp.acquisition_mode)
     if inp.kind == "parcel":
         # A parcel hangs off a passbook (that is where the khata, village and
         # owner's name live). Reuse the user's matching passbook when there is
@@ -8923,50 +10827,337 @@ async def _create_record(conn, uid: str, inp: RecordInput) -> str:
                 " AND village=%s LIMIT 1", (uid, khata, village))
             row = await cur.fetchone()
             pb_id = row["id"] if row else ""
+        reused = bool(pb_id)
         if not pb_id:
             pb_id = f"pb-{_uuid.uuid4().hex[:12]}"
-            # A passbook belongs to a family group; Families & Groups sums its
-            # parcels' extent by group. A passbook created without one leaves
-            # the new parcel out of those totals, so it joins the default.
+            # A new passbook is held in the owner's own name (group_id ''),
+            # the same "Personal" every Families & groups view and the
+            # Properties "Family / group" facet already count. Which family,
+            # firm or trust holds it is the owner's choice, made from that
+            # page — guessing their oldest family filed land under the wrong
+            # family for anyone managing more than one.
             await conn.execute(
                 "INSERT INTO passbooks (id, owner_user_id, pattadar_no, owner_name,"
                 " district, mandal, village, group_id, created_at)"
-                " VALUES (%s,%s,%s,%s,%s,%s,%s, COALESCE((SELECT id FROM groups"
-                " WHERE owner_user_id=%s AND type='family' ORDER BY created_at LIMIT 1), ''), %s)",
-                (pb_id, uid, khata, (inp.owner_name or "").strip(),
-                 (inp.district or "").strip(), (inp.mandal or "").strip(), village, uid, now))
-        no, sub = _survey_parts(inp.title or "")
+                " VALUES (%s,%s,%s,%s,%s,%s,%s, '', %s)",
+                (pb_id, uid, khata, owner_name,
+                 (inp.district or "").strip(), (inp.mandal or "").strip(), village, now))
+        # The survey number given as itself wins over one read out of a title.
+        no, sub = _survey_parts(inp.survey_no if _txt(inp.survey_no) else (inp.title or ""))
+        # Parcels are held in acres, and every reader labels them "ac". A
+        # deed's yards or feet are converted here, explicitly — they used to
+        # be stored as given and read back as that many acres.
         await conn.execute(
             "INSERT INTO parcels (id, passbook_id, survey_no, subdivision, extent,"
-            " classification, status, stake, market_value, purchase_price, created_at)"
-            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-            (rid, pb_id, no, sub, _f(inp.extent), inp.classification or "agri",
-             inp.status or "owned", inp.stake or "owned",
-             _f(inp.market_value), _f(inp.purchase_price), now))
+            " classification, status, stake, market_value, purchase_price, created_at,"
+            " acquisition_source, "
+            + ", ".join(deed_cols) + ") VALUES (" + ", ".join(["%s"] * (12 + len(deed_cols))) + ")",
+            (rid, pb_id, no, sub, _to_acres(inp.extent, unit or "ac"),
+             inp.classification or "agri", status, stake,
+             _f(inp.market_value), _f(inp.purchase_price), now, mode, *deed_vals))
+        label = _txt(inp.title) or (f"Sy {no}/{sub}" if no and sub else f"Sy {no}" if no else "")
+        await _claim_new_record(conn, uid, rid, "parcel", inp, ref, reused=reused)
+        await _chain_from_deed(conn, uid, rid, "parcel", inp, seller, buyer, stake, ref)
         # Creating a record is a change the trail must carry — without this the
         # record's own Audit tab read "nothing has happened yet" the instant it
         # was made, and the owner's audit log never saw the record appear.
         await _audit(conn, uid, "create_parcel", rid,
-                     f"Added {(inp.title or 'a parcel').strip()}",
-                     label=(inp.title or "").strip())
+                     f"Added {label or 'a parcel'}", label=label, metadata=meta)
         return rid
-    built = (inp.extent_unit or ("sq.ft" if (inp.classification or "flat")
-                                 in ("flat", "shop") else "sq.yd")) == "sq.ft"
+    unit = unit or ("sq.ft" if (inp.classification or "flat") in ("flat", "shop") else "sq.yd")
+    built = unit == "sq.ft"
+    # A plot is held in square yards; acres on a non-agricultural deed are
+    # converted rather than read back as that many yards.
+    land = _f(inp.extent) * _SQYD_PER_AC if unit == "ac" else _f(inp.extent)
     await conn.execute(
         "INSERT INTO properties (id, owner_user_id, type, label, locality, city,"
         " district, khata_no, owner_name, holding_status, stake, land_area,"
-        " builtup_area, market_value, current_value, purchase_price, created_at)"
-        " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+        " builtup_area, market_value, current_value, purchase_price, created_at, survey_no,"
+        " acquisition_mode, "
+        + ", ".join(deed_cols) + ") VALUES (" + ", ".join(["%s"] * (19 + len(deed_cols))) + ")",
         (rid, uid, inp.classification or "flat", (inp.title or "Property").strip(),
          (inp.village or "").strip(), (inp.mandal or "").strip(),
          (inp.district or "").strip(), (inp.khata_no or "").strip(),
-         (inp.owner_name or "").strip(), inp.status or "owned", inp.stake or "owned",
-         0.0 if built else _f(inp.extent), _f(inp.extent) if built else 0.0,
-         _f(inp.market_value), _f(inp.market_value), _f(inp.purchase_price), now))
+         owner_name, status, stake,
+         0.0 if built else land, _f(inp.extent) if built else 0.0,
+         _f(inp.market_value), _f(inp.market_value), _f(inp.purchase_price), now,
+         _txt(inp.survey_no), mode, *deed_vals))
+    await _claim_new_record(conn, uid, rid, "property", inp, ref)
+    await _chain_from_deed(conn, uid, rid, "property", inp, seller, buyer, stake, ref)
     await _audit(conn, uid, "create_property", rid,
                  f"Added {(inp.title or 'a property').strip()}",
-                 label=(inp.title or "").strip())
+                 label=(inp.title or "").strip(), metadata=meta)
     return rid
+
+
+_PR_UNREAD_WARNED = False
+
+
+async def _creation_trace(conn, uid: str, inp: RecordInput, ref: str) -> dict:
+    """What this record is being created from, for its create_* audit line
+    (Reddy, 12/10/2026, D2): the public record's RID and schedule, or the
+    caller's own reading — its job id, the file's name and the content hash
+    the job kept. The reading itself is purged after 7 days; this line is
+    not. Nothing else from the file (no party, no number) is copied."""
+    m = rm._PR_REF.match(ref)
+    src = (await _claim_source(conn, uid, inp, ref))[0]
+    if ref.startswith("pr:"):
+        # Only a ref _claim_source resolved is vouched for; one it could not
+        # (malformed included) is traced as such, without its RID.
+        return ({"source_kind": "public_record", "rid": m.group(1), "s_no": m.group(2)}
+                if m and src == "public_record" else {"source_kind": "unverified_public_record"})
+    job = _txt(inp.reading_job_id)
+    if not job:
+        return {"source_kind": "manual"}
+    cur = await conn.execute(
+        "SELECT * FROM document_read_jobs WHERE id=%s AND owner_user_id=%s", (job, uid))
+    row = await cur.fetchone() or {}
+    return {"source_kind": src, "reading_job_id": job,
+            "file_name": str(row.get("filename") or "")[:200],
+            "content_hash": str(row.get("content_hash") or "")}
+
+
+async def _claim_source(conn, uid: str, inp: RecordInput, ref: str) -> tuple:
+    """(source, source_ref, label, public-record row, what the reading itself
+    says) for a create — decided here, never by the client: a `pr:` ref that
+    names a real public-record row (re-read here, read-only), the caller's
+    OWN finished reading, or the owner's own entry.
+
+    A `pr:` ref this API cannot resolve (no such row, or a role that cannot
+    read the corpus) vouches for nothing, but the values are not the owner's
+    typing either: they are filed unsourced (`legacy`), so a real source can
+    still outrank them later (B5)."""
+    global _PR_UNREAD_WARNED
+    if ref.startswith("pr:"):
+        row = await rm.public_record_row(conn, ref)
+        if row:
+            return "public_record", ref, "Public record", row, None
+        if not _PR_UNREAD_WARNED:
+            import logging
+            _PR_UNREAD_WARNED = True
+            logging.getLogger("pattadar.web360").warning(
+                "public-record ref did not resolve (no row, or the corpus is not readable);"
+                " its values are filed unsourced")
+        return "legacy", "", rm.LEGACY_LABEL, None, None
+    job = _txt(inp.reading_job_id)
+    if not job:
+        return "manual", "", rm.MANUAL_LABEL, None, None
+    cur = await conn.execute(
+        "SELECT operation, state, result FROM document_read_jobs WHERE id=%s AND owner_user_id=%s",
+        (job, uid))
+    row = await cur.fetchone()
+    if not row or row["state"] != "done":
+        raise ValueError("That reading is not one of yours, or it has not finished.")
+    res = row["result"] if isinstance(row["result"], dict) else _jobject(row["result"])
+    fields = res.get("fields") if isinstance(res.get("fields"), dict) else res
+    doc_type = _txt(str(fields.get("doc_type") or ""))
+    if row["operation"] == "import-passbook" or doc_type in ("Pattadar Passbook", "ROR/Adangal"):
+        # shortcut: a passbook reading vouches for every passbook key the form
+        # sends, corrected or not (no passbook→field map yet); add one like
+        # deed_claims when a passbook correction is seen filed as the reading's.
+        return "passbook_reading", job, " ".join(
+            ("Passbook", _txt(str(fields.get("pattadar_no") or "")))).strip(), None, None
+    if row["operation"] == "import-registered-document" and doc_type not in rm.NOT_DEEDS:
+        no, year = _txt(str(fields.get("document_no") or "")), _txt(str(fields.get("reg_year") or ""))
+        doc = f"{no}/{year}" if no and year and "/" not in no else no
+        return "deed_reading", job, f"Deed {doc}".strip(), None, fields
+    raise ValueError("That reading is not a deed or a passbook.")
+
+
+def _input_claims(inp: RecordInput, kind: str, extent_text: str) -> dict:
+    """The master-field values a RecordInput carries, keyed as FIELDS, in the
+    form the columns store them. An omitted field is absent, not ''."""
+    vals: dict = {}
+    if kind == "parcel" and (inp.survey_no is not None and inp.survey_no.strip()
+                             or inp.title is not None):
+        vals["survey_no"], vals["subdivision"] = _survey_parts(
+            inp.survey_no if _txt(inp.survey_no) else (inp.title or ""))
+    elif kind == "property" and inp.survey_no is not None:
+        vals["survey_no"] = inp.survey_no
+    for key, val in (("village", inp.village), ("mandal", inp.mandal),
+                     ("district", inp.district), ("khata_no", inp.khata_no),
+                     ("classification", inp.classification), ("stake", inp.stake),
+                     ("doc_no", inp.doc_no), ("sro", inp.sro), ("reg_date", inp.reg_date),
+                     ("boundary_north", inp.boundary_north),
+                     ("boundary_south", inp.boundary_south),
+                     ("boundary_east", inp.boundary_east),
+                     ("boundary_west", inp.boundary_west),
+                     ("consideration", inp.purchase_price),
+                     ("acquisition_mode", inp.acquisition_mode), ("exec_date", inp.exec_date),
+                     ("govt_value", inp.govt_value), ("land_class", inp.land_class),
+                     ("lp_no", inp.lp_no), ("plot_no", inp.plot_no), ("door_no", inp.door_no)):
+        if val is not None:
+            vals[key] = val
+    if inp.extent is not None:
+        vals["extent"] = extent_text
+    return vals
+
+
+def _extent_text(inp: RecordInput, kind: str, built: Optional[bool] = None) -> str:
+    """The extent as its column will hold it: acres for a parcel; sq.ft built,
+    sq.yd otherwise for a property (acres converted, as saveRecord does)."""
+    if inp.extent is None or not _f(inp.extent):
+        return ""
+    unit = _unit(inp.extent_unit)
+    if kind == "parcel":
+        return f"{rm._num_text(_to_acres(inp.extent, unit or 'ac'))} ac"
+    if built is None:                 # create: the kind decides, as _insert_record does
+        built = (inp.classification or "flat") in ("flat", "shop")
+    unit = unit or ("sq.ft" if built else "sq.yd")
+    if unit == "sq.ft":
+        return f"{rm._num_text(_f(inp.extent))} sq.ft"
+    return f"{rm._num_text(_f(inp.extent) * (_SQYD_PER_AC if unit == 'ac' else 1.0))} sq.yd"
+
+
+_PASSBOOK_KEYS = ("state", "district", "mandal", "village", "khata_no", "passbook_no")
+
+
+async def _claim_new_record(conn, uid: str, rid: str, kind: str, inp: RecordInput,
+                            ref: str, reused: bool = False) -> None:
+    """The just-inserted record's master claims. What the source can know is
+    claimed as that source; anything else on the form is the owner's. A parcel
+    filed under a passbook that already existed keeps that passbook's place
+    and khata — they are its facts, not this save's."""
+    src, sref, label, pr_row, reading = await _claim_source(conn, uid, inp, ref)
+    vals = _input_claims(inp, kind, _extent_text(inp, kind))
+    for key in rm.TITLE_KEYS:
+        vals.pop(key, None)          # the title goes through set_acquisition
+    if kind == "parcel" and reused:
+        for key in _PASSBOOK_KEYS:
+            vals.pop(key, None)
+    if src == "public_record":
+        # Only what the deed row itself says carries its name (A3). The kind
+        # of land the card defaulted is nobody's statement: claimed when the
+        # row says it, else left unclaimed rather than "you entered" (A10).
+        if vals.get("extent", "").endswith(" sq.ft") and kind == "property":
+            vals["builtup_area"] = vals.pop("extent")
+        known = rm.pr_agrees(pr_row, kind, vals)
+        if "classification" not in known:
+            vals.pop("classification", None)
+    elif src == "legacy":
+        # An unresolved public-record ref: what a public record could say is
+        # filed unsourced; the kind of land is a default, nobody's (B5).
+        vals.pop("classification", None)
+        known = rm.SOURCE_KEYS["public_record"]
+    elif src == "deed_reading":
+        # Only what the reading itself says is the reading's; a value the
+        # owner corrected on the form is theirs (B1).
+        said = _reading_says(reading, kind)
+        known = rm.SOURCE_KEYS[src] & rm.agrees(said, kind, vals)
+    else:
+        known = rm.SOURCE_KEYS.get(src, set())
+    machine = {k: v for k, v in vals.items() if k in known}
+    if src == "passbook_reading" and inp.acquisition_mode:
+        machine["acquisition_mode"] = inp.acquisition_mode
+    mine = {k: v for k, v in vals.items() if k not in machine}
+    if machine:
+        await rm.apply_claims(conn, uid, rid, kind, source=src, source_ref=sref,
+                              label=label, values=machine, fresh=True)
+    if src == "deed_reading" and mine:
+        await rm.note_claims(conn, uid, rid, kind, source=src, source_ref=sref, label=label,
+                             values={k: v for k, v in _reading_says(reading, kind).items()
+                                     if k in mine and k in rm.SOURCE_KEYS[src]})
+    if mine:
+        await rm.apply_claims(conn, uid, rid, kind, source="manual", values=mine, fresh=True)
+
+
+def _reading_says(fields: Optional[dict], kind: str) -> dict:
+    """A deed reading's own values, keyed as FIELDS (title keys included)."""
+    if not fields:
+        return {}
+    values, acq, *_ = rm.deed_claims(fields, kind)
+    return {**values, **acq}
+
+
+async def _log_change(conn, uid: str, rid: str, label: str, was: str, now: str,
+                      via: str = "") -> None:
+    """One correction line on the record's trail (what `_log_corrections`
+    writes per field), with the source that made the change when it was not
+    the owner's hand."""
+    import uuid as _uuid
+    details = {"field": label, "from": str(was).strip(), "to": str(now).strip()}
+    if via:
+        details["via"] = via
+    await conn.execute(
+        "INSERT INTO audit_events (id, actor, action, target, details, timestamp)"
+        " VALUES (%s,%s,'record.corrected',%s,%s,%s)",
+        (f"ae-{_uuid.uuid4().hex[:12]}", uid, rid, json.dumps(details), _now_iso()))
+    # The envelope says WHICH field changed, never its values (see _log_corrections).
+    try:
+        from . import main as _main
+    except ImportError:
+        import main as _main          # type: ignore[no-redef]
+    await _main.audit.record(
+        conn, action="record.corrected", actor_principal=uid,
+        affected_owner=uid, resource_id=rid,
+        metadata={"field": label, "changed": True})
+
+
+def _logger(conn, uid: str, rid: str):
+    async def log(label: str, was: str, now: str, via: str) -> None:
+        await _log_change(conn, uid, rid, label, was, now, via)
+    return log
+
+
+async def _chain_from_deed(conn, uid: str, rid: str, kind: str, inp: RecordInput,
+                           seller: str, buyer: str, stake: str, ref: str) -> None:
+    """How the land was got, from the deed the record was created with, on the
+    same transaction as the record: the title fields and the acquiring
+    transfer go through record_master.set_acquisition (with the source this
+    save is), and a property also gets the `property_owners` rows
+    createProperty has always written (legacy and iOS readers)."""
+    import uuid as _uuid
+    src, sref, label, pr_row, reading = await _claim_source(conn, uid, inp, ref)
+    if src == "passbook_reading":
+        # A passbook knows the mode (claimed above), never a deed's facts.
+        src, sref, label = "manual", "", rm.MANUAL_LABEL
+    acq = {"acquisition_mode": inp.acquisition_mode, "registered": "yes" if pr_row
+           else "", "doc_no": inp.doc_no, "reg_date": inp.reg_date, "exec_date": inp.exec_date,
+           "sro": inp.sro, "consideration": inp.purchase_price, "govt_value": inp.govt_value}
+    if src == "manual" and _txt(inp.doc_no):
+        acq["registered"] = "yes"
+    # Title values the deed row / the reading does not say are the owner's (A3, B1).
+    manual_keys = (set(rm.TITLE_KEYS) - rm.pr_agrees(pr_row, kind, acq)) if pr_row else ()
+    if src == "deed_reading":
+        said = _reading_says(reading, kind)
+        manual_keys = set(rm.TITLE_KEYS) - rm.agrees(said, kind, acq)
+        await rm.note_claims(conn, uid, rid, kind, source=src, source_ref=sref, label=label,
+                             values={k: said[k] for k in manual_keys
+                                     if k in said and acq.get(k) not in (None, "")})
+    if stake == "watch":
+        # A watched record keeps the land's facts, never a chain of
+        # third parties (spec 2026-10-04 §5 question 6).
+        stated = {k: v for k, v in acq.items() if v not in (None, "")}
+        await rm.apply_claims(conn, uid, rid, kind, source=src, source_ref=sref, label=label,
+                              values={k: v for k, v in stated.items() if k not in manual_keys},
+                              fresh=True)
+        await rm.apply_claims(conn, uid, rid, kind, source="manual", fresh=True,
+                              values={k: v for k, v in stated.items() if k in manual_keys})
+        return
+    await rm.set_acquisition(
+        conn, uid, rid, kind, source=src, source_ref=sref, label=label, acq=acq,
+        from_parties=[{"name": seller, "role": "seller"}] if seller else [],
+        to_parties=[{"name": buyer, "role": "buyer"}] if buyer else [], fresh=True,
+        manual_keys=manual_keys,
+        # The deed reader's direction (who sold, who bought) is not settled, and
+        # an unresolved public-record ref vouches for nothing: unconfirmed (B2, B5).
+        verified=src not in ("deed_reading", "legacy"))
+    now = _now_iso()
+    if kind == "property":
+        # As createProperty does: the buyer is the current owner, the seller a
+        # prior one. The buyer is linked to this account only when it is
+        # the account holder's own record.
+        if buyer:
+            await conn.execute(
+                "INSERT INTO property_owners (id, property_id, owner_name, user_id, share_pct,"
+                " role, is_current, created_at) VALUES (%s,%s,%s,%s,100.0,'owner',true,%s)",
+                (f"po-{_uuid.uuid4().hex[:12]}", rid, buyer,
+                 uid if stake == "owned" else "", now))
+        if seller:
+            await conn.execute(
+                "INSERT INTO property_owners (id, property_id, owner_name, user_id, share_pct,"
+                " role, is_current, created_at) VALUES (%s,%s,%s,'',0.0,'seller',false,%s)",
+                (f"po-{_uuid.uuid4().hex[:12]}", rid, seller, now))
 
 
 # Which RecordInput field maps to which column, and what to call it in the
@@ -8985,8 +11176,23 @@ _AUDITED: tuple = (
     ("district", "District"),
     ("extent", "Extent"),
     ("extent_unit", "Extent unit"),
-    ("market_value", "Market value"),
+    ("market_value", "Market estimate"),
     ("purchase_price", "What was paid"),
+    ("survey_no", "Survey number"),
+    ("doc_no", "Deed number"),
+    ("sro", "SRO"),
+    ("reg_date", "Registration date"),
+    ("boundary_north", "North boundary"),
+    ("boundary_south", "South boundary"),
+    ("boundary_east", "East boundary"),
+    ("boundary_west", "West boundary"),
+    ("acquisition_mode", "How acquired"),
+    ("exec_date", "Executed on"),
+    ("govt_value", "Government value"),
+    ("plot_no", "Plot number"),
+    ("door_no", "Door / house number"),
+    ("land_class", "Wet / dry"),
+    ("lp_no", "LP number"),
 )
 
 
@@ -9008,19 +11214,27 @@ async def _record_snapshot(conn, uid: str, rid: str) -> dict:
                 "extent": r.get("extent") or 0, "extent_unit": r.get("extentUnit") or r.get("extent_unit") or "",
                 "market_value": r.get("marketValue") or r.get("market_value") or 0,
                 "purchase_price": 0,
+                "survey_no": r.get("survey_no") or "", "doc_no": r.get("reg_doc_no") or "",
+                "sro": r.get("sro") or "", "reg_date": r.get("reg_date") or "",
+                "boundary_north": r.get("boundary_north") or "",
+                "boundary_south": r.get("boundary_south") or "",
+                "boundary_east": r.get("boundary_east") or "",
+                "boundary_west": r.get("boundary_west") or "",
             }
     return {}
 
 
-async def _log_corrections(conn, uid: str, rid: str, before: dict, inp: RecordInput) -> None:
+async def _log_corrections(conn, uid: str, rid: str, before: dict, inp: RecordInput,
+                           stored: Optional[dict] = None) -> None:
     """One audit line per field that actually moved.
 
     Sending a field unchanged is not a correction and must not fill the trail
-    with noise, so equal values are skipped."""
-    now = _now_iso()
-    import uuid as _uuid
+    with noise, so equal values are skipped. `stored` overrides a field with
+    the value actually written (an extent converted to the record's unit), and
+    None there means nothing was stored for it — the snapshot is in stored
+    units, so comparing the raw input logged changes that never happened."""
     for field, label in _AUDITED:
-        new = getattr(inp, field, None)
+        new = (stored or {}).get(field, getattr(inp, field, None))
         if new is None:
             continue
         old = before.get(field, "")
@@ -9030,34 +11244,56 @@ async def _log_corrections(conn, uid: str, rid: str, before: dict, inp: RecordIn
             same = str(old).strip() == str(new).strip()
         if same:
             continue
-        await conn.execute(
-            "INSERT INTO audit_events (id, actor, action, target, details, timestamp)"
-            " VALUES (%s,%s,'record.corrected',%s,%s,%s)",
-            (f"ae-{_uuid.uuid4().hex[:12]}", uid, rid,
-             json.dumps({"field": label,
-                         "from": str(old).strip(),
-                         "to": str(new).strip()}), now))
-        # Envelope event on the same connection. The old/new VALUES stay in the
-        # legacy details column only; the envelope records WHICH field changed
-        # (allowlisted `field` label) and that it changed, never the personal
-        # before/after content — that is what keeps the central trail free of
-        # names, locations and prices.
-        try:
-            from . import main as _main
-        except ImportError:
-            import main as _main          # type: ignore[no-redef]
-        await _main.audit.record(
-            conn, action="record.corrected", actor_principal=uid,
-            affected_owner=uid, resource_id=rid,
-            metadata={"field": label, "changed": True})
+        # The old/new VALUES stay in the legacy details column only; the
+        # envelope records WHICH field changed, never the personal before/after
+        # content — that keeps the central trail free of names, places, prices.
+        await _log_change(conn, uid, rid, label, old, new)
+
+
+def _deed_sets(inp: RecordInput) -> tuple:
+    """SET clauses for the deed facts an update carries — the same columns on
+    both tables. An omitted field is left alone; one sent as "" clears it."""
+    sets: List[str] = []
+    args: List = []
+    for col, val in (("reg_doc_no", inp.doc_no), ("sro", inp.sro), ("reg_date", inp.reg_date),
+                     ("boundary_north", inp.boundary_north),
+                     ("boundary_south", inp.boundary_south),
+                     ("boundary_east", inp.boundary_east),
+                     ("boundary_west", inp.boundary_west)):
+        if val is not None:
+            sets.append(f"{col}=%s")
+            args.append(val.strip())
+    return sets, args
 
 
 async def _update_record(conn, uid: str, inp: RecordInput) -> str:
+    """Partially update one record. `source_ref`, `origin` and the deed's
+    party names are create-only: provenance is not edited after the fact,
+    and the chain has its own editors (addOwner / addTransfer)."""
     import uuid as _uuid
+    _check_record_input(inp, creating=False)
     rid = inp.id or ""
     # Read first: after the UPDATE the old values are gone, and the trail is
     # the only place they survive.
     before = await _record_snapshot(conn, uid, rid)
+    kind = await _record_kind(conn, uid, rid)
+    master = await rm.current(conn, rid, kind) if kind else {}
+    for key in ("acquisition_mode", "exec_date", "plot_no", "door_no", "land_class", "lp_no"):
+        before[key] = master.get(key, "")
+    before["govt_value"] = _f(master.get("govt_value"))
+    if kind:
+        # Refused before anything is written (A8): a plot number on a parcel,
+        # a future date, an over-long value, a negative amount. The same rules
+        # apply_claims holds the owner's entry to, so it cannot fail later.
+        for key, val in _input_claims(inp, kind, "").items():
+            if rm.FIELDS[key].target(kind) is None:
+                if _txt(str(val)):
+                    raise ValueError(f"{rm.FIELDS[key].label} does not apply to this property")
+                continue
+            rm.clean(rm.FIELDS[key], val, kind)
+    for num in (inp.market_value, inp.extent):
+        if num is not None and not 0 <= _f(num) <= 1e12:
+            raise ValueError("Amounts and extents cannot be negative")
     cur = await conn.execute(
         "SELECT p.id, p.passbook_id FROM parcels p JOIN passbooks pb ON pb.id=p.passbook_id"
         " WHERE p.id=%s AND pb.owner_user_id=%s", (rid, uid))
@@ -9065,7 +11301,13 @@ async def _update_record(conn, uid: str, inp: RecordInput) -> str:
     if par:
         sets: List[str] = []
         args: List = []
-        if inp.title is not None:
+        if inp.survey_no is not None and inp.survey_no.strip():
+            # Given as itself, it wins over one read out of the title (and
+            # only one pair is set: Postgres refuses a column assigned twice).
+            no, sub = _survey_parts(inp.survey_no)
+            sets += ["survey_no=%s", "subdivision=%s"]
+            args += [no, sub]
+        elif inp.title is not None:
             no, sub = _survey_parts(inp.title)
             sets += ["survey_no=%s", "subdivision=%s"]
             args += [no, sub]
@@ -9073,12 +11315,19 @@ async def _update_record(conn, uid: str, inp: RecordInput) -> str:
                          ("stake", inp.stake)):
             if val is not None:
                 sets.append(f"{col}=%s")
-                args.append(val)
-        for col, num in (("extent", inp.extent), ("market_value", inp.market_value),
+                args.append(val.strip())
+        if inp.extent is not None:
+            # Held in acres: yards or feet are converted, never relabelled.
+            sets.append("extent=%s")
+            args.append(_to_acres(inp.extent, _unit(inp.extent_unit) or "ac"))
+        for col, num in (("market_value", inp.market_value),
                          ("purchase_price", inp.purchase_price)):
             if num is not None:
                 sets.append(f"{col}=%s")
                 args.append(_f(num))
+        d_sets, d_args = _deed_sets(inp)
+        sets += d_sets
+        args += d_args
         if sets:
             await conn.execute(
                 f"UPDATE parcels SET {', '.join(sets)} WHERE id=%s", (*args, rid))
@@ -9094,28 +11343,18 @@ async def _update_record(conn, uid: str, inp: RecordInput) -> str:
                 pb_sets.append(f"{col}=%s")
                 pb_args.append(val.strip())
         if pb_sets:
-            pb_id = par["passbook_id"]
-            cur = await conn.execute(
-                "SELECT count(*) AS c FROM parcels WHERE passbook_id=%s", (pb_id,))
-            if _i((await cur.fetchone() or {}).get("c")) > 1:
-                new_id = f"pb-{_uuid.uuid4().hex[:12]}"
-                # The clone must carry EVERY column the original had. Leaving
-                # group_id behind dropped the parcel out of its family group's
-                # acreage; leaving `photo` behind lost the scanned passbook.
-                await conn.execute(
-                    "INSERT INTO passbooks (id, owner_user_id, pattadar_no, owner_name,"
-                    " father_husband_name, state, district, mandal, village, group_id,"
-                    " photo, created_at)"
-                    " SELECT %s, owner_user_id, pattadar_no, owner_name,"
-                    " father_husband_name, state, district, mandal, village, group_id,"
-                    " photo, created_at"
-                    " FROM passbooks WHERE id=%s", (new_id, pb_id))
-                await conn.execute(
-                    "UPDATE parcels SET passbook_id=%s WHERE id=%s", (new_id, rid))
-                pb_id = new_id
+            # The clone carries EVERY column the original had: leaving group_id
+            # behind dropped the parcel out of its family group's acreage, and
+            # leaving `photo` behind lost the scanned passbook.
+            pb_id = await rm.own_passbook(conn, rid)
             await conn.execute(
                 f"UPDATE passbooks SET {', '.join(pb_sets)} WHERE id=%s", (*pb_args, pb_id))
-        await _log_corrections(conn, uid, rid, before, inp)
+        # A parcel is held in acres; its unit never changes.
+        await _log_corrections(conn, uid, rid, before, inp, stored={
+            "extent": (None if inp.extent is None
+                       else _to_acres(inp.extent, _unit(inp.extent_unit) or "ac")),
+            "extent_unit": None})
+        await _claim_edit(conn, uid, rid, "parcel", inp, master, _extent_text(inp, "parcel"))
         return rid
 
     cur = await conn.execute(
@@ -9123,7 +11362,7 @@ async def _update_record(conn, uid: str, inp: RecordInput) -> str:
         (rid, uid))
     prop = await cur.fetchone()
     if not prop:
-        raise ValueError("record not found")
+        raise ValueError("This property is no longer in your account. Reload the page.")
     sets, args = [], []
     if inp.title is not None:
         sets.append("label=%s")
@@ -9131,21 +11370,28 @@ async def _update_record(conn, uid: str, inp: RecordInput) -> str:
     for col, val in (("type", inp.classification), ("holding_status", inp.status),
                      ("stake", inp.stake), ("khata_no", inp.khata_no),
                      ("owner_name", inp.owner_name), ("locality", inp.village),
-                     ("city", inp.mandal), ("district", inp.district)):
+                     ("city", inp.mandal), ("district", inp.district),
+                     ("survey_no", inp.survey_no)):
         if val is not None:
             sets.append(f"{col}=%s")
             args.append(val.strip())
+    d_sets, d_args = _deed_sets(inp)
+    sets += d_sets
+    args += d_args
+    stored: dict = {"extent_unit": None}
     if inp.extent is not None:
-        built = (inp.extent_unit or ("sq.ft" if _f(prop.get("builtup_area"))
-                                     else "sq.yd")) == "sq.ft"
-        if built:
+        unit = _unit(inp.extent_unit) or ("sq.ft" if _f(prop.get("builtup_area")) else "sq.yd")
+        stored = {"extent": _f(inp.extent) * (_SQYD_PER_AC if unit == "ac" else 1.0),
+                  "extent_unit": "sq.yd" if unit == "ac" else unit}
+        if unit == "sq.ft":
             sets.append("builtup_area=%s")
             args.append(_f(inp.extent))
         else:
             # Measured in yards now — it is a plot, so the built-up figure
             # (which would otherwise win the card's extent) goes with it.
+            # Acres on a plot are converted to the yards the column holds.
             sets += ["land_area=%s", "builtup_area=0"]
-            args.append(_f(inp.extent))
+            args.append(_f(inp.extent) * (_SQYD_PER_AC if unit == "ac" else 1.0))
     if inp.market_value is not None:
         # current_value shadows market_value in the card read; keep them one.
         sets += ["market_value=%s", "current_value=%s"]
@@ -9156,14 +11402,492 @@ async def _update_record(conn, uid: str, inp: RecordInput) -> str:
     if sets:
         await conn.execute(
             f"UPDATE properties SET {', '.join(sets)} WHERE id=%s", (*args, rid))
-    await _log_corrections(conn, uid, rid, before, inp)
+    await _log_corrections(conn, uid, rid, before, inp, stored=stored)
+    await _claim_edit(conn, uid, rid, "property", inp, master,
+                      _extent_text(inp, "property", built=_f(prop.get("builtup_area")) > 0))
     return rid
+
+
+async def _claim_edit(conn, uid: str, rid: str, kind: str, inp: RecordInput,
+                      before: dict, extent_text: str) -> None:
+    """The owner's edit, as their claims. The new master fields this function's
+    caller does not write are written by apply_claims; trail lines were
+    written by `_log_corrections`, so none are added here."""
+    vals = _input_claims(inp, kind, extent_text)
+    vals.pop("stake", None)            # the stake has its own guard and trail
+    if kind == "parcel" and inp.title is not None and not _txt(inp.survey_no):
+        vals.pop("subdivision", None)  # read out of a title, not stated
+    await rm.apply_claims(conn, uid, rid, kind, source="manual", values=vals, before=before)
+
+
+# ── Changing a record's kind (Reddy, 12/10/2026, D1) ──────────────────
+
+async def _table_cols(conn, table: str) -> dict:
+    """{column: data type} of `table` in this schema; {} when it is absent."""
+    cur = await conn.execute(
+        "SELECT column_name AS c, data_type AS t FROM information_schema.columns"
+        " WHERE table_schema=current_schema() AND table_name=%s", (table,))
+    return {r["c"]: r["t"] for r in await cur.fetchall()}
+
+
+#: Set explicitly on the new parcel row, never copied by name.
+_PARCEL_SET = ("id", "passbook_id", "survey_no", "subdivision", "extent", "classification",
+               "status", "acquisition_source")
+#: Kind words a farmland parcel may take; anything else is refused.
+_PARCEL_CLASS_RE = re.compile(r"^[a-z_]{1,40}$")
+#: Tables whose rows name the record by id AND by kind ('parcel' / 'property').
+_KIND_TAGGED = ("favourites", "notes", "land_features", "land_expenses", "work_requests",
+                "record_tags")
+
+
+#: Square feet in one of each unit a property's land_unit may name, and the
+#: word the trail uses (packages/core/src/land/units.ts UNIT_SQFT; 1 ankanam
+#: = 72 sq.ft, the AP figure). iOS and Expo store their labels ('Acres',
+#: 'Sq. feet'…), the web the column default 'Sq.yd'.
+_LAND_UNITS = {"sqyd": (9.0, "sq.yd"), "sqft": (1.0, "sq.ft"), "sqm": (10.7639104, "sq.m"),
+               "acre": (_SQFT_PER_AC, "ac"), "gunta": (1089.0, "guntas"),
+               "cent": (435.6, "cents"), "hectare": (107639.104, "ha"),
+               "ankanam": (72.0, "ankanam")}
+_LAND_UNIT_WORDS = {w: k for k, words in {
+    "sqyd": ("", "sqyd", "sqyds", "sqyard", "sqyards", "squareyard", "squareyards", "yd",
+             "yds", "yard", "yards"),
+    "sqft": ("sqft", "sqfeet", "sqfoot", "squarefeet", "squarefoot", "ft", "feet"),
+    "sqm": ("sqm", "sqmt", "sqmetre", "sqmetres", "sqmeter", "sqmeters", "squaremetre",
+            "squaremetres", "squaremeter", "squaremeters", "m2"),
+    "acre": ("ac", "acre", "acres"), "gunta": ("gunta", "guntas"), "cent": ("cent", "cents"),
+    "hectare": ("ha", "hectare", "hectares"), "ankanam": ("ankanam", "ankanams"),
+}.items() for w in words}
+
+
+async def _convert_plan(conn, uid: str, p: dict, passbook_id: str = "") -> dict:
+    """What moving property row `p` to the farmland register would do, decided
+    once for both the move and the Overview's preview: the extent in its own
+    unit and in acres (full precision), and the khata it goes under — the
+    passbook given, else the owner's one with the same khata number and
+    village, else a new one (pb_id ''). An extent in a unit this cannot
+    convert is refused (ValueError, in words) rather than guessed."""
+    raw = _txt(p.get("land_unit"))
+    unit = _LAND_UNIT_WORDS.get(re.sub(r"[^a-z0-9]", "", raw.lower()))
+    if unit is None:
+        raise ValueError(f"Its land area is in \u201c{raw[:40]}\u201d, which cannot be converted"
+                         " to acres. Correct the unit first; nothing was changed.")
+    sqft, word = _LAND_UNITS[unit]
+    area = _f(p.get("land_area"))
+    khata, village = _txt(p.get("khata_no")), _txt(p.get("locality"))
+    pb_id = _txt(passbook_id)
+    if pb_id:
+        cur = await conn.execute("SELECT 1 FROM passbooks WHERE id=%s AND owner_user_id=%s",
+                                 (pb_id, uid))
+        if not await cur.fetchone():
+            raise ValueError("That khata is not one of yours.")
+    elif khata:
+        cur = await conn.execute(
+            "SELECT id FROM passbooks WHERE owner_user_id=%s AND pattadar_no=%s"
+            " AND lower(village)=lower(%s) ORDER BY created_at LIMIT 1", (uid, khata, village))
+        pb_id = ((await cur.fetchone()) or {}).get("id") or ""
+    return {"pb_id": pb_id, "khata": khata, "village": village, "area": area, "unit": word,
+            "acres": area * sqft / _SQFT_PER_AC}
+
+
+async def _convert_record_kind(conn, uid: str, rid: str, to: str, passbook_id: str = "",
+                               classification: str = "", *, operator: str = "",
+                               approval_ref: str = "") -> dict:
+    """Move one of the owner's records to the other register, keeping its id.
+    Runs in the caller's transaction; refuses (ValueError, in words) rather
+    than half-move. Returns counts of what moved, never a value.
+
+    property → parcel: the properties row becomes a parcels row in acres
+    (from its own land_unit, see _convert_plan) under a khata — the passbook
+    given, else the owner's one with the same khata number and village, else
+    a new minimal one carrying the property's khata, place and holder. Every
+    row keyed by property_id moves to its parcel twin (an owner's share,
+    linked account, group and role included); rows keyed by record_id /
+    entity_id stay (same id), and a kind tag on them follows. Kind of land and
+    extent are filed as the owner's own entry (their decision), so earlier
+    sources' values stay as history, and the trail gets record.kind_changed.
+
+    `operator` (the local script) is who applied it, for the owner, under
+    `approval_ref`: the claims stay the owner's, the audit line says so."""
+    if to not in ("parcel", "property"):
+        raise ValueError("Change it to parcel or property")
+    kind = await _record_kind(conn, uid, rid)
+    if not kind:
+        raise ValueError("This property is no longer in your account. Reload the page.")
+    if kind == to:
+        raise ValueError("This is already agricultural land." if to == "parcel"
+                         else "This is already a plot or building.")
+    if to == "property":
+        # shortcut: farmland → plot is refused; it needs a unit choice (sq.yd or
+        # built sq.ft) and detaching the parcel from its khata's siblings — build
+        # it when an owner asks to move land the other way.
+        raise ValueError("Changing agricultural land into a plot or building is not supported yet.")
+    cls = (classification or "agri").strip().lower()
+    if not _PARCEL_CLASS_RE.match(cls):
+        raise ValueError("Choose the kind of agricultural land")
+    cur = await conn.execute(
+        "SELECT * FROM properties WHERE id=%s AND owner_user_id=%s FOR UPDATE", (rid, uid))
+    p = await cur.fetchone()
+    if not p:
+        # Moved or removed between the kind check and the lock (a second tab).
+        raise ValueError("This property was already changed. Reload the page.")
+    before = await rm.current(conn, rid, "property")
+    status = (p.get("holding_status") or "owned").strip()
+    refusal = (
+        "It has a building on it (a built-up area)" if _f(p.get("builtup_area")) > 0
+        or (p.get("type") or "") in rm._BUILT + ("house", "apartment")
+        else "It has a door number, so it reads as a house" if rm.no_value(p.get("door_no"))
+        else "It has a plot number — clear it first if this is really farmland"
+        if rm.no_value(p.get("plot_no"))
+        else "It belongs to a building project" if _txt(p.get("project_id"))
+        else "It has a property-tax assessment number" if _txt(p.get("ghmc_assessment_no"))
+        else "It carries building details" if _txt(p.get("attributes")) not in ("", "{}")
+        else f"Its status ({status}) has no farmland equivalent" if status not in _STATUSES
+        else "")
+    if refusal:
+        raise ValueError(f"{refusal}, so it cannot become agricultural land.")
+    import uuid as _uuid
+    now = _now_iso()
+    plan = await _convert_plan(conn, uid, p, passbook_id)
+    pb_id, reused, acres = plan["pb_id"], bool(plan["pb_id"]), plan["acres"]
+    if not pb_id:
+        pb_id = f"pb-{_uuid.uuid4().hex[:12]}"
+        await conn.execute(
+            "INSERT INTO passbooks (id, owner_user_id, pattadar_no, owner_name, state, district,"
+            " mandal, village, group_id, created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            (pb_id, uid, plan["khata"], _txt(p.get("owner_name")), _txt(p.get("state")),
+             _txt(p.get("district")), _txt(p.get("city")), plan["village"],
+             _txt(p.get("group_id")), now))
+    mode = rm._MODE_ALIASES.get((p.get("acquisition_mode") or "").lower(),
+                                (p.get("acquisition_mode") or "").lower())
+    have, want = await _table_cols(conn, "properties"), await _table_cols(conn, "parcels")
+    common = [c for c, t in have.items() if want.get(c) == t and c not in _PARCEL_SET]
+    # Same-named, same-typed columns copy as they are (deed facts, boundaries,
+    # pin and outline, stake, values, the master columns, created_at).
+    await conn.execute(
+        "INSERT INTO parcels (" + ", ".join(_PARCEL_SET + tuple(common)) + ")"
+        " SELECT %s, %s, %s, %s, %s, %s, %s, %s" + "".join(f", {c}" for c in common)
+        + " FROM properties WHERE id=%s",
+        # The survey number is kept as the property held it ("70/3"), not
+        # split, so the claims already filed for it still say the same thing.
+        (rid, pb_id, _txt(p.get("survey_no")), _txt(p.get("subdivision")), acres, cls, status,
+         mode, rid))
+    worth = _f(p.get("current_value"))
+    if not _f(p.get("market_value")) and worth:
+        # The card reads current_value first; the parcel has only market_value.
+        await conn.execute("UPDATE parcels SET market_value=%s WHERE id=%s", (worth, rid))
+    moved: dict = {}
+
+    async def run(key: str, query: str, args: tuple) -> None:
+        cur = await conn.execute(query, args)
+        moved[key] = moved.get(key, 0) + max(cur.rowcount, 0)
+
+    await run("documents", "UPDATE documents SET parcel_id=%s, property_id='' WHERE"
+              " owner_user_id=%s AND property_id=%s", (rid, uid, rid))
+    if "property_id" in await _table_cols(conn, "registered_documents"):
+        await run("registered_documents", "UPDATE registered_documents SET parcel_id=%s,"
+                  " passbook_id=%s, property_id='' WHERE owner_user_id=%s AND property_id=%s",
+                  (rid, pb_id, uid, rid))
+    src, dst = await _table_cols(conn, "property_photos"), await _table_cols(conn, "parcel_photos")
+    if src and dst:
+        same_cols = [c for c in src if c in dst and c not in ("property_id", "parcel_id")]
+        await run("photos", "INSERT INTO parcel_photos (parcel_id, " + ", ".join(same_cols)
+                  + ") SELECT %s, " + ", ".join(same_cols)
+                  + " FROM property_photos WHERE property_id=%s", (rid, rid))
+        await conn.execute("DELETE FROM property_photos WHERE property_id=%s", (rid,))
+    have_o, want_o = await _table_cols(conn, "property_owners"), await _table_cols(conn, "parcel_owners")
+    if have_o and want_o:
+        # The legacy owner list (iOS, Expo): every column parcel_owners shares
+        # with it copies — name, current, when, and the share, linked account,
+        # group and role (main.py gives parcel_owners those columns).
+        keep = [c for c in have_o if c in want_o
+                and c not in ("property_id", "parcel_id", "acquisition_source", "mutation_type")]
+        await run("owners", "INSERT INTO parcel_owners (parcel_id, acquisition_source,"
+                  " mutation_type, " + ", ".join(keep) + ") SELECT %s, %s, 'acquisition', "
+                  + ", ".join(keep) + " FROM property_owners WHERE property_id=%s",
+                  (rid, mode, rid))
+        await conn.execute("DELETE FROM property_owners WHERE property_id=%s", (rid,))
+    if await _table_cols(conn, "combined_property_members"):
+        await run("holding", "UPDATE combined_property_members SET parcel_id=%s,"
+                  " property_id=NULL WHERE owner_user_id=%s AND property_id=%s", (rid, uid, rid))
+    for table in _KIND_TAGGED:
+        cols = await _table_cols(conn, table)
+        if {"entity_type", "entity_id", "owner_user_id"} <= set(cols):
+            await run("kind_tags", f"UPDATE {table} SET entity_type='parcel' WHERE"
+                      " owner_user_id=%s AND entity_id=%s AND entity_type='property'", (uid, rid))
+    if _txt(p.get("notes")) and {"entity_type", "body"} <= set(await _table_cols(conn, "notes")):
+        # The legacy free-text note has no parcel column; it becomes a note.
+        await run("notes", "INSERT INTO notes (id, owner_user_id, entity_type, entity_id, body,"
+                  " created_at) VALUES (%s,%s,'parcel',%s,%s,%s)",
+                  (f"nt-{_uuid.uuid4().hex[:12]}", uid, rid, _txt(p.get("notes")), now))
+    await conn.execute("DELETE FROM properties WHERE id=%s AND owner_user_id=%s", (rid, uid))
+    to_extent = f"{rm._num_text(acres)} ac"
+    # The owner's decision, newer than every source: earlier sources' kind of
+    # land and extent stay as history and raise no conflict.
+    await rm.apply_claims(conn, uid, rid, "parcel", source="manual", force=True,
+                          before={k: before.get(k, "") for k in ("classification", "extent")},
+                          values={"classification": cls,
+                                  **({"extent": to_extent} if acres > 0 else {})})
+    if acres > 0:
+        # The claim's text is rounded to 4 places for display; the column keeps
+        # the exact acres the unit gives (settling wrote the rounded value).
+        await conn.execute("UPDATE parcels SET extent=%s WHERE id=%s", (acres, rid))
+    area = plan["area"]
+    from_extent = f"{rm._num_text(area)} {plan['unit']}" if area > 0 else ""
+    await _audit(conn, uid, "record.kind_changed", rid,
+                 "Changed to agricultural land" + (
+                     f": {from_extent} is {acres:.2f} ac" if area > 0 else "")
+                 + (", under its khata" if reused else ", under a new khata"),
+                 metadata={"from_kind": "property", "to_kind": "parcel",
+                           "from_extent": from_extent, "to_extent": to_extent if acres else "",
+                           "market_value_from": "current_value"
+                           if worth and not _f(p.get("market_value")) else "",
+                           "applied_by": "operator" if operator else "",
+                           "approval_ref": approval_ref[:80] if operator else ""},
+                 actor=operator, actor_kind="admin" if operator else "")
+    return {"passbook": "reused" if reused else "created", **moved}
 
 
 # ── Mutation namespace ────────────────────────────────────────────────
 
 @strawberry.type
 class WebMutation:
+
+    # ── The master record (docs/specs/2026-10-11-property-overview.md) ──
+    # Every one is the owner's own entry (source 'manual'), owner-scoped
+    # through _record_kind, one transaction, and answers the fresh Overview.
+
+    @strawberry.mutation
+    async def set_record_fields(self, info: strawberry.Info, record_id: str,
+                                fields: List[FieldValueInput]) -> RecordOverview:
+        uid = _uid(info)
+        if not fields or len(fields) > len(rm.FIELDS):
+            raise ValueError("Send the fields to change")
+        keys = [f.key for f in fields]
+        if len(set(keys)) != len(keys):
+            raise ValueError("Each field may be sent once")
+        unknown = [k for k in keys if k not in rm.FIELDS]
+        if unknown:
+            raise ValueError("Unknown field: " + ", ".join(sorted(unknown))[:200])
+        async with _pool.connection() as conn:
+            async with conn.transaction():
+                kind = await _record_kind(conn, uid, record_id)
+                if not kind:
+                    raise ValueError("This property is no longer in your account. Reload the page.")
+                vals = {f.key: f.value for f in fields}
+                if "stake" in vals:
+                    await _guard_holding_stake(conn, uid, record_id, vals["stake"])
+                await rm.apply_claims(conn, uid, record_id, kind, source="manual", values=vals,
+                                      log=_logger(conn, uid, record_id))
+                # A title value set or cleared ('' — the acquisition drawer's
+                # emptied box, C1) says the same on the acquiring transfer.
+                await rm.sync_transfer(conn, uid, record_id, kind, vals)
+            return await _record_overview(conn, uid, record_id)
+
+    @strawberry.mutation
+    async def set_acquisition(self, info: strawberry.Info, record_id: str,
+                              input: AcquisitionInput) -> RecordOverview:
+        """How the owner says they got the land. Wins over every document
+        (precedence rule 1); a blank box or a 0 amount means "not stated",
+        never "clear it" — clearing a value is setRecordFields'. Registered
+        'no' clears the document number, date and office. The acquiring
+        transfer is edited in place, and the held-by side is kept."""
+        uid = _uid(info)
+        if len(input.from_parties) > rm.PARTY_MAX:
+            raise ValueError(f"At most {rm.PARTY_MAX} parties")
+        async with _pool.connection() as conn:
+            async with conn.transaction():
+                kind = await _record_kind(conn, uid, record_id)
+                if not kind:
+                    raise ValueError("This property is no longer in your account. Reload the page.")
+                acq = {"acquisition_mode": input.mode, "registered": input.registered,
+                       "doc_no": input.doc_no, "reg_date": input.reg_date,
+                       "exec_date": input.exec_date, "sro": input.sro,
+                       "consideration": input.consideration, "govt_value": input.govt_value,
+                       "stamp_duty": input.stamp_duty, "proof_no": input.proof_no}
+                for key in rm.TITLE_KEYS:      # refuse a bad value before writing anything
+                    rm.clean(rm.FIELDS[key], acq[key], kind)
+                parties = [{"name": p.name, "parentage": p.parentage, "role": p.role,
+                            "relationship": p.relationship, "share_num": p.share_num,
+                            "share_den": p.share_den} for p in input.from_parties]
+                await rm.set_acquisition(
+                    conn, uid, record_id, kind, source="manual", acq=acq,
+                    from_parties=parties, to_parties=None,
+                    log=_logger(conn, uid, record_id))
+            return await _record_overview(conn, uid, record_id)
+
+    @strawberry.mutation
+    async def choose_field_claim(self, info: strawberry.Info, record_id: str, key: str,
+                                 claim_id: str) -> RecordOverview:
+        """'Use this' (a conflicting claim's id) or 'Keep mine' (claimId
+        'keep': the value the record holds now): either becomes the owner's
+        own entry, which clears the conflict."""
+        uid = _uid(info)
+        if key not in rm.FIELDS:
+            raise ValueError("Unknown field: " + key[:60])
+        async with _pool.connection() as conn:
+            async with conn.transaction():
+                kind = await _record_kind(conn, uid, record_id)
+                if not kind:
+                    raise ValueError("This property is no longer in your account. Reload the page.")
+                if claim_id == "keep":
+                    if rm.FIELDS[key].target(kind) is None:
+                        raise ValueError(f"{rm.FIELDS[key].label} does not apply to this property")
+                    claim = {"value": (await rm.current(conn, record_id, kind)).get(key, "")}
+                else:
+                    cur = await conn.execute(
+                        "SELECT value FROM record_field_claims WHERE id=%s AND owner_user_id=%s"
+                        " AND record_id=%s AND field=%s", (claim_id, uid, record_id, key))
+                    claim = await cur.fetchone()
+                if not claim:
+                    raise ValueError("That value is no longer on this property. Reload the page.")
+                if key == "stake":
+                    await _guard_holding_stake(conn, uid, record_id, claim["value"])
+                await rm.apply_claims(conn, uid, record_id, kind, source="manual",
+                                      values={key: claim["value"]}, force=True,
+                                      log=_logger(conn, uid, record_id))
+                await rm.sync_transfer(conn, uid, record_id, kind, (key,))
+            return await _record_overview(conn, uid, record_id)
+
+    @strawberry.mutation
+    async def file_deed_reading(self, info: strawberry.Info, record_id: str, paper_id: str,
+                                job_id: str) -> RecordOverview:
+        """File what a deed reading found onto the record it was uploaded to:
+        the paper's own deed facts, the master fields (as `deed_reading`, with
+        the reading's confidence), and the acquiring transfer with its parties
+        and the earlier deed it names. The reading is the caller's own, done,
+        and of a deed; the paper is on this record. The transfer is filed
+        unconfirmed — the reader is told its direction is not settled."""
+        uid = _uid(info)
+        for v in (record_id, paper_id, job_id):
+            if not v or len(v) > 80:
+                raise ValueError("Missing or malformed reference")
+        async with _pool.connection() as conn:
+            async with conn.transaction():
+                kind = await _record_kind(conn, uid, record_id)
+                if not kind:
+                    raise ValueError("This property is no longer in your account. Reload the page.")
+                cur = await conn.execute(
+                    "SELECT d.id FROM documents d WHERE d.id=%s AND d.owner_user_id=%s AND ("
+                    "d.record_id=%s OR d.parcel_id=%s OR d.property_id=%s OR EXISTS ("
+                    "SELECT 1 FROM document_record_links l WHERE l.owner_user_id=d.owner_user_id"
+                    " AND l.document_id=d.id AND l.record_id=%s))",
+                    (paper_id, uid, record_id, record_id, record_id, record_id))
+                if not await cur.fetchone():
+                    raise ValueError("That document is not on this property.")
+                cur = await conn.execute(
+                    "SELECT operation, state, result FROM document_read_jobs"
+                    " WHERE id=%s AND owner_user_id=%s", (job_id, uid))
+                job = await cur.fetchone()
+                res = (job["result"] if job and isinstance(job["result"], dict)
+                       else _jobject(job["result"]) if job else {})
+                fields = res.get("fields") if isinstance(res.get("fields"), dict) else {}
+                if (not job or job["state"] != "done"
+                        or job["operation"] != "import-registered-document"
+                        or not fields or str(fields.get("doc_type") or "") in rm.NOT_DEEDS):
+                    raise ValueError("That reading is not yours, has not finished, or is not"
+                                     " of a deed.")
+                # One reading is one event (B2): its transfer is keyed by the
+                # job, whether the record was created from it (saveRecord with
+                # readingJobId) or it is filed here; the paper is attached to it.
+                # shortcut: nothing proves the paper's bytes are the ones read —
+                # document_read_jobs keeps a content_hash but storage versions keep
+                # none to compare (only an S3 etag) — so a reading is bound to the
+                # FIRST paper it is filed with and refused for any other (B7);
+                # compare hashes once storage versions record a sha256.
+                cur = await conn.execute(
+                    "SELECT record_id, deed_document_id FROM record_transfers"
+                    " WHERE owner_user_id=%s AND source_ref=%s", (uid, job_id))
+                filed = list(await cur.fetchall())
+                if any(t["deed_document_id"] not in ("", paper_id) or t["record_id"] != record_id
+                       for t in filed):
+                    raise ValueError("That reading is already filed with another document.")
+                values, acq, conf, froms, tos, prior = rm.deed_claims(fields, kind)
+                label = f"Deed {acq['doc_no']}" if acq["doc_no"] else "Deed"
+                log = _logger(conn, uid, record_id)
+                # Claims the create filed under the job are this paper's now; a
+                # value the reading restates keeps its time, so a field the owner
+                # corrected on the form is not raised again as a conflict (B1).
+                await conn.execute(
+                    "DELETE FROM record_field_claims c WHERE owner_user_id=%s AND record_id=%s"
+                    " AND source='deed_reading' AND source_ref=%s AND EXISTS (SELECT 1 FROM"
+                    " record_field_claims d WHERE d.record_id=c.record_id AND d.field=c.field"
+                    " AND d.source='deed_reading' AND d.source_ref=%s)",
+                    (uid, record_id, job_id, paper_id))
+                await conn.execute(
+                    "UPDATE record_field_claims SET source_ref=%s WHERE owner_user_id=%s"
+                    " AND record_id=%s AND source='deed_reading' AND source_ref=%s",
+                    (paper_id, uid, record_id, job_id))
+                await rm.apply_claims(conn, uid, record_id, kind, source="deed_reading",
+                                      source_ref=paper_id, label=label, values=values,
+                                      confidence=conf, log=log)
+                # The parties the owner reviewed on the form when the record was
+                # created from this reading stay; a side it left empty is filled.
+                cur = await conn.execute(
+                    "SELECT p.side FROM record_transfer_parties p JOIN record_transfers t"
+                    " ON t.id=p.transfer_id WHERE t.owner_user_id=%s AND t.record_id=%s"
+                    " AND t.source_ref=%s", (uid, record_id, job_id))
+                sides = {r["side"] for r in await cur.fetchall()}
+                await rm.set_acquisition(
+                    conn, uid, record_id, kind, source="deed_reading", source_ref=paper_id,
+                    transfer_ref=job_id, label=label, acq=acq,
+                    from_parties=None if "from" in sides else froms,
+                    to_parties=None if "to" in sides else tos,
+                    deed_document_id=paper_id, prior=prior, confidence=conf,
+                    verified=False, log=log)
+                # The paper keeps its own deed facts; a value a person typed stays.
+                # A watched record keeps the land's facts, never third parties' names.
+                cur = await conn.execute(
+                    f"SELECT stake FROM {'parcels' if kind == 'parcel' else 'properties'}"
+                    " WHERE id=%s", (record_id,))
+                watched = ((await cur.fetchone()) or {}).get("stake") == "watch"
+                names = lambda ps: "" if watched else ", ".join(  # noqa: E731
+                    p["name"] for p in rm.clean_parties(ps, False))[:300]
+                reg = acq["reg_date"] if rm._DATE.match(str(acq["reg_date"] or "")) else ""
+                await conn.execute(
+                    "UPDATE documents SET"
+                    " doc_no=CASE WHEN doc_no='' THEN %s ELSE doc_no END,"
+                    " registered_on=CASE WHEN registered_on='' THEN %s ELSE registered_on END,"
+                    " office=CASE WHEN office='' THEN %s ELSE office END,"
+                    " buyer=CASE WHEN buyer='' THEN %s ELSE buyer END,"
+                    " seller=CASE WHEN seller='' THEN %s ELSE seller END,"
+                    " consideration=CASE WHEN consideration=0 THEN %s ELSE consideration END"
+                    " WHERE id=%s AND owner_user_id=%s",
+                    (acq["doc_no"][:60], reg, str(acq["sro"])[:120], names(tos), names(froms),
+                     _f(acq["consideration"]), paper_id, uid))
+                if not any(t["deed_document_id"] == paper_id for t in filed):
+                    # The binding B7 accepts (Reddy, 12/10/2026, D2) is traced
+                    # once, with the same metadata a create carries.
+                    cur = await conn.execute(
+                        "SELECT name FROM documents WHERE id=%s AND owner_user_id=%s",
+                        (paper_id, uid))
+                    name = str(((await cur.fetchone()) or {}).get("name") or "")[:200]
+                    cur = await conn.execute(
+                        "SELECT * FROM document_read_jobs WHERE id=%s AND owner_user_id=%s",
+                        (job_id, uid))
+                    jrow = await cur.fetchone() or {}
+                    await _audit(conn, uid, "record.source_bound", record_id,
+                                 f"Deed {name or label} filed as the title deed",
+                                 metadata={"source_kind": "deed_reading", "file_name": name,
+                                           "document_id": paper_id, "reading_job_id": job_id,
+                                           "content_hash": str(jrow.get("content_hash") or "")})
+            return await _record_overview(conn, uid, record_id)
+
+    @strawberry.mutation
+    async def convert_record_kind(self, info: strawberry.Info, record_id: str, to: str,
+                                  passbook_id: Optional[str] = None,
+                                  classification: Optional[str] = None) -> RecordOverview:
+        """Move the owner's property to the farmland register (to='parcel'),
+        same id, in acres, under a khata — one transaction (D1). Refused in
+        words when it has a building or cannot map; a second call is refused
+        as already done. to='property' is refused for now."""
+        uid = _uid(info)
+        if not record_id or len(record_id) > 80 or len(passbook_id or "") > 80:
+            raise ValueError("Missing or malformed reference")
+        async with _pool.connection() as conn:
+            async with conn.transaction():
+                await _convert_record_kind(conn, uid, record_id, to, _txt(passbook_id),
+                                           _txt(classification))
+            return await _record_overview(conn, uid, record_id)
 
     @strawberry.mutation
     async def save_record(self, info: strawberry.Info, input: RecordInput) -> str:
@@ -9172,8 +11896,74 @@ class WebMutation:
         uid = _uid(info)
         async with _pool.connection() as conn:
             if input.id:
-                return await _update_record(conn, uid, input)
+                # One transaction: the columns, the trail and the owner's claims
+                # commit together or not at all (A8). A stake change is checked
+                # against the record's holding under the record's row lock in
+                # it too, so it cannot leave a holding mixed.
+                async with conn.transaction():
+                    if input.stake is not None:
+                        await _guard_holding_stake(conn, uid, input.id, input.stake)
+                    return await _update_record(conn, uid, input)
             return await _create_record(conn, uid, input)
+
+    @strawberry.mutation
+    async def set_record_holder(self, info: strawberry.Info, record_ids: List[str],
+                                group_id: str) -> HolderChange:
+        """Set who holds these properties: a family or group, or "" (or
+        "personal") for "In your own name".
+
+        A built property carries its own holder and moves alone. A parcel has
+        none of its own — it is held through its khata — so the whole khata
+        moves, and every sibling parcel is in the answer with
+        `requested=False` (call `holderChange` first to say so before acting).
+        A holding is untouched: its properties may have different holders."""
+        uid = _uid(info)
+        async with _pool.connection() as conn:
+            async with conn.transaction():
+                label = await _holder_target(conn, uid, group_id)
+                gid = "" if (group_id or "").strip() in ("", PERSONAL) else group_id.strip()
+                plan = await _holder_plan(conn, uid, record_ids)
+                before = {r["id"]: (r.get("group_id") or "", r.get("holder_label") or OWN_NAME)
+                          for r in plan}
+                shares = await _holder_member_shares(conn, uid, plan, gid)
+                khatas: dict = {}
+                for r in plan:
+                    if r["kind"] == "parcel" and r.get("passbook_id"):
+                        khatas.setdefault(r["passbook_id"], []).append(r)
+                # Every passbooks row of each khata moves — a row with no
+                # parcel on it included — or one khata number would be left
+                # with two holders.
+                for pbid in await _khata_passbook_ids(
+                        conn, uid, {_card_khata_key(r) for rs in khatas.values() for r in rs}):
+                    khatas.setdefault(pbid, [])
+                props = [r for r in plan if r["kind"] == "property"]
+                if khatas:
+                    await conn.execute(
+                        "UPDATE passbooks SET group_id=%s WHERE id = ANY(%s) AND owner_user_id=%s",
+                        (gid, list(khatas), uid))
+                if props:
+                    await conn.execute(
+                        "UPDATE properties SET group_id=%s WHERE id = ANY(%s) AND owner_user_id=%s",
+                        (gid, [r["id"] for r in props], uid))
+                # Audited the way assign_land_to_group / assign_property_to_group
+                # always were — against the passbook and the property — so the
+                # group's Activity tab reads these moves too.
+                for pbid, parcels in khatas.items():
+                    if not parcels:
+                        continue
+                    no = parcels[0].get("khata_no") or ""
+                    titles = ", ".join(p["title"] for p in parcels)
+                    await _audit(conn, uid, "assign_land_to_group", pbid,
+                                 f"Now held by {label}: {titles}",
+                                 label=f"Khata {no}" if no else titles,
+                                 metadata={"set": "group" if gid else "personal"})
+                for r in props:
+                    await _audit(conn, uid, "assign_property_to_group", r["id"],
+                                 f"Now held by {label}", label=r["title"],
+                                 metadata={"set": "group" if gid else "personal"})
+                for r in plan:
+                    r["group_id"], r["holder_label"] = gid, label
+                return _holder_change(plan, gid, label, before, shares)
 
     @strawberry.mutation
     async def delete_records(self, info: strawberry.Info, ids: List[str]) -> int:
@@ -9202,6 +11992,9 @@ class WebMutation:
                     # Read the name while the row still exists — after the
                     # DELETE below the trail is the only place it survives.
                     label = await _record_label(conn, kind, rid)
+                    # The holding this record is in, read while its membership
+                    # row still exists: only that holding can be emptied here.
+                    in_holdings = await holdings_of_records(conn, uid, [rid])
                     # A paper reaches a record by whichever key filed it: the
                     # web 360 writes record_id, while the mobile upload path and
                     # the vault backfill write parcel_id / property_id and leave
@@ -9319,6 +12112,9 @@ class WebMutation:
                         ("waiting_items", "record_id"), ("land_features", "entity_id"),
                         ("land_expenses", "entity_id"), ("notes", "entity_id"),
                         ("work_requests", "entity_id"), ("service_batches", "record_id"),
+                        # Every source's claim on the record's fields (deed and
+                        # public-record facts, names of places, amounts).
+                        ("record_field_claims", "record_id"),
                     ):
                         await conn.execute(f"DELETE FROM {table} WHERE {col}=%s", (rid,))
                     if has_stamp:
@@ -9332,8 +12128,10 @@ class WebMutation:
                     # and "what became of that parcel" is exactly the question
                     # it answers.
                     await _audit(conn, uid, f"delete_{kind}", rid,
-                                 f"Removed {label}" if label else "Removed a record",
+                                 f"Deleted {label}" if label else "Deleted a property",
                                  label=label)
+                    # A holding whose last property this was goes with it.
+                    await drop_emptied_holdings(conn, uid, in_holdings)
                 n += 1
         return n
 
@@ -9353,7 +12151,7 @@ class WebMutation:
                 label = await _record_label(conn, kind, rid)
                 await _audit(conn, uid, "archive_record", rid,
                              ("Archived " if archived else "Brought back ")
-                             + (label or "a record"), label=label)
+                             + (label or "a property"), label=label)
                 n += 1
         return n
 
@@ -9387,8 +12185,8 @@ class WebMutation:
         and the Features page's 'Ask for a check'. The orders land in
         work_requests, so Services and Assigned pick them up like any other.
 
-        An unknown kind is refused rather than filed. The six below are the
-        services this system actually sells; anything else produced an order
+        An unknown kind is refused rather than filed. SERVICE_CATALOGUE holds
+        the services this system actually sells; anything else produced an order
         with a made-up title, no price, and a note claiming it came from a
         screen the caller was never on."""
         uid = _uid(info)
@@ -9396,7 +12194,6 @@ class WebMutation:
         offer = SERVICE_CATALOGUE.get(kind)
         if not offer:
             return 0
-        title, price = offer["label"], offer["price"]
         # Answers the customer gave, kept as they were given. A required
         # question left blank is refused here rather than reaching a caretaker
         # who then has to ring back and ask.
@@ -9409,8 +12206,6 @@ class WebMutation:
         for (name, _lb, _ty, required, _opts, _h) in offer["fields"]:
             if required and not str(answers.get(name, "")).strip():
                 return 0
-        due_days = _i(offer.get("days")) or 7
-        due = (date.today() + timedelta(days=due_days)).strftime("%d/%m/%Y")
         share = _payee_share()
         n = 0
         async with _ticket_transaction() as conn:
@@ -9442,8 +12237,8 @@ class WebMutation:
             if active:
                 await _audit(
                     conn, uid, "service.duplicate_blocked", ",".join(active),
-                    f"Kept existing {canonical_service_kind(kind)} request on "
-                    f"{len(active)} record(s)")
+                    f"Kept the existing {canonical_service_kind(kind)} order on "
+                    f"{len(active)} {'property' if len(active) == 1 else 'properties'}")
 
             # Validate every remaining selection before creating any orders.
             manifests = {}
@@ -9463,7 +12258,26 @@ class WebMutation:
             # dispatcher are cross-owner: neither can call `_cards(conn, owner)`
             # for somebody else's records to find out where a job is.
             cards = {c["id"]: c for c in await _cards(conn, uid)}
+            # Price and turnaround come from the catalogue published for each
+            # record's state — the figure servicesOffered showed for it. A
+            # service switched off there refuses the whole order, before any
+            # row is written.
+            priced: dict[tuple[str, str], tuple[dict, str]] = {}
+            def where(rid: str) -> tuple[str, str]:
+                card = cards.get(rid) or {}
+                return _state_code_of(card), str(card.get("district") or "*")
             for rid in eligible:
+                place = where(rid)
+                if place not in priced:
+                    offers, tag = await _effective_catalogue(conn, *place)
+                    priced[place] = (offers[kind], tag)
+                if not priced[place][0].get("enabled", True):
+                    return 0
+            for rid in eligible:
+                live, catalogue_tag = priced[where(rid)]
+                title, price = live["label"], _f(live["price"])
+                due_days = _i(live.get("days")) or 7
+                due = (date.today() + timedelta(days=due_days)).strftime("%d/%m/%Y")
                 # `quoted` freezes the price on the day it was agreed, which is
                 # the number a dispute is about; `cost` is left free to follow a
                 # settlement so the Services list stops quoting a figure nobody
@@ -9479,19 +12293,18 @@ class WebMutation:
                     "INSERT INTO work_requests (id, owner_user_id, kind, title,"
                     " entity_type, entity_id, assignee, cost, stage, needs_you, note,"
                     " due_date, closed, created_at, params, status, status_at, quoted,"
-                    " payee_share, area_key, area_label, service_key)"
+                    " payee_share, area_key, area_label, service_key, catalogue_revision)"
                     " VALUES (%s,%s,%s,%s,'record',%s,'',%s,0,false,%s,%s,false,%s,%s,"
-                    " 'placed',%s,%s,%s,%s,%s,%s)",
+                    " 'placed',%s,%s,%s,%s,%s,%s,%s)",
                     (tid, uid, kind, title, rid,
                      price,
                      note or "Ordered from the properties list", due, _now_iso(),
                      json.dumps({**answers, "attachment_manifest": manifests[rid]}), _now_iso(), price, share,
-                     area_key, area_label, canonical_service_kind(kind)))
+                     area_key, area_label, canonical_service_kind(kind), catalogue_tag))
                 await _event(conn, uid, tid, kind="status", action="place",
                              to_status="placed",
                              headline=ticketing.event_headline(
-                                 "status", "place", {"actor_label": "You"}),
-                             detail=f"Ordered from {rid}")
+                                 "status", "place", {"actor_label": "You"}))
                 n += 1
             if idempotency_key:
                 await conn.execute("UPDATE service_order_intents SET order_count=%s WHERE owner_user_id=%s AND intent_key=%s",
@@ -9521,7 +12334,6 @@ class WebMutation:
         request_hash = hashlib.sha256(json.dumps(
             [record_id, canonical, note.strip()], sort_keys=True).encode()).hexdigest()
         batch_id = f"sb-{_uuid.uuid4().hex[:12]}"
-        total = sum(_f(offer.get("price")) for _kind, offer, _answers in checked)
 
         async with _ticket_transaction() as conn:
             if not await _record_kind(conn, uid, record_id):
@@ -9542,11 +12354,17 @@ class WebMutation:
                     old = await (await conn.execute(
                         "SELECT * FROM service_batches WHERE id=%s AND owner_user_id=%s",
                         (prior["batch_id"], uid))).fetchone()
-                    if not old:
-                        return None
-                    return ServiceBatchReceipt(
-                        batch_id=old["id"], ref=_batch_ref(old["id"]),
-                        order_count=_i(old.get("item_count")), total=_f(old.get("total")))
+                    if old:
+                        return ServiceBatchReceipt(
+                            batch_id=old["id"], ref=_batch_ref(old["id"]),
+                            order_count=_i(old.get("item_count")), total=_f(old.get("total")))
+                    # A key whose first try was refused (an older build kept
+                    # the intent of a blocked batch) placed nothing, so the
+                    # same request may be tried again under it.
+                    await conn.execute(
+                        "UPDATE service_order_intents SET batch_id=%s"
+                        " WHERE owner_user_id=%s AND intent_key=%s",
+                        (batch_id, uid, idempotency_key))
 
             # A batch is atomic: if any selected service already has active
             # work on this record, place none of the batch. The UI can then
@@ -9561,11 +12379,32 @@ class WebMutation:
                     conn, uid, "service.batch_duplicate_blocked", record_id,
                     "Kept existing requests: "
                     + ", ".join(ticketing.ticket_ref(row["id"]) for row in duplicates))
+                # Nothing was placed, so the key is not spent: once the open
+                # request closes, a retry under the same key may place it.
+                if idempotency_key:
+                    await conn.execute(
+                        "DELETE FROM service_order_intents"
+                        " WHERE owner_user_id=%s AND intent_key=%s AND batch_id=%s",
+                        (uid, idempotency_key, batch_id))
                 return None
+
+            card = next((c for c in await _cards(conn, uid) if c["id"] == record_id), {})
+            # Priced from the catalogue published for this record's state, as
+            # servicesOffered showed it; a service switched off there refuses
+            # the whole batch, and the idempotency key is not spent.
+            offers, catalogue_tag = await _effective_catalogue(
+                conn, _state_code_of(card), str((card or {}).get("district") or "*"))
+            if any(not offers[kind].get("enabled", True) for kind, _o, _a in checked):
+                if idempotency_key:
+                    await conn.execute(
+                        "DELETE FROM service_order_intents"
+                        " WHERE owner_user_id=%s AND intent_key=%s AND batch_id=%s",
+                        (uid, idempotency_key, batch_id))
+                return None
+            total = sum(_f(offers[kind]["price"]) for kind, _o, _a in checked)
 
             from .capabilities import snapshot
             manifest = await snapshot(conn, uid, record_id, {})
-            card = next((c for c in await _cards(conn, uid) if c["id"] == record_id), {})
             area_key, area_label = associates.area_key_of(card) if card else ("", "")
             now = _now_iso()
             await conn.execute(
@@ -9575,7 +12414,8 @@ class WebMutation:
                 (batch_id, uid, record_id, len(checked), total, note.strip(), now))
 
             share = _payee_share()
-            for kind, offer, answers in checked:
+            for kind, _offer, answers in checked:
+                offer = offers[kind]
                 tid = f"wr-{_uuid.uuid4().hex[:12]}"
                 due_days = _i(offer.get("days")) or 7
                 due = (date.today() + timedelta(days=due_days)).strftime("%d/%m/%Y")
@@ -9584,19 +12424,18 @@ class WebMutation:
                     "INSERT INTO work_requests (id, owner_user_id, kind, title,"
                     " entity_type, entity_id, assignee, cost, stage, needs_you, note,"
                     " due_date, closed, created_at, params, status, status_at, quoted,"
-                    " payee_share, area_key, area_label, batch_id, service_key)"
+                    " payee_share, area_key, area_label, batch_id, service_key, catalogue_revision)"
                     " VALUES (%s,%s,%s,%s,'record',%s,'',%s,0,false,%s,%s,false,%s,%s,"
-                    " 'placed',%s,%s,%s,%s,%s,%s,%s)",
+                    " 'placed',%s,%s,%s,%s,%s,%s,%s,%s)",
                     (tid, uid, kind, offer["label"], record_id, price,
                      note.strip() or "From missing documents", due, now,
                      json.dumps({**answers, "attachment_manifest": manifest}), now,
                      price, share, area_key, area_label, batch_id,
-                     canonical_service_kind(kind)))
+                     canonical_service_kind(kind), catalogue_tag))
                 await _event(
                     conn, uid, tid, kind="status", action="place", to_status="placed",
                     headline=ticketing.event_headline(
-                        "status", "place", {"actor_label": "You"}),
-                    detail=f"{_batch_ref(batch_id)} · ordered from {record_id}")
+                        "status", "place", {"actor_label": "You"}))
 
             if idempotency_key:
                 await conn.execute(
@@ -10099,7 +12938,7 @@ class WebMutation:
                 " page_count, record_id, parcel_id, property_id, doc_type, created_at, size_bytes,"
                 " file_ref, mime_type, source, folder_id)"
                 " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'upload',%s)",
-                (did, uid, (name or "Paper"), subtitle, (shelf or "unsorted"),
+                (did, uid, (name or "Untitled document"), subtitle, (shelf or "unsorted"),
                  page_count, record_id or "", record_id if kind == "parcel" else "",
                  record_id if kind == "property" else "", (shelf or "unsorted"),
                  _now_iso(), size_bytes, file_ref.strip(), mime_type, folder_id))
@@ -10109,7 +12948,7 @@ class WebMutation:
                     " VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING",
                     (uid, did, record_id, _now_iso()))
             await _audit(conn, uid, "add_paper", record_id or did,
-                         f"{'Filed' if record_id else 'Saved'} a paper: {name or 'Paper'}")
+                         f"Added a document: {name or 'Untitled document'}")
         return did
 
     @strawberry.mutation
@@ -10190,7 +13029,7 @@ class WebMutation:
                                      row.get("name") or row.get("title") or "", _now_iso(), media_kind,
                                      row.get("name") or row.get("title") or "Photo", sort))
                         await _audit(conn, uid, "link_paper", record_id,
-                                     f"Linked a paper: {row.get('name') or row.get('title') or 'Paper'}")
+                                     f"Linked a document: {row.get('name') or row.get('title') or 'Untitled document'}")
         return True
 
     @strawberry.mutation
@@ -10217,18 +13056,13 @@ class WebMutation:
         if not message.strip():
             return ""
         import uuid as _uuid
-        titles = {
-            "survey": "Boundary re-survey",
-            "opinion": "Title opinion",
-            "visit": "Site visit",
-            # Raised by the fence calculator, which sends the whole bill of
-            # materials as the message. "Work request" told the Services list
-            # nothing about what was being asked for.
-            "fencing": "Fencing",
-        }
         async with _ticket_transaction() as conn:
             if not await _record_kind(conn, uid, record_id):
                 return ""
+            # A catalogue service is titled as the catalogue names it for this
+            # land; "fencing" comes from the fence calculator and is not one.
+            live = await _catalogue_offer(conn, uid, kind, record_id)
+            title = live["label"] if live else {"fencing": "Fencing"}.get(kind, "Work request")
             existing = await _active_service_request(conn, uid, record_id, kind)
             if existing:
                 await _audit(
@@ -10257,7 +13091,7 @@ class WebMutation:
                 " area_key, area_label, service_key)"
                 " VALUES (%s,%s,%s,%s,'record',%s,'',0,0,false,%s,'',false,%s,%s,"
                 " 'placed',%s,0,%s,%s,%s,%s)",
-                (rid, uid, kind, titles.get(kind, "Work request"), record_id,
+                (rid, uid, kind, title, record_id,
                  message.strip(), _now_iso(),
                  json.dumps({"requester": requester.strip(), "shared": shared.strip(),
                              "attachment_manifest": manifest}),
@@ -10266,48 +13100,8 @@ class WebMutation:
             await _event(conn, uid, rid, kind="status", action="place",
                          to_status="placed",
                          headline=ticketing.event_headline(
-                             "status", "place", {"actor_label": "You"}),
-                         detail=f"Asked from {record_id}")
+                             "status", "place", {"actor_label": "You"}))
         return rid
-
-    @strawberry.mutation
-    async def assign_request(self, info: strawberry.Info, request_id: str,
-                             assignee: str) -> bool:
-        """Puts a named person on a placed request, moving it to 'Assigned'.
-
-        Clearing the assignee sends it back to 'Placed' rather than deleting
-        it — work that was handed to the wrong person is still work somebody
-        asked for.
-
-        The move goes through `_move` so the trail records who was put on it
-        and when. A move the machine refuses returns False, which is what every
-        caller of this already handles.
-
-        `assignee_ref` is cleared on BOTH paths. This is the free-text door —
-        somebody typing a name — and a reassignment that left the previous
-        associate's id behind would leave the owner's ticket showing the new
-        person's name above the old person's phone number. Putting somebody
-        from the roster on a job is `assignAssociate`, which writes both."""
-        uid = _uid(info)
-        name = assignee.strip()
-        async with _ticket_transaction() as conn:
-            row = await _ticket_row(conn, uid, request_id, lock=True)
-            if not row or row.get("closed"):
-                return False
-            # The name is written before the move so the trail line can say who
-            # was put on it, and cleared after so it can say who came off.
-            if name:
-                await conn.execute(
-                    "UPDATE work_requests SET assignee=%s, assignee_ref=''"
-                    " WHERE id=%s AND owner_user_id=%s", (name, request_id, uid))
-                row["assignee"], row["assignee_ref"] = name, ""
-                return bool(await _move(conn, uid, row, "assign"))
-            moved = await _move(conn, uid, row, "unassign")
-            if moved:
-                await conn.execute(
-                    "UPDATE work_requests SET assignee='', assignee_ref=''"
-                    " WHERE id=%s AND owner_user_id=%s", (request_id, uid))
-            return bool(moved)
 
     @strawberry.mutation
     async def create_share_link(
@@ -10358,6 +13152,56 @@ class WebMutation:
                 (lid, uid, audience.strip(), subject, (terms or "view"),
                  document_ids[0] if document_ids and len(document_ids) == 1 else "",
                  docs, expires, sort, _now_iso(), token["token_hash"], record_id, json.dumps(manifest)))
+        return "/share/" + token["token"]
+
+    @strawberry.mutation
+    async def create_document_share_link(
+        self, info: strawberry.Info, document_ids: List[str], audience: str,
+        terms: str = "view", days: int = 30,
+    ) -> str:
+        """Opens a time-limited link to papers themselves, with no record.
+
+        The same link as `create_share_link` — same token, expiry, terms and
+        row — but the manifest is the chosen files and nothing else: no
+        record, no boundary, no photos. All or nothing: one id the caller does
+        not own, or one Aadhaar card, and no link is made."""
+        uid = _uid(info)
+        ids = list(dict.fromkeys(i for i in (document_ids or []) if isinstance(i, str) and i))
+        if not audience.strip() or not ids or len(ids) > 500:
+            return ""
+        import uuid as _uuid
+        async with _ticket_transaction() as conn:
+            if len(await _owned_document_ids(conn, uid, ids)) != len(ids):
+                return ""
+            cur = await conn.execute(
+                "SELECT * FROM documents WHERE owner_user_id=%s AND id = ANY(%s)", (uid, ids))
+            rows = {r["id"]: r for r in await cur.fetchall()}
+            # A filed Aadhaar card never enters a share, whatever it points at.
+            if any(r.get("aadhaar_record_id") or r.get("source") == "aadhaar-card"
+                   for r in rows.values()):
+                return ""
+            items = [{"id": i, "kind": "document",
+                      "title": rows[i].get("name") or rows[i].get("title") or "File",
+                      "file_ref": rows[i].get("file_ref") or ""} for i in ids]
+            manifest = {"version": 1, "scope": "documents", "recordId": "",
+                        "items": items, "boundary": None}
+            token = ticketing.mint_token(secrets.token_bytes(32))
+            cur = await conn.execute(
+                "SELECT COALESCE(MAX(sort), 0) + 1 AS s FROM share_links WHERE owner_user_id=%s",
+                (uid,))
+            sort = (await cur.fetchone() or {}).get("s", 1)
+            lid = f"sl-{_uuid.uuid4().hex[:12]}"
+            span = max(1, min(int(days or 30), 365))
+            expires = (date.today() + timedelta(days=span)).strftime("%d/%m/%Y")
+            subject = items[0]["title"] if len(items) == 1 else f"{len(items)} documents"
+            await conn.execute(
+                "INSERT INTO share_links (id, owner_user_id, audience, subject, terms,"
+                " document_id, doc_count, opened_count, last_opened_at, expires_on,"
+                " revoked, sort, created_at, token_hash, record_id, manifest)"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s,0,'',%s,false,%s,%s,%s,'',%s)",
+                (lid, uid, audience.strip(), subject, (terms or "view"),
+                 ids[0] if len(ids) == 1 else "",
+                 len(items), expires, sort, _now_iso(), token["token_hash"], json.dumps(manifest)))
         return "/share/" + token["token"]
 
     @strawberry.mutation
@@ -10874,6 +13718,11 @@ class WebMutation:
         uid = _uid(info)
         sets, args = [], []
         if name.strip():
+            # name_set is computed from the OLD name (an UPDATE's right-hand
+            # side reads the row before the write), so re-saving the same name
+            # does not claim the owner chose one.
+            sets.append("name_set=(name_set OR name IS DISTINCT FROM %s)")
+            args.append(name.strip())
             sets.append("name=%s")
             args.append(name.strip())
         if shelf.strip():
@@ -10889,7 +13738,45 @@ class WebMutation:
             row = await cur.fetchone()
             if row:
                 await _audit(conn, uid, "update_paper", row["record_id"],
-                             f"Updated a paper: {row.get('name') or ''}".strip())
+                             f"Updated a document: {row.get('name') or ''}".strip())
+            return bool(row)
+
+    @strawberry.mutation
+    async def update_paper_details(
+        self, info: strawberry.Info, paper_id: str, shelf: str, doc_no: str,
+        registered_on: str, office: str,
+    ) -> bool:
+        """Saves a paper's registration details. A full replace of doc_no,
+        registered_on and office — the client always sends every field, so ''
+        clears one. `shelf` '' leaves the shelf where it is.
+
+        registered_on is '' or a real DD/MM/YYYY date, read day-first only; a
+        bad value or an unknown shelf raises so the reason reaches the owner.
+        A paper that is not the caller's answers False, like one that does not
+        exist."""
+        uid = _uid(info)
+        shelf, doc_no = (shelf or "").strip(), (doc_no or "").strip()
+        registered_on, office = (registered_on or "").strip(), (office or "").strip()
+        if shelf and shelf not in _PAPER_SHELVES:
+            raise ValueError("Choose one of the document shelves")
+        if not _valid_ddmmyyyy(registered_on):
+            raise ValueError("Registered on must be a real date written DD/MM/YYYY")
+        if len(doc_no) > 120 or len(office) > 200:
+            raise ValueError("Keep the document number and office short")
+        sets = ["doc_no=%s", "registered_on=%s", "office=%s"]
+        args = [doc_no, registered_on, office]
+        if shelf:
+            sets.append("shelf=%s")
+            args.append(shelf)
+        async with _pool.connection() as conn:
+            cur = await conn.execute(
+                f"UPDATE documents SET {', '.join(sets)}"
+                " WHERE id=%s AND owner_user_id=%s RETURNING id, record_id, name",
+                (*args, paper_id, uid))
+            row = await cur.fetchone()
+            if row:
+                await _audit(conn, uid, "update_paper", row["record_id"],
+                             f"Updated a document's details: {row.get('name') or ''}".strip())
             return bool(row)
 
     # ── Documents: folders ───────────────────────────────────────────────
@@ -11329,7 +14216,7 @@ class WebMutation:
                             f"DELETE FROM {table} WHERE owner_user_id=%s AND {key}=%s AND file_ref=%s",
                             (uid, record_id, paper["file_ref"]))
                     await _audit(conn, uid, "unlink_paper", record_id,
-                                 f"Unlinked a paper: {paper.get('name') or ''}".strip() if paper else "Unlinked a paper")
+                                 f"Unlinked a document: {paper.get('name') or ''}".strip() if paper else "Unlinked a document")
                 return True
             cur = await conn.execute(
                 "DELETE FROM documents WHERE id=%s AND owner_user_id=%s"
@@ -11343,8 +14230,12 @@ class WebMutation:
                 await conn.execute(
                     "DELETE FROM share_links WHERE document_id=%s AND owner_user_id=%s",
                     (paper_id, uid))
+                # A transfer must not keep naming a deed that is gone (compliance reads it).
+                await conn.execute(
+                    "UPDATE record_transfers SET deed_document_id='' WHERE owner_user_id=%s"
+                    " AND deed_document_id=%s", (uid, paper_id))
                 await _audit(conn, uid, "delete_paper", gone["record_id"],
-                             f"Removed a paper: {gone.get('name') or ''}".strip())
+                             f"Deleted a document: {gone.get('name') or ''}".strip())
         return bool(gone)
 
     # ── Service tickets (W16) ─────────────────────────────────────────
@@ -11364,11 +14255,19 @@ class WebMutation:
 
     @strawberry.mutation
     async def post_ticket_message(self, info: strawberry.Info, ticket_id: str,
-                                  message: str) -> bool:
-        """Add an owner message to the append-only job conversation."""
+                                  message: str,
+                                  attachments: Optional[List[MessageFile]] = None) -> bool:
+        """Add an owner message, with any files already uploaded to storage,
+        to the order's append-only thread. Text or a file is enough; both
+        empty is refused.
+
+        Pattadar desk reads every thread, so a line lands on the desk's inbox
+        (at most one per order per day): a message on an order nobody has
+        taken used to reach nobody (service order spec §12.1)."""
         uid = _uid(info)
         body = message.strip()
-        if not body or len(body) > 4000:
+        files = _message_files(attachments)
+        if files is None or (not body and not files) or len(body) > 4000:
             return False
         async with _ticket_transaction() as conn:
             row = await _ticket_row(conn, uid, ticket_id, lock=True)
@@ -11377,7 +14276,37 @@ class WebMutation:
             await _event(
                 conn, uid, ticket_id, kind="message", action="message",
                 actor_kind="owner", actor_label="You",
-                headline="You sent a message", detail=body)
+                headline="You sent a message", detail=body, attachments=files)
+            await _desk_task(conn, row, kind="owner_message",
+                             headline=f"The owner wrote on {ticketing.ticket_ref(ticket_id)}",
+                             detail=body[:280], dedupe=f"message:{ticket_id}:{_today()}")
+            return True
+
+    @strawberry.mutation
+    async def nudge_ticket(self, info: strawberry.Info, ticket_id: str) -> bool:
+        """Ask Pattadar desk for an update on an order that has gone quiet or
+        is past its date. At most once a day, never while the order still
+        waits on the owner's own payment, and never while delivered work waits
+        on the owner's decision — `ticketing.owner_can` is the one rule, here
+        and on the page. Flags the desk row and puts a line on the desk's inbox."""
+        uid = _uid(info)
+        async with _ticket_transaction() as conn:
+            row = await _ticket_row(conn, uid, ticket_id, lock=True)
+            if not row:
+                return False
+            status = _status_of(row)
+            money = _money_of(row, await _ledger_of(conn, uid, ticket_id))
+            if "nudge" not in _owner_can_of(row, status, money):
+                return False
+            await conn.execute(
+                "UPDATE work_requests SET asked_at=%s WHERE id=%s AND owner_user_id=%s",
+                (_now_iso(), ticket_id, uid))
+            await _event(conn, uid, ticket_id, kind="nudge", action="nudge",
+                         headline=ticketing.event_headline("nudge", "nudge", {}))
+            await _desk_task(conn, row, kind="update_asked",
+                             headline=f"The owner asked for an update on {ticketing.ticket_ref(ticket_id)}",
+                             detail=f"{ticketing.label_of(status)} · {row.get('title') or 'Service'}",
+                             dedupe=f"nudge:{ticket_id}:{_today()}")
             return True
 
     @strawberry.mutation
@@ -11394,7 +14323,7 @@ class WebMutation:
         except ImportError:
             import payments
         if payments.enabled():
-            raise ValueError("Open checkout to fund this job")
+            raise ValueError("Pay for this order at checkout first.")
         async with _ticket_transaction() as conn:
             row = await _ticket_row(conn, uid, ticket_id, lock=True)
             if not row or row.get("closed"):
@@ -11408,7 +14337,7 @@ class WebMutation:
                                        ticketing.hold_plan(quoted, ticket_id)):
                 return ""
             await _audit(conn, uid, "ticket.funded", row.get("entity_id") or "",
-                         f"Set aside {_inr_short(quoted)} for "
+                         f"Held {_inr_short(quoted)} for "
                          f"{ticketing.ticket_ref(ticket_id)}")
             cur = await conn.execute(
                 "SELECT id FROM service_payments WHERE ticket_id=%s AND owner_user_id=%s"
@@ -11416,117 +14345,143 @@ class WebMutation:
             return str((await cur.fetchone() or {}).get("id") or "")
 
     @strawberry.mutation
-    async def dispatch_ticket(self, info: strawberry.Info, ticket_id: str, contact: str,
-                              person_name: str = "", channel: str = "auto",
-                              purpose: str = "invite", note: str = "",
-                              expires_days: int = 14) -> str:
-        """Write to somebody about this job, on the owner's behalf, and keep
-        the copy. Returns the dispatch's id, or "".
+    async def desk_dispatch_ticket(self, info: strawberry.Info, ticket_id: str,
+                                   contact: str, person_name: str = "",
+                                   channel: str = "auto", purpose: str = "invite",
+                                   note: str = "", expires_days: int = 14) -> str:
+        """Pattadar desk writes to a provider about somebody's order, on the
+        owner's behalf, and keeps the copy. Returns the dispatch's id, or "".
+        Admin-only and cross-owner; the owner's page has no dispatch at all
+        (service order spec §7).
 
-        The stored dispatch carries a worker link scoped to this job and its
+        The stored dispatch carries a worker link scoped to this order and its
         selected files. Both provider delivery and manual forwarding retain
-        the same expiry and revocation controls."""
+        the same expiry and revocation controls. An invite is refused while
+        payments are on and the price is not held — nothing is offered to a
+        provider for work nobody could pay them for."""
         uid = _uid(info)
         if purpose not in _DISPATCH_PURPOSES:
             return ""
         async with _ticket_transaction() as conn:
-            row = await _ticket_row(conn, uid, ticket_id, lock=True)
+            row = await _desk_row(conn, uid, ticket_id)
             if not row or row.get("closed"):
                 return ""
+            owner = row["owner_user_id"]
+            if purpose == "invite" and await _unpaid(conn, owner, row):
+                raise ValueError("This order is not paid yet, so nothing was sent.")
             rid = row.get("entity_id") or ""
-            card = next((c for c in await _cards(conn, uid) if c["id"] == rid), {})
-            did = await _dispatch(conn, uid, row, card, contact=contact,
+            # The one record this order is on, read to compose the provider's
+            # message (place and size). Nothing from it is returned to the desk
+            # except the message body that went out.
+            card = next((c for c in await _cards(conn, owner) if c["id"] == rid), {})
+            did = await _dispatch(conn, owner, row, card, contact=contact,
                                   person_name=person_name, channel=channel,
-                                  purpose=purpose, note=note, expires_days=expires_days)
-            # Only an invite moves the job: a nudge, a message or a note about
-            # changes is another line on a job that is already where it is.
+                                  purpose=purpose, note=note, expires_days=expires_days,
+                                  actor=uid)
+            # Only an invite moves the order: a nudge, a message or a note about
+            # changes is another line on an order that is already where it is.
             if did and purpose == "invite":
                 delivered = await (await conn.execute("SELECT status FROM ticket_dispatches WHERE id=%s", (did,))).fetchone()
                 if delivered and delivered["status"] != "failed":
-                    await _move(conn, uid, row, "dispatch")
+                    await _move(conn, owner, row, "dispatch", actor=uid,
+                                actor_kind="system", actor_label="Pattadar desk")
             if did:
                 # Masked, like every other line that names an outside contact:
                 # this one leaves the building with a link to the owner's
                 # papers on it, and the trail says that it went without
                 # republishing the number it went to.
-                await _audit(conn, uid, "ticket.dispatched", rid,
-                             f"Sent {ticketing.ticket_ref(ticket_id)} to "
+                await _audit(conn, owner, "ticket.dispatched", rid,
+                             f"Pattadar desk sent {ticketing.ticket_ref(ticket_id)} to "
                              f"{person_name.strip() or ticketing.mask_contact(contact)}"
                              f" · {purpose}")
+                await _desk_read(conn, uid, "desk_dispatch", f"{ticket_id} · {purpose}")
             return did
 
     @strawberry.mutation
-    async def revoke_dispatch(self, info: strawberry.Info, dispatch_id: str,
-                              reason: str = "") -> bool:
-        """Take a request back.
+    async def desk_revoke_dispatch(self, info: strawberry.Info, dispatch_id: str,
+                                   reason: str = "") -> bool:
+        """Pattadar desk takes an offer back. Admin-only and cross-owner.
 
         They are told on the channel it went out on, and the row is marked
         rather than deleted — what was sent is evidence, and a withdrawal that
         erases the message it withdraws answers nothing later. When nothing is
-        out any more the job goes back to where it was before it was sent."""
+        out any more the order goes back to where it was before it was sent."""
         uid = _uid(info)
         async with _ticket_transaction() as conn:
+            if not await _is_admin(conn, uid):
+                return False
             cur = await conn.execute(
-                "SELECT * FROM ticket_dispatches WHERE id=%s AND owner_user_id=%s",
-                (dispatch_id, uid))
+                "SELECT * FROM ticket_dispatches WHERE id=%s", ((dispatch_id or "").strip(),))
             dx = await cur.fetchone() or {}
             if not dx or dx.get("revoked_at"):
                 return False
-            row = await _ticket_row(conn, uid, dx.get("ticket_id") or "", lock=True)
+            owner = dx.get("owner_user_id") or ""
+            row = await _ticket_row(conn, owner, dx.get("ticket_id") or "", lock=True)
             await conn.execute(
                 "UPDATE ticket_dispatches SET revoked_at=%s, revoke_reason=%s"
                 " WHERE id=%s AND owner_user_id=%s",
-                (_now_iso(), reason or "", dispatch_id, uid))
+                (_now_iso(), reason or "", dispatch_id, owner))
+            await _desk_read(conn, uid, "desk_withdraw", dispatch_id)
             if not row:
                 return True
             rid = row.get("entity_id") or ""
-            card = next((c for c in await _cards(conn, uid) if c["id"] == rid), {})
+            card = next((c for c in await _cards(conn, owner) if c["id"] == rid), {})
             chan = dx.get("channel") or "whatsapp"
             who = dx.get("person_name") or ticketing.mask_contact(dx.get("contact") or "")
             # The withdrawal rides on the row it withdraws: it is the same
             # conversation, not a second time this left the building.
-            sent = await _send(conn, uid, chan, dx.get("contact") or "",
+            sent = await _send(conn, owner, chan, dx.get("contact") or "",
                                ticketing.render_dispatch(
                                    chan, _dispatch_ctx(row, card, "withdrawn",
                                                        dx.get("person_name") or "", reason)))
             await _event(
-                conn, uid, row["id"], kind="dispatch", ref_table="ticket_dispatches",
-                ref_id=dispatch_id, headline=f"Withdrawn from {who}",
+                conn, owner, row["id"], kind="dispatch", ref_table="ticket_dispatches",
+                ref_id=dispatch_id, actor=uid, actor_kind="system",
+                actor_label="Pattadar desk", headline=f"Withdrawn from {who}",
                 detail=(reason or "Nothing more is needed.")
                 + ("" if ticketing.is_live(sent["provider"]) else " · recorded, not sent"))
-            if not await _live_dispatches(conn, uid, row["id"]) and _status_of(row) == "sent":
-                await _move(conn, uid, row, "withdraw", note=reason)
+            if not await _live_dispatches(conn, owner, row["id"]) and _status_of(row) == "sent":
+                await _move(conn, owner, row, "withdraw", note=reason, actor=uid,
+                            actor_kind="system", actor_label="Pattadar desk")
             return True
 
     @strawberry.mutation
-    async def start_ticket(self, info: strawberry.Info, ticket_id: str,
-                           note: str = "") -> bool:
-        """They are standing on the land. The one movement the owner records on
-        somebody else's behalf, because until there is a worker portal the
-        owner is the only person who can say it."""
+    async def desk_start_ticket(self, info: strawberry.Info, ticket_id: str,
+                                note: str = "") -> bool:
+        """The provider has started. Pattadar desk records it for a provider
+        who phoned it in rather than pressing Start on their work link; the
+        owner never records a provider's progress (service order spec §7)."""
         uid = _uid(info)
         async with _ticket_transaction() as conn:
-            row = await _ticket_row(conn, uid, ticket_id, lock=True)
+            row = await _desk_row(conn, uid, ticket_id)
             if not row:
                 return False
-            return bool(await _move(conn, uid, row, "start", note=note))
+            ok = bool(await _move(conn, row["owner_user_id"], row, "start", note=note,
+                                  actor=uid, actor_kind="system",
+                                  actor_label="Pattadar desk"))
+            if ok:
+                await _desk_read(conn, uid, "desk_start", ticket_id)
+            return ok
 
     @strawberry.mutation
-    async def add_deliverable(self, info: strawberry.Info, ticket_id: str, kind: str,
-                              label: str, note: str = "", file_ref: str = "",
-                              file_name: str = "", mime_type: str = "",
-                              size_bytes: int = 0, payload: str = "{}",
-                              file_as: str = "", submitted_by: str = "") -> str:
-        """Record one thing that came back. Returns its id, or "".
+    async def desk_add_deliverable(self, info: strawberry.Info, ticket_id: str,
+                                   kind: str, label: str, note: str = "",
+                                   file_ref: str = "", file_name: str = "",
+                                   mime_type: str = "", size_bytes: int = 0,
+                                   payload: str = "{}", file_as: str = "",
+                                   submitted_by: str = "") -> str:
+        """Pattadar desk records one thing a provider handed in by another
+        route than their work link. Returns its id, or "". Admin-only and
+        cross-owner; the owner never records a provider's work (spec §7).
 
         Nothing here touches the record. A deliverable is not a paper, a photo
         or a fence yet — the fence does not exist until somebody has looked,
         and writing it down early puts a thing on the land that is not there.
 
-        Recording something moves the job to 'waiting on you', because work
-        that has come back is work waiting on you, and making the owner press a
-        second button to say so is a state the screen would then have to
-        explain."""
+        Recording something moves the order to 'waiting on you', because work
+        that has come back is work waiting on the owner, and making the owner
+        press a second button to say so is a state the screen would then have
+        to explain."""
         uid = _uid(info)
         if kind not in ticketing.DELIVERABLE_KINDS or not label.strip():
             return ""
@@ -11538,9 +14493,11 @@ class WebMutation:
             return ""
         import uuid as _uuid
         async with _ticket_transaction() as conn:
-            row = await _ticket_row(conn, uid, ticket_id, lock=True)
+            row = await _desk_row(conn, uid, ticket_id)
             if not row or row.get("closed"):
                 return ""
+            owner = row["owner_user_id"]
+            by = submitted_by.strip() or row.get("assignee") or ""
             cur = await conn.execute(
                 "SELECT COALESCE(MAX(sort), 0) + 1 AS s FROM ticket_deliverables"
                 " WHERE ticket_id=%s", (ticket_id,))
@@ -11551,22 +14508,24 @@ class WebMutation:
                 " kind, label, note, file_ref, file_name, mime_type, size_bytes, payload,"
                 " submitted_by, submitted_via, submitted_at, file_as, review, review_note,"
                 " reviewed_at, filed_table, filed_id, filed_prev, filed_at, sort, created_at)"
-                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'owner',%s,%s,'pending',"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'desk',%s,%s,'pending',"
                 " '','','','','','',%s,%s)",
-                # 'owner' and not the assignee's name: the owner relayed this.
-                # Who actually did the work is on the ticket, and claiming the
-                # file came from them would be provenance nobody can vouch for.
-                (did, uid, ticket_id, row.get("entity_id") or "", kind, label.strip(),
+                # 'desk' and not the provider's portal: Pattadar relayed this.
+                # Who did the work is `submitted_by`; claiming the file came
+                # through their own link would be provenance nobody can vouch for.
+                (did, owner, ticket_id, row.get("entity_id") or "", kind, label.strip(),
                  note, file_ref.strip(), file_name, mime_type, _i(size_bytes),
-                 json.dumps(body), (submitted_by.strip() or row.get("assignee") or ""),
-                 _ddmmyyyy(_today()), file_as, sort, _now_iso()))
-            await _event(conn, uid, ticket_id, kind="deliverable",
-                         ref_table="ticket_deliverables", ref_id=did,
+                 json.dumps(body), by, _ddmmyyyy(_today()), file_as, sort, _now_iso()))
+            await _event(conn, owner, ticket_id, kind="deliverable",
+                         ref_table="ticket_deliverables", ref_id=did, actor=uid,
+                         actor_kind="system", actor_label="Pattadar desk",
                          headline=ticketing.event_headline(
-                             "deliverable", "", {"label": label.strip(), "kind": kind}),
+                             "deliverable", "", {"label": label.strip(), "by": by}),
                          detail=note or "")
             if _status_of(row) in ("assigned", "on_site", "changes"):
-                await _move(conn, uid, row, "deliver")
+                await _move(conn, owner, row, "deliver", actor=uid,
+                            actor_kind="system", actor_label="Pattadar desk")
+            await _desk_read(conn, uid, "desk_deliverable", f"{ticket_id} -> {did}")
             return did
 
     @strawberry.mutation
@@ -11645,7 +14604,7 @@ class WebMutation:
                     break
                 res = await _file_deliverable(conn, uid, d, row, card)
                 if not res.get("ok"):
-                    raise ValueError(str(res.get("why") or "A kept item could not be filed; nothing was settled"))
+                    raise ValueError(str(res.get("why") or "A kept item could not be saved. Nothing was released."))
                 await conn.execute(
                     "UPDATE ticket_deliverables SET filed_table=%s, filed_id=%s,"
                     " filed_prev=%s, filed_at=%s WHERE id=%s AND owner_user_id=%s",
@@ -11656,8 +14615,9 @@ class WebMutation:
                 await _event(
                     conn, uid, ticket_id, kind="filed",
                     ref_table=res.get("table") or "", ref_id=res.get("filed_id") or "",
-                    headline=ticketing.event_headline(
-                        "filed", "", {"summary": res.get("summary") or ""}),
+                    headline=ticketing.event_headline("filed", "", {
+                        "label": d.get("label") or "", "table": res.get("table") or "",
+                        "summary": res.get("summary") or ""}),
                     detail=d.get("label") or "")
                 filed += 1
             held = ticketing.held_for(await _ledger_of(conn, uid, ticket_id))
@@ -11732,7 +14692,9 @@ class WebMutation:
         Whoever has it is told it is off, nothing more can come back on it, and
         whatever was set aside is dealt with: `pay_anyway` settles that much of
         it — for the trips somebody genuinely made — split exactly the way an
-        acceptance splits, and the rest goes back to the wallet. Anything
+        acceptance splits, and the rest goes back to the wallet. Only an order
+        on site with a provider behind it can settle anything (spec §5);
+        otherwise `pay_anyway` is ignored, so a release never goes to nobody. Anything
         already filed onto the record stays where it is; this closes the job,
         it does not unwind it."""
         uid = _uid(info)
@@ -11742,7 +14704,9 @@ class WebMutation:
                 return False
             held = ticketing.held_for(await _ledger_of(conn, uid, ticket_id))
             share = _f(row.get("payee_share")) or _payee_share()
-            plan = ticketing.cancel_plan(held, _f(pay_anyway), share,
+            on_site = (_status_of(row) == "on_site"
+                       and bool((row.get("assignee_ref") or "").strip()))
+            plan = ticketing.cancel_plan(held, _f(pay_anyway) if on_site else 0.0, share,
                                          row.get("assignee") or "", ticket_id)
             if not await _move(conn, uid, row, "cancel", note=reason):
                 return False
@@ -11774,7 +14738,7 @@ class WebMutation:
                     conn, uid, ticket_id, kind="dispatch",
                     ref_table="ticket_dispatches", ref_id=dx["id"],
                     headline=f"Withdrawn from {dx.get('person_name') or ticketing.mask_contact(dx.get('contact') or '')}",
-                    detail=reason or "The job was cancelled.")
+                    detail=reason or "The order was cancelled.")
             return True
 
     # ── The desk: the roster, and who is on a job (W17) ────────────────
@@ -12367,7 +15331,8 @@ class WebMutation:
         async with _ticket_transaction() as conn:
             row = await _ticket_row(conn, uid, ticket_id, lock=True)
             aid = (row.get("assignee_ref") or "").strip() if row else ""
-            if not row or not row.get("closed") or not aid:
+            # Accepted work only: the same rule as `rate` in the owner's can[].
+            if not row or _status_of(row) != "accepted" or not aid:
                 return False
             await conn.execute(
                 "INSERT INTO associate_reviews"
@@ -12437,33 +15402,6 @@ class WebMutation:
             return True
 
     @strawberry.mutation
-    async def assign_associate(self, info: strawberry.Info, request_id: str,
-                               associate_id: str) -> bool:
-        """The owner puts somebody from the roster on their own job.
-
-        Scoped to the caller's own ticket through `_ticket_row`, exactly like
-        `assign_request` beside it. The difference is what lands on the row:
-        `assignee` keeps being the display name every event headline and filing
-        subtitle already reads, and `assignee_ref` is the id beside it — the
-        thing that makes a phone number reachable on the owner's own ticket."""
-        uid = _uid(info)
-        aid = (associate_id or "").strip()
-        if not aid:
-            return False
-        async with _ticket_transaction() as conn:
-            row = await _ticket_row(conn, uid, request_id, lock=True)
-            if not row or row.get("closed"):
-                return False
-            roster = await _roster(conn, ids=[aid], limit=1)
-            assoc = roster[0] if roster else {}
-            # Every allocation path applies the same certification, rating,
-            # training, state and capacity policy as the shortlist.
-            if not assoc or not _dispatch_view(assoc, _today())[0]:
-                return False
-            return await _put_on_job(conn, uid, row, assoc, actor=uid,
-                                     actor_kind="owner", actor_label="You")
-
-    @strawberry.mutation
     async def desk_assign(self, info: strawberry.Info, ticket_id: str,
                           associate_id: str, note: str = "") -> bool:
         """The desk puts somebody on somebody else's job.
@@ -12478,7 +15416,13 @@ class WebMutation:
 
         The taxonomy is never a cage here: the desk can put anybody on
         anything, including somebody whose discipline does not cover that kind
-        of work. It cannot put somebody on a job while they are stopped."""
+        of work. It cannot put somebody on a job while they are stopped, on an
+        order that is past the point of assigning, or — while payments are on
+        — on an order whose price is not held.
+
+        For an admin each of those refusals raises with the reason, so the
+        desk can print why (service order spec §12.10). A non-admin, a blank
+        id and an order that does not exist still get a bare False."""
         uid = _uid(info)
         aid = (associate_id or "").strip()
         if not aid:
@@ -12487,18 +15431,28 @@ class WebMutation:
             if not await _is_admin(conn, uid):
                 return False
             row = await _desk_ticket_row(conn, ticket_id, lock=True)
-            if not row or row.get("closed"):
+            owner = row.get("owner_user_id") or ""
+            if not row or not owner:
                 return False
+            if row.get("closed"):
+                raise ValueError("This order is closed.")
             roster = await _roster(conn, ids=[aid], limit=1)
             assoc = roster[0] if roster else {}
-            if not assoc or not _dispatch_view(assoc, _today())[0]:
-                return False
-            owner = row.get("owner_user_id") or ""
-            if not owner:
-                return False
+            if not assoc:
+                raise ValueError("That provider is not on the roster.")
+            free, why = _dispatch_view(assoc, _today())
+            if not free:
+                raise ValueError(f"{assoc.get('name') or 'They'} cannot take work now: "
+                                 f"{' · '.join(why) or 'not taking work'}.")
+            status = _status_of(row)
+            if not ticketing.transition(status, "assign", "system").get("ok"):
+                raise ValueError(f"An order that is {ticketing.label_of(status)} cannot be"
+                                 " given to a provider now.")
+            if await _unpaid(conn, owner, row):
+                raise ValueError("This order is not paid yet, so no provider can start.")
             ok = await _put_on_job(
                 conn, owner, row, assoc, actor=uid,
-                actor_kind=_desk_actor(_status_of(row), "assign"),
+                actor_kind="system",
                 actor_label="Pattadar desk", note=note)
             if ok:
                 await _desk_read(conn, uid, "desk_assign", f"{ticket_id} -> {aid}")
@@ -12530,11 +15484,35 @@ class WebMutation:
                 return False
             ok = await _take_off_job(
                 conn, owner, row, reason=why, actor=uid,
-                actor_kind=_desk_actor(_status_of(row), "unassign"),
+                actor_kind="system",
                 actor_label="Pattadar desk")
             if ok:
                 await _desk_read(conn, uid, "desk_unassign", f"{ticket_id}: {why}")
             return ok
+
+    @strawberry.mutation
+    async def desk_post_ticket_message(self, info: strawberry.Info, ticket_id: str,
+                                       message: str) -> bool:
+        """Pattadar desk answers on an order's thread, which the owner and the
+        provider both read (service order spec §12.1). Admin-only and
+        cross-owner; the line is filed in the owner's own trail as the desk.
+
+        Text only: a file the desk uploaded lives in the desk's own storage,
+        which the owner's page cannot open."""
+        uid = _uid(info)
+        body = (message or "").strip()
+        if not body or len(body) > 4000:
+            return False
+        async with _ticket_transaction() as conn:
+            row = await _desk_row(conn, uid, ticket_id)
+            if not row or _status_of(row) == "cancelled":
+                return False
+            await _event(conn, row["owner_user_id"], ticket_id, kind="message",
+                         action="message", actor=uid, actor_kind="system",
+                         actor_label="Pattadar desk",
+                         headline="Pattadar desk sent a message", detail=body)
+            await _desk_read(conn, uid, "desk_message", ticket_id)
+            return True
 
     @strawberry.mutation
     async def set_platform_admin(self, info: strawberry.Info, uid: str,
@@ -12574,6 +15552,46 @@ class WebMutation:
                 " updated_at=EXCLUDED.updated_at",
                 (",".join(have), me, _now_iso()))
             return True
+
+    @strawberry.mutation
+    async def set_intelligence_reader(
+        self, info: strawberry.Info, provider: str,
+    ) -> Optional[IntelligenceSettings]:
+        """Which provider reads new documents. Refused unless it is ready."""
+        return await _intelligence_write(
+            info, lambda admin, conn, uid: admin.set_reader(conn, uid, provider))
+
+    @strawberry.mutation
+    async def save_intelligence_provider(
+        self, info: strawberry.Info, provider: str, model: str,
+        api_key: str = "", forget_key: bool = False,
+    ) -> Optional[IntelligenceSettings]:
+        """One provider's model and key; a blank key keeps the saved one."""
+        return await _intelligence_write(
+            info, lambda admin, conn, uid: admin.save_provider(
+                conn, uid, provider, model=model, api_key=api_key, forget_key=forget_key))
+
+    @strawberry.mutation
+    async def save_intelligence_ocr(
+        self, info: strawberry.Info, enabled: bool, processor: str = "",
+        service_account: str = "", forget_service_account: bool = False,
+    ) -> Optional[IntelligenceSettings]:
+        """Gemini's Document AI step: on/off, processor, service-account key."""
+        return await _intelligence_write(
+            info, lambda admin, conn, uid: admin.save_ocr(
+                conn, uid, enabled=enabled, processor=processor, service_account=service_account,
+                forget_service_account=forget_service_account))
+
+    @strawberry.mutation
+    async def check_intelligence_provider(
+        self, info: strawberry.Info, provider: str,
+    ) -> Optional[IntelligenceCheck]:
+        """List a provider's models with its key: the page's connection check."""
+        uid = _uid(info)
+        async with _pool.connection() as conn:
+            if not await _is_super_admin(conn, uid):
+                return None
+        return IntelligenceCheck(**await _intelligence_admin().check(_pool, uid, provider))
 
     @strawberry.mutation
     async def save_governance_policy(
@@ -12700,6 +15718,109 @@ class WebMutation:
             return True
 
     @strawberry.mutation
+    async def save_service_catalogue(
+        self, info: strawberry.Info, state_code: str, document: str, reason: str,
+        expected_revision: int = 0, district_code: str = "*",
+    ) -> Optional[CatalogueSet]:
+        """Save a draft revision of one scope's overrides. A reason is
+        required; `expected_revision` refuses a save made over somebody
+        else's newer revision. Saving the same document as the newest draft
+        returns that draft rather than a duplicate."""
+        uid = _uid(info)
+        why = (reason or "").strip()
+        if not why or len(why) > 4000 or len(document) > 200_000:
+            return None
+        state = catalogue.state_code(state_code)
+        district = catalogue.district_code(district_code) if state != "*" else "*"
+        key = catalogue.scope_key(state, district)
+        try:
+            checked = catalogue.validate(json.loads(document), SERVICE_CATALOGUE)
+        except (ValueError, TypeError, json.JSONDecodeError):
+            return None
+        body, source_digest = catalogue.canonical_json(checked), catalogue.digest(checked)
+        async with _ticket_transaction() as conn:
+            if not await _is_super_admin(conn, uid):
+                return None
+            await conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
+                               (f"catalogue:{key}",))
+            latest = await (await conn.execute(
+                "SELECT * FROM service_catalogue_sets WHERE scope_key=%s"
+                " ORDER BY revision DESC LIMIT 1 FOR UPDATE", (key,))).fetchone()
+            # The admin edited what serviceCatalogueAdmin called `current`
+            # (newest draft-or-published); an archived revision above it is
+            # not something they could have seen, so it is not compared.
+            current = await (await conn.execute(
+                "SELECT * FROM service_catalogue_sets WHERE scope_key=%s"
+                " AND status IN ('draft','published') ORDER BY revision DESC LIMIT 1",
+                (key,))).fetchone()
+            if _i((current or {}).get("revision")) != expected_revision:
+                return None
+            if current and current.get("status") == "draft" and current.get("source_digest") == source_digest:
+                return _catalogue_set(current)
+            row = await (await conn.execute(
+                "INSERT INTO service_catalogue_sets (id,scope_key,country_code,state_code,district_code,"
+                " revision,status,document,source_digest,created_by,created_at)"
+                " VALUES (%s,%s,'IN',%s,%s,%s,'draft',%s,%s,%s,%s) RETURNING *",
+                ("scs-" + secrets.token_hex(10), key, state, district, _i((latest or {}).get("revision")) + 1,
+                 body, source_digest, uid, _now_iso()))).fetchone()
+            await _record_catalogue_event(conn, row, uid, "revise" if latest else "create", why)
+            return _catalogue_set(row)
+
+    @strawberry.mutation
+    async def publish_service_catalogue(
+        self, info: strawberry.Info, set_id: str, reason: str = "",
+    ) -> Optional[CatalogueSet]:
+        """Publish a draft; the scope's previous published revision is
+        superseded. New orders are priced from it at once; placed orders keep
+        their frozen price."""
+        uid = _uid(info)
+        if len(reason) > 4000:
+            return None
+        async with _ticket_transaction() as conn:
+            if not await _is_super_admin(conn, uid):
+                return None
+            row = await (await conn.execute(
+                "SELECT * FROM service_catalogue_sets WHERE id=%s FOR UPDATE", (set_id,))).fetchone()
+            if not row or row.get("status") != "draft":
+                return None
+            await conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
+                               (f"catalogue:{row['scope_key']}",))
+            await conn.execute(
+                "UPDATE service_catalogue_sets SET status='superseded'"
+                " WHERE scope_key=%s AND status='published' AND id<>%s",
+                (row["scope_key"], set_id))
+            published = await (await conn.execute(
+                "UPDATE service_catalogue_sets SET status='published',published_by=%s,"
+                " published_at=%s WHERE id=%s RETURNING *", (uid, _now_iso(), set_id))).fetchone()
+            await _record_catalogue_event(conn, published, uid, "publish",
+                                          reason.strip() or "Published revision")
+            return _catalogue_set(published)
+
+    @strawberry.mutation
+    async def archive_service_catalogue(
+        self, info: strawberry.Info, set_id: str, reason: str,
+    ) -> bool:
+        """Withdraw a draft, or take a published revision out of force so the
+        scope falls back to the wider one (the country falls back to the code
+        baseline). The trail is kept."""
+        uid = _uid(info)
+        why = (reason or "").strip()
+        if not why or len(why) > 4000:
+            return False
+        async with _ticket_transaction() as conn:
+            if not await _is_super_admin(conn, uid):
+                return False
+            row = await (await conn.execute(
+                "SELECT * FROM service_catalogue_sets WHERE id=%s FOR UPDATE", (set_id,))).fetchone()
+            if not row or row.get("status") not in ("draft", "published"):
+                return False
+            archived = await (await conn.execute(
+                "UPDATE service_catalogue_sets SET status='archived' WHERE id=%s RETURNING *",
+                (set_id,))).fetchone()
+            await _record_catalogue_event(conn, archived, uid, "archive", why)
+            return True
+
+    @strawberry.mutation
     async def set_super_admin(self, info: strawberry.Info, uid: str,
                               on: bool) -> bool:
         """Grant or revoke compliance-policy administration.
@@ -12770,15 +15891,26 @@ class WebMutation:
     async def create_combined_property(self, info: strawberry.Info, name: str,
                                        record_ids: List[str],
                                        note: str = "") -> str:
-        """Hold several records as one property. Returns its id, or "".
+        """Hold several records as one property. Returns its id.
 
         Two records at the least: one record held as a combined property is the
-        record, and the screen already has a name for that.
+        record, and the screen already has a name for that. Every member has
+        the same stake, Mine or I manage it (never Watching). A refusal is a
+        GraphQL error whose message is the sentence to show — never a silent
+        "" — so the idempotency layer releases the key and a corrected retry
+        runs.
+
+        Idempotent by membership: when this owner already has a holding made
+        of exactly these records, its id is returned and nothing is written —
+        a retried press, or the assistant's holding step run twice, never
+        makes a second holding (and never renames the first).
         """
         uid = _uid(info)
         label = (name or "").strip()
-        if not label or len(label) > 120:
-            return ""
+        if not label:
+            raise ValueError("Give the holding a name.")
+        if len(label) > 120:
+            raise ValueError("A holding's name can be at most 120 characters.")
         import uuid as _uuid
         cid = f"cp-{_uuid.uuid4().hex[:12]}"
         async with _pool.connection() as conn:
@@ -12787,9 +15919,11 @@ class WebMutation:
                 # with no members is a name over nothing, and nothing in the app
                 # could explain it.
                 async with conn.transaction():
+                    await _lock_holdings_of(conn, uid)
+                    same = await _combined_exactly(conn, uid, record_ids)
+                    if same:
+                        return same
                     members = await _combined_members_for(conn, uid, record_ids)
-                    if members is None:
-                        return ""
                     now = _now_iso()
                     await conn.execute(
                         "INSERT INTO combined_properties (id, owner_user_id, name,"
@@ -12797,13 +15931,23 @@ class WebMutation:
                         (cid, uid, label, (note or "").strip()[:500], now, now))
                     await _write_combined_members(conn, uid, cid, members)
                     await _audit(conn, uid, "create_combined_property", cid,
-                                 f"Combined {len(members)} records as “{label}”",
+                                 f"Combined {len(members)} properties into “{label}”",
                                  label=label)
-            except _pg_errors.UniqueViolation:
-                # Two tabs combining the same record at once. The partial unique
-                # indexes are the arbiter, and the loser is told nothing
-                # happened rather than being handed a holding missing a member.
-                return ""
+            except (_pg_errors.UniqueViolation, ValueError) as refused:
+                # Two presses combining the same records at once: the loser
+                # either waits on the winner's member rows and then reads them
+                # as "already part of", or meets the partial unique indexes.
+                # When the winner made a holding of exactly these records, that
+                # is the holding this press asked for, so its id is the answer
+                # (never a second one). Any other refusal stands, and the loser
+                # is never handed a holding missing a member.
+                same = await _combined_exactly(conn, uid, record_ids)
+                if same:
+                    return same
+                if isinstance(refused, ValueError):
+                    raise
+                raise ValueError("One of these properties was just added to another"
+                                 " holding. Reload the list and try again.") from None
         return cid
 
     @strawberry.mutation
@@ -12845,14 +15989,15 @@ class WebMutation:
         async with _pool.connection() as conn:
             try:
                 async with conn.transaction():
+                    await _lock_holdings_of(conn, uid)
                     row = await (await conn.execute(
                         "SELECT id FROM combined_properties WHERE id=%s"
                         " AND owner_user_id=%s FOR UPDATE", (id, uid))).fetchone()
                     if not row:
                         return False
+                    # Refusals raise with the owner's sentence; the holding
+                    # is untouched because nothing below has run.
                     members = await _combined_members_for(conn, uid, record_ids, cid=id)
-                    if members is None:
-                        return False
                     await conn.execute(
                         "DELETE FROM combined_property_members WHERE owner_user_id=%s"
                         " AND combined_property_id=%s", (uid, id))
@@ -12861,9 +16006,54 @@ class WebMutation:
                         "UPDATE combined_properties SET updated_at=%s WHERE id=%s",
                         (_now_iso(), id))
                     await _audit(conn, uid, "set_combined_members", id,
-                                 f"Now holds {len(members)} records")
+                                 f"Now has {len(members)} properties")
             except _pg_errors.UniqueViolation:
-                return False
+                raise ValueError("One of these properties was just added to another"
+                                 " holding. Nothing was changed.") from None
+        return True
+
+    @strawberry.mutation
+    async def set_combined_stake(self, info: strawberry.Info, id: str,
+                                 stake: str) -> bool:
+        """Give every record in the holding one stake, in one act.
+
+        A holding is one stake (rule 3, amended 04/10/2026), so a member's
+        stake cannot change on its own (`_guard_holding_stake`); this is how
+        the whole holding changes — land you managed that you now own, say —
+        without ungrouping it and losing its combined costs. It also repairs a
+        holding made before the amendment whose members ended up mixed.
+        Watching is refused: watched land is never in a holding.
+        """
+        uid = _uid(info)
+        want = (stake or "").strip()
+        if want not in COMBINED_STAKES:
+            raise ValueError("A holding is all Owned or all Managed; watched land"
+                             " cannot be part of a holding.")
+        async with _pool.connection() as conn:
+            async with conn.transaction():
+                row = await (await conn.execute(
+                    "SELECT name FROM combined_properties WHERE id=%s"
+                    " AND owner_user_id=%s FOR UPDATE", (id, uid))).fetchone()
+                if not row:
+                    return False
+                members = await (await conn.execute(
+                    "SELECT parcel_id, property_id FROM combined_property_members"
+                    " WHERE owner_user_id=%s AND combined_property_id=%s FOR UPDATE",
+                    (uid, id))).fetchall()
+                parcels = [m["parcel_id"] for m in members if m.get("parcel_id")]
+                props = [m["property_id"] for m in members if m.get("property_id")]
+                if parcels:
+                    await conn.execute(
+                        "UPDATE parcels SET stake=%s WHERE id = ANY(%s) AND passbook_id IN"
+                        " (SELECT id FROM passbooks WHERE owner_user_id=%s)",
+                        (want, parcels, uid))
+                if props:
+                    await conn.execute(
+                        "UPDATE properties SET stake=%s WHERE id = ANY(%s)"
+                        " AND owner_user_id=%s", (want, props, uid))
+                await _audit(conn, uid, "set_combined_stake", id,
+                             f"Every property in “{row['name']}” set to"
+                             f" {_COMBINED_STAKE_WORDS[want]}", label=row["name"])
         return True
 
     @strawberry.mutation
@@ -12913,8 +16103,8 @@ class WebMutation:
                     "DELETE FROM combined_properties WHERE id=%s AND owner_user_id=%s",
                     (id, uid))
                 await _audit(conn, uid, "delete_combined_property", id,
-                             f"Ungrouped {_i(held.get('c') if held else 0)} records"
-                             f" · {_i(spent.get('c') if spent else 0)} combined costs removed",
+                             f"Deleted the holding · {_i(held.get('c') if held else 0)} properties kept"
+                             f" · {_i(spent.get('c') if spent else 0)} shared expenses removed",
                              label=(row.get("name") or "").strip())
                 return True
 
@@ -13055,7 +16245,7 @@ class WebMutation:
                     await _audit(conn, uid, "add_paper", rid,
                                  f"Filed a joint FMB: {label}")
                 await _audit(conn, uid, "add_joint_fmb", combined_id,
-                             f"Filed a joint FMB across {len(chosen)} records")
+                             f"Filed a joint FMB across {len(chosen)} properties")
         return jid
 
     @strawberry.mutation

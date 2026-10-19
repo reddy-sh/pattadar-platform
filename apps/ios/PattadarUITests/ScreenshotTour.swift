@@ -20,7 +20,7 @@ final class ScreenshotTour: XCTestCase {
         snap(app, "01-home-signed-out")
 
         // The four destinations on the bar.
-        for name in ["Properties", "Papers", "More"] {
+        for name in ["Properties", "Documents", "More"] {
             let tab = app.tabBars.buttons[name]
             if tab.waitForExistence(timeout: 5) {
                 tab.tap(); pause()
@@ -43,7 +43,7 @@ final class ScreenshotTour: XCTestCase {
         visit(app, row: "Account", shot: "15-account")
 
         // The centre button is an action wearing a tab's clothes.
-        let file = app.tabBars.buttons["File a document"]
+        let file = app.tabBars.buttons["Add a document"]
         if file.waitForExistence(timeout: 3) {
             file.tap(); pause()
             snap(app, "16-filing-sheet")

@@ -1,7 +1,7 @@
 /**
  * Registered deeds — functional port of the rhub RegisteredDocsView +
  * RegisteredDocDetailView (inline expander instead of a detail route, since
- * /app/deeds redirects into Documents): list of AI-imported registered
+ * /deeds redirects into Documents): list of AI-imported registered
  * documents, expandable row with parties / property & boundaries / fees /
  * chain, "Add as Parcel" (createParcelFromDocument) and "Link to Passbook"
  * (linkDocumentPassbook) actions, delete, CSV/Excel/PDF export and the
@@ -151,7 +151,7 @@ function DeedExpanded({
       if (data?.createParcelFromDocument?.id) {
         onToast(`Parcel ${data.createParcelFromDocument.ref} created & linked`, 'success');
         onChanged();
-        navigate('/app/parcels');
+        navigate('/properties?kind=parcel');
       } else onToast('Could not create parcel', 'error');
     } catch {
       onToast('Could not create parcel', 'error');

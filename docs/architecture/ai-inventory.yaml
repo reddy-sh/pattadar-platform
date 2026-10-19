@@ -14,7 +14,7 @@
 # NOT mean deployed, applied, or operated. Live evidence is recorded elsewhere.
 
 version: 1
-updated: 2026-09-19
+updated: 2026-10-09
 owner: Reddy (Chief Architect, final governance authority)
 architecture_doc: docs/architecture/ai-system.md
 service_layout_doc: docs/architecture/service-layout.md
@@ -23,16 +23,38 @@ providers:
   - id: anthropic
     status: implemented
     secret: ANTHROPIC_API_KEY
-    secret_source: AWS Secrets Manager via ECS task secrets (declared in infra/terraform/modules/runtime/ecs.tf)
+    secret_source: >
+      api reads: the key saved on /admin/intelligence (encrypted under
+      PLATFORM_SECRETS_KEY), else this env var from AWS Secrets Manager via ECS
+      task secrets (infra/terraform/modules/runtime/ecs.tf). Gateway and
+      assistant still read the env var only.
     injected_into: [api, gateway, assistant]
     # The only two modules permitted to call a provider.
     call_sites:
       - services/api/src/ai_reading/providers/anthropic.py
       - services/assistant/src/adapters/agent_runtime.py
     notes: >
-      Sole provider. The gateway also holds the key to list models for the
-      catalog. No other provider is wired, though ai_catalog/providers is
-      pluggable.
+      The default document reader, and always the KYC and photo-classification
+      reader. The gateway also holds the key to list models for the catalog.
+  - id: google-gemini
+    status: implemented
+    secret: GEMINI_API_KEY
+    secret_source: >
+      Entered by a super-admin on /admin/intelligence, Fernet-encrypted in
+      platform_settings under PLATFORM_SECRETS_KEY; the env var is the
+      fallback. Production needs PLATFORM_SECRETS_KEY wired to the api task
+      (pending).
+    injected_into: [api]
+    call_sites:
+      - services/api/src/ai_reading/providers/google.py
+    notes: Optional document reader; chosen on the Intelligence page, Claude otherwise.
+  - id: google-document-ai
+    status: implemented
+    secret: GOOGLE_SERVICE_ACCOUNT_JSON
+    secret_source: Same as GEMINI_API_KEY (form first, env fallback).
+    injected_into: [api]
+    call_sites: [services/api/src/ai_reading/providers/google.py]
+    notes: Optional OCR before Gemini for passbook, registered-document and property reads.
 
 model_catalog:
   authority: postgresql table platform_models
@@ -115,8 +137,8 @@ capabilities:
     status: implemented
     owner_service: api
     module: services/api/src/ai_reading
-    provider_adapter: services/api/src/ai_reading/providers/anthropic.py
-    model: claude-sonnet-5        # services/api/src/ai_reading/config.py
+    provider_adapter: services/api/src/ai_reading/providers/
+    model: claude-sonnet-5 by default; the Intelligence page may choose a Claude model or Gemini (services/api/src/ai_reading/settings.py)
     prompts: services/api/src/ai_reading/prompts.py
     usage_accounting: services/api/src/ai_reading/usage.py
     consent_gate: services/api/src/ai_reading/consent.py
@@ -195,10 +217,13 @@ developer_tooling:
 boundaries:
   provider_call_allowed_in:
     - services/api/src/ai_reading/providers/anthropic.py
+    - services/api/src/ai_reading/providers/google.py
     - services/assistant/src/adapters/agent_runtime.py
     - services/gateway/src/ai_catalog/providers/anthropic.py
   provider_secret_allowed_in:
     - services/api/src/ai_reading/providers/anthropic.py
+    - services/api/src/ai_reading/providers/google.py
+    - services/api/src/ai_reading/settings.py
     - services/assistant/src/config.py
     - services/gateway/src/ai_catalog/
   product_mcp_tools_allowed_in:

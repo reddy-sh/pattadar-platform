@@ -22,6 +22,11 @@ import json
 import math
 import re
 
+try:                                    # inside the `src` package, as main.py loads it
+    from . import catalogue
+except ImportError:                     # imported bare off src/, as the pure tests do
+    import catalogue                    # type: ignore[no-redef]
+
 # ── The DDL this feature adds ──────────────────────────────────────────
 #
 # Spliced into web360._DDL, which applies every statement on every boot, so
@@ -210,6 +215,14 @@ DDL: tuple = (
     "ALTER TABLE documents ADD COLUMN IF NOT EXISTS order_ref TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE land_features ADD COLUMN IF NOT EXISTS order_ref TEXT NOT NULL DEFAULT ''",
     "CREATE INDEX IF NOT EXISTS idx_documents_order_ref ON documents (order_ref) WHERE order_ref <> ''",
+
+    # When the owner last asked Pattadar desk for an update. On the row, not
+    # only in the trail, because it is both the once-a-day limit and the flag
+    # the desk row prints.
+    "ALTER TABLE work_requests ADD COLUMN IF NOT EXISTS asked_at TEXT NOT NULL DEFAULT ''",
+    # Files sent with a message: a JSON list of {file_ref, file_name,
+    # mime_type, size_bytes}. Storage node ids only, never bytes.
+    "ALTER TABLE ticket_events ADD COLUMN IF NOT EXISTS attachments TEXT NOT NULL DEFAULT '[]'",
 )
 
 
@@ -234,9 +247,11 @@ STATUS_STAGE: dict = {
 
 # The finer word, for the ticket screens. `stage_label` keeps coming out of
 # web360._STAGES and keeps saying Placed / Assigned / On site / Delivered.
+# `on_site` reads "In progress": an EC is never on a site, and a site visit
+# says "On site" in the caption under the step (service order spec §2.2).
 STATUS_LABEL: dict = {
     "placed": "Placed", "sent": "Sent out", "assigned": "Assigned",
-    "on_site": "On site", "submitted": "Waiting on you", "changes": "Sent back",
+    "on_site": "In progress", "submitted": "Waiting on you", "changes": "Sent back",
     "accepted": "Accepted", "cancelled": "Cancelled",
 }
 
@@ -253,6 +268,10 @@ STATUS_STATE: dict = {
 # puts them back — so this is a permanent read-time fallback, not a backfill.
 STAGE_FALLBACK: tuple = ("placed", "assigned", "on_site", "submitted")
 
+# What the person who ordered it reads. "Sent out" is the desk's dispatch
+# word; to the owner an order out with providers is still Placed.
+OWNER_LABEL: dict = {**STATUS_LABEL, "sent": "Placed"}
+
 NEEDS_YOU: frozenset = frozenset({"submitted"})
 CLOSED: frozenset = frozenset({"accepted", "cancelled"})
 TERMINAL: frozenset = CLOSED
@@ -267,17 +286,18 @@ TERMINAL: frozenset = CLOSED
 # 4,500 rupees are being argued about.
 #
 # Three actor kinds move a ticket, and the tuples are the whole of the rule.
-# `owner` is the landowner on their own screen. `worker` is whoever holds a
-# /work/{token} link — that is how the portal accepts a job and says it has
-# started. `system` is the Pattadar desk: an operator assigning somebody by
-# hand, or the dispatcher sending a round of offers.
+# `owner` is the landowner on their own screen: they cancel, accept and send
+# back, and nothing else — finding, sending to and recording for a provider is
+# the desk's work, never the requester's (service order spec §7). `worker` is
+# whoever holds a /work/{token} link — that is how the portal accepts a job,
+# says it has started and hands work in. `system` is the Pattadar desk: an
+# operator assigning somebody by hand, sending a round of offers, or relaying
+# for a provider who has no phone to press a button on.
 #
-# `system` is deliberately missing from every move made after somebody has
-# actually been on the land. The desk may offer, assign, unassign and cancel
-# a job nobody has worked yet; it may NOT accept, send back, or cancel from
+# `system` is deliberately missing from the moves that spend the owner's
+# money or close their order: it may not accept, send back, or cancel from
 # `on_site`, `submitted` or `changes`, because by then a human has to phone
-# the owner before the money moves. That asymmetry is the reason the actor
-# tuples exist at all rather than a single `is_staff` flag.
+# the owner before the money moves.
 #
 # `accepted` and `cancelled` have no outgoing pairs. A released payout cannot
 # be un-released on any rail we will use, so the remedy for a wrong
@@ -288,23 +308,23 @@ ACTIONS: tuple = (
 )
 
 TRANSITIONS: dict = {
-    ("placed",    "dispatch"):  ("sent",      ("owner", "system")),
-    ("placed",    "assign"):    ("assigned",  ("owner", "system")),
+    ("placed",    "dispatch"):  ("sent",      ("system",)),
+    ("placed",    "assign"):    ("assigned",  ("system",)),
     ("placed",    "cancel"):    ("cancelled", ("owner", "system")),
 
-    ("sent",      "dispatch"):  ("sent",      ("owner", "system")),
-    ("sent",      "withdraw"):  ("placed",    ("owner",)),
-    ("sent",      "assign"):    ("assigned",  ("owner", "worker")),
+    ("sent",      "dispatch"):  ("sent",      ("system",)),
+    ("sent",      "withdraw"):  ("placed",    ("system",)),
+    ("sent",      "assign"):    ("assigned",  ("system", "worker")),
     ("sent",      "cancel"):    ("cancelled", ("owner", "system")),
 
-    ("assigned",  "dispatch"):  ("assigned",  ("owner",)),
-    ("assigned",  "assign"):    ("assigned",  ("owner",)),
-    ("assigned",  "unassign"):  ("placed",    ("owner", "system")),
-    ("assigned",  "start"):     ("on_site",   ("owner", "worker")),
-    ("assigned",  "deliver"):   ("submitted", ("owner", "worker")),
+    ("assigned",  "dispatch"):  ("assigned",  ("system",)),
+    ("assigned",  "assign"):    ("assigned",  ("system",)),
+    ("assigned",  "unassign"):  ("placed",    ("system",)),
+    ("assigned",  "start"):     ("on_site",   ("system", "worker")),
+    ("assigned",  "deliver"):   ("submitted", ("system", "worker")),
     ("assigned",  "cancel"):    ("cancelled", ("owner", "system")),
 
-    ("on_site",   "dispatch"):  ("on_site",   ("owner",)),
+    ("on_site",   "dispatch"):  ("on_site",   ("system",)),
     # The commonest real failure on this platform is not a dispute: it is a
     # surveyor who accepts, says he is on site, and then stops answering his
     # phone. Until this pair existed the only exit was cancel_ticket, which
@@ -312,47 +332,58 @@ TRANSITIONS: dict = {
     # a funded, wanted piece of work to recover from one silent man. Unassign
     # puts the ticket back to `placed` with its money still set aside, ready
     # to go to somebody else. It is not a cancel and it releases nothing.
-    ("on_site",   "unassign"):  ("placed",    ("owner", "system")),
-    ("on_site",   "deliver"):   ("submitted", ("owner", "worker")),
+    ("on_site",   "unassign"):  ("placed",    ("system",)),
+    ("on_site",   "deliver"):   ("submitted", ("system", "worker")),
     ("on_site",   "cancel"):    ("cancelled", ("owner",)),
 
-    ("submitted", "dispatch"):  ("submitted", ("owner",)),
+    ("submitted", "dispatch"):  ("submitted", ("system",)),
     ("submitted", "accept"):    ("accepted",  ("owner",)),
     ("submitted", "send_back"): ("changes",   ("owner",)),
     ("submitted", "cancel"):    ("cancelled", ("owner",)),
 
-    ("changes",   "dispatch"):  ("changes",   ("owner",)),
-    ("changes",   "deliver"):   ("submitted", ("owner", "worker")),
+    ("changes",   "dispatch"):  ("changes",   ("system",)),
+    ("changes",   "deliver"):   ("submitted", ("system", "worker")),
     ("changes",   "cancel"):    ("cancelled", ("owner",)),
 }
+
+# The owner's whole vocabulary on their own order. The first three are moves
+# in the machine above; `message`, `nudge` (Ask for an update) and `rate` are
+# writes that do not move the status. owner_can() decides which apply now.
+OWNER_ACTIONS: tuple = ("cancel", "accept", "send_back", "message", "nudge", "rate")
+
+# Asking for an update is offered while the order is open and the provider
+# holds the next move — before anything is delivered, and again once the work
+# is sent back for rework — once it has gone quiet this long or is past its date.
+NUDGE_STATUSES: frozenset = frozenset({"placed", "sent", "assigned", "on_site", "changes"})
+QUIET_DAYS: int = 4
 
 
 # ── What a ticket can carry back, and where it lands ───────────────────
 
 DELIVERABLE_KINDS: tuple = ("paper", "photo", "boundary", "feature")
 
-# Which shelf a service's paper belongs on. Both `kind` vocabularies are here
-# — SERVICE_CATALOGUE writes ec/survey/site_visit/title_opinion/mutation/
-# patta_copy and create_request writes survey/opinion/visit/fencing — because
-# they land in the same column and anything reading it must cope with both.
+# Which shelf a service's paper belongs on: each catalogue service's own
+# `files_to`, its legacy aliases (create_request's opinion/visit) with it, and
+# the two kinds that are not catalogue services, because all of them land in
+# the same column and anything reading it must cope with every one.
 #
 # 'map' is load-bearing beyond display: _fmb_sheet selects shelf='map', so
 # filing a survey deliverable there is what makes W04's sheet card appear.
 SHELF_FOR_KIND: dict = {
-    "survey": "map", "ec": "search", "title_opinion": "title", "opinion": "title",
-    "mutation": "revenue", "patta_copy": "revenue", "site_visit": "unsorted",
-    "visit": "unsorted", "fencing": "unsorted", "errand": "unsorted",
+    **{k: v["files_to"] for k, v in catalogue.SERVICE_CATALOGUE.items()},
+    **{old: catalogue.SERVICE_CATALOGUE[k]["files_to"] for old, k in catalogue.ALIASES.items()},
+    "fencing": "unsorted", "errand": "unsorted",
 }
 SHELVES: tuple = ("title", "revenue", "map", "identity", "search", "old", "unsorted")
 PHOTO_CATEGORIES: tuple = ("general", "boundary", "crop", "structure", "water", "access")
 
-# The words the Papers screen already prints for a shelf. Mirrored from
-# apps/web/src/w360/pages/RecordPapers.tsx so a paper filed by a ticket is
-# described in the trail with the same noun the shelf chip shows.
+# The words the Documents screens print for a shelf: SHELF_WORD in
+# apps/web/src/w360/ui.tsx, so a document filed by a ticket is described in the
+# trail with the same noun the shelf chip shows (scripts/vocab-tests.ts VOC-X1).
 SHELF_LABEL: dict = {
-    "title": "Title", "revenue": "Revenue record", "map": "Map",
-    "search": "Search & tax", "identity": "Identity", "old": "Old record",
-    "unsorted": "Unsorted",
+    "title": "Title deeds", "revenue": "Revenue records", "map": "Map",
+    "search": "EC & tax receipts", "identity": "Identity", "old": "Old records",
+    "unsorted": "Not sorted yet",
 }
 PHOTO_LABEL: dict = {
     "general": "General", "boundary": "Boundary", "crop": "Crop",
@@ -377,7 +408,7 @@ ENTRIES: dict = {
 }
 ENTRY_LABEL: dict = {
     "top_up": "Added", "hold": "Held",
-    "release": "Released to the provider",
+    "release": "Released",
     "fee": "Pattadar fee", "return": "Refunded",
 }
 
@@ -461,21 +492,93 @@ def is_closed(status: str) -> bool:
     return status in CLOSED
 
 
-def can(status: str, actor_kind: str = "owner") -> list:
+def can(status: str, actor_kind: str) -> list:
     """Every action legal from this status for this actor, sorted.
 
     The client renders its buttons from this, so a screen can never offer a
-    move the server will refuse.
+    move the server will refuse. The actor is always named: a default here is
+    how the owner was once handed the desk's dispatch moves.
 
-    >>> can("submitted")
-    ['accept', 'cancel', 'dispatch', 'send_back']
-    >>> can("accepted")
+    >>> can("submitted", "owner")
+    ['accept', 'cancel', 'send_back']
+    >>> can("accepted", "owner")
     []
     >>> can("sent", "worker")
     ['assign']
     """
     return sorted(action for (st, action), (_to, who) in TRANSITIONS.items()
                   if st == status and actor_kind in who)
+
+
+def owner_can(status: str, *, quiet_days: int = 0, overdue_days: int = 0,
+              asked_recently: bool = False, unpaid: bool = False,
+              rateable: bool = False) -> list:
+    """The owner's legal actions on their own order, sorted — always a subset
+    of OWNER_ACTIONS, never a desk move.
+
+    `nudge` is offered while the provider holds the next move (nothing
+    delivered yet, or sent back for rework), once the order has been quiet
+    QUIET_DAYS or is overdue, at most once a day, and never while
+    the order still waits on the owner's own payment (paying is the next step
+    then, not asking). `rate` needs an accepted order with a known provider.
+
+    >>> owner_can("placed")
+    ['cancel', 'message']
+    >>> owner_can("assigned", quiet_days=9)
+    ['cancel', 'message', 'nudge']
+    >>> owner_can("assigned", overdue_days=2, asked_recently=True)
+    ['cancel', 'message']
+    >>> owner_can("placed", quiet_days=9, unpaid=True)
+    ['cancel', 'message']
+    >>> owner_can("changes", quiet_days=9)
+    ['cancel', 'message', 'nudge']
+    >>> owner_can("accepted", rateable=True)
+    ['message', 'rate']
+    >>> owner_can("cancelled")
+    []
+    """
+    out = can(status, "owner")
+    if status in STATUSES and status != "cancelled":
+        out.append("message")
+    if (status in NUDGE_STATUSES and (quiet_days >= QUIET_DAYS or overdue_days > 0)
+            and not asked_recently and not unpaid):
+        out.append("nudge")
+    if status == "accepted" and rateable:
+        out.append("rate")
+    return sorted(out)
+
+
+def owner_label(status: str) -> str:
+    """The status word the person who ordered it reads. Unknown -> 'Placed'.
+
+    >>> owner_label("sent"), owner_label("on_site"), owner_label("nope")
+    ('Placed', 'In progress', 'Placed')
+    """
+    return OWNER_LABEL.get(status, "Placed")
+
+
+def sentence_case(title: str) -> str:
+    """A stored service title in sentence case (naming standard N1).
+
+    Only a plainly Capitalised word after the first is lowered; an acronym or
+    a mixed-case word (EC, FMB, RoR-1B, 1-B) keeps its letters, because
+    lowering those makes a different word.
+
+    >>> sentence_case("Encumbrance Certificate")
+    'Encumbrance certificate'
+    >>> sentence_case("  FMB / Survey Map  copy ")
+    'FMB / survey map copy'
+    >>> sentence_case("certified RoR-1B Copy")
+    'Certified RoR-1B copy'
+    >>> sentence_case("")
+    ''
+    """
+    words = (title or "").split()
+    if not words:
+        return ""
+    head = words[0][:1].upper() + words[0][1:]
+    return " ".join([head] + [w.lower() if re.fullmatch(r"[A-Z][a-z]+", w) else w
+                              for w in words[1:]])
 
 
 def transition(status: str, action: str, actor_kind: str = "owner") -> dict:
@@ -489,8 +592,10 @@ def transition(status: str, action: str, actor_kind: str = "owner") -> dict:
     `why` is one of: "unknown status", "not a legal move",
     "not yours to do".
 
-    >>> transition("on_site", "deliver")
+    >>> transition("on_site", "deliver", "worker")
     {'ok': True, 'from': 'on_site', 'to': 'submitted', 'stage': 3, 'needs_you': True, 'closed': False, 'label': 'Waiting on you'}
+    >>> transition("placed", "assign", "owner")["why"]
+    'not yours to do'
     >>> transition("accepted", "send_back")
     {'ok': False, 'from': 'accepted', 'to': '', 'why': 'not a legal move'}
     >>> transition("submitted", "accept", "worker")
@@ -673,7 +778,7 @@ def cancel_plan(held: float, pay_anyway: float = 0.0,
     the owner and not with a stranger.
 
     >>> cancel_plan(2900.0, 700.0, 0.9, "G. Srinivas", "wr-abc")
-    [{'entry': 'return', 'from_bucket': 'held', 'to_bucket': 'wallet', 'amount': 2200.0, 'payee': '', 'note': 'Refunded — order cancelled', 'idempotency_key': 'wr-abc:return:1'}, {'entry': 'release', 'from_bucket': 'held', 'to_bucket': 'payout', 'amount': 630.0, 'payee': 'G. Srinivas', 'note': 'Settled on cancellation', 'idempotency_key': 'wr-abc:release:1'}, {'entry': 'fee', 'from_bucket': 'held', 'to_bucket': 'fee', 'amount': 70.0, 'payee': '', 'note': 'Pattadar fee', 'idempotency_key': 'wr-abc:fee:1'}]
+    [{'entry': 'return', 'from_bucket': 'held', 'to_bucket': 'wallet', 'amount': 2200.0, 'payee': '', 'note': 'Refunded — order cancelled', 'idempotency_key': 'wr-abc:return:1'}, {'entry': 'release', 'from_bucket': 'held', 'to_bucket': 'payout', 'amount': 630.0, 'payee': 'G. Srinivas', 'note': 'Released on cancellation', 'idempotency_key': 'wr-abc:release:1'}, {'entry': 'fee', 'from_bucket': 'held', 'to_bucket': 'fee', 'amount': 70.0, 'payee': '', 'note': 'Pattadar fee', 'idempotency_key': 'wr-abc:fee:1'}]
     >>> cancel_plan(2900.0, 0.0, 0.9, "", "wr-abc")
     [{'entry': 'return', 'from_bucket': 'held', 'to_bucket': 'wallet', 'amount': 2900.0, 'payee': '', 'note': 'Refunded — order cancelled', 'idempotency_key': 'wr-abc:return:1'}]
     >>> cancel_plan(0.0)
@@ -691,7 +796,7 @@ def cancel_plan(held: float, pay_anyway: float = 0.0,
     split = payee_split(settled, payee_share)
     if split["payout"] > 0:
         rows.append(_entry_row("release", split["payout"], payee,
-                               "Settled on cancellation", ticket_id))
+                               "Released on cancellation", ticket_id))
     if split["fee"] > 0:
         rows.append(_entry_row("fee", split["fee"], "",
                                "Pattadar fee", ticket_id))
@@ -1192,7 +1297,7 @@ def filing_plan(deliverable: dict, ticket: dict, record: dict) -> dict:
         return _plan(
             op="insert", table="documents", id_prefix="doc-",
             values={
-                "name": label or deliverable.get("file_name") or "Paper",
+                "name": label or deliverable.get("file_name") or "Untitled document",
                 "subtitle": subtitle,
                 "shelf": shelf,
                 "doc_type": shelf,
@@ -1209,7 +1314,7 @@ def filing_plan(deliverable: dict, ticket: dict, record: dict) -> dict:
                 "order_ref": tid,
             },
             sort_over={"table": "documents", "column": "record_id", "value": rid},
-            summary=f"Filed on the {SHELF_LABEL.get(shelf, 'Unsorted')} shelf",
+            summary=f"Filed on the {SHELF_LABEL.get(shelf, 'Not sorted yet')} shelf",
             why="the shelf is what makes a paper findable again; a ticket knows"
                 " which one it is because it knows what was ordered",
         )
@@ -1251,7 +1356,7 @@ def filing_plan(deliverable: dict, ticket: dict, record: dict) -> dict:
                 "local_time": "",
             },
             sort_over={"table": table, "column": key, "value": rid},
-            summary="Added to the record's photos",
+            summary="Added to the property's photos",
             why="an owner-relayed photo carries no coordinates and no"
                 " photographer: the account that filed it is not the person"
                 " who stood in the field",
@@ -1327,7 +1432,7 @@ def goes_to(kind: str, file_as: str, ticket_kind: str = "") -> str:
     card before anything is filed.
 
     >>> goes_to("paper", "map"), goes_to("photo", "boundary"), goes_to("boundary", "")
-    ('Papers · Map shelf', "The record's photos · Boundary", 'The outline on file')
+    ('Documents · Map shelf', "The property's photos · Boundary", 'The outline on file')
     >>> goes_to("feature", "")
     'What stands on this land'
     """
@@ -1335,10 +1440,10 @@ def goes_to(kind: str, file_as: str, ticket_kind: str = "") -> str:
         shelf = file_as or SHELF_FOR_KIND.get(ticket_kind or "", "unsorted")
         if shelf not in SHELVES:
             shelf = "unsorted"
-        return f"Papers · {SHELF_LABEL.get(shelf, 'Unsorted')} shelf"
+        return f"Documents · {SHELF_LABEL.get(shelf, 'Not sorted yet')} shelf"
     if kind == "photo":
         cat = file_as if file_as in PHOTO_CATEGORIES else "general"
-        return f"The record's photos · {PHOTO_LABEL[cat]}"
+        return f"The property's photos · {PHOTO_LABEL[cat]}"
     if kind == "boundary":
         return "The outline on file"
     if kind == "feature":
@@ -1355,7 +1460,7 @@ def file_targets(kind: str) -> list:
     >>> file_targets("boundary")
     []
     >>> file_targets("paper")[0]
-    ('title', 'Title')
+    ('title', 'Title deeds')
     """
     if kind == "paper":
         return [(s, SHELF_LABEL[s]) for s in SHELVES]
@@ -1523,43 +1628,62 @@ def days_between(a: str, b: str) -> int:
 
 def event_headline(kind: str, action: str, ctx: dict) -> str:
     """The line the trail shows, composed at write time so 2027 code cannot
-    re-word a 2026 event.
+    re-word a 2026 event. Written in the requester's words (service order
+    spec §3.5): who did what, never an id.
 
+    >>> event_headline("status", "place", {})
+    'You placed this order'
+    >>> event_headline("status", "assign", {"actor_label": "Ravi Kumar", "actor_kind": "worker", "assignee": "Ravi Kumar"})
+    'Ravi Kumar accepted this order'
+    >>> event_headline("status", "assign", {"actor_label": "Pattadar desk", "actor_kind": "system", "assignee": "Ravi Kumar"})
+    'Pattadar desk assigned Ravi Kumar'
     >>> event_headline("status", "accept", {"actor_label": "You"})
     'You accepted the work'
     >>> event_headline("dispatch", "", {"channel": "whatsapp", "person_name": "G. Srinivas", "provider": "stub"})
     'Sent to G. Srinivas on WhatsApp — recorded, not sent (stub)'
-    >>> event_headline("deliverable", "", {"label": "Re-survey sketch"})
-    "'Re-survey sketch' came back"
-    >>> event_headline("filed", "", {"summary": "Filed on the Map shelf"})
-    'Filed on the Map shelf'
+    >>> event_headline("deliverable", "", {"label": "Re-survey sketch", "by": "Ravi Kumar"})
+    'Ravi Kumar delivered “Re-survey sketch”'
+    >>> event_headline("filed", "", {"label": "EC 1996-2026", "table": "documents"})
+    "“EC 1996-2026” was added to this property's Documents"
     >>> event_headline("payment", "", {"entry": "hold", "amount": 2900.0})
-    '₹2,900 set aside'
+    '₹2,900 held'
+    >>> event_headline("nudge", "nudge", {})
+    'You asked Pattadar desk for an update'
     """
     ctx = ctx or {}
     actor = str(ctx.get("actor_label") or "You")
     assignee = str(ctx.get("assignee") or "")
+    provider = assignee or "the provider"
 
     if kind == "status":
+        if action == "place":
+            return f"{actor} placed this order"
         if action == "dispatch":
-            return f"{actor} sent it out"
+            return f"{actor} sent this order to providers"
         if action == "withdraw":
-            return f"{actor} withdrew it"
+            return f"{actor} withdrew the offer to providers"
         if action == "assign":
-            return f"{actor} put {assignee or 'somebody'} on it"
+            # A provider taking an offer through their work link accepts it;
+            # the desk putting somebody on it assigns them.
+            if ctx.get("actor_kind") == "worker":
+                return f"{assignee or actor} accepted this order"
+            return f"{actor} assigned {provider}"
         if action == "unassign":
-            return f"{actor} took {assignee or 'them'} off it"
+            return f"{actor} took {provider} off this order"
         if action == "start":
-            return f"{assignee or actor} is on site"
+            return f"{assignee or actor} started work"
         if action == "deliver":
-            return "Work came back"
+            return f"{assignee or actor} delivered the work"
         if action == "accept":
             return f"{actor} accepted the work"
         if action == "send_back":
-            return f"{actor} sent it back"
+            return f"{actor} sent the work back"
         if action == "cancel":
-            return f"{actor} cancelled it"
-        return "Placed"
+            return f"{actor} cancelled this order"
+        return f"{actor} placed this order"
+
+    if kind == "nudge":
+        return f"{actor} asked Pattadar desk for an update"
 
     if kind == "dispatch":
         who = str(ctx.get("person_name") or ctx.get("contact") or "them")
@@ -1570,22 +1694,33 @@ def event_headline(kind: str, action: str, ctx: dict) -> str:
         return line
 
     if kind == "deliverable":
-        return f"'{ctx.get('label') or 'Something'}' came back"
+        label = str(ctx.get("label") or "Something")
+        by = str(ctx.get("by") or "")
+        return f"{by} delivered “{label}”" if by else f"“{label}” was delivered"
 
     if kind == "filed":
-        return str(ctx.get("summary") or "Filed onto the record")
+        label = str(ctx.get("label") or "")
+        table = str(ctx.get("table") or "")
+        if not label:
+            return str(ctx.get("summary") or "Added to the property")
+        if table == "documents":
+            return f"“{label}” was added to this property's Documents"
+        if table.endswith("photos"):
+            return f"“{label}” was added to this property's photos"
+        if table in ("parcels", "properties"):
+            return f"“{label}” is now this property's boundary"
+        return f"“{label}” was added to this property"
 
     if kind == "payment":
         entry = str(ctx.get("entry") or "")
         money = inr_short(_f(ctx.get("amount")))
         payee = str(ctx.get("payee") or "")
         if entry == "hold":
-            return f"{money} set aside"
+            return f"{money} held"
         if entry == "release":
-            return (f"{money} recorded as owed to {payee}" if payee
-                    else f"{money} recorded as owed")
+            return f"{money} released to {payee}" if payee else f"{money} released"
         if entry == "fee":
-            return f"{money} to Pattadar"
+            return f"{money} Pattadar fee"
         if entry == "return":
             return f"{money} refunded"
         if entry == "top_up":

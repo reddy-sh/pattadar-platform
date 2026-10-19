@@ -45,14 +45,14 @@ SKIP_DIRS = {
 
 # ── what each rule looks for ──────────────────────────────────────────
 
-PROVIDER_ENDPOINT = re.compile(r"api\.anthropic\.com|anthropic-version")
+PROVIDER_ENDPOINT = re.compile(r"api\.anthropic\.com|anthropic-version|generativelanguage\.googleapis\.com|documentai\.googleapis\.com")
 # Two different dependencies that are easy to conflate. The model SDK talks to a
 # provider and costs money; the agent SDK also provides the in-process MCP tool
 # machinery, which tool modules legitimately import without calling a model.
 MODEL_SDK = re.compile(r"^\s*(?:from\s+anthropic\b|import\s+anthropic\b)", re.M)
 AGENT_SDK = re.compile(
     r"^\s*(?:from\s+claude_agent_sdk\b|import\s+claude_agent_sdk\b)", re.M)
-PROVIDER_SECRET = re.compile(r"ANTHROPIC_API_KEY")
+PROVIDER_SECRET = re.compile(r"ANTHROPIC_API_KEY|GEMINI_API_KEY|GOOGLE_SERVICE_ACCOUNT_JSON")
 # A prompt, as opposed to a mention of one: a long instruction string telling a
 # model what to return.
 PROMPT_SHAPE = re.compile(
@@ -67,6 +67,7 @@ NEW_SYNC_READ_ROUTE = re.compile(
 
 ALLOW_PROVIDER_CALL = {
     "services/api/src/ai_reading/providers/anthropic.py",
+    "services/api/src/ai_reading/providers/google.py",
     "services/assistant/src/adapters/agent_runtime.py",
     "services/gateway/src/ai_catalog/providers/anthropic.py",
     "services/gateway/src/ai_catalog/providers/base.py",
@@ -84,6 +85,8 @@ ALLOW_AGENT_SDK = {
 }
 ALLOW_PROVIDER_SECRET = {
     "services/api/src/ai_reading/providers/anthropic.py",
+    "services/api/src/ai_reading/providers/google.py",
+    "services/api/src/ai_reading/settings.py",
     # Passes the configured key into the SDK's environment; does not read env
     # directly for its own request.
     "services/assistant/src/adapters/agent_runtime.py",
@@ -116,6 +119,8 @@ DECLARED_PATHS = [
     "services/api/src/ai_reading/routes.py",
     "services/api/src/ai_reading/operations.py",
     "services/api/src/ai_reading/providers/anthropic.py",
+    "services/api/src/ai_reading/providers/google.py",
+    "services/api/src/ai_reading/settings.py",
     "services/api/src/ai_reading/jobs.py",
     "services/assistant/src/main.py",
     "services/assistant/src/ports.py",

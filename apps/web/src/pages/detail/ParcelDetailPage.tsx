@@ -768,7 +768,7 @@ export function ParcelDetailPage() {
       </>
     );
   const p = data.parcel;
-  if (!p) return <NotFoundCard what="Parcel" backTo="/app/parcels" backLabel="Back to Land & Properties" />;
+  if (!p) return <NotFoundCard what="Parcel" backTo="/properties?kind=parcel" backLabel="Back to Land & Properties" />;
 
   const loc = p.location || { village: '', mandal: '', district: '', state: '' };
   const addressLine = [loc.village, loc.mandal, loc.district, loc.state].filter(Boolean).join(', ') || '—';
@@ -811,7 +811,7 @@ export function ParcelDetailPage() {
             <Field label="Current owner">{dashVal(p.currentOwner)}</Field>
             <Field label="Family / group">
               {data.groupName ? (
-                <Link component={RouterLink} to="/app/groups">
+                <Link component={RouterLink} to="/groups">
                   👪 {data.groupName}
                 </Link>
               ) : (
@@ -820,7 +820,7 @@ export function ParcelDetailPage() {
             </Field>
             <Field label="Pattadar passbook">
               {data.passbookId ? (
-                <Link component={RouterLink} to={`/app/passbooks/${data.passbookId}`}>
+                <Link component={RouterLink} to={`/legacy/passbooks/${data.passbookId}`}>
                   {p.passbookRef}
                 </Link>
               ) : (
@@ -902,7 +902,7 @@ export function ParcelDetailPage() {
           <SectionCard
             title={`Family — ${data.groupName}`}
             action={
-              <Link component={RouterLink} to="/app/groups" variant="caption">
+              <Link component={RouterLink} to="/groups" variant="caption">
                 Open group ›
               </Link>
             }
@@ -1039,7 +1039,7 @@ export function ParcelDetailPage() {
       {tab === 'notes' && <NotesPanel entityType="parcel" entityId={id} />}
       {tab === 'audit' && <AuditTrailPanel target={id} />}
       <Box sx={{ mt: 2 }}>
-        <Link component="button" variant="body2" onClick={() => navigate('/app/parcels')}>
+        <Link component="button" variant="body2" onClick={() => navigate('/properties?kind=parcel')}>
           ← Back to Land &amp; Properties
         </Link>
       </Box>

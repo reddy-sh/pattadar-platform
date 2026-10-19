@@ -38,7 +38,7 @@ Then drop `--dry-run`. The receipt lands in `.local/vm-receipts/`.
 
 Look at it before publishing:
 
-    VM_DIR=../../.local/vm-build bun run dev:web     # then /app/maps
+    VM_DIR=../../.local/vm-build bun run dev:web     # then /maps
 
 ## 2. Apply the infrastructure (approval required)
 
@@ -74,7 +74,7 @@ The script:
 
 - `https://<domain>/vm/catalog.json` lists 56 mandals.
 - `/vm/index.json` and `/vm/overview.json` each list 902 unique village keys.
-- With no Area filter, `/app/maps` lists and fits all 902 outlines globally.
+- With no Area filter, `/maps` lists and fits all 902 outlines globally.
   District and Mandal filters narrow both the list and map to the same scope.
 - A parcel filed in a village with a shared name (e.g. MYLAVARAM, mandal
   Addanki) shows Addanki's plots.

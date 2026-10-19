@@ -33,7 +33,7 @@
  *    console guard fails on. Refusals here are `World.gqlError` (HTTP 200 with
  *    an `errors[]`) except the one test whose point is the transport failure.
  *
- * Six defects are recorded as `test.fail()`, each with the file and line that
+ * Five defects are recorded as `test.fail()`, each with the file and line that
  * causes it and what the owner is owed instead:
  *
  *   · no way to delete a ledger row, though `deleteExpense` is a resolver, a
@@ -44,16 +44,14 @@
  *     a `todayIso()` to avoid;
  *   · a registration with no consideration on it printing "No purchase is
  *     recorded against this record" above the purchase;
- *   · the ledger's year select bound to the server's echo rather than to the
- *     year that was chosen, so the control springs back to the year just left
- *     for as long as the read takes;
  *   · the CSV injection guard applied to numbers as well as to text, so a
  *     record that has LOST value exports the loss as something a spreadsheet
  *     will not add.
  *
- * Two more were fixed on 28/09/2026 and are ordinary tests now: both
- * screens' `<Loading>` naming what they wait for, and the owed-back total in
- * both shapes of the ledger's strip.
+ * Three more were fixed and are ordinary tests now: both screens' loading
+ * state naming what they wait for, the owed-back total in both shapes of the
+ * ledger's strip (28/09/2026), and the ledger's year select keeping the year
+ * that was chosen while that year loads.
  *
  * They go green the day they are fixed, which is what they are for.
  */
@@ -142,6 +140,21 @@ const saying = (page: import('@playwright/test').Page, text: string) =>
  *  single expect timeout, and the first assertion of a test fails against a
  *  page that is still arriving. The wait is on the chunk, not on the data:
  *  every /api answer is already in the world and lands in milliseconds. */
+/** Cost sheet, Add an expense (Money), Add rent and Export (the ledger) live
+ *  in the section head's More menu (Reddy, 13/10/2026). Opens it and hands
+ *  back the named item. */
+async function moreItem(page: import('@playwright/test').Page, menu: string | RegExp, item: string) {
+  await page.getByRole('button', { name: menu }).click();
+  return page.getByRole('menuitem', { name: item });
+}
+
+/** Picks a category in the band's "+ Filter" popover (FacetFilter). */
+async function pickCategory(page: import('@playwright/test').Page, name: RegExp) {
+  const pop = page.getByRole('group', { name: 'Narrow the list' });
+  if (!(await pop.isVisible())) await page.getByRole('button', { name: '+ Filter' }).click();
+  await pop.getByRole('button', { name }).click();
+}
+
 async function open(page: import('@playwright/test').Page, path: string): Promise<void> {
   await page.goto(path);
   await expect(page.getByRole('progressbar')).toHaveCount(0, { timeout: 30_000 });
@@ -151,7 +164,7 @@ async function open(page: import('@playwright/test').Page, path: string): Promis
 
 test.describe('W10 · money', () => {
   test('what I paid, what the government says and what it might be worth are three separate numbers', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
 
     // The tab's own word is its heading (design.md § App vocabulary,
     // "Property tabs"); it used to be "Costs & value".
@@ -170,18 +183,18 @@ test.describe('W10 · money', () => {
   });
 
   test('the money hanger keeps the record tab strip, with Money the tab I am on', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
     const tabs = page.getByRole('navigation', { name: 'This property' });
     // One strip for every tab (Record.tsx). A strip that marks nothing as
     // current is links to places the reader might already be standing.
     await expect(tabs.getByRole('link', { name: 'Money' })).toHaveAttribute('aria-current', 'page');
     await expect(tabs.getByRole('link', { name: /^Documents/ }))
-      .toHaveAttribute('href', `/app/records/${ID.parcel}`);
+      .toHaveAttribute('href', `/properties/${ID.parcel}/documents`);
     await expect(tabs.getByRole('link', { name: /^Documents/ })).not.toHaveAttribute('aria-current', 'page');
   });
 
   test('the gain is stated against what I paid, not against nothing', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
     // ₹86.0 L market against ₹18.5 L paid — the figure and the percentage are
     // two halves of one sentence and have to agree.
     await expect(cardWith(page, 'Market estimate'))
@@ -195,7 +208,7 @@ test.describe('W10 · money', () => {
     world.set('money', money({
       marketTotal: 1_400_000, marketGain: -450_000, marketGainPct: -24.3,
     }));
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
 
     const card = cardWith(page, 'Market estimate');
     await expect(card).toContainText('₹14.0 L');
@@ -207,15 +220,15 @@ test.describe('W10 · money', () => {
   });
 
   test('the purchase lots table carries the registration behind the price', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
 
     await expect(page.getByRole('heading', { name: 'Purchase', exact: true })).toBeVisible();
-    await expect(page.getByText('One registration')).toBeVisible();
+    await expect(page.getByText('1 registration', { exact: true })).toBeVisible();
 
     const lot = page.getByRole('row', { name: /Chenna Reddy/ });
-    // The lot's date is printed exactly as it arrives — `boughtOn` is a
-    // display string, and web360.py stores it as the SRO wrote it.
-    await expect(lot).toContainText('1998-03-04');
+    // The lot's date is drawn the Indian way, DD/MM/YYYY (RecordMoney.tsx
+    // `ddmmyyyy`), whatever shape the server stored it in.
+    await expect(lot).toContainText('04/03/1998');
     await expect(lot).toContainText('4 acres');
     await expect(lot).toContainText('₹4.3 L');      // rate for the acre
     await expect(lot).toContainText('₹18.5 L');     // paid
@@ -237,10 +250,10 @@ test.describe('W10 · money', () => {
       ],
       extent: 6.4, blendedRate: 413_750, blendedPaid: 2_648_000, blendedGovt: 1_740_000,
     }));
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
 
-    await expect(page.getByText('2 purchase lots')).toBeVisible();
-    await expect(page.getByText('2 lots, one registration summary')).toBeVisible();
+    await expect(page.getByText('Bought in 2 parts')).toBeVisible();
+    await expect(page.getByText('2 registrations')).toBeVisible();
 
     const together = page.locator('tr.total');   // the only row that is a sum
     await expect(together).toContainText('Together');
@@ -248,11 +261,11 @@ test.describe('W10 · money', () => {
     await expect(together).toContainText('₹4.14 L');
     await expect(together).toContainText('₹26.48 L');
     await expect(together).toContainText('₹17.4 L');
-    await expect(together).toContainText('Blended rate');
+    await expect(together).toContainText('Average per acre');
   });
 
   test('duty and capital work are listed beside the purchase, never inside it', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
 
     const extras = cardWith(page, 'Other costs');
     await expect(extras).toContainText('Stamp duty and registration');
@@ -263,13 +276,13 @@ test.describe('W10 · money', () => {
 
   test('a record with nothing else put into it does not draw an empty extras card', async ({ page, world }) => {
     world.set('money', money({ extras: [], extrasTotal: 0 }));
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
     await expect(page.getByRole('heading', { name: 'Purchase', exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Other costs' })).toHaveCount(0);
   });
 
   test('the value chart draws three lines over the years since the purchase', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
 
     const chart = page.getByRole('img', { name: 'Value over time' });
     await expect(chart).toBeVisible();
@@ -289,7 +302,7 @@ test.describe('W10 · money', () => {
 
   test('one year of history is not a chart, and the card says so instead of drawing an empty frame', async ({ page, world }) => {
     world.set('money', money({ series: [{ year: '2026', market: 8_600_000, government: 1_200_000, paid: 1_850_000 }] }));
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
 
     await expect(page.getByRole('heading', { name: 'Value over time' })).toBeVisible();
     await expect(page.getByText('One year of history so far')).toBeVisible();
@@ -298,7 +311,7 @@ test.describe('W10 · money', () => {
 
   test('a record with no purchase at all is not given a titled chart with nothing under it', async ({ page, world }) => {
     world.set('money', money({ series: [], lots: [], paidTotal: 0, marketGain: null, marketGainPct: null }));
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
 
     await expect(page.getByRole('heading', { name: 'Purchase', exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Value over time' })).toHaveCount(0);
@@ -309,7 +322,7 @@ test.describe('W10 · money', () => {
       paidTotal: 0, paidPerUnit: 0, extrasTotal: 0, extras: [],
       marketGain: null, marketGainPct: null, lots: [],
     }));
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
 
     // ₹0 would be a claim that somebody paid nothing; "—" is the truth.
     await expect(cardWith(page, 'What you actually paid')).toContainText('—');
@@ -327,28 +340,31 @@ test.describe('W10 · money', () => {
       paidTotal: 0, paidPerUnit: 0, extrasTotal: 0, extras: [],
       marketGain: null, marketGainPct: null, lots: [], series: [],
     }));
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
 
     await expect(page.getByText('No purchase recorded yet')).toBeVisible();
-    await expect(page.getByText('Entering one here is not something the app can do yet')).toBeVisible();
-    // The eyebrow is the extent and nothing else. `lots[0].boughtOn` on an
-    // empty list is the shape that prints "bought undefined"; the page has a
-    // third branch for it (RecordMoney.tsx:96) and this is what holds it.
-    await expect(page.locator('main > p.eyebrow')).not.toContainText('bought');
-    await expect(page.getByRole('link', { name: 'Papers ›' })).toHaveAttribute('href', `/app/records/${ID.parcel}`);
+    // A purchase CAN be entered here now: the section head's "Add a purchase"
+    // opens the drawer, so the empty card carries no second button and no
+    // "not something the app can do yet" sentence (RecordMoney.tsx).
+    await expect(page.getByRole('button', { name: 'Add a purchase' })).toBeVisible();
+    // The heading line says the price is unknown rather than ₹0, and never
+    // "bought undefined" off an empty lot list.
+    const sub = page.locator('header.sechead p.note');
+    await expect(sub).toContainText('Purchase price not recorded');
+    await expect(sub).not.toContainText('undefined');
   });
 
-  test('a price on the record with no lots behind it says so and points at Papers', async ({ page, world }) => {
+  test('a price on the property with no lots behind it says so', async ({ page, world }) => {
     world.set('money', money({ lots: [] }));
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
 
-    await expect(page.getByText('The price is on the record, not broken into lots')).toBeVisible();
-    await expect(page.getByText('The record says you paid ₹18.5 L')).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Papers ›' })).toBeVisible();
+    await expect(page.getByText('The price is on the property, not broken into lots')).toBeVisible();
+    // What was paid is said once, in the heading's line.
+    await expect(page.locator('header.sechead p.note')).toContainText('Paid ₹18.5 L');
   });
 
   test('the rates this land is priced in are listed beside the figures they produce', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
     const rates = page.locator('section.card').filter({ hasText: 'Guideline rates' });
     await expect(rates).toContainText('Government value');
     await expect(rates).toContainText('₹2.79 L');
@@ -358,7 +374,7 @@ test.describe('W10 · money', () => {
 
   test('a record priced in no published rate at all leaves the rates card out', async ({ page, world }) => {
     world.set('money', money({ rates: [] }));
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
     await expect(page.getByRole('heading', { name: 'Purchase', exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Guideline rates' })).toHaveCount(0);
   });
@@ -366,7 +382,7 @@ test.describe('W10 · money', () => {
   // ── the appreciation control ─────────────────────────────────────────
 
   test('choosing 14% asks the server again for 14%', async ({ page, world }) => {
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
     await expect(cardWith(page, 'What you actually paid')).toContainText('₹18.5 L');
     expect(world.lastVars('money')).toMatchObject({ id: ID.parcel, appreciation: 10 });
 
@@ -380,23 +396,23 @@ test.describe('W10 · money', () => {
     // The seeded answer ignores the rate it is given; this one honours it, the
     // way web360.py does.
     world.set('money', (vars) => money({ appreciationPct: Number(vars.appreciation ?? 10) }));
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
 
-    const used = page.locator('section.card').filter({ hasText: 'Appreciation rate' });
+    const used = page.locator('section.card').filter({ hasText: 'Expected rise in value' });
     await expect(used).toContainText('10%');
     await page.getByRole('button', { name: '6%' }).click();
     await expect(used).toContainText('6%');
-    await expect(used).toContainText('a year, compounding');
+    await expect(used).toContainText("a year, on last year's value");
   });
 
   test('a rate of my own can be typed, and it is taken when I leave the box', async ({ page, world }) => {
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
     await page.getByRole('button', { name: 'Custom' }).click();
 
     const box = page.getByLabel('Your own rate, per cent a year');
     await expect(box).toBeFocused();
     await expect(page.getByRole('button', { name: 'Custom' })).toHaveAttribute('aria-expanded', 'true');
-    await expect(page.getByText('Not saved with the record.')).toBeVisible();
+    await expect(page.getByText('Not saved with this property.')).toBeVisible();
 
     await box.fill('12.5');
     await box.blur();
@@ -404,7 +420,7 @@ test.describe('W10 · money', () => {
   });
 
   test('Enter in the rate box commits it without leaving the box', async ({ page, world }) => {
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
     await page.getByRole('button', { name: 'Custom' }).click();
     await page.getByLabel('Your own rate, per cent a year').fill('7');
     await page.getByLabel('Your own rate, per cent a year').press('Enter');
@@ -412,7 +428,7 @@ test.describe('W10 · money', () => {
   });
 
   test('a wild rate is clamped before it reaches the server', async ({ page, world }) => {
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
     await page.getByRole('button', { name: 'Custom' }).click();
 
     // The server compounds whatever it is given and validates none of it, so
@@ -426,7 +442,7 @@ test.describe('W10 · money', () => {
   });
 
   test('a negative rate is clamped to nothing rather than sent as a loss', async ({ page, world }) => {
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
     await page.getByRole('button', { name: 'Custom' }).click();
     const box = page.getByLabel('Your own rate, per cent a year');
     await box.fill('-30');
@@ -436,7 +452,7 @@ test.describe('W10 · money', () => {
   });
 
   test('a rate typed finer than the box keeps is rounded, not quietly truncated', async ({ page, world }) => {
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
     await page.getByRole('button', { name: 'Custom' }).click();
 
     // `Math.round(n * 10) / 10` (RecordMoney.tsx:191). The box has to show back
@@ -450,7 +466,7 @@ test.describe('W10 · money', () => {
   });
 
   test('a rate that is not a number puts the box back instead of asking for nothing', async ({ page, world }) => {
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
     await expect(cardWith(page, 'Market estimate')).toContainText('₹86.0 L');
     const asked = world.calls('money').length;
 
@@ -465,7 +481,7 @@ test.describe('W10 · money', () => {
   });
 
   test('Escape puts the rate box away, leaves the rate alone and gives the chip back its focus', async ({ page, world }) => {
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
     await expect(cardWith(page, 'Market estimate')).toContainText('₹86.0 L');
     const asked = world.calls('money').length;
 
@@ -480,7 +496,7 @@ test.describe('W10 · money', () => {
   });
 
   test('while a new rate loads the old numbers stay on screen and the chart says it is busy', async ({ page, world }) => {
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
     await expect(cardWith(page, 'Market estimate')).toContainText('₹86.0 L');
 
     world.set('money', World.slow(3500, money({ appreciationPct: 14, marketTotal: 12_000_000, marketGain: 10_150_000, marketGainPct: 548.6 })));
@@ -489,7 +505,7 @@ test.describe('W10 · money', () => {
     // The rate that is loading is the one in the headline — printing the old
     // payload's 8% beside a pressed 14% chip is a control appearing to do
     // nothing.
-    const used = page.locator('section.card').filter({ hasText: 'Appreciation rate' });
+    const used = page.locator('section.card').filter({ hasText: 'Expected rise in value' });
     await expect(used).toContainText('14%');
     // Only the chart moves with the rate, so only the chart dims.
     await expect(page.locator('div[aria-busy="true"]').filter({ hasText: 'Value over time' })).toBeVisible();
@@ -500,15 +516,15 @@ test.describe('W10 · money', () => {
   });
 
   test('a rate that will not load leaves the last one on screen and says which one it is', async ({ page, world }) => {
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
     await expect(cardWith(page, 'Market estimate')).toContainText('₹86.0 L');
 
     world.set('money', World.gqlError('the valuation service is down'));
     await page.getByRole('button', { name: '14%' }).click();
 
-    const used = page.locator('section.card').filter({ hasText: 'Appreciation rate' });
+    const used = page.locator('section.card').filter({ hasText: 'Expected rise in value' });
     await expect(used).toContainText('The 14% figures did not load');
-    await expect(used).toContainText('What is on screen is still 8%');
+    await expect(used).toContainText('Showing 8%.');
     // The page does not blank into an error, and the figures it is still
     // showing are the ones that loaded.
     await expect(cardWith(page, 'Market estimate')).toContainText('₹86.0 L');
@@ -517,15 +533,15 @@ test.describe('W10 · money', () => {
   // ── the built branch ─────────────────────────────────────────────────
 
   test('a built property splits into land, construction and what the structure has lost', async ({ page }) => {
-    await open(page, `/app/records/${ID.flat}/money`);
+    await open(page, `/properties/${ID.flat}/money`);
 
     const split = page.locator('section.card').filter({ hasText: 'Land and building value' });
     await expect(split).toContainText('Land');
     await expect(split).toContainText('Construction');
     await expect(split).toContainText('1,450 sq.ft × ₹2,400');
     await expect(split).toContainText('₹34.8 L');
-    await expect(split).toContainText('Less depreciation');
-    await expect(split).toContainText('7 years, structure only');
+    await expect(split).toContainText('Less building wear');
+    await expect(split).toContainText('7 years · building only');
   });
 
   test('the structure wearing out comes off the split, as a subtraction', async ({ page, world }) => {
@@ -538,7 +554,7 @@ test.describe('W10 · money', () => {
       buildArea: 1450, buildRate: 2_400, buildValue: 3_480_000,
       depreciation: 420_000, depreciationYears: 7,
     }));
-    await open(page, `/app/records/${ID.flat}/money`);
+    await open(page, `/properties/${ID.flat}/money`);
 
     const split = page.locator('section.card').filter({ hasText: 'Land and building value' });
     await expect(split).toContainText('120 sq.yd × ₹45,000');
@@ -551,14 +567,15 @@ test.describe('W10 · money', () => {
   });
 
   test('land is not given a construction split it has no building for', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
     await expect(page.getByRole('heading', { name: 'Purchase', exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Land and building value' })).toHaveCount(0);
   });
 
   test('a flat is measured in sft, and every rate on the page is per sft', async ({ page }) => {
-    await open(page, `/app/records/${ID.flat}/money`);
-    await expect(page.getByText('1,450 sft · bought 2019-07-18')).toBeVisible();
+    await open(page, `/properties/${ID.flat}/money`);
+    // The extent is the header's chip now, not an eyebrow on this tab.
+    await expect(page.getByRole('heading', { name: 'Purchase', exact: true })).toBeVisible();
     await expect(cardWith(page, 'What you actually paid')).toContainText('₹3,586 / sft');
     await expect(cardWith(page, 'Government value today')).toContainText('₹2,827 / sft');
     await expect(page.getByRole('columnheader', { name: '₹ / sft' })).toBeVisible();
@@ -570,11 +587,13 @@ test.describe('W10 · money', () => {
     // of those ternaries, so without this test the production shape — the only
     // shape a real record has — is the untested half.
     world.set('money', money({ extentUnit: 'ac', lots: [{ ...LOT, extentUnit: 'ac' }] }));
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
 
-    await expect(page.getByText('4.30 acres · bought 1998-03-04')).toBeVisible();
-    await expect(cardWith(page, 'What you actually paid')).toContainText('₹4.3 L / acre ·');
-    await expect(cardWith(page, 'Government value today')).toContainText('₹2.79 L / acre ·');
+    await expect(page.getByRole('heading', { name: 'Purchase', exact: true })).toBeVisible();
+    // The rate ends the card now: the duty it used to trail ("· incl. …") is
+    // told once, in Other costs (RecordMoney.tsx).
+    await expect(cardWith(page, 'What you actually paid')).toContainText('₹4.3 L / acre');
+    await expect(cardWith(page, 'Government value today')).toContainText('₹2.79 L / acre');
     await expect(page.getByRole('columnheader', { name: '₹ / acre' })).toBeVisible();
     await expect(page.getByRole('row', { name: /Chenna Reddy/ })).toContainText('4.30 ac');
   });
@@ -588,12 +607,12 @@ test.describe('W10 · money', () => {
       ],
       extent: 7.4, blendedRate: 425_135, blendedPaid: 3_148_000, blendedGovt: 2_040_000,
     }));
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
 
-    // The count is spelled out of a word list (RecordMoney.tsx:91) that runs
-    // out at five; "bought in 3 lots" is the shape that says it broke.
-    await expect(page.getByText('bought in three lots, 1998')).toBeVisible();
-    await expect(page.getByText('3 lots, one registration summary')).toBeVisible();
+    // How many registrations the cost is spread over is said in the heading's
+    // line (RecordMoney.tsx SectionHead sub).
+    await expect(page.locator('header.sechead p.note')).toContainText('Bought in 3 parts');
+    await expect(page.getByText('3 registrations')).toBeVisible();
     await expect(page.getByRole('row')).toHaveCount(5);      // head, three lots, Together
     await expect(page.locator('tr.total')).toContainText('₹31.48 L');
     await expect(page.locator('tr.total')).toContainText('₹20.4 L');
@@ -603,17 +622,18 @@ test.describe('W10 · money', () => {
 
   test('money that has not arrived holds its shape and says it is loading', async ({ page, world }) => {
     world.set('money', World.never());
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
 
-    await expect(saying(page, 'Loading')).toBeVisible();
-    await expect(saying(page, 'Loading')).toHaveAttribute('aria-busy', 'true');
+    const wait = page.getByRole('status', { name: 'Loading the money figures' });
+    await expect(wait).toBeVisible();
+    await expect(wait).toHaveAttribute('aria-busy', 'true');
     // It must not claim there is nothing there.
     await expect(page.getByText('No purchase recorded.')).toHaveCount(0);
   });
 
   test('money that will not load says so, keeps the reason, and offers to try again', async ({ page, world }) => {
     world.set('money', World.gqlError('the valuation service is down'));
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
 
     // Named for what did not come, in the words the waiting line uses too
     // ("Loading the money figures…").
@@ -626,7 +646,7 @@ test.describe('W10 · money', () => {
 
   test('money comes back when the server does', async ({ page, world }) => {
     world.set('money', World.gqlError('the valuation service is down'));
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
     await expect(page.getByRole('alert')).toBeVisible();
 
     world.set('money', money());
@@ -642,22 +662,22 @@ test.describe('W10 · money', () => {
 
     test('a transport failure is a different sentence from a refusal, and still names itself', async ({ page, world }) => {
       world.set('money', World.httpError(503));
-      await open(page, `/app/records/${ID.parcel}/money`);
+      await open(page, `/properties/${ID.parcel}/money`);
       await expect(page.getByRole('alert')).toContainText('The money figures did not load');
       await expect(page.getByRole('alert')).toContainText('GraphQL HTTP 503');
     });
   });
 
   test('a record that is not mine never gets as far as asking what it is worth', async ({ page, world }) => {
-    await open(page, `/app/records/${ID.missing}/money`);
-    await expect(page.getByRole('heading', { name: "This property isn't in your account" })).toBeVisible();
+    await open(page, `/properties/${ID.missing}/money`);
+    await expect(page.getByRole('heading', { name: "This property is not in your account" })).toBeVisible();
     expect(world.asked('money')).toBe(false);
   });
 
   test('the money page hands me through to the expenses, inside the same frame', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
     await page.getByRole('link', { name: 'See the expenses ›' }).click();
-    await expect(page).toHaveURL(new RegExp(`/app/records/${ID.parcel}/expenses$`));
+    await expect(page).toHaveURL(new RegExp(`/properties/${ID.parcel}/expenses$`));
     // Money's own screen: the record stays the h1, the ledger is the h2, and
     // Money is still the tab you are on.
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sy 214/2');
@@ -671,19 +691,17 @@ test.describe('W10 · money', () => {
     // (savePurchase → purchase_lots), what the land cost; "Add an expense" —
     // it said "Record a cost" — writes the ledger (saveExpense), what it
     // costs to hold, in the ledger's own words so one drawer has one name.
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
     await expect(page.getByRole('heading', { name: 'Purchase', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Cost sheet$/ })).toBeEnabled();
+    await expect(await moreItem(page, 'More actions for Money', 'Cost sheet')).toBeEnabled();
     await expect(page.getByRole('button', { name: 'Record a cost' })).toHaveCount(0);
 
-    const cost = page.getByRole('button', { name: 'Add an expense' });
-    await expect(cost).toHaveAttribute('aria-haspopup', 'dialog');
-    await cost.click();
+    await page.getByRole('menuitem', { name: 'Add an expense' }).click();
     await expect(page.getByRole('dialog', { name: 'Add an expense' })).toBeVisible();
     await page.getByRole('dialog', { name: 'Add an expense' }).getByRole('button', { name: 'Cancel' }).click();
 
-    await page.getByRole('button', { name: 'Record a purchase' }).click();
-    await expect(page.getByRole('dialog', { name: 'Record a purchase' })).toBeVisible();
+    await page.getByRole('button', { name: 'Add a purchase' }).click();
+    await expect(page.getByRole('dialog', { name: 'Add a purchase' })).toBeVisible();
   });
 
   // ── correcting and removing a purchase lot ───────────────────────────
@@ -698,7 +716,7 @@ test.describe('W10 · money', () => {
 
   test('a lot typed wrong is corrected from its own menu, in one write, with everything else as it was', async ({ page, world }) => {
     world.set('updatePurchase', true);
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
 
     await lotMenu(page).click();
     await page.getByRole('menuitem', { name: 'Edit' }).click();
@@ -720,7 +738,7 @@ test.describe('W10 · money', () => {
 
   test('a correction the server refuses keeps the drawer open and says the lot is unchanged', async ({ page, world }) => {
     world.set('updatePurchase', false);
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
 
     await lotMenu(page).click();
     await page.getByRole('menuitem', { name: 'Edit' }).click();
@@ -733,7 +751,7 @@ test.describe('W10 · money', () => {
   });
 
   test('removing a lot asks first, names it, and Cancel keeps it', async ({ page, world }) => {
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
 
     await lotMenu(page).click();
     await page.getByRole('menuitem', { name: 'Delete' }).click();
@@ -749,7 +767,7 @@ test.describe('W10 · money', () => {
 
   test('confirming removes that one lot, and the keyboard lands on the control that records the next', async ({ page, world }) => {
     world.set('deletePurchase', true);
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
 
     await lotMenu(page).click();
     await page.getByRole('menuitem', { name: 'Delete' }).click();
@@ -759,12 +777,12 @@ test.describe('W10 · money', () => {
     await expect.poll(() => world.calls('deletePurchase').length).toBe(1);
     expect(world.lastVars('deletePurchase')).toEqual({ lotId: 'w-lot-1' });
     await expect(page.getByRole('dialog', { name: 'Remove this purchase?' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Record a purchase' })).toBeFocused();
+    await expect(page.getByRole('button', { name: 'Add a purchase' })).toBeFocused();
   });
 
   test('a removal the server refuses keeps the lot and the question, and says so', async ({ page, world }) => {
     world.set('deletePurchase', false);
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
 
     await lotMenu(page).click();
     await page.getByRole('menuitem', { name: 'Delete' }).click();
@@ -778,7 +796,7 @@ test.describe('W10 · money', () => {
 
   test('a removal that never reaches the server says the lot is still recorded', async ({ page, world }) => {
     world.set('deletePurchase', World.gqlError('purchase_lots is refusing writes'));
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
 
     await lotMenu(page).click();
     await page.getByRole('menuitem', { name: 'Delete' }).click();
@@ -791,11 +809,11 @@ test.describe('W10 · money', () => {
   // ── the cost sheet ───────────────────────────────────────────────────
 
   test('the cost sheet comes down as a CSV named after the record, and the download is the answer', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
 
     const [file] = await Promise.all([
       page.waitForEvent('download'),
-      page.getByRole('button', { name: 'Cost sheet' }).click(),
+      moreItem(page, 'More actions for Money', 'Cost sheet').then((it) => it.click()),
     ]);
     expect(file.suggestedFilename()).toMatch(/^cost-sheet-sy-214-2-\d{4}-\d{2}-\d{2}\.csv$/);
     // Silent on success, like the ledger's Export through the same routine
@@ -806,38 +824,41 @@ test.describe('W10 · money', () => {
   });
 
   test('the cost sheet carries the three figures, the lots and the capital work', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
     const [file] = await Promise.all([
       page.waitForEvent('download'),
-      page.getByRole('button', { name: 'Cost sheet' }).click(),
+      moreItem(page, 'More actions for Money', 'Cost sheet').then((it) => it.click()),
     ]);
     const csv = await readDownload(file);
 
     expect(csv.startsWith('﻿')).toBe(true);   // Excel reads ₹ as UTF-8
-    expect(csv).toContain('Record,Sy 214/2');
+    expect(csv).toContain('Property,Sy 214/2');
     expect(csv).toContain('What you actually paid,1850000');
     // A label with a comma in it is quoted, or a spreadsheet reads it as two
     // columns and every figure after it lands one column left.
-    expect(csv).toContain('"Of that, duty and capital work",46000');
+    expect(csv).toContain('"Of that, stamp duty and improvements",46000');
     expect(csv).toContain('Government value today,1200000');
     expect(csv).toContain('Market estimate,8600000');
-    expect(csv).toContain('"Appreciation assumed, % a year",8');
+    expect(csv).toContain('"Expected rise in value, % a year",8');
     // The one pair of rows the file COMPUTES rather than copies, and the pair
     // a spreadsheet will sum. 364.9 is rounded once, on the way out.
     expect(csv).toContain('Over what you paid,6750000');
     expect(csv).toContain('"Over what you paid, %",365');
-    expect(csv).toContain('Purchase');
+    // The sections are named as the cards on screen are: one name per thing.
+    expect(csv.split(/\r?\n/)).toContain('Purchase');
+    expect(csv).not.toContain('How you bought it');
     expect(csv).toContain('1998-03-04,4.3,acres,430232,1850000,1200000,Chenna Reddy,4412/1998,Markapur');
-    expect(csv).toContain('Other costs');
+    expect(csv.split(/\r?\n/)).toContain('Other costs');
+    expect(csv).not.toContain('Everything else you put in');
     expect(csv).toContain('Stamp duty and registration,46000');
   });
 
   test('the cost sheet leaves the gain out when nothing was paid, rather than exporting a zero', async ({ page, world }) => {
     world.set('money', money({ paidTotal: 0, paidPerUnit: 0, marketGain: null, marketGainPct: null }));
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
     const [file] = await Promise.all([
       page.waitForEvent('download'),
-      page.getByRole('button', { name: 'Cost sheet' }).click(),
+      moreItem(page, 'More actions for Money', 'Cost sheet').then((it) => it.click()),
     ]);
     const csv = await readDownload(file);
 
@@ -850,10 +871,10 @@ test.describe('W10 · money', () => {
 
   test('the cost sheet writes the extent and the per-unit rows in the unit it was sent', async ({ page, world }) => {
     world.set('money', money({ extentUnit: 'ac', lots: [{ ...LOT, extentUnit: 'ac' }] }));
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
     const [file] = await Promise.all([
       page.waitForEvent('download'),
-      page.getByRole('button', { name: 'Cost sheet' }).click(),
+      moreItem(page, 'More actions for Money', 'Cost sheet').then((it) => it.click()),
     ]);
     const csv = await readDownload(file);
 
@@ -867,10 +888,10 @@ test.describe('W10 · money', () => {
 
   test('a record with nothing bought and nothing added does not get empty sections in the file', async ({ page, world }) => {
     world.set('money', money({ lots: [], extras: [], extrasTotal: 0 }));
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
     const [file] = await Promise.all([
       page.waitForEvent('download'),
-      page.getByRole('button', { name: 'Cost sheet' }).click(),
+      moreItem(page, 'More actions for Money', 'Cost sheet').then((it) => it.click()),
     ]);
     const csv = await readDownload(file);
 
@@ -883,10 +904,10 @@ test.describe('W10 · money', () => {
 
   test('a seller whose name reads like a formula cannot become one in the spreadsheet', async ({ page, world }) => {
     world.set('money', money({ lots: [{ ...LOT, seller: '=HYPERLINK("http://evil.example","Click")' }] }));
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
     const [file] = await Promise.all([
       page.waitForEvent('download'),
-      page.getByRole('button', { name: 'Cost sheet' }).click(),
+      moreItem(page, 'More actions for Money', 'Cost sheet').then((it) => it.click()),
     ]);
     const csv = await readDownload(file);
 
@@ -911,8 +932,8 @@ test.describe('W10 · money', () => {
         return real(obj);
       };
     });
-    await open(page, `/app/records/${ID.parcel}/money`);
-    await page.getByRole('button', { name: 'Cost sheet' }).click();
+    await open(page, `/properties/${ID.parcel}/money`);
+    await (await moreItem(page, 'More actions for Money', 'Cost sheet')).click();
 
     const alert = page.getByRole('alert');
     await expect(alert).toContainText('The cost sheet could not be saved.');
@@ -929,11 +950,11 @@ test.describe('W10 · money', () => {
    *  helper, lifted into ui.tsx beside the other shared primitives. */
   test.fail('the cost sheet is named for the day I saved it, not for yesterday in London', async ({ page }) => {
     await page.clock.setFixedTime(new Date('2026-04-01T00:30:00+05:30'));
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
 
     const [file] = await Promise.all([
       page.waitForEvent('download'),
-      page.getByRole('button', { name: 'Cost sheet' }).click(),
+      moreItem(page, 'More actions for Money', 'Cost sheet').then((it) => it.click()),
     ]);
     expect(file.suggestedFilename()).toBe('cost-sheet-sy-214-2-2026-04-01.csv');
   });
@@ -953,7 +974,7 @@ test.describe('W10 · money', () => {
       marketGain: null, marketGainPct: null,
       lots: [{ ...LOT, paid: 0, rate: 0 }],
     }));
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
 
     // The registration is on the screen…
     await expect(page.getByRole('row', { name: /Chenna Reddy/ })).toContainText('4412/1998 · Markapur');
@@ -972,18 +993,18 @@ test.describe('W10 · money', () => {
    *  (RecordMoney.tsx:156, RecordExpenses.tsx:359), so both carry it. */
   test.fail('a loss is exported as a number the spreadsheet can add up', async ({ page, world }) => {
     world.set('money', money({ marketTotal: 1_400_000, marketGain: -450_000, marketGainPct: -24.3 }));
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
 
     const [file] = await Promise.all([
       page.waitForEvent('download'),
-      page.getByRole('button', { name: 'Cost sheet' }).click(),
+      moreItem(page, 'More actions for Money', 'Cost sheet').then((it) => it.click()),
     ]);
     const csv = await readDownload(file);
     expect(csv).toContain('Over what you paid,-450000');
   });
 
   test('@phone the wide purchase table scrolls inside its card, not the page sideways', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/money`);
+    await open(page, `/properties/${ID.parcel}/money`);
     await expect(page.getByRole('heading', { name: 'Purchase', exact: true })).toBeVisible();
 
     // The only class in this file that is load-bearing: `.scroll-x` IS the
@@ -999,20 +1020,20 @@ test.describe('W10 · money', () => {
 
 test.describe('W11 + W12 · expenses', () => {
   test('the ledger says what was spent, on what, by whom, and whether there is a receipt', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
 
     // Inside the property's frame (Money › Expenses): the record is the h1
     // and the ledger its h2. The "What this land costs" eyebrow went with
     // the page it headed — the extent is the frame's chip.
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sy 214/2');
     await expect(page.getByRole('heading', { level: 2, name: 'Expenses', exact: true })).toBeVisible();
-    await expect(page.getByRole('row')).toHaveCount(4);        // three rows and the head
+    await expect(page.getByRole('row')).toHaveCount(5);        // the head, three rows, the total
 
     const tax = page.getByRole('row', { name: /Land tax 2025-26/ });
     await expect(tax).toContainText('12/04/2026');
     await expect(tax).toContainText('Paid at the mandal office');
     await expect(tax).toContainText('Whole record');
-    await expect(tax).toContainText('Running');
+    await expect(tax).toContainText('Upkeep');
     await expect(tax).toContainText('Shankar Reddy');
     await expect(tax).toContainText('₹3,400');
     await expect(tax.getByRole('img', { name: 'Receipt filed' })).toBeVisible();
@@ -1022,7 +1043,7 @@ test.describe('W11 + W12 · expenses', () => {
   });
 
   test('a ledger row is a receipt, so its amount is never shortened to a magnitude', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     // ₹43,200, not "₹43.2 K" — the strip above is magnitudes, the rows are not.
     await expect(page.getByRole('row', { name: /Watchman/ })).toContainText('₹43,200');
     await expect(page.getByRole('row', { name: /Barbed fence/ })).toContainText('₹68,000');
@@ -1030,14 +1051,14 @@ test.describe('W11 + W12 · expenses', () => {
   });
 
   test('a capital row is marked as the thing that lifts the cost base', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     const fence = page.getByRole('row', { name: /Barbed fence, eastern edge/ });
-    await expect(fence).toContainText('Capital');
-    await expect(page.getByRole('row', { name: /Land tax/ })).toContainText('Running');
+    await expect(fence).toContainText('Improvement');
+    await expect(page.getByRole('row', { name: /Land tax/ })).toContainText('Upkeep');
   });
 
   test('a row I can claim back is marked apart from the rest of the ledger', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     // `tr.flagged` and an accent on the subtitle (RecordExpenses.tsx:489, :494)
     // are the ONLY marks a recoverable row carries — there is no word and no
     // role for "this one is owed back". Which is the whole reason the missing
@@ -1050,7 +1071,7 @@ test.describe('W11 + W12 · expenses', () => {
 
   test('a row past a crore shortens, because that many digits stop being readable', async ({ page, world }) => {
     world.set('expenses', expenses({ rows: [{ ...ROWS[2], amount: 12_400_000 }, ROWS[0]] }));
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     // inrFullish (ui.tsx:110) keeps a receipt legible below a crore and
     // switches above it. Both halves of that threshold are on this screen.
     await expect(page.getByRole('row', { name: /Barbed fence/ })).toContainText('₹1.24 Cr');
@@ -1058,13 +1079,13 @@ test.describe('W11 + W12 · expenses', () => {
   });
 
   test('spent, capital, running and what is owed back are four separate totals', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     const strip = page.locator('.strip');     // a row of Cells, no landmark of its own
     await expect(strip).toContainText('Spent this year');
     await expect(strip).toContainText('₹1.15 L');
-    await expect(strip).toContainText('Capital · adds to cost');
+    await expect(strip).toContainText('Improvements · add to land cost');
     await expect(strip).toContainText('₹68,000');
-    await expect(strip).toContainText('Running');
+    await expect(strip).toContainText('Upkeep');
     await expect(strip).toContainText('₹46,600');
     // Named for who owes it, in the row's own words — the seed's is owed by a
     // co-owner, and "by tenant" asserted a tenant on every record.
@@ -1077,23 +1098,25 @@ test.describe('W11 + W12 · expenses', () => {
 
   test('a parcel measured the way the server measures it states the running cost an acre', async ({ page, world }) => {
     world.set('expenses', expenses({ extentUnit: 'ac' }));
-    await open(page, `/app/records/${ID.parcel}/expenses`);
-    // `ac` → "an acre" (RecordExpenses.tsx:338); every other unit takes the
-    // "a <unit>" side. The seed's `acres` reads "a acres", so the branch that
-    // production actually takes needs asserting here.
-    await expect(page.getByText(/which is ₹46,600, or ₹10,837 an acre/)).toBeVisible();
+    await open(page, `/properties/${ID.parcel}/expenses`);
+    // `ac` → "an acre" (w360/perUnit.ts). Said once, as the Upkeep figure's
+    // own footnote in the summary strip ("Tell a fact once").
+    const upkeep = page.locator('.strip > *').filter({ hasText: 'Upkeep' });
+    await expect(upkeep).toContainText('₹46,600');
+    await expect(upkeep).toContainText('₹10,837 an acre');
+    await expect(page.getByText(/₹10,837 an acre/)).toHaveCount(1);
   });
 
   test('a record with nothing to claim back is not told it has a tenant', async ({ page, world }) => {
     world.set('expenses', expenses({ owedBack: 0, rows: ROWS.map((r) => ({ ...r, recoverable: false })) }));
-    await open(page, `/app/records/${ID.parcel}/expenses`);
-    await expect(page.locator('.strip')).toContainText('Running');
+    await open(page, `/properties/${ID.parcel}/expenses`);
+    await expect(page.locator('.strip')).toContainText('Upkeep');
     await expect(page.locator('.strip')).not.toContainText('Owed back');
     await expect(page.getByText('tenant')).toHaveCount(0);
   });
 
   test('choosing another financial year asks the ledger for that year', async ({ page, world }) => {
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     await expect(page.getByRole('row', { name: /Land tax 2025-26/ })).toBeVisible();
     // No year chosen is a null, not this year's guess — the server picks the
     // most recent year that has rows and echoes it back.
@@ -1104,18 +1127,72 @@ test.describe('W11 + W12 · expenses', () => {
     await expect(page.getByLabel('Financial year')).toHaveValue('2025-26');
   });
 
-  test('a category chip narrows the ledger to that category', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/expenses`);
-    await expect(page.getByRole('row')).toHaveCount(4);
+  test('the year sits in the band, not the head, and the band controls are 44px on a phone', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await open(page, `/properties/${ID.parcel}/expenses`);
+    const year = page.locator('.filterbar.band').getByLabel('Financial year');
+    await expect(year).toBeVisible();
+    await expect(page.locator('header.sechead').getByLabel('Financial year')).toHaveCount(0);
+    expect((await year.boundingBox())!.height).toBeGreaterThanOrEqual(44);
 
-    await page.getByRole('button', { name: /^Tax/ }).click();
-    await expect(page.getByRole('button', { name: /^Tax/ })).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.getByRole('row')).toHaveCount(2);
+    await page.getByRole('checkbox', { name: 'Select Land tax 2025-26' }).check();
+    const clear = page.getByRole('group', { name: 'Act on the selected expenses' }).getByRole('button', { name: 'Clear' });
+    expect((await clear.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  });
+
+  test('a category in the band narrows the ledger to that category', async ({ page }) => {
+    await open(page, `/properties/${ID.parcel}/expenses`);
+    await expect(page.getByRole('row')).toHaveCount(5);
+    const band = page.locator('.filterbar.band');
+    await expect(band.getByRole('status')).toHaveText('3 of 3');
+
+    await pickCategory(page, /^Tax/);
+    await expect(page.getByRole('group', { name: 'Narrow the list' }).getByRole('button', { name: /^Tax/ }))
+      .toHaveAttribute('aria-pressed', 'true');
+    await expect(band.getByRole('button', { name: 'Remove filter Category Tax' })).toBeVisible();
+    await expect(band.getByRole('status')).toHaveText('1 of 3');
+    await expect(page.getByRole('row')).toHaveCount(3);
     await expect(page.getByRole('row', { name: /Land tax 2025-26/ })).toBeVisible();
     await expect(page.getByRole('row', { name: /Watchman/ })).toHaveCount(0);
   });
 
-  test('picking All again brings the whole ledger back', async ({ page, world }) => {
+  test('the ledger pages past twenty rows and its footer sums every row the filter lets through', async ({ page, world }) => {
+    // 24 rows of ₹1,000 out and one of ₹5,000 in: the totals cover all of
+    // them, not the twenty on the first page, and never net one against the other.
+    const many = Array.from({ length: 24 }, (_, i) => ({
+      ...ROWS[0], id: `w-exp-page-${i + 1}`, title: `Bill ${i + 1}`, amount: 1_000,
+    }));
+    world.set('expenses', expenses({
+      rows: [...many, { ...ROWS[0], id: 'w-exp-page-in', title: 'Lease for the year', kind: 'income', amount: 5_000 }],
+    }));
+    await open(page, `/properties/${ID.parcel}/expenses`);
+    await expect(page.locator('table.rectable tbody tr')).toHaveCount(20);
+    const pager = page.getByRole('navigation', { name: 'Expenses pages' });
+    await expect(pager).toContainText('1–20 of 25');
+    await pager.getByRole('button', { name: 'Next' }).click();
+    await expect(page.locator('table.rectable tbody tr')).toHaveCount(5);
+
+    const foot = page.locator('table.rectable tfoot');
+    await expect(foot.getByRole('row', { name: /Total spent · 24 expenses/ })).toContainText('₹24,000');
+    await expect(foot.getByRole('row', { name: /Total money in · 1 entry/ })).toContainText('₹5,000');
+  });
+
+  test('ticking two rows sums just those in the footer and offers them for export', async ({ page }) => {
+    await open(page, `/properties/${ID.parcel}/expenses`);
+    await page.getByRole('checkbox', { name: 'Select Land tax 2025-26' }).check();
+    await page.getByRole('checkbox', { name: 'Select Watchman, April to September' }).check();
+
+    const foot = page.locator('table.rectable tfoot');
+    await expect(foot.getByRole('row', { name: /Spent · 2 expenses selected/ })).toContainText('₹46,600');
+    const bar = page.getByRole('group', { name: 'Act on the selected expenses' });
+    await expect(bar).toContainText('2 expenses selected');
+    await expect(bar.getByRole('button', { name: 'Export' })).toBeVisible();
+
+    await bar.getByRole('button', { name: 'Clear' }).click();
+    await expect(foot.getByRole('row', { name: /Total spent · 3 expenses/ })).toContainText('₹1,14,600');
+  });
+
+  test('taking the category off brings the whole ledger back, and All is no filter option', async ({ page, world }) => {
     // web360.py:3283 puts an "All" facet in front of the categories; the
     // seeded answer here has only the three real ones.
     world.set('expenses', expenses({
@@ -1126,12 +1203,15 @@ test.describe('W11 + W12 · expenses', () => {
         { key: 'repairs', label: 'Repairs', count: 1, active: false },
       ],
     }));
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
 
-    await page.getByRole('button', { name: /^Tax/ }).click();
-    await expect(page.getByRole('row')).toHaveCount(2);
-    await page.getByRole('button', { name: /^All/ }).click();
-    await expect(page.getByRole('row')).toHaveCount(4);
+    await pickCategory(page, /^Tax/);
+    await expect(page.getByRole('row')).toHaveCount(3);
+    // "All" is the band with nothing picked, not an option of its own.
+    await expect(page.getByRole('group', { name: 'Narrow the list' }).getByRole('button', { name: /^All/ }))
+      .toHaveCount(0);
+    await page.getByRole('button', { name: 'Remove filter Category Tax' }).click();
+    await expect(page.getByRole('row')).toHaveCount(5);
   });
 
   test('a category with nothing in it says so rather than leaving an empty table', async ({ page, world }) => {
@@ -1141,12 +1221,12 @@ test.describe('W11 + W12 · expenses', () => {
         { key: 'legal', label: 'Legal', count: 0, active: false },
       ],
     }));
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
 
-    await page.getByRole('button', { name: /^Legal/ }).click();
+    await pickCategory(page, /^Legal/);
     await expect(page.getByText('Nothing under Legal for 2026-27.')).toBeVisible();
     // …and it is not confused with a record that has never had anything spent.
-    await expect(page.getByText('No costs recorded yet')).toHaveCount(0);
+    await expect(page.getByText('No expenses yet')).toHaveCount(0);
   });
 
   test('a filter that empties the list takes the Export button with it', async ({ page, world }) => {
@@ -1156,13 +1236,15 @@ test.describe('W11 + W12 · expenses', () => {
         { key: 'legal', label: 'Legal', count: 0, active: false },
       ],
     }));
-    await open(page, `/app/records/${ID.parcel}/expenses`);
-    await expect(page.getByRole('button', { name: 'Export' })).toBeVisible();
+    await open(page, `/properties/${ID.parcel}/expenses`);
+    await expect(await moreItem(page, /^More actions for Expenses/, 'Export')).toBeVisible();
+    await page.keyboard.press('Escape');
 
-    await page.getByRole('button', { name: /^Legal/ }).click();
+    await pickCategory(page, /^Legal/);
     // Export follows the visible list (RecordExpenses.tsx:411), so on an empty
     // filter it would hand over a file with a header row and nothing under it.
-    await expect(page.getByRole('button', { name: 'Export' })).toHaveCount(0);
+    // On a parcel Export is the menu's only item, so the menu goes with it.
+    await expect(page.getByRole('button', { name: /^More actions for Expenses/ })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Add an expense' })).toBeVisible();
   });
 
@@ -1171,14 +1253,17 @@ test.describe('W11 + W12 · expenses', () => {
       rows: [], categories: [], years: ['2026-27'],
       spent: 0, capital: 0, running: 0, owedBack: 0, income: 0, perUnitRunning: 0,
     }));
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
 
-    await expect(page.getByText('No costs recorded yet')).toBeVisible();
+    await expect(page.getByText('No expenses yet')).toBeVisible();
+    // A first-run empty section carries no line under its heading.
+    await expect(page.locator('header.sechead p.note')).toHaveCount(0);
     // A lone option is the server's fallback year, not a choice any row
     // attests to, so the select stays away.
     await expect(page.getByLabel('Financial year')).toHaveCount(0);
-    // Nothing to export, and no chips to filter with.
-    await expect(page.getByRole('button', { name: 'Export' })).toHaveCount(0);
+    // Nothing to export (a parcel's More menu holds only Export), and no chips
+    // to filter with.
+    await expect(page.getByRole('button', { name: /^More actions for Expenses/ })).toHaveCount(0);
     await expect(page.getByRole('table')).toHaveCount(0);
     // One way in, the head's: the empty state no longer carries a second
     // filled "Add an expense" under it.
@@ -1190,9 +1275,9 @@ test.describe('W11 + W12 · expenses', () => {
       rows: [], categories: [], year: '2024-25',
       spent: 0, capital: 0, running: 0, owedBack: 0, income: 0, perUnitRunning: 0,
     }));
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
 
-    await expect(page.getByText('No costs recorded yet')).toBeVisible();
+    await expect(page.getByText('No expenses yet')).toBeVisible();
     await expect(page.getByLabel('Financial year')).toHaveValue('2024-25');
   });
 
@@ -1201,9 +1286,9 @@ test.describe('W11 + W12 · expenses', () => {
       rows: [], categories: [], years: ['2026-27'],
       spent: 0, capital: 0, running: 0, owedBack: 0, income: 0, perUnitRunning: 0,
     }));
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
 
-    await expect(page.getByText('No costs recorded yet')).toBeVisible();
+    await expect(page.getByText('No expenses yet')).toBeVisible();
     await page.getByRole('button', { name: 'Add an expense' }).click();
     await expect(page.getByRole('dialog', { name: 'Add an expense' })).toBeVisible();
   });
@@ -1211,16 +1296,16 @@ test.describe('W11 + W12 · expenses', () => {
   // ── the let flat ─────────────────────────────────────────────────────
 
   test('a let flat puts rent in the same strip as the spending, and states the yield', async ({ page }) => {
-    await open(page, `/app/records/${ID.flat}/expenses`);
+    await open(page, `/properties/${ID.flat}/expenses`);
 
-    // The ledger's own h2 inside the flat's frame; the line under it says
-    // only what neither the frame's extent chip nor the year picker does.
+    // The ledger's own h2 inside the flat's frame; the line under it is facts
+    // only — the year's row count, and that rent is on file.
     await expect(page.getByRole('heading', { level: 2, name: 'Expenses & rent', exact: true })).toBeVisible();
-    await expect(page.locator('header.sechead p.note')).toHaveText('Let to a tenant');
+    await expect(page.locator('header.sechead p.note')).toHaveText('3 expenses · rented out');
     const strip = page.locator('.strip');
     await expect(strip).toContainText('Rent received');
     await expect(strip).toContainText('₹2.16 L');
-    await expect(strip).toContainText('Net yield on value');
+    await expect(strip).toContainText('Rent as % of value');
     await expect(strip).toContainText('2.30%');
   });
 
@@ -1229,7 +1314,7 @@ test.describe('W11 + W12 · expenses', () => {
     // as "is let" — rent actually recorded is the only tenancy this client can
     // attest to.
     world.set('expenses', expenses({ isBuilt: true, income: 0, netYield: 0 }));
-    await open(page, `/app/records/${ID.flat}/expenses`);
+    await open(page, `/properties/${ID.flat}/expenses`);
 
     await expect(page.getByRole('heading', { level: 2, name: 'Expenses', exact: true })).toBeVisible();
     await expect(page.getByText('let to a tenant')).toHaveCount(0);
@@ -1237,7 +1322,7 @@ test.describe('W11 + W12 · expenses', () => {
     await expect(page.getByText('Rent received')).toHaveCount(0);
     // Recording rent is an action, not a claim about the property, so it is
     // still offered.
-    await expect(page.getByRole('button', { name: 'Record rent' })).toBeVisible();
+    await expect(await moreItem(page, /^More actions for Expenses/, 'Add rent')).toBeVisible();
   });
 
   /** Was a DEFECT marker: the strip has two shapes and only the NOT-let one
@@ -1249,7 +1334,7 @@ test.describe('W11 + W12 · expenses', () => {
    *  under the same `owedBack > 0` guard (RecordExpenses.tsx). */
   test('a let flat still says what is owed back', async ({ page, world }) => {
     world.set('expenses', expenses({ isBuilt: true, income: 216_000, netYield: 2.3, owedBack: 34_000 }));
-    await open(page, `/app/records/${ID.flat}/expenses`);
+    await open(page, `/properties/${ID.flat}/expenses`);
 
     // It is the let strip — rent is in it…
     await expect(page.locator('.strip')).toContainText('Rent received');
@@ -1260,9 +1345,10 @@ test.describe('W11 + W12 · expenses', () => {
   });
 
   test('a parcel is never asked about rent, because a parcel has no rent form', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     await expect(page.getByRole('button', { name: 'Add an expense' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Record rent' })).toHaveCount(0);
+    await expect(await moreItem(page, /^More actions for Expenses/, 'Export')).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Add rent' })).toHaveCount(0);
   });
 
   test('an income row is shown as money in, not as another thing spent', async ({ page, world }) => {
@@ -1274,10 +1360,10 @@ test.describe('W11 + W12 · expenses', () => {
       ],
       categories: [{ key: 'Rent', label: 'Rent', count: 1, active: false }, { key: 'tax', label: 'Tax', count: 1, active: false }],
     }));
-    await open(page, `/app/records/${ID.flat}/expenses`);
+    await open(page, `/properties/${ID.flat}/expenses`);
 
     const rent = page.getByRole('row', { name: /Rent · June/ });
-    await expect(rent).toContainText('Income');
+    await expect(rent).toContainText('Money in');
     await expect(rent).toContainText('₹18,000');
     await expect(rent).toContainText('Bank transfer');
     // `tr.income` is what colours money in; there is no role for "this row is
@@ -1288,7 +1374,7 @@ test.describe('W11 + W12 · expenses', () => {
   // ── the drawer ───────────────────────────────────────────────────────
 
   test('the drawer files an expense with exactly what I typed into it', async ({ page, world }) => {
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     await page.getByRole('button', { name: 'Add an expense' }).click();
 
     const drawer = page.getByRole('dialog', { name: 'Add an expense' });
@@ -1300,7 +1386,7 @@ test.describe('W11 + W12 · expenses', () => {
     await drawer.getByLabel('Paid by').selectOption('You · UPI');
     await drawer.getByRole('button', { name: 'New work', exact: true }).click();
     await drawer.getByLabel('On what').selectOption({ label: 'Barbed fence' });
-    await drawer.getByRole('button', { name: /^No — running/ }).click();
+    await drawer.getByRole('button', { name: /^No — upkeep/ }).click();
     // Not "from the tenant": a cost owed back is as often a co-owner's half of
     // a fence as a tenant's share of a bill.
     const owedBack = drawer.getByRole('button', { name: 'Someone owes this back to you' });
@@ -1327,7 +1413,7 @@ test.describe('W11 + W12 · expenses', () => {
   });
 
   test('saving says so out loud, closes the drawer and asks the ledger again', async ({ page, world }) => {
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     const asked = world.calls('expenses').length;
 
     await page.getByRole('button', { name: 'Add an expense' }).click();
@@ -1342,7 +1428,7 @@ test.describe('W11 + W12 · expenses', () => {
   });
 
   test('an expense with no title of its own is filed under its category', async ({ page, world }) => {
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     await page.getByRole('button', { name: 'Add an expense' }).click();
     await page.getByLabel('Amount').fill('900');
     await page.getByLabel('Date').fill('2026-05-04');
@@ -1370,7 +1456,7 @@ test.describe('W11 + W12 · expenses', () => {
   });
 
   test('the amount box takes digits only, and proves the figure under itself', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     await page.getByRole('button', { name: 'Add an expense' }).click();
 
     const amount = page.getByLabel('Amount');
@@ -1382,7 +1468,7 @@ test.describe('W11 + W12 · expenses', () => {
   });
 
   test('the drawer will not save a row with no amount on it', async ({ page, world }) => {
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     await page.getByRole('button', { name: 'Add an expense' }).click();
 
     const save = page.getByRole('button', { name: 'Save expense' });
@@ -1396,7 +1482,7 @@ test.describe('W11 + W12 · expenses', () => {
   });
 
   test('a row with no date on it cannot be saved either', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     await page.getByRole('button', { name: 'Add an expense' }).click();
 
     // `enough` is the amount AND the date (RecordExpenses.tsx:154). A row with
@@ -1411,7 +1497,7 @@ test.describe('W11 + W12 · expenses', () => {
 
   test('while the row is being filed the button says so and refuses a second press', async ({ page, world }) => {
     world.set('saveExpense', World.slow(2500, 'w-exp-new'));
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     await page.getByRole('button', { name: 'Add an expense' }).click();
     await page.getByLabel('Amount').fill('3300');
     await page.getByRole('button', { name: 'Save expense' }).click();
@@ -1426,7 +1512,7 @@ test.describe('W11 + W12 · expenses', () => {
   });
 
   test('with no network the drawer says it is waiting rather than pretending to save', async ({ page, world }) => {
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     await page.getByRole('button', { name: 'Add an expense' }).click();
     await page.getByLabel('Amount').fill('5600');
 
@@ -1446,7 +1532,7 @@ test.describe('W11 + W12 · expenses', () => {
   });
 
   test('the drawer opens with no figure in it, so nobody files a number they never typed', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     await page.getByRole('button', { name: 'Add an expense' }).click();
     await expect(page.getByLabel('Amount')).toHaveValue('');
     await expect(page.getByLabel('What it was')).toHaveValue('');
@@ -1454,7 +1540,7 @@ test.describe('W11 + W12 · expenses', () => {
 
   test('a refused save keeps the drawer open and says nothing has changed', async ({ page, world }) => {
     world.set('saveExpense', World.gqlError('the ledger is read-only for this account'));
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
 
     await page.getByRole('button', { name: 'Add an expense' }).click();
     await page.getByLabel('Amount').fill('4500');
@@ -1469,7 +1555,7 @@ test.describe('W11 + W12 · expenses', () => {
   });
 
   test('Escape closes the drawer and gives the button that opened it its focus back', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     const opener = page.getByRole('button', { name: 'Add an expense' });
     await opener.click();
 
@@ -1486,7 +1572,7 @@ test.describe('W11 + W12 · expenses', () => {
   });
 
   test('Cancel closes the drawer without filing anything', async ({ page, world }) => {
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     await page.getByRole('button', { name: 'Add an expense' }).click();
     await page.getByLabel('Amount').fill('7000');
     await page.getByRole('button', { name: 'Cancel' }).click();
@@ -1496,7 +1582,7 @@ test.describe('W11 + W12 · expenses', () => {
   });
 
   test('Tab stays inside the drawer instead of walking the ledger behind it', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     await page.getByRole('button', { name: 'Add an expense' }).click();
 
     const drawer = page.getByRole('dialog', { name: 'Add an expense' });
@@ -1520,7 +1606,7 @@ test.describe('W11 + W12 · expenses', () => {
   });
 
   test('Shift+Tab from the first control wraps to the last, not out to the page behind', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     await page.getByRole('button', { name: 'Add an expense' }).click();
 
     const drawer = page.getByRole('dialog', { name: 'Add an expense' });
@@ -1532,7 +1618,7 @@ test.describe('W11 + W12 · expenses', () => {
   });
 
   test('Tab from outside the drawer lands inside it rather than on the ledger behind', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     await page.getByRole('button', { name: 'Add an expense' }).click();
     const drawer = page.getByRole('dialog', { name: 'Add an expense' });
 
@@ -1545,7 +1631,7 @@ test.describe('W11 + W12 · expenses', () => {
   });
 
   test('a row hangs off the whole parcel unless a feature is picked for it', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     await page.getByRole('button', { name: 'Add an expense' }).click();
 
     const on = page.getByLabel('On what');
@@ -1554,37 +1640,37 @@ test.describe('W11 + W12 · expenses', () => {
   });
 
   test('on a flat the whole thing is the flat itself, not a parcel', async ({ page }) => {
-    await open(page, `/app/records/${ID.flat}/expenses`);
+    await open(page, `/properties/${ID.flat}/expenses`);
     await page.getByRole('button', { name: 'Add an expense' }).click();
 
     await expect(page.getByLabel('On what').locator('option').first()).toHaveText('Flat 4B, Sai Residency');
   });
 
   test('rent is the same row with the other sign, and a different form', async ({ page }) => {
-    await open(page, `/app/records/${ID.flat}/expenses`);
-    await page.getByRole('button', { name: 'Record rent' }).click();
+    await open(page, `/properties/${ID.flat}/expenses`);
+    await (await moreItem(page, /^More actions for Expenses/, 'Add rent')).click();
 
-    const drawer = page.getByRole('dialog', { name: 'Record rent' });
+    const drawer = page.getByRole('dialog', { name: 'Add rent' });
     // Who it came from, not who it was paid by: the list is a different list
     // (RecordExpenses.tsx:45), and "Caretaker · paid" against rent received is
     // the ledger telling the owner they paid their own tenant.
     await expect(drawer.getByLabel('Received from').locator('option'))
-      .toHaveText(['Bank transfer', 'Tenant · UPI', 'Cash', 'Cheque', 'Letting agent']);
+      .toHaveText(['Bank transfer', 'Tenant · UPI', 'Cash', 'Cheque', 'Rental agent']);
     await expect(drawer.getByRole('button', { name: 'Rent', exact: true })).toBeVisible();
     await expect(drawer.getByRole('button', { name: 'Deposit' })).toBeVisible();
     await expect(drawer.getByRole('button', { name: 'Advance' })).toBeVisible();
     // Money in is neither capital nor running, and it is not recoverable from
     // the tenant — it came from the tenant.
-    await expect(drawer.getByText('Does it add to what the land cost you?')).toHaveCount(0);
+    await expect(drawer.getByText('Does it improve the land (borewell, fence, building)?')).toHaveCount(0);
     await expect(drawer.getByText('Recover this from the tenant')).toHaveCount(0);
     await expect(drawer.getByRole('button', { name: 'Save rent' })).toBeVisible();
   });
 
   test('rent files as income against the flat', async ({ page, world }) => {
-    await open(page, `/app/records/${ID.flat}/expenses`);
-    await page.getByRole('button', { name: 'Record rent' }).click();
+    await open(page, `/properties/${ID.flat}/expenses`);
+    await (await moreItem(page, /^More actions for Expenses/, 'Add rent')).click();
 
-    const drawer = page.getByRole('dialog', { name: 'Record rent' });
+    const drawer = page.getByRole('dialog', { name: 'Add rent' });
     await drawer.getByLabel('Amount').fill('18000');
     await drawer.getByLabel('What it was').fill('Rent for August');
     await drawer.getByLabel('Date').fill('2026-08-05');
@@ -1605,22 +1691,22 @@ test.describe('W11 + W12 · expenses', () => {
       recoverable: false,
       fiscalYear: '2026-27',
     });
-    await expect(saying(page, 'Rent recorded.')).toBeVisible();
+    await expect(saying(page, 'Rent saved.')).toBeVisible();
   });
 
   test('a refused rent says so in the words the rent form uses', async ({ page, world }) => {
     world.set('saveExpense', World.gqlError('the ledger is read-only for this account'));
-    await open(page, `/app/records/${ID.flat}/expenses`);
-    await page.getByRole('button', { name: 'Record rent' }).click();
+    await open(page, `/properties/${ID.flat}/expenses`);
+    await (await moreItem(page, /^More actions for Expenses/, 'Add rent')).click();
     await page.getByLabel('Amount').fill('18000');
     await page.getByRole('button', { name: 'Save rent' }).click();
 
     await expect(page.getByRole('alert')).toContainText('That rent could not be saved. Nothing has changed.');
-    await expect(page.getByRole('dialog', { name: 'Record rent' })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Add rent' })).toBeVisible();
   });
 
   test('the drawer promises nothing it cannot file — no repeat, no schedule', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     await page.getByRole('button', { name: 'Add an expense' }).click();
     // `land_expenses` has no recurrence and the mutation has no such field, so
     // a person who turned it on for a salary was promised twelve rows and got
@@ -1631,29 +1717,29 @@ test.describe('W11 + W12 · expenses', () => {
   // ── the export ───────────────────────────────────────────────────────
 
   test('the ledger exports as a CSV named for the record and the year', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     const [file] = await Promise.all([
       page.waitForEvent('download'),
-      page.getByRole('button', { name: 'Export' }).click(),
+      moreItem(page, /^More actions for Expenses/, 'Export').then((it) => it.click()),
     ]);
     expect(file.suggestedFilename()).toBe(`expenses-${ID.parcel}-2026-27.csv`);
 
     const csv = await readDownload(file);
     expect(csv.startsWith('﻿')).toBe(true);
     const lines = csv.replace('﻿', '').trim().split('\n');
-    expect(lines[0]).toBe('Date,What it was,Detail,On,Kind,Paid by,Amount (₹),Recoverable,Receipt');
+    expect(lines[0]).toBe('Date,What it was,Detail,On,Kind,Paid by,Amount (₹),Owed back,Receipt');
     expect(lines).toHaveLength(4);
-    expect(lines[1]).toBe('12/04/2026,Land tax 2025-26,Paid at the mandal office,Whole record,running,Shankar Reddy,3400,no,filed');
-    expect(lines[2]).toBe('01/09/2026,"Watchman, April to September",Ramana Rao,Whole record,running,Shankar Reddy,43200,no,none');
-    expect(lines[3]).toBe('20/02/2026,"Barbed fence, eastern edge","420 m, 4 strand",Barbed fence,capital,Venkat Reddy,68000,yes,filed');
+    expect(lines[1]).toBe('12/04/2026,Land tax 2025-26,Paid at the mandal office,Whole record,Upkeep,Shankar Reddy,3400,no,filed');
+    expect(lines[2]).toBe('01/09/2026,"Watchman, April to September",Ramana Rao,Whole record,Upkeep,Shankar Reddy,43200,no,none');
+    expect(lines[3]).toBe('20/02/2026,"Barbed fence, eastern edge","420 m, 4 strand",Barbed fence,Improvement,Venkat Reddy,68000,yes,filed');
   });
 
   test('a row titled like a formula is exported as text rather than run as one', async ({ page, world }) => {
     world.set('expenses', expenses({ rows: [{ ...ROWS[0], title: '=cmd|/c calc' }] }));
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     const [file] = await Promise.all([
       page.waitForEvent('download'),
-      page.getByRole('button', { name: 'Export' }).click(),
+      moreItem(page, /^More actions for Expenses/, 'Export').then((it) => it.click()),
     ]);
     const lines = (await readDownload(file)).replace('\ufeff', '').trim().split('\n');
 
@@ -1665,13 +1751,13 @@ test.describe('W11 + W12 · expenses', () => {
   });
 
   test('the export follows the list I am looking at, not the whole year', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     await page.getByRole('button', { name: /^Tax/ }).click();
-    await expect(page.getByRole('row')).toHaveCount(2);
+    await expect(page.getByRole('row')).toHaveCount(3);   // the head, one row, the total
 
     const [file] = await Promise.all([
       page.waitForEvent('download'),
-      page.getByRole('button', { name: 'Export' }).click(),
+      moreItem(page, /^More actions for Expenses/, 'Export').then((it) => it.click()),
     ]);
     const lines = (await readDownload(file)).replace('﻿', '').trim().split('\n');
     expect(lines).toHaveLength(2);
@@ -1679,13 +1765,14 @@ test.describe('W11 + W12 · expenses', () => {
   });
 
   test('a let flat can be exported too, rent rows and all', async ({ page }) => {
-    await open(page, `/app/records/${ID.flat}/expenses`);
+    await open(page, `/properties/${ID.flat}/expenses`);
     // Export used to be gated behind !isBuilt, so the one ledger with rent in
     // it was the one that could not be exported.
-    await expect(page.getByRole('button', { name: 'Export' })).toBeVisible();
+    const exp = await moreItem(page, /^More actions for Expenses/, 'Export');
+    await expect(exp).toBeVisible();
     const [file] = await Promise.all([
       page.waitForEvent('download'),
-      page.getByRole('button', { name: 'Export' }).click(),
+      exp.click(),
     ]);
     expect(file.suggestedFilename()).toBe(`expenses-${ID.flat}-2026-27.csv`);
   });
@@ -1694,16 +1781,17 @@ test.describe('W11 + W12 · expenses', () => {
 
   test('a ledger that has not arrived holds its shape and says it is loading', async ({ page, world }) => {
     world.set('expenses', World.never());
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
 
-    await expect(saying(page, 'Loading')).toBeVisible();
-    await expect(saying(page, 'Loading')).toHaveAttribute('aria-busy', 'true');
-    await expect(page.getByText('No costs recorded yet')).toHaveCount(0);
+    const wait = page.getByRole('status', { name: 'Loading the expenses' });
+    await expect(wait).toBeVisible();
+    await expect(wait).toHaveAttribute('aria-busy', 'true');
+    await expect(page.getByText('No expenses yet')).toHaveCount(0);
   });
 
   test('a ledger that will not load says so and keeps the reason', async ({ page, world }) => {
     world.set('expenses', World.gqlError('the ledger service is down'));
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
 
     // The ledger's own noun, the one its waiting line uses.
     const failed = page.getByRole('alert');
@@ -1714,7 +1802,7 @@ test.describe('W11 + W12 · expenses', () => {
 
   test('the ledger comes back when the server does', async ({ page, world }) => {
     world.set('expenses', World.gqlError('the ledger service is down'));
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     await expect(page.getByRole('alert')).toBeVisible();
 
     world.set('expenses', expenses());
@@ -1724,15 +1812,15 @@ test.describe('W11 + W12 · expenses', () => {
   });
 
   test('a record that is not mine never gets as far as asking what it has cost', async ({ page, world }) => {
-    await open(page, `/app/records/${ID.missing}/expenses`);
-    await expect(page.getByRole('heading', { name: "This property isn't in your account" })).toBeVisible();
+    await open(page, `/properties/${ID.missing}/expenses`);
+    await expect(page.getByRole('heading', { name: "This property is not in your account" })).toBeVisible();
     expect(world.asked('expenses')).toBe(false);
   });
 
   test('the ledger keeps the way back to the record it belongs to', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     await page.getByRole('link', { name: 'Sy 214/2' }).click();
-    await expect(page).toHaveURL(new RegExp(`/app/records/${ID.parcel}$`));
+    await expect(page).toHaveURL(new RegExp(`/properties/${ID.parcel}$`));
   });
 
   test('the drawer dates a new row today, as the calendar on the wall has it', async ({ page }) => {
@@ -1740,7 +1828,7 @@ test.describe('W11 + W12 · expenses', () => {
     // `toISOString().slice(0,10)` would have filed it as — and on 1 April that
     // is the wrong financial year.
     await page.clock.setFixedTime(new Date('2026-04-01T00:30:00+05:30'));
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     await page.getByRole('button', { name: 'Add an expense' }).click();
     await expect(page.getByLabel('Date')).toHaveValue('2026-04-01');
   });
@@ -1752,7 +1840,7 @@ test.describe('W11 + W12 · expenses', () => {
    *  figure with no working. The owner is owed the note on the row — it is
    *  already on the wire. */
   test.fail('a row I can claim back says what is owed and to whom', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     const fence = page.getByRole('row', { name: /Barbed fence, eastern edge/ });
     await expect(fence).toContainText('Half owed back by Venkat');
   });
@@ -1764,7 +1852,7 @@ test.describe('W11 + W12 · expenses', () => {
    *  ever. The owner is owed a row menu with Delete on it, the same shape as
    *  the one RecordFeatures already has. */
   test.fail('a mistyped row can be taken out of the ledger again', async ({ page, world }) => {
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     const row = page.getByRole('row', { name: /Watchman, April to September/ });
     await expect(row).toBeVisible();
 
@@ -1781,17 +1869,17 @@ test.describe('W11 + W12 · expenses', () => {
    *  28/09/2026: both say what they wait for, in the failure's own noun. */
   test('the wait names the thing it is waiting for, the way the failure does', async ({ page, world }) => {
     world.set('expenses', World.never());
-    await open(page, `/app/records/${ID.parcel}/expenses`);
-    await expect(saying(page, 'Loading')).toHaveText('Loading the expenses…');
+    await open(page, `/properties/${ID.parcel}/expenses`);
+    await expect(page.getByRole('status', { name: 'Loading the expenses' })).toBeVisible();
   });
 
   test('the money figures name what they are waiting for too', async ({ page, world }) => {
     world.set('money', World.never());
-    await open(page, `/app/records/${ID.parcel}/money`);
-    await expect(saying(page, 'Loading')).toHaveText('Loading the money figures…');
+    await open(page, `/properties/${ID.parcel}/money`);
+    await expect(page.getByRole('status', { name: 'Loading the money figures' })).toHaveAttribute('aria-busy', 'true');
   });
 
-  /** DEFECT — RecordExpenses.tsx:396 binds the year select to `data.year`, the
+  /** Was a DEFECT marker, now fixed: RecordExpenses.tsx:396 bound the year select to `data.year`, the
    *  server's echo, while the year the reader chose lives in `year` state
    *  (line 329). `useExpenses` holds the previous answer while the new key
    *  loads (api.ts:504, `placeholderData: keepPreviousData`), so React restores
@@ -1802,8 +1890,8 @@ test.describe('W11 + W12 · expenses', () => {
    *  (`value={year ?? data.year}`) and the ledger card carrying `aria-busy`
    *  until the new year lands — which is `Card`'s documented `busy` prop
    *  (ui.tsx:425) and exactly what RecordMoney.tsx:379 does for its own rate. */
-  test.fail('the year I chose stays chosen while that year is loading', async ({ page, world }) => {
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+  test('the year I chose stays chosen while that year is loading', async ({ page, world }) => {
+    await open(page, `/properties/${ID.parcel}/expenses`);
     await expect(page.getByLabel('Financial year')).toHaveValue('2026-27');
 
     world.set('expenses', World.never());
@@ -1816,7 +1904,7 @@ test.describe('W11 + W12 · expenses', () => {
   });
 
   test('@phone the drawer fits the phone instead of shouldering the ledger sideways', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     await page.getByRole('button', { name: 'Add an expense' }).click();
 
     const drawer = page.getByRole('dialog', { name: 'Add an expense' });
@@ -1833,7 +1921,7 @@ test.describe('W11 + W12 · expenses', () => {
   });
 
   test('@phone the ledger scrolls inside its card rather than taking the page sideways', async ({ page }) => {
-    await open(page, `/app/records/${ID.parcel}/expenses`);
+    await open(page, `/properties/${ID.parcel}/expenses`);
     await expect(page.getByRole('row', { name: /Land tax 2025-26/ })).toBeVisible();
 
     await expect(page.locator('.scroll-x', { has: page.getByRole('table') })).toBeVisible();

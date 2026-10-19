@@ -1,0 +1,34 @@
+{
+  "verdict": "CHANGES_REQUESTED",
+  "findings": [
+    {
+      "id": 1,
+      "severity": "MEDIUM",
+      "location": "§ 4.3 Validation (phone row), AC 22",
+      "problem": "Server phone regex ^(?:\\+91|91|0)?([6-9]\\d{9})$ in Python matches Unicode digits (verified: '9८४८०१२३४५' matches, stored '+919८४८०१२३४५'). Stored phone is not ASCII +91XXXXXXXXXX; associates.contact_key keeps Unicode digits so the same number in another script gets a different key, bypassing insert-once/cool-down/no-revival and breaking deletion-by-contact; client (ASCII \\d) and server diverge.",
+      "fix": "Use [6-9][0-9]{9} (or re.ASCII) in network.py; state 'ASCII digits only, other scripts invalid/phone'; add invalid vectors '9८४८०१२३४५' and full-width '９８４８０１２３４５' to phone.test.ts and api pytest."
+    },
+    {
+      "id": 2,
+      "severity": "NIT",
+      "location": "§ 4.3 Validation (looksLikeAadhaar client mirror)",
+      "problem": "JS /(?<!\\d)(?:\\d[\\W_]*){11}\\d(?!\\d)/u is not equivalent to Python's Unicode-aware pattern (JS \\d ASCII-only, JS \\W matches Telugu letters).",
+      "fix": "Document the client mirror as ASCII-only and UX-only with the server authoritative; optionally use [^0-9A-Za-z] in place of [\\W_] in JS."
+    },
+    {
+      "id": 3,
+      "severity": "NIT",
+      "location": "§ 3.1 Slice 1 files",
+      "problem": "Comments 'eight section controls' (MarketingNav.tsx:19) and 'The eight section links' (site.css:2050) become stale with a ninth link and are not listed.",
+      "fix": "Add both comment updates to the § 3.1 table."
+    },
+    {
+      "id": 4,
+      "severity": "NIT",
+      "location": "§ 4.3 Errors and logging, last row",
+      "problem": "Oversize body is listed as 401; proxy_pattadar returns 413 above MAX_PROXY_BODY_BYTES before auth; only the public_graphql 64 KiB parse cap / multi-root / non-allowlisted path yields 401.",
+      "fix": "Split the row into 413 (> MAX_PROXY_BODY_BYTES) and 401 (> 64 KiB public cap, multi-root, non-allowlisted root)."
+    }
+  ],
+  "reviewDoc": "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/.agents/tasks/landing-pattadar-network/design-review.md"
+}

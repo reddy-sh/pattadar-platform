@@ -154,7 +154,7 @@ def test_heir_claim_links_member_and_leaves_tasks_until_the_profile_is_done(db):
     kinds = {t["kind"]: t for t in run(tasks_q, "heir").data["setupTasks"]}
     assert set(kinds) == {"heir_confirm", "heir_profile", "first_record"}
     assert not any(t["done"] for t in kinds.values())
-    assert kinds["heir_profile"]["route"] == "/app/heir/m1"
+    assert kinds["heir_profile"]["route"] == "/heir/m1"
 
     # Nobody else can edit the heir's row through the heir mutation.
     upd = ('mutation($m:String!,$d:String!,$a:String!,$s:String!){ updateMyHeirProfile(memberId:$m,dob:$d,'

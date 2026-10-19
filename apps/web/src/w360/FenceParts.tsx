@@ -2,7 +2,7 @@
  * The fence calculator's shared parts — the build, the bill and the sheet.
  *
  * Two screens price a fence: the village-map studio (FenceStudio), which takes
- * its sides from a traced shape, and the Tools tab (`/app/tools?tab=fence`),
+ * its sides from a traced shape, and the Tools tab (`/tools?tab=fence`),
  * which takes them typed. Steps 2 and 3 and the printed sheet are the same
  * questions and the same answer on both, so they are drawn here once and the
  * arithmetic underneath is fenceBill.ts. Neither screen keeps its own copy.

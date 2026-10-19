@@ -5,5 +5,5 @@ export function MapFind() {
   const { search } = useLocation();
   const params = new URLSearchParams(search);
   params.set('view', 'map');
-  return <Navigate to={`/app/properties?${params}`} replace />;
+  return <Navigate to={`/properties?${params}`} replace />;
 }

@@ -102,15 +102,14 @@ async function settledW360(page: Page) {
 
 const W360_ROUTES = [
   ...APP_ROUTES,
-  '/app/holdings',
-  '/app/desk',
-  '/app/tools?tab=stamp-duty',
-  '/app/tools?tab=market-value',
-  '/app/tools?tab=calculator',
-  `/app/papers/${PAPER.deed}`,
-  `/app/services/${TICKET.placed}`,
-  ...HANGERS.map((h) => (h ? `/app/records/${ID.parcel}/${h}` : `/app/records/${ID.parcel}`)),
-  `/app/records/${ID.flat}/money`,
+  '/desk',
+  '/tools?tab=stamp-duty',
+  '/tools?tab=market-value',
+  '/tools?tab=calculator',
+  `/papers/${PAPER.deed}`,
+  `/services/${TICKET.placed}`,
+  ...HANGERS.map((h) => (h ? `/properties/${ID.parcel}/${h}` : `/properties/${ID.parcel}`)),
+  `/properties/${ID.flat}/money`,
 ];
 
 test.describe('signed in', () => {
@@ -123,7 +122,7 @@ test.describe('signed in', () => {
   }
 
   test(`@phone the Area calculator result reads in ${FACE}, and agrees with itself`, async ({ page }, info) => {
-    await page.goto('/app/tools?tab=calculator');
+    await page.goto('/tools?tab=calculator');
     const card = page.locator('section.card[aria-label$="="]');
     await expect(card).toBeVisible();
     // The title echoed the picker's plural label ("1 Acres =") over a value

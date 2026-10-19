@@ -65,6 +65,16 @@ async def _invoke(operation: Awaitable[Any]) -> dict[str, Any]:
         }
 
 
+def _text_list(value: Any, limit: int) -> list[str] | None:
+    items = [value] if isinstance(value, str) else value if isinstance(value, list) else []
+    kept = [str(item).strip()[:80] for item in items if isinstance(item, str) and item.strip()]
+    return kept[:limit] or None
+
+
+async def _brief(service: PublicRecordsService, report: Awaitable[str]) -> str:
+    return service.brief_report(await report)
+
+
 def build_public_record_tools(service: PublicRecordsService) -> list[Any]:
     """Build the exact, closed-world public-record SDK tool surface."""
 
@@ -192,13 +202,23 @@ def build_public_record_tools(service: PublicRecordsService) -> list[Any]:
 
     @sdk_tool(
         "find_properties_by_party",
-        "Fuzzy-match a party name in historical deeds. A match does not prove identity, ownership, or current title.",
+        "Fuzzy-match a party name in historical deeds. A match does not prove identity, ownership, or current title. "
+        "The same name appears in many places: when the user names a village or SRO, pass it as villages / sro "
+        "so the place filter runs in the search itself.",
         _schema(
             {
                 "name": {"type": "string"},
                 "side": {"type": "string", "enum": ["executant", "claimant"]},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
-                "min_similarity": {"type": "number", "minimum": 0.5, "maximum": 1.0, "default": 0.6},
+                "min_similarity": {
+                    "type": "number", "minimum": 0.5, "maximum": 1.0, "default": 0.6,
+                    "description": "The Confidence column the user sees: 0.9 = 90%, 1.0 = 100% (exact name).",
+                },
+                "villages": {
+                    "type": "array", "items": {"type": "string", "maxLength": 80}, "maxItems": 10,
+                    "description": "Only deeds in these villages (spelling is resolved fuzzily).",
+                },
+                "sro": {"type": "string", "maxLength": 80, "description": "Only deeds registered at this SRO."},
             },
             ("name",),
         ),
@@ -211,6 +231,8 @@ def build_public_record_tools(service: PublicRecordsService) -> list[Any]:
                 side=args.get("side"),
                 limit=int(args.get("limit", 20)),
                 min_similarity=float(args.get("min_similarity", 0.6)),
+                villages=_text_list(args.get("villages"), 10),
+                sro=str(args["sro"]) if args.get("sro") else None,
             )
         )
 
@@ -249,6 +271,10 @@ def build_public_record_tools(service: PublicRecordsService) -> list[Any]:
                 "land_class": {"type": "string"},
                 "year": {"type": "integer"},
                 "party": {"type": "string"},
+                "min_similarity": {
+                    "type": "number", "minimum": 0.35, "maximum": 1.0,
+                    "description": "Party reports only: 1.0 keeps exact-name (100% confidence) matches.",
+                },
                 "rid": {"type": "string"},
                 "s_no": {"type": "integer"},
                 "title": {"type": "string"},
@@ -264,17 +290,18 @@ def build_public_record_tools(service: PublicRecordsService) -> list[Any]:
     )
     async def generate_report(args: dict[str, Any]) -> dict[str, Any]:
         return await _invoke(
-            service.generate_report(
+            _brief(service, service.generate_report(
                 village=args.get("village"),
                 area_sro=args.get("area_sro"),
                 transaction_class=args.get("transaction_class"),
                 land_class=args.get("land_class"),
                 year=args.get("year"),
                 party=args.get("party"),
+                min_similarity=args.get("min_similarity"),
                 rid=args.get("rid"),
                 s_no=args.get("s_no"),
                 title=args.get("title"),
-            )
+            ))
         )
 
     tools = [

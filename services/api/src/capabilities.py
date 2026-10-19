@@ -79,9 +79,14 @@ async def snapshot(conn, uid: str, record_id: str, requested: dict, *, all_docum
         clause = f"{record_col}=%s"
         args = [uid, record_id]
         if table == "documents":
-            # A filed Aadhaar card never enters a share, whatever it points at.
-            clause = "(record_id=%s OR parcel_id=%s OR property_id=%s) AND COALESCE(aadhaar_record_id,'')=''"
-            args.extend([record_id, record_id])
+            # The record's papers as papers() lists them: by primary column or
+            # by link (one passbook linked to every survey it lists). A filed
+            # Aadhaar card never enters a share, whatever it points at.
+            clause = ("(record_id=%s OR parcel_id=%s OR property_id=%s OR EXISTS ("
+                      "SELECT 1 FROM document_record_links l WHERE l.owner_user_id=documents.owner_user_id"
+                      " AND l.document_id=documents.id AND l.record_id=%s))"
+                      " AND COALESCE(aadhaar_record_id,'')=''")
+            args.extend([record_id, record_id, record_id])
         cur = await conn.execute(f"SELECT * FROM {table} WHERE owner_user_id=%s AND {clause}", tuple(args))
         rows = list(await cur.fetchall())
         selected = set(chosen)
@@ -131,6 +136,11 @@ async def capability(conn, scope: str, token: str, *, lock: bool = False) -> tup
     else:
         manifest = object_of(row.get("manifest"))
         record_id = row.get("record_id") or ""
+        if not record_id and manifest.get("scope") == "documents":
+            # A papers-only share names no record. Its manifest is the whole
+            # grant; file_grant re-checks each source row is still the owner's
+            # and still holds the same bytes.
+            return row, manifest, ticket
     if not record_id or not await w._record_kind(conn, uid, record_id):
         raise HTTPException(410, "This record is no longer shared")
     return row, manifest, ticket
@@ -144,6 +154,24 @@ def public_manifest(manifest: dict) -> dict:
 
 def response(body: dict) -> JSONResponse:
     return JSONResponse(body, headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff"})
+
+
+def provider_label(m: dict) -> str:
+    """Who said it, as the provider reads it. The stored label is written for
+    the owner's page ("You"), so on the provider's page it would put the
+    owner's words in the provider's mouth.
+
+    >>> provider_label({"actor_kind": "owner", "actor_label": "You"})
+    'The owner'
+    >>> provider_label({"actor_kind": "worker", "actor_label": "Ravi Kumar"})
+    'Ravi Kumar'
+    """
+    kind = m.get("actor_kind") or ""
+    if kind == "owner":
+        return "The owner"
+    if kind in ("system", "desk"):
+        return "Pattadar desk"
+    return m.get("actor_label") or "Pattadar"
 
 
 @router.get("/public/{scope}/{token}")
@@ -167,7 +195,8 @@ async def recipient_view(scope: str, token: str):
                          "actions": ticketing.can(status, "worker"), "note": ticket.get("note") or "",
                          "outcomeNote": ticket.get("outcome_note") or "", "dueDate": ticket.get("due_date") or "",
                          "answers": [{"label": a.k, "value": a.v} for a in w._answers(ticket.get("kind") or "", ticket.get("params") or "{}")],
-                         "deliverables": list(items), "messages": list(messages)})
+                         "deliverables": list(items),
+                         "messages": [{**m, "actor_label": provider_label(m)} for m in messages]})
         return response(data)
 
 
@@ -256,7 +285,8 @@ async def worker_deliverable(token: str, body: dict = Body(...)):
              str(body.get("fileName") or ""), str(body.get("mimeType") or ""), int(body.get("sizeBytes") or 0),
              actor, w._ddmmyyyy(w._today()), "general" if kind == "photo" else "unsorted", sort, w._now_iso()))
         await w._event(conn, uid, tid, kind="deliverable", actor_kind="worker", actor_label=actor,
-                       ref_table="ticket_deliverables", ref_id=did, headline=f"{actor} submitted {label}", detail=note)
+                       ref_table="ticket_deliverables", ref_id=did,
+                       headline=ticketing.event_headline("deliverable", "", {"label": label, "by": actor}), detail=note)
         if status != "submitted":
             await w._move(conn, uid, ticket, "deliver", actor_kind="worker", actor_label=actor)
     return response({"ok": True, "id": did})

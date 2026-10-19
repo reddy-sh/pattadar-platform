@@ -153,7 +153,7 @@ final class AppModel {
             do {
                 try reader.start(endpoint: endpoint, config: api.config, fileURL: fileURL, name: name)
             } catch {
-                readState = .failed("Couldn’t prepare the file — \(error.localizedDescription)")
+                readState = .failed("Could not prepare the file. Try again.")
             }
         }
 
@@ -791,13 +791,13 @@ struct RootTabs: View {
             // behind a "+" in a corner.
             Color.clear.tabItem {
                 Image(uiImage: Self.filingIcon(for: scheme))
-                Text("File")
+                Text("Add")
             }
             .tag(AppModel.Tab.add)
             // It is drawn as a button and it behaves as one; VoiceOver was
             // still announcing "File, tab 3 of 5" — an action described as a
             // place. Said plainly instead.
-            .accessibilityLabel("File a document")
+            .accessibilityLabel("Add a document")
             .accessibilityHint("Opens the filing sheet")
             .accessibilityAddTraits(.isButton)
             slotView(slots[2])
@@ -971,7 +971,7 @@ struct LoadFailure: View {
     /// as one of these sentences rather than as an NSError dump.
     private var offline: Bool {
         guard let message else { return false }
-        return message.contains("Couldn’t reach the server")
+        return message.contains("Could not reach the server")
             || message.contains("No internet connection")
             || message.contains("The connection failed")
     }
@@ -985,7 +985,7 @@ struct LoadFailure: View {
                     .foregroundStyle(Palette.ruleStrong)
                 Text("Signed out")
                     .font(.recordTitle)
-                Text("Your session ended. Sign in and your records are right where you left them.")
+                Text("Your session ended. Sign in and everything is right where you left it.")
                     .font(.bodyCopy).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                 Button { showSignIn = true } label: {
@@ -998,7 +998,7 @@ struct LoadFailure: View {
                 HStack(alignment: .top, spacing: Space.sm) {
                     Image(systemName: "lock")
                         .font(.scaled(15)).foregroundStyle(.secondary)
-                    Text("Papers you filed while signed in stay on this phone and go up when you are back. Nothing of yours is readable to whoever signs in next.")
+                    Text("Documents you added while signed in stay on this phone and go up when you are back. Nothing of yours is readable to the next person who signs in.")
                         .font(.note).foregroundStyle(.secondary)
                 }
                 .padding(Space.md)
@@ -1035,7 +1035,7 @@ struct LoadFailure: View {
             .padding(Space.lg)
         } else {
             ContentUnavailableView(
-                "Couldn’t load your records",
+                "Could not load your properties",
                 systemImage: "exclamationmark.icloud",
                 description: Text(message ?? "The server did not answer.")
             )

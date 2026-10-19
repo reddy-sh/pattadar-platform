@@ -1,7 +1,7 @@
 /** The fence bill — the arithmetic behind both ways in to the fence calculator.
  *
  *  The village-map studio (FenceStudio) prices a traced shape; the Tools tab
- *  (`/app/tools?tab=fence`) prices sides typed by hand. They must never
+ *  (`/tools?tab=fence`) prices sides typed by hand. They must never
  *  disagree about what the same fence costs, so the sums live here once, with
  *  no React and no styling, and both screens call them.
  *

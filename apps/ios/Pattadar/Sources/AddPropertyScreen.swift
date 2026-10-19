@@ -63,7 +63,7 @@ struct AddPropertyScreen: View {
                 Section {
                     ScanFirstCard(
                         title: "Read it from the sale deed",
-                        body_: "Photograph or upload the deed — the type, locality, area and price are read from it and filled in below for you to check.",
+                        body_: "Take a photo of the deed or upload it — the type, locality, area and price are read from it and filled in below for you to check.",
                         endpoint: .registeredDocument,
                         manualOpen: $manualOpen,
                         result: $scanned,
@@ -93,7 +93,7 @@ struct AddPropertyScreen: View {
                             // A flat is quoted in built-up square feet; its land
                             // share is meaningless and usually zero.
                             FormRow(label: "Built-up area", text: $builtup, prompt: "0",
-                                    keyboard: .decimalPad, suffix: "Sq.ft")
+                                    keyboard: .decimalPad, suffix: "sq.ft")
                         }
                     } header: {
                         Text("Details")

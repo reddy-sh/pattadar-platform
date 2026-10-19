@@ -74,6 +74,8 @@ SWEPT = [
     "CREATE TABLE land_expenses (id TEXT PRIMARY KEY,entity_id TEXT)",
     "CREATE TABLE notes (id TEXT PRIMARY KEY,entity_id TEXT)",
 ]
+#: The master record's claims, which the sweep also clears (already IF NOT EXISTS).
+CLAIMS = [stmt for stmt in w.rm.DDL if "record_field_claims" in stmt]
 
 
 def _ddl_for(*tables: str) -> list[str]:
@@ -117,7 +119,7 @@ async def database():
         w.bind(pool, lambda info: info)
         a.bind(pool)
         async with pool.connection() as conn:
-            for stmt in (BASE + SWEPT + list(a.DDL)
+            for stmt in (BASE + SWEPT + CLAIMS + list(a.DDL)
                          + _ddl_for("record_owners", "record_transfers",
                                     "record_transfer_parties")):
                 await conn.execute(stmt)
@@ -447,9 +449,22 @@ def test_deleting_a_record_leaves_no_transfer_pointing_into_it():
                 "UPDATE record_transfers SET prior_transfer_id=%s WHERE id=%s",
                 (doomed, survivor))
 
+        async with pool.connection() as conn:
+            for rid in ("rec-a2", "rec-a"):
+                await conn.execute(
+                    "INSERT INTO record_field_claims (id, owner_user_id, record_id, field, source,"
+                    " value) VALUES (%s,'owner-a',%s,'village','deed_reading','Katragunta')",
+                    (f"c-{rid}", rid))
+
         assert await m.delete_records("owner-a", ids=["rec-a2"]) == 1
         t = (await q.transfers("owner-a", record_id="rec-a")).transfers[0]
         assert t.prior_transfer_id == ""
+        # Every source's claim on the deleted record goes with it (A1); the
+        # survivor's stay.
+        async with pool.connection() as conn:
+            left = await (await conn.execute(
+                "SELECT record_id FROM record_field_claims ORDER BY record_id")).fetchall()
+        assert [r["record_id"] for r in left] == ["rec-a"]
     _run(body)
 
 

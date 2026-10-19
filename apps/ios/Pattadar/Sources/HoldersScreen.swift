@@ -88,7 +88,7 @@ struct HoldersScreen: View {
                         // Not a holder — a gap. Said plainly, because land with
                         // nobody recorded on it is the thing that turns into a
                         // dispute.
-                        Label("No name recorded against this land. Whoever inherits it will have to prove who held it.",
+                        Label("No name recorded against this land. The heir will have to prove who held it.",
                               systemImage: "exclamationmark.triangle.fill")
                             .font(.caption).foregroundStyle(Palette.caution)
                     }
@@ -100,7 +100,7 @@ struct HoldersScreen: View {
                                        description: Text("Add a property and the names on it appear here."))
             }
         }
-        .navigationTitle("Who holds what")
+        .navigationTitle("Owners")
         .navigationBarTitleDisplayMode(.large)
     }
 

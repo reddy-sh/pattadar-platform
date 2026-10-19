@@ -117,14 +117,14 @@ public let documentFamilies = ["title", "revenue", "map", "identity",
 /// What the filter chip calls the family.
 public func familyLabel(_ family: String) -> String {
     switch family {
-    case "title": "Title"
-    case "revenue": "Revenue record"
+    case "title": "Title deeds"
+    case "revenue": "Revenue records"
     case "map": "Map"
     case "identity": "Identity"
-    case "search": "Search & tax"
-    case "old_record": "Old record"
-    case "photo": "Photos"
-    default: "Unsorted"
+    case "search": "EC & tax receipts"
+    case "old_record": "Old records"
+    case "photo": "Photos & video"
+    default: "Not sorted yet"
     }
 }
 
@@ -223,7 +223,7 @@ public func docSpine(
     // "the Sy. 1 sheet". Leading zeros drop; "01" and "1" are the same land.
     if identity.isEmpty, family == "map", let first = surveyList.first {
         let base = surveyParts(first).no
-        identity = "Sy. \(Int(base).map(String.init) ?? base) sheet"
+        identity = "Sy \(Int(base).map(String.init) ?? base) sheet"
     }
 
     // Parties, with direction. Deeds are from → to; everything else names

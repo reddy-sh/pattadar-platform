@@ -340,7 +340,7 @@ struct PlacesScreen: View {
                     Group {
                         if LocalFiles.url(for: doc.id) != nil {
                             Button { openFMB = doc } label: {
-                                fmbRow(doc, note: "The survey office's drawing · tap to open")
+                                fmbRow(doc, note: "The survey office's drawing")
                             }
                             .buttonStyle(.plain)
                         } else {
@@ -358,7 +358,7 @@ struct PlacesScreen: View {
                             }
                         }
                         Button(role: .destructive) { confirmRemoveDoc = doc } label: {
-                            Label("Remove document", systemImage: "trash")
+                            Label("Delete document", systemImage: "trash")
                         }
                     }
                 }
@@ -368,16 +368,16 @@ struct PlacesScreen: View {
         }
         .padding(.horizontal, Space.lg)
         .padding(.bottom, Space.sm)
-        .confirmationDialog("Remove this document?",
+        .confirmationDialog("Delete this document?",
                             isPresented: Binding(get: { confirmRemoveDoc != nil },
                                                  set: { if !$0 { confirmRemoveDoc = nil } }),
                             titleVisibility: .visible) {
-            Button("Remove", role: .destructive) {
+            Button("Delete document", role: .destructive) {
                 if let doc = confirmRemoveDoc { Task { await removeDocument(doc) } }
             }
-            Button("Keep it", role: .cancel) { confirmRemoveDoc = nil }
+            Button("Cancel", role: .cancel) { confirmRemoveDoc = nil }
         } message: {
-            Text("What was read from it goes with it. The boundary corners stay — they are part of the record, not of the file. File a fresh copy any time with ⊕.")
+            Text("What was read from it goes with it. The boundary corners stay — they are part of the property, not of the file. Add a fresh copy any time with ⊕.")
         }
     }
 
@@ -443,11 +443,11 @@ struct MapsHelpSheet: View {
                 VStack(alignment: .leading, spacing: Space.lg) {
                     row(icon: "map",
                         title: "The map is your land, outlined",
-                        body: "The green boundary is drawn from the corners of your FMB sheet over today's satellite imagery — so you can see exactly which fields the record covers, and what stands on them now.")
+                        body: "The green boundary is drawn from the corners of your FMB sheet over today's satellite imagery — so you can see exactly which fields the FMB covers, and what stands on them now.")
 
                     row(icon: "ruler",
                         title: "Every length is measured, not copied",
-                        body: "The distances on each side are computed from the corners you entered — the same way the surveyor computed them. Tap the ruler to show or hide them. If a printed length on your sheet disagrees with the one drawn here, a corner was mistyped.")
+                        body: "The distances on each side are computed from the corners you entered — the same way the surveyor computed them. Choose the ruler to show or hide them. If a printed length on your sheet disagrees with the one drawn here, a corner was mistyped.")
 
                     row(icon: "scribble.variable",
                         title: "Sketch is the surveyor's view",
@@ -455,10 +455,10 @@ struct MapsHelpSheet: View {
 
                     row(icon: "list.number",
                         title: "Enter corners in walking order",
-                        body: "From the FMB point table, one corner per line as latitude, longitude — in the order you would walk the boundary. Start at any corner; the drawing closes the loop back to it. If the drawn acreage is far from the record's, one corner is off by a digit — check the corner dots against the sheet.")
+                        body: "From the FMB point table, one corner per line as latitude, longitude — in the order you would walk the boundary. Start at any corner; the drawing closes the loop back to it. If the drawn acreage is far from the extent on record, one corner is off by a digit — check the corner dots against the sheet.")
 
                     row(icon: "exclamationmark.triangle",
-                        title: "A record, not a survey",
+                        title: "Your copy, not a survey",
                         body: "This drawing is computed from corners you typed in. It is your copy of what the FMB says — useful for checking, showing and remembering — but it is not a licensed survey, and a boundary dispute is settled by the government's records, not by this screen.")
                 }
                 .padding(Space.xl)

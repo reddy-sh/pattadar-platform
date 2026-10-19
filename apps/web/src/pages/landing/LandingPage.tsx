@@ -206,15 +206,15 @@ export function LandingPage() {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
   const reducedMotion = useReducedMotion();
-  // In mock mode (or when already signed in) both go straight to /app;
+  // In mock mode (or when already signed in) both go straight to /home;
   // otherwise to OUR native /login or /signup page — never an external URL.
   // "Get started" is for somebody without an account, so it opens /signup,
   // the same page Pricing's "Create an account" opens.
   const startSignIn = () => {
-    navigate(isAuthMocked || isAuthenticated ? '/app' : '/login');
+    navigate(isAuthMocked || isAuthenticated ? '/home' : '/login');
   };
   const startSignUp = () => {
-    navigate(isAuthMocked || isAuthenticated ? '/app' : '/signup');
+    navigate(isAuthMocked || isAuthenticated ? '/home' : '/signup');
   };
 
 
@@ -231,7 +231,7 @@ export function LandingPage() {
   // Somebody who is already signed in does not need the pitch again. Typing
   // pattadar.com used to land them on ten sections of marketing headed by a
   // "Sign in" button they had already used, and the way to their own records
-  // was to find that button and press it. They go straight to /app instead.
+  // was to find that button and press it. They go straight to /home instead.
   //
   // Below every hook, not beside the others at the top: auth resolves
   // asynchronously, so this branch is taken on a LATER render than the first,
@@ -241,7 +241,7 @@ export function LandingPage() {
   // `isAuthMocked` is excluded deliberately: in local dev and under the e2e
   // mock the dev user is permanently signed in, and redirecting on that would
   // make this page unreachable for the people working on it.
-  if (!isAuthMocked && isAuthenticated) return <Navigate to="/app" replace />;
+  if (!isAuthMocked && isAuthenticated) return <Navigate to="/home" replace />;
 
   return (
     <div className="site" data-scheme="dark">

@@ -87,7 +87,7 @@ separate object the owner creates from it.
 
 - Entry point: a new `RecordCard` menu action beside `Order a service…` and
   `Share…` in `apps/web/src/w360/pages/Properties.tsx` (the `onOrder`/`onShare`
-  pattern), navigating to `/app/records/:id/list`.
+  pattern), navigating to `/properties/:id/list`.
 - The listing is a separate public object created *from* a record, never the
   record itself; the record stays private.
 - Field-by-field publish allowlist chosen by the owner; preview before

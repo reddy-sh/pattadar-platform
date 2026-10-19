@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from difflib import SequenceMatcher
 from dataclasses import dataclass
 from typing import Any
 
@@ -21,28 +22,49 @@ _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]+")
 _SPACE_RE = re.compile(r"\s+")
 _TOKEN_RE = re.compile(r"[\w/-]+", re.UNICODE)
 
-# Fixed routes emitted by the trusted Pattadar shell. Context is never trusted
-# merely because the browser supplied an arbitrary /app path.
+# Fixed routes emitted by the trusted Pattadar shell (apps/web/src/routes.tsx,
+# the children of the pathless `id: 'app'` layout). Context is never trusted
+# merely because the browser supplied an arbitrary path: this is an exact
+# allowlist, so "//host", "https://..." and unknown sections all fail. The admin desk is
+# left out on purpose: its pages are not land-record context.
 _TRUSTED_ROUTES = frozenset(
     {
-        "/app",
-        "/app/parcels",
-        "/app/passbooks",
-        "/app/properties",
-        "/app/documents",
-        "/app/deeds",
-        "/app/groups",
-        "/app/invitations",
-        "/app/wallet",
-        "/app/sro",
-        "/app/stamp-duty",
-        "/app/market-value",
-        "/app/calculator",
-        "/app/notifications",
-        "/app/audit",
-        "/app/profile",
+        "/home",
+        "/properties",
+        "/holdings",
+        "/map",
+        "/maps",
+        "/shared",
+        "/assigned",
+        "/services",
+        "/order",
+        "/papers",
+        "/wallet",
+        "/account",
+        "/groups",
+        "/audit",
+        "/notifications",
+        "/tools",
+        "/profile",
+        "/invitations",
+        "/help",
+        "/refer",
     }
 )
+# The :id routes, matched on their prefix: one id segment and at most one
+# known-shaped sub-page (properties/:id/people, holdings/:id/papers, groups/:id,
+# papers/shelf/:key, services/:id/pay). No dots, so "/properties/../x" fails.
+_TRUSTED_ID_ROUTE = re.compile(
+    r"^/(?:properties|holdings|groups|papers|services|heir)/[A-Za-z0-9_-]{1,80}(?:/[A-Za-z0-9_-]{1,80})?$"
+)
+
+
+def is_trusted_route(path: str) -> bool:
+    """True for a current signed-in Pattadar route, fixed or id-shaped."""
+    path = str(path or "").strip()
+    return path in _TRUSTED_ROUTES or bool(_TRUSTED_ID_ROUTE.fullmatch(path))
+
+
 _TRUSTED_APPS = frozenset({"pattadar", "pattadar platform", "pattadar 360"})
 
 _PRODUCT_TERMS = frozenset(
@@ -57,6 +79,10 @@ _PRODUCT_TERMS = frozenset(
         "family", "inheritance", "holding", "holdings", "record", "records",
         "notification", "wallet", "invitation", "upload", "attachment", "calculator",
         "rate", "price", "guideline", "navigate", "dashboard", "profile",
+        "address", "result", "results", "deed details",
+        # Adding public-record deeds to the account (domain/record_drafts.py).
+        "add to my properties", "my properties", "your properties", "watch", "watching",
+        "watchlist", "watch list", "monitor", "monitoring", "save to my account", "papers",
     }
 )
 _PRODUCT_INTENTS = frozenset(
@@ -72,6 +98,20 @@ _SMALL_TALK = frozenset(
         "thanks", "thank you", "good morning", "good afternoon", "good evening",
     }
 )
+# Bare answers to the assistant's own question ("Would you like me to try the
+# search again?"). They carry no topic of their own, so they are only accepted
+# inside a conversation that already has an accepted Pattadar turn.
+_CONVERSATIONAL_REPLIES = frozenset(
+    {
+        "yes", "yes please", "yeah", "yep", "sure", "ok", "okay", "please do",
+        "go ahead", "do it", "no", "no thanks", "not now",
+        "try again", "please try again", "try now", "try it now", "check now", "search now", "try it again", "retry", "again",
+        "search again", "do that", "continue", "more", "show more",
+    }
+)
+
+_SHORT_FOLLOWUP_CHARS = 80
+_SHORT_FOLLOWUP_WORDS = 10
 
 # Any one of these makes the whole request ineligible, even if product keywords
 # are smuggled into another clause.
@@ -120,7 +160,27 @@ def trusted_application_context(context: dict[str, Any] | None) -> bool:
     page = context.get("page") if isinstance(context.get("page"), dict) else {}
     app_name = normalize_text(str(app.get("name") or app.get("id") or ""))
     path = str(page.get("path") or app.get("path") or "").strip().split("?", 1)[0]
-    return app_name in _TRUSTED_APPS and path in _TRUSTED_ROUTES
+    return app_name in _TRUSTED_APPS and is_trusted_route(path)
+
+
+# Typed on a phone, "prpperites" and "documnets" are still about Pattadar. Only
+# long words are compared, so short off-topic words cannot drift onto a term,
+# and the denied patterns have already run before this is consulted.
+_TYPO_MIN_LENGTH = 6
+_TYPO_RATIO = 0.8
+_TYPO_TERMS = tuple(
+    term for term in _PRODUCT_TERMS if " " not in term and len(term) >= _TYPO_MIN_LENGTH
+)
+
+
+def _is_typo_of_term(token: str) -> bool:
+    if len(token) < _TYPO_MIN_LENGTH:
+        return False
+    return any(
+        abs(len(token) - len(term)) <= 2
+        and SequenceMatcher(None, token, term).ratio() >= _TYPO_RATIO
+        for term in _TYPO_TERMS
+    )
 
 
 def _contains_product_term(text: str) -> bool:
@@ -131,7 +191,7 @@ def _contains_product_term(text: str) -> bool:
                 return True
         elif term in tokens:
             return True
-    return False
+    return any(_is_typo_of_term(token) for token in tokens)
 
 
 def evaluate_scope(
@@ -170,6 +230,20 @@ def evaluate_scope(
         if has_authorized_attachment and has_prior_accepted_turn:
             return ScopeDecision(True, "authorized_attachment_followup", text, trusted_context=trusted)
         return ScopeDecision(False, "unanchored_attachment_request", text, trusted_context=trusted)
+
+    if has_prior_accepted_turn and text.strip(" .!?") in _CONVERSATIONAL_REPLIES:
+        return ScopeDecision(True, "conversational_followup", text, trusted_context=trusted)
+
+    # "get again", "show the results again", "and the 2013 one?" — short turns in
+    # an already-accepted Pattadar conversation. Listing every phrasing failed in
+    # practice, so length bounds the exception instead. The denied patterns above
+    # have already run, and the model's own scope rules still apply.
+    if (
+        has_prior_accepted_turn
+        and len(text) <= _SHORT_FOLLOWUP_CHARS
+        and len(_TOKEN_RE.findall(text)) <= _SHORT_FOLLOWUP_WORDS
+    ):
+        return ScopeDecision(True, "short_followup", text, trusted_context=trusted)
 
     product_term = _contains_product_term(text)
     tokens = set(_TOKEN_RE.findall(text))

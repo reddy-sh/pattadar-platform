@@ -29,6 +29,15 @@ export function parseISOToDisplay(iso: string): string {
     const [, y, m, d] = dateOnly;
     return `${d}/${m}/${y}`;
   }
+  // Already day-first — how deed readings and Indian forms write a date
+  // ("04/03/1998" is the 4th of March). It must never reach `new Date`, which
+  // reads it month-first and swapped the day and month of every reading whose
+  // day was 12 or less. Reshaped by string surgery, like the ISO branch.
+  const dayFirst = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/.exec(iso);
+  if (dayFirst) {
+    const [, d, m, y] = dayFirst;
+    return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
+  }
   const parsed = new Date(iso);
   if (Number.isNaN(parsed.getTime())) {
     return iso;

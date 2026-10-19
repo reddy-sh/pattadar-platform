@@ -133,7 +133,7 @@ struct ReadinessRing: View {
         .frame(width: 66, height: 66)
         .animation(Motion.standard(Motion.considered), value: score)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Record-ready \(score) per cent, \(readiness.verdict.rawValue)")
+        .accessibilityLabel("Documents in order \(score) per cent, \(verdictWord(readiness.verdict))")
     }
 }
 
@@ -236,24 +236,24 @@ struct FixCopy {
         switch id {
         case "title":
             FixCopy(sub: "The document that makes it yours",
-                    why: "Without the registered deed in the vault, a sale or a loan against this property stops here.",
+                    why: "Without the registered deed in Documents, a sale or a loan against this property stops here.",
                     doItMyself: "Scan the deed",
                     haveItDone: "Certified copy from the SRO")
         case "mutation":
             FixCopy(sub: "Still in the seller's name on the revenue record",
                     why: "The pattadar passbook still names the seller. Until the revenue record moves to you, the land is not yours on paper.",
-                    doItMyself: "Update the record details",
+                    doItMyself: "Update the property details",
                     haveItDone: "File the mutation for me")
         case "ec":
             FixCopy(sub: "Shows any loan sitting on the land",
                     why: "An EC shows every loan or claim sitting on this property. Buyers and banks ask for the last 13 years.",
-                    doItMyself: "I have an EC — file it",
+                    doItMyself: "I have an EC — add it",
                     haveItDone: "Get a fresh EC")
         case "tax":
-            FixCopy(sub: "Arrears surface at the worst moment — at sale",
-                    why: "Missing receipts surface at the worst moment, usually at sale. A year's cist is small; the argument about it is not.",
-                    doItMyself: "File a receipt",
-                    haveItDone: "Pay and file it for me")
+            FixCopy(sub: "Unpaid land tax shows up when you try to sell",
+                    why: "Missing receipts show up at the worst moment, usually at sale. A year's kist is small; the argument about it is not.",
+                    doItMyself: "Add a receipt",
+                    haveItDone: "Pay it and add the receipt for me")
         case "location":
             FixCopy(sub: "Nobody but you knows exactly where this is",
                     why: "Nobody but you knows exactly where this is. A drawn boundary is what protects it from a neighbour's plough or a dumped load of gravel.",
@@ -265,8 +265,8 @@ struct FixCopy {
                     doItMyself: "Enter the number",
                     haveItDone: "")
         case "litigation":
-            FixCopy(sub: "Say what is disputed, so the record is honest",
-                    why: "A record that hides its dispute fails at the worst moment. Write down what is contested and by whom.",
+            FixCopy(sub: "Say what is disputed, so this property's details are honest",
+                    why: "Details that hide a dispute fail at the worst moment. Write down what is contested and by whom.",
                     doItMyself: "Add the details",
                     haveItDone: "")
         default:
@@ -290,8 +290,8 @@ struct NeedsYouCard: View {
         let blockers = readiness.blocking.count
         let tidies = readiness.failures.count - blockers
         var parts: [String] = []
-        if blockers > 0 { parts.append("\(blockers) blocker\(blockers == 1 ? "" : "s")") }
-        if tidies > 0 { parts.append("\(tidies) to tidy") }
+        if blockers > 0 { parts.append("\(blockers) must fix") }
+        if tidies > 0 { parts.append("\(tidies) worth fixing") }
         return parts.joined(separator: " · ")
     }
 
@@ -361,7 +361,7 @@ struct FixSheet: View {
                 Circle()
                     .fill(check.blocking ? Palette.danger : Palette.caution)
                     .frame(width: 10, height: 10)
-                Text(check.blocking ? "Blocks a sale or a loan" : "Worth fixing")
+                Text(check.blocking ? "Can hold up a sale or loan" : "Worth fixing")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(check.blocking ? Palette.danger : Palette.caution)
             }
@@ -384,7 +384,7 @@ struct FixSheet: View {
                 }
                 if !copy.haveItDone.isEmpty {
                     Button { dismiss(); onAgent() } label: {
-                        Text("\(copy.haveItDone) · Pattadar agent")
+                        Text("\(copy.haveItDone) · Pattadar provider")
                             .font(.subheadline.weight(.medium))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, Space.md)
@@ -518,7 +518,7 @@ struct BoundarySidesSection: View {
             Label("Boundaries · హద్దులు", systemImage: "square.dashed")
         } footer: {
             if !sides.isEmpty {
-                Text("What the record says the land abuts, in the schedule's own order. In a partition dispute, these four lines are the argument.")
+                Text("What the deed says the land abuts, in the schedule's own order. In a partition dispute, these four lines are the argument.")
             }
         }
     }
@@ -614,7 +614,7 @@ struct CountsList: View {
             row("Boundary on the map", boundaryDrawn ? "Drawn" : "Not drawn",
                 tint: boundaryDrawn ? Palette.success : Palette.caution, action: onBoundary)
             if spent > 0 {
-                LabeledContent("Spent on this land") {
+                LabeledContent("Expenses on this land") {
                     Text(compactRupees(spent)).monospacedDigit()
                 }
             }
@@ -668,8 +668,17 @@ struct StillExpectedSection: View {
             } header: {
                 Text("Still expected")
             } footer: {
-                Text("The papers this kind of property is asked for. File one and it leaves this list.")
+                Text("The documents this kind of property is asked for. Add one and it leaves this list.")
             }
         }
+    }
+}
+
+/// The verdict as words for VoiceOver (E4), never the enum's raw value.
+private func verdictWord(_ v: ReadinessVerdict) -> String {
+    switch v {
+    case .ready: "in order"
+    case .untidy: "worth fixing"
+    case .blocked: "must fix"
     }
 }

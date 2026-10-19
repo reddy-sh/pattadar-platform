@@ -76,9 +76,9 @@ test.describe('W05 · the Media hanger', () => {
   test('is reached from the strip and keeps the record around it', async ({ page, request }) => {
     const id = await scratch(request);
     try {
-      await page.goto(`/app/records/${id}`);
+      await page.goto(`/properties/${id}`);
       await page.locator('.tabs').getByRole('link', { name: /^Media/ }).click();
-      await expect(page).toHaveURL(new RegExp(`/app/records/${id}/photos$`));
+      await expect(page).toHaveURL(new RegExp(`/properties/${id}/media$`));
 
       // The frame: the record is still the <h1>, the breadcrumb names the
       // hanger, and the tab strip is still there to leave by.
@@ -104,7 +104,7 @@ test.describe('W05 · the Media hanger', () => {
 
       // And back out again, without the browser's Back button.
       await page.locator('.tabs').getByRole('link', { name: /^Papers/ }).click();
-      await expect(page).toHaveURL(new RegExp(`/app/records/${id}$`));
+      await expect(page).toHaveURL(new RegExp(`/properties/${id}$`));
     } finally {
       await sweep(request, id);
     }
@@ -114,7 +114,7 @@ test.describe('W05 · the Media hanger', () => {
     const id = await scratch(request);
     try {
       await storageServing(page, [PHOTO]);
-      await page.goto(`/app/records/${id}/photos`);
+      await page.goto(`/properties/${id}/media`);
       await expect(page.locator('.droptile').first()).toBeVisible();
 
       // The drop zone opens the drawer rather than firing the picker, and the

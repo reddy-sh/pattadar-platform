@@ -1,0 +1,7 @@
+{
+  "task_id": "task-aadhaar-vault-s3",
+  "task_description": "Fix Aadhaar upload (local API never received AADHAAR_ENC_KEY after 14b8246; keep the early-503 fix) and rework Aadhaar storage per the approved design: extracted fields as durable records in aadhaar_candidates, full 12 digits only as ciphertext in a separate aadhaar_vault (KMS prod / Fernet local, same flow), opt-in original card on S3 via the existing gateway storage ({node}/{version}, SSE, Postgres metadata) linked by linkAadhaarCard, last-4-only display (XXXX XXXX 1234), reveals retired, Expo reveal removed, iOS fixture made synthetic, start-local loads .local/aadhaar-key.env for the API only, a digit guard, docs, and a reviewed idempotent clear_aadhaar.py run locally only.",
+  "status": "pending",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003", "FEAT-004", "FEAT-005"],
+  "blocked_reason": null
+}

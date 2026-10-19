@@ -1,5 +1,5 @@
 /**
- * The heir's own screen, /app/heir/:id — reached from the invitation they
+ * The heir's own screen, /heir/:id — reached from the invitation they
  * claimed and from the setup tasks on Home.
  *
  * It shows how they were listed (by whom, as what, with what share), lets them
@@ -15,7 +15,8 @@ import { Link, useParams } from 'react-router';
 import { useToast } from '../Toast';
 import { useConfirmHeir, useHeirRecords, useUpdateHeirProfile } from '../growthData';
 import type { HeirRecord } from '../growthData';
-import { Card, Empty, Failed, KV, Loading, PageHead, StatusChip, ddmmyyyy, num } from '../ui';
+import { Sk } from '../skeletons';
+import { Card, Empty, Failed, KV, PageHead, StatusChip, ddmmyyyy, num } from '../ui';
 
 /** 23/04/1990 → 1990-04-23, or '' when it is not a real past date. */
 function isoFromDdmm(text: string): string {
@@ -35,16 +36,26 @@ export function Heir() {
   const q = useHeirRecords();
   const rec = q.data?.find((r) => r.memberId === id);
 
-  if (q.isPending) return <main><Loading h="20rem" what="how you are listed" /></main>;
+  // Every state draws the head (design.md § Page head), not only the loaded one.
+  const head = <PageHead title="How you are listed" />;
+  // The loaded head has an eyebrow over "Listed by …"; keep that line so the cards do not drop.
+  if (q.isPending) {
+    return (
+      <main>
+        <PageHead eyebrow="How you are listed" title={<Sk w="14rem" h="1.5rem" />} docTitle="How you are listed" />
+        <HeirSkeleton />
+      </main>
+    );
+  }
   if (q.isError && !q.data) {
-    return <main><Failed what="Your heir record" error={q.error} onRetry={() => q.refetch()} boxed h="20rem" /></main>;
+    return <main>{head}<Failed what="How you are listed" error={q.error} onRetry={() => q.refetch()} boxed h="20rem" /></main>;
   }
   if (!rec) {
     return (
       <main>
-        <PageHead title="Your heir record" />
-        <Empty boxed h="16rem" icon="person" title="This record is not linked to your account"
-               action={<Link className="btn" to="/app">Go to Home</Link>}>
+        {head}
+        <Empty boxed h="16rem" icon="person" title="This listing is not linked to your account"
+               action={<Link className="btn" to="/home">Go to Home</Link>}>
           Open the invitation link you were sent and accept it while signed in.
         </Empty>
       </main>
@@ -52,14 +63,45 @@ export function Heir() {
   }
   return (
     <main>
-      <PageHead eyebrow="Your heir record" title={`Listed by ${rec.listedBy}`}>
-        {rec.groupName && <p className="note" style={{ margin: 0 }}>{rec.groupName}</p>}
-      </PageHead>
-      <div style={{ display: 'grid', gap: 'var(--space-md)', maxWidth: '46rem' }}>
+      <PageHead eyebrow="How you are listed" title={`Listed by ${rec.listedBy}`}
+                meta={rec.groupName || undefined} />
+      <div style={{ display: 'grid', gap: 'var(--space-md)' }}>
         <HowListed rec={rec} />
         <ProfileForm rec={rec} />
       </div>
     </main>
+  );
+}
+
+/** The two cards' first read: the same Card titles, KV keys and field labels
+ *  as HowListed and ProfileForm, values grey, so nothing moves when they land. */
+function HeirSkeleton() {
+  const field = (label: string, h = '2.5rem') => (
+    <div className="field"><label>{label}</label><Sk h={h} r="var(--radius-md)" /></div>
+  );
+  return (
+    <div role="status" aria-busy="true" aria-label="Loading how you are listed">
+      <div aria-hidden style={{ display: 'grid', gap: 'var(--space-md)' }}>
+        <Card title="How you are listed" aside={<Sk w="7rem" h="1.375rem" r="var(--radius-pill)" />}>
+          <KV rows={['Relationship', 'Listed as', 'Share'].map((k, i) => ({ k, v: <Sk w={`${4 + i * 2}rem`} h="0.9em" /> }))} />
+          <div className="row tight" style={{ marginTop: 'var(--space-md)' }}>
+            <Sk w="9rem" h="2.375rem" r="var(--radius-pill)" />
+            <Sk w="10rem" h="2.375rem" r="var(--radius-pill)" />
+          </div>
+        </Card>
+        <Card title="Your heir profile" aside={<Sk w="6rem" h="1.375rem" r="var(--radius-pill)" />}>
+          <div style={{ display: 'grid', gap: 'var(--space-md)' }}>
+            {field('Date of birth')}
+            {field('Present address', '3.75rem')}
+            <div className="row" style={{ gap: 'var(--space-md)', alignItems: 'flex-start' }}>
+              <div className="grow">{field('Gender')}</div>
+              <div className="grow">{field('Marital status')}</div>
+            </div>
+            <div><Sk w="8rem" h="2.375rem" r="var(--radius-pill)" /></div>
+          </div>
+        </Card>
+      </div>
+    </div>
   );
 }
 

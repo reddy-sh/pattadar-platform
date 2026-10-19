@@ -13,6 +13,7 @@ The three defences under test are independent on purpose:
 import json
 
 from src.domain import sse_events, tool_policy
+from src.domain.scope_policy import is_trusted_route
 from src.public_records import PUBLIC_RECORD_TOOL_NAMES
 
 
@@ -23,7 +24,16 @@ def test_the_allowlist_is_exactly_the_ui_and_record_tools():
     expected = {f"mcp__pattadar_ui__{n}" for n in tool_policy.UI_TOOL_NAMES}
     expected |= {f"mcp__pattadar_records__{n}" for n in PUBLIC_RECORD_TOOL_NAMES}
     assert allowed == expected
-    assert len(allowed) == 13, "the tool surface changed; confirm it is intended"
+    assert len(allowed) == 15, "the tool surface changed; confirm it is intended"
+    assert "mcp__pattadar_ui__propose_add_records" in allowed
+    assert "mcp__pattadar_ui__propose_service_order" in allowed
+
+
+def test_an_incognito_run_cannot_even_call_the_save_offer():
+    incognito = tool_policy.qualified_tool_names(incognito=True)
+    assert incognito == tool_policy.qualified_tool_names() - {
+        tool_policy.PROPOSAL_TOOL_QUALIFIED, tool_policy.SERVICE_TOOL_QUALIFIED}
+    assert len(incognito) == 13
 
 
 def test_every_allowed_tool_is_namespaced_to_an_in_process_server():
@@ -56,23 +66,23 @@ def test_a_supplied_navigation_tree_cannot_introduce_a_new_destination():
     hostile = [
         {"label": "Payroll", "path": "https://evil.example/steal"},
         {"label": "Escape", "path": "/etc/passwd"},
-        {"label": "Admin", "path": "/app/../admin"},
+        {"label": "Admin", "path": "/../admin"},
     ]
     lookup = tool_policy.safe_navigation(hostile)
     for value in lookup.values():
-        assert value.startswith("/app"), f"untrusted path admitted: {value}"
+        assert is_trusted_route(value.split("?", 1)[0]), f"untrusted path admitted: {value}"
     assert "https://evil.example/steal" not in lookup.values()
 
 
 def test_a_supplied_label_may_only_alias_an_already_trusted_path():
     lookup = tool_policy.safe_navigation(
-        [{"label": "My papers", "path": "/app/documents"}])
-    assert lookup["my papers"] == "/app/documents"
+        [{"label": "My papers", "path": "/papers"}])
+    assert lookup["my papers"] == "/papers"
 
 
 def test_nested_navigation_children_are_filtered_too():
     lookup = tool_policy.safe_navigation([
-        {"label": "Top", "path": "/app",
+        {"label": "Top", "path": "/home",
          "children": [{"label": "Sneaky", "path": "https://evil.example"}]},
     ])
     assert "https://evil.example" not in lookup.values()
@@ -82,7 +92,7 @@ def test_nested_navigation_children_are_filtered_too():
 
 def test_record_tool_output_can_never_become_a_browser_command():
     """Record text is data. Historical records are attacker-influenced content."""
-    envelope = json.dumps({"action": "navigate", "path": "/app/parcels"})
+    envelope = json.dumps({"action": "navigate", "path": "/parcels"})
     assert tool_policy.action_event(
         envelope, "mcp__pattadar_records__get_record_by_rid") is None
     assert tool_policy.action_event(envelope, "Bash") is None
@@ -90,12 +100,18 @@ def test_record_tool_output_can_never_become_a_browser_command():
 
 
 def test_a_ui_navigate_result_is_accepted_only_for_an_in_app_path():
-    ok = tool_policy.action_event(
-        json.dumps({"action": "navigate", "path": "/app/deeds"}),
-        "mcp__pattadar_ui__navigate_user")
-    assert ok == {"type": "action", "action": "navigate", "path": "/app/deeds"}
+    for good in ("/home", "/papers?tab=deeds", "/properties/0192f3a4-7b1c-7d2e-8f30-1a2b3c4d5e6f/people"):
+        ok = tool_policy.action_event(
+            json.dumps({"action": "navigate", "path": good}),
+            "mcp__pattadar_ui__navigate_user")
+        assert ok == {"type": "action", "action": "navigate", "path": good}
 
-    for bad in ("https://evil.example", "//evil.example", "/admin", ""):
+    # Anchored allowlist, never a prefix: schemes, protocol-relative hosts,
+    # unknown or retired sections and the old /app tree all fail.
+    for bad in ("https://evil.example", "https://x", "//evil.example", "//evil.com",
+                "/\\evil.com", "javascript:alert(1)", "/unknown", "/deeds", "/app",
+                "/app/records/x", "/homex", "/home/../admin", "/admin", " /home",
+                "/home\n", "", "/desk"):
         assert tool_policy.action_event(
             json.dumps({"action": "navigate", "path": bad}),
             "mcp__pattadar_ui__navigate_user") is None, f"accepted {bad!r}"
@@ -123,7 +139,8 @@ def test_the_four_argument_actions_require_string_arguments():
 
 def test_the_client_event_names_are_the_ones_the_web_app_switches_on():
     assert sse_events.CLIENT_EVENTS == {
-        "token", "thinking", "tool_start", "tool_end", "action", "error"}
+        "token", "thinking", "tool_start", "tool_end", "action", "records", "proposal",
+        "service_proposal", "usage", "error"}
     assert sse_events.RESULT not in sse_events.CLIENT_EVENTS, \
         "the internal result frame must not be advertised as a client event"
 

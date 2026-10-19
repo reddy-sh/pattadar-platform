@@ -987,8 +987,8 @@ const holdingTabBlock = holdingFrame
 check(
   'record tabs declare document, viewport, or split-instrument layout',
   /data-tab-layout=\{layout\}/.test(recordFrame)
-    && /tab\.to === 'map' \? 'split-instrument'/.test(recordFrame)
-    && /tab\.to === 'photos' \|\| tab\.to === 'people' \? 'viewport' : 'document'/.test(recordFrame),
+    && /tab\.to === 'location' \? 'split-instrument'/.test(recordFrame)
+    && /tab\.to === 'media' \|\| tab\.to === 'people' \? 'viewport' : 'document'/.test(recordFrame),
 );
 check(
   'holding tabs declare the same layout contract',
@@ -997,9 +997,19 @@ check(
 );
 check(
   'the active tab inventories stay complete',
-  (recordTabBlock.match(/\bto:/g) ?? []).length === 9
+  (recordTabBlock.match(/\bto:/g) ?? []).length === 10
     && (holdingTabBlock.match(/\bto:/g) ?? []).length === 6,
-  'there must be nine Record tabs and six Holding tabs',
+  'there must be ten Record tabs (Overview first) and six Holding tabs',
+);
+// Overview is the record's index (docs/specs/2026-10-11-property-overview.md
+// §1): the first tab is '' → Overview, Documents lives at /documents, and the
+// routes mount them that way. No alias for the old Documents address.
+check(
+  'Overview is the record index and Documents is /documents',
+  /^\s*(?:\/\/[^\n]*\n\s*)*\{ to: '', label: 'Overview'/.test(recordTabBlock)
+    && /\{ to: 'documents', label: 'Documents'/.test(recordTabBlock)
+    && /index: true, element: suspended\(W360Overview\) \},\s*\{ path: 'documents', element: suspended\(W360Papers\) \}/
+      .test(code('apps/web/src/routes.tsx')),
 );
 check(
   'People chain fills the viewport without a duplicate deed list',

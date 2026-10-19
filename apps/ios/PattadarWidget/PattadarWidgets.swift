@@ -31,10 +31,10 @@ struct FilingControl: ControlWidget {
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(kind: "com.rfactory.pattadar.control.file") {
             ControlWidgetButton(action: FileAPaperIntent()) {
-                Label("File a paper", systemImage: "doc.viewfinder")
+                Label("Add a document", systemImage: "doc.viewfinder")
             }
         }
-        .displayName("File a paper")
-        .description("Photograph a deed or passbook straight into your vault.")
+        .displayName("Add a document")
+        .description("Take a photo of a deed or passbook straight into Documents.")
     }
 }

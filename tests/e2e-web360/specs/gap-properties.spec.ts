@@ -165,7 +165,7 @@ test.afterEach(async ({ request }) => {
 
 test.describe('W01 · the things waiting on you', () => {
   test('a reminder cannot be thrown away by one slip of the pointer', async ({ page }) => {
-    await page.goto('/app');
+    await page.goto('/home');
     await expect(page.getByText('2 things waiting on you')).toBeVisible();
 
     await page.getByRole('button', { name: `Dismiss: ${ADVOCATE}` }).click();
@@ -198,7 +198,7 @@ test.describe('W01 · the things waiting on you', () => {
     test.skip(!canRestoreWaiting(),
       'needs psql and TEST_PG_DSN to put w360-wi-2 back: the dismissal has no inverse in the app');
 
-    await page.goto('/app');
+    await page.goto('/home');
     await expect(page.getByText('2 things waiting on you')).toBeVisible();
 
     await page.getByRole('button', { name: `Dismiss: ${ADVOCATE}` }).click();
@@ -225,33 +225,33 @@ test.describe('W01 · the things waiting on you', () => {
   });
 
   test('a thing waiting on you opens where that thing lives', async ({ page }) => {
-    await page.goto('/app');
+    await page.goto('/home');
     const rows = waitingPanel(page).locator('.rows > *');
 
     // A row that names a record opens that record's 360 — where its papers,
     // its people and its service tickets actually hang.
     await rows.filter({ hasText: SIGNATURE }).getByRole('link', { name: 'Open record' }).click();
-    await expect(page).toHaveURL(/\/app\/records\/w360-p-214-2$/);
+    await expect(page).toHaveURL(/\/properties\/w360-p-214-2$/);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sy 214/2');
 
     // A lock row is about something shared out, and every live link — its
     // terms, its days left, its revoke — lives on Papers.
-    await page.goto('/app');
+    await page.goto('/home');
     await rows.filter({ hasText: "Advocate's link" }).getByRole('link', { name: 'Open Documents' }).click();
-    await expect(page).toHaveURL(/\/app\/papers$/);
+    await expect(page).toHaveURL(/\/papers$/);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Papers');
 
     // The title is a link to the same place, so reading the row and acting on
     // it are not two different targets a pixel apart.
-    await page.goto('/app');
+    await page.goto('/home');
     await rows.filter({ hasText: SIGNATURE }).getByRole('link', { name: SIGNATURE }).click();
-    await expect(page).toHaveURL(/\/app\/records\/w360-p-214-2$/);
+    await expect(page).toHaveURL(/\/properties\/w360-p-214-2$/);
 
     // The regression guard proper: every one of these rows once carried the
     // server's action_label — "Sign", "Extend", "Combine" — on a control wired
     // to dismissWaiting. Pressing "Sign" signed nothing and silently threw the
     // reminder away. A row may only offer what it can honour.
-    await page.goto('/app');
+    await page.goto('/home');
     const panel = waitingPanel(page);
     await expect(panel.getByRole('button', { name: /^(Sign|Extend|Combine)$/ })).toHaveCount(0);
     await expect(panel.getByRole('link', { name: /^(Sign|Extend|Combine)$/ })).toHaveCount(0);
@@ -280,7 +280,7 @@ test.describe('W01 · the things waiting on you', () => {
       return route.fulfill({ json: { data: { web: { portfolio: firstRun } } } });
     });
 
-    await page.goto('/app');
+    await page.goto('/home');
     await expect(page.getByText('No properties yet')).toBeVisible();
 
     // One sentence, not four ₹0 tiles over an empty chart and a heading with
@@ -301,7 +301,7 @@ test.describe('W01 · the things waiting on you', () => {
     // rather than leaving the newcomer on a list with an Add button they have
     // to find for themselves.
     await page.getByRole('link', { name: 'Add a property' }).click();
-    await expect(page).toHaveURL(/\/app\/properties/);
+    await expect(page).toHaveURL(/\/properties/);
     const drawer = page.locator('aside.drawer');
     await expect(drawer).toBeVisible();
     await expect(drawer.getByRole('heading', { name: 'Add a property' })).toBeVisible();
@@ -313,7 +313,7 @@ test.describe('W02 · the list with nothing on it', () => {
     const ids = await archiveEverything(request);
     expect(ids.length).toBeGreaterThan(0);
 
-    await page.goto('/app/properties');
+    await page.goto('/properties');
 
     // An account that holds nothing and an account that put everything away
     // both report total === 0. Telling the second one "Nothing here yet" and
@@ -350,7 +350,7 @@ test.describe('W02 · the list with nothing on it', () => {
         extent:1, marketValue:100000 }) } }`);
     }
 
-    await page.goto('/app/properties?q=Sy+777+BULK');
+    await page.goto('/properties?q=Sy+777+BULK');
     await expect(page.locator('.cards .rec')).toHaveCount(2);
 
     const bar = page.locator('.bulkbar');
@@ -387,12 +387,12 @@ test.describe('W02 · the list with nothing on it', () => {
 
     // Exactly those two moved, and the bar went with the selection it acted on.
     await expect(bar).toHaveCount(0);
-    await page.goto('/app/properties');
+    await page.goto('/properties');
     await expect(page.getByText('9 of 9 shown')).toBeVisible();
 
     // Against archived rows the same button offers the way back rather than a
     // second archive that would do nothing.
-    await page.goto('/app/properties?status=archived&q=Sy+777+BULK');
+    await page.goto('/properties?status=archived&q=Sy+777+BULK');
     await expect(page.locator('.cards .rec')).toHaveCount(2);
     await page.getByRole('checkbox', { name: 'Select Sy 777 BULK-A' }).check();
     await expect(bar.getByRole('button', { name: 'Unarchive', exact: true })).toBeVisible();
@@ -406,7 +406,7 @@ test.describe('W02 · the record drawer keeps what it was given', () => {
       kind:"parcel", title:"Sy 777 Worth", khataNo:"777", village:"E2E Palem",
       extent:1, marketValue:900000 }) } }`)).saveRecord;
 
-    await page.goto('/app/properties?q=Sy+777+Worth');
+    await page.goto('/properties?q=Sy+777+Worth');
     await expect(page.locator('.rec', { hasText: 'Sy 777 Worth' })).toHaveCount(1);
 
     await page.getByRole('button', { name: 'Actions for Sy 777 Worth' }).click();
@@ -444,8 +444,8 @@ test.describe('W02 · the record drawer keeps what it was given', () => {
   });
 
   test('a half-typed record survives an accidental Escape', async ({ page, request }) => {
-    await page.goto('/app/properties');
-    await page.getByRole('button', { name: 'Add', exact: true }).click();
+    await page.goto('/properties');
+    await page.getByRole('button', { name: 'Add a property', exact: true }).click();
     const drawer = page.locator('aside.drawer');
     // The drawer opens on the document; the form is one link down.
     await drawer.getByRole('button', { name: 'Enter the details by hand instead' }).click();
@@ -477,7 +477,7 @@ test.describe('W02 · the record drawer keeps what it was given', () => {
     // And the guard must not nag about work nobody did: an untouched drawer
     // closes on Escape at once, or the confirmation becomes noise people learn
     // to click through.
-    await page.getByRole('button', { name: 'Add', exact: true }).click();
+    await page.getByRole('button', { name: 'Add a property', exact: true }).click();
     await expect(drawer).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(drawer).toHaveCount(0);
@@ -491,8 +491,8 @@ test.describe('W02 · the record drawer keeps what it was given', () => {
       status: 503, contentType: 'application/json', body: JSON.stringify({ detail: 'storage is down' }),
     }));
 
-    await page.goto('/app/properties');
-    await page.getByRole('button', { name: 'Add', exact: true }).click();
+    await page.goto('/properties');
+    await page.getByRole('button', { name: 'Add a property', exact: true }).click();
     const drawer = page.locator('aside.drawer');
     await drawer.locator('input[type=file]').setInputFiles({
       name: 'sale-deed.pdf', mimeType: 'application/pdf',

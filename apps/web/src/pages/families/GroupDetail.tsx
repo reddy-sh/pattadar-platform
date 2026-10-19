@@ -1,6 +1,6 @@
 /**
  * GroupDetail — in-page detail section for a selected group (the rebuild's
- * routes have no /app/groups/:id, so the rhub GroupDetailView renders here
+ * routes have no /groups/:id, so the rhub GroupDetailView renders here
  * as a section under the cards). Ports: header + Edit/Delete group, the
  * family inactivity-safeguard alert + notifier priority editor, and the
  * Members / Land / Invitations / Activity tabs with the full member table,
@@ -155,7 +155,7 @@ export function GroupDetail({ group, notify }: { group: Group; notify: Notify })
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-          <Button variant="outlined" onClick={() => navigate(`/app/parcels?group=${group.id}`)}>
+          <Button variant="outlined" onClick={() => navigate(`/legacy/parcels?group=${group.id}`)}>
             View holdings ›
           </Button>
           <Button onClick={() => setEditOpen(true)}>Edit</Button>
@@ -582,6 +582,7 @@ function MembersTab({
         parcels={data.parcels}
         myAddress={data.myAddress}
         groupType={group.type}
+        groupFacts={group.facts}
         onCancel={() => setDialogOpen(false)}
         onSubmit={submit}
         notify={notify}

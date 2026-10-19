@@ -43,10 +43,10 @@ test.describe.serial('W02 · the list acts', () => {
   test.afterAll(async ({ request }) => { await sweep(request); });
 
   test('Add opens the drawer, and a new parcel lands in the grid', async ({ page }) => {
-    await page.goto('/app/properties');
+    await page.goto('/properties');
     await expect(page.getByText('9 of 9 shown')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Add', exact: true }).click();
+    await page.getByRole('button', { name: 'Add a property', exact: true }).click();
     const drawer = page.locator('.drawer');
     await expect(drawer.getByRole('heading', { name: 'Add a property' })).toBeVisible();
 
@@ -76,7 +76,7 @@ test.describe.serial('W02 · the list acts', () => {
   });
 
   test('Edit from the kebab changes only what the form touched', async ({ page }) => {
-    await page.goto('/app/properties');
+    await page.goto('/properties');
     await page.getByRole('button', { name: 'Actions for Sy 777/1' }).click();
     await page.getByRole('menuitem', { name: 'Edit…' }).click();
 
@@ -95,7 +95,7 @@ test.describe.serial('W02 · the list acts', () => {
   });
 
   test('Archive removes it from the list; the Archived facet brings it back', async ({ page }) => {
-    await page.goto('/app/properties');
+    await page.goto('/properties');
     await page.getByRole('button', { name: 'Actions for Sy 777/1A' }).click();
     await page.getByRole('menuitem', { name: 'Archive' }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Archive' }).click();
@@ -135,7 +135,7 @@ test.describe.serial('W02 · the list acts', () => {
   });
 
   test('the bulk bar orders an EC for the selection, and Services lists it', async ({ page }) => {
-    await page.goto('/app/properties');
+    await page.goto('/properties');
     const card = page.locator('.rec', { hasText: 'Sy 777/1A' });
     await card.hover();
     await card.locator('.sel input').check();
@@ -145,14 +145,14 @@ test.describe.serial('W02 · the list acts', () => {
     await bar.getByRole('button', { name: 'Order EC ×1' }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Order EC ×1' }).click();
 
-    await page.goto('/app/services');
+    await page.goto('/services');
     const row = page.locator('.rows > *', { hasText: 'Sy 777/1A' });
     await expect(row).toContainText('Encumbrance Certificate');
     await expect(row).toContainText('Placed');
   });
 
   test('the bulk bar tags the selection, and the rail learns the tag', async ({ page }) => {
-    await page.goto('/app/properties');
+    await page.goto('/properties');
     const card = page.locator('.rec', { hasText: 'Sy 777/1A' });
     await card.hover();
     await card.locator('.sel input').check();
@@ -169,7 +169,7 @@ test.describe.serial('W02 · the list acts', () => {
   });
 
   test('Delete takes the record and everything filed under it', async ({ page }) => {
-    await page.goto('/app/properties');
+    await page.goto('/properties');
     await page.getByRole('button', { name: 'Actions for Sy 777/1A' }).click();
     await page.getByRole('menuitem', { name: 'Delete…' }).click();
 
@@ -182,9 +182,9 @@ test.describe.serial('W02 · the list acts', () => {
     await expect(page.locator('.rec', { hasText: 'Sy 777' })).toHaveCount(0);
 
     // Its EC order and its tag died with it.
-    await page.goto('/app/services');
+    await page.goto('/services');
     await expect(page.locator('.rows > *', { hasText: 'Sy 777' })).toHaveCount(0);
-    await page.goto('/app/properties');
+    await page.goto('/properties');
     await page.getByRole('button', { name: '+ Filter' }).click();
     await expect(page.getByRole('group', { name: 'Narrow the list' })
       .getByText('e2e sweep')).toHaveCount(0);
@@ -195,7 +195,7 @@ test.describe.serial('W02 · the list is usable without a mouse', () => {
   test.afterAll(async ({ request }) => { await sweep(request); });
 
   test('the kebab opens on Enter, arrows move, and Escape returns focus', async ({ page }) => {
-    await page.goto('/app/properties');
+    await page.goto('/properties');
     const kebab = page.getByRole('button', { name: 'Actions for Sy 214/2' });
     await kebab.focus();
     await page.keyboard.press('Enter');
@@ -225,14 +225,14 @@ test.describe.serial('W02 · the list is usable without a mouse', () => {
   });
 
   test('a selection survives being looked at another way', async ({ page }) => {
-    await page.goto('/app/properties');
+    await page.goto('/properties');
     await page.locator('.rec .sel input').first().check();
     await expect(page.locator('.bulkbar')).toContainText('1 property selected');
 
     // The view is in the URL alongside the filter, and the reset used to key on
     // the whole query string — so Grid → List threw the selection away. The
     // three views draw the same records; there is nothing to protect against.
-    await page.getByRole('button', { name: 'List' }).click();
+    await page.getByRole('button', { name: 'Table' }).click();
     await expect(page.locator('.rectable')).toBeVisible();
     await expect(page.locator('.bulkbar')).toContainText('1 property selected');
 
@@ -245,8 +245,8 @@ test.describe.serial('W02 · the list is usable without a mouse', () => {
   });
 
   test('a sort click keeps focus on the heading it was made from', async ({ page }) => {
-    await page.goto('/app/properties');
-    await page.getByRole('button', { name: 'List' }).click();
+    await page.goto('/properties');
+    await page.getByRole('button', { name: 'Table' }).click();
 
     const worth = page.locator('.rectable').getByRole('button', { name: 'Worth' });
     await worth.focus();
@@ -267,7 +267,7 @@ test.describe.serial('W02 · the list is usable without a mouse', () => {
       village:"E2E Palem", mandal:"E2E Mandal", extent:850, extentUnit:"sq.yd",
       marketValue:900000 }) } }`);
 
-    await page.goto('/app/properties');
+    await page.goto('/properties');
     const card = page.locator('.rec', { hasText: 'Sy 777 Shop' });
     await expect(card).toContainText('850 sq.yd');
 
@@ -287,21 +287,21 @@ test.describe.serial('W02 · what archiving and deleting must not touch', () => 
 
   test('an archived record stops asking for things on the Dashboard', async ({ page, request }) => {
     // Sy 214/2 carries a waiting item and running costs in the seed.
-    await page.goto('/app');
+    await page.goto('/home');
     await expect(page.getByText('Mutation for Sy 214/2 needs your signature')).toBeVisible();
     const costs = await page.locator('.strip, .card').getByText(/Running costs/i).first()
       .isVisible().catch(() => false);
     expect(costs !== undefined).toBeTruthy();
 
     await gql(request, `mutation { web { archiveRecords(ids:["w360-p-214-2"], archived:true) } }`);
-    await page.goto('/app');
+    await page.goto('/home');
     // It left the tiles AND the deadline list — a record put away must not
     // keep generating work.
     await expect(page.getByText('Mutation for Sy 214/2 needs your signature')).toHaveCount(0);
     await expect(page.getByText('214/2 and 214/3 share a boundary')).toHaveCount(0);
 
     await gql(request, `mutation { web { archiveRecords(ids:["w360-p-214-2"], archived:false) } }`);
-    await page.goto('/app');
+    await page.goto('/home');
     await expect(page.getByText('Mutation for Sy 214/2 needs your signature')).toBeVisible();
   });
 
@@ -313,7 +313,7 @@ test.describe.serial('W02 · what archiving and deleting must not touch', () => 
 
     const pop = page.getByRole('group', { name: 'Narrow the list' });
 
-    await page.goto('/app/properties');
+    await page.goto('/properties');
     await page.getByRole('button', { name: '+ Filter' }).click();
     await expect(pop.getByText('e2e lonely')).toBeVisible();
 
@@ -330,7 +330,7 @@ test.describe.serial('W02 · what archiving and deleting must not touch', () => 
       kind:"property", title:"Sy 777 House", classification:"flat",
       village:"E2E Palem", extent:1500, extentUnit:"sq.ft", marketValue:500000 }) } }`)).saveRecord;
 
-    await page.goto('/app/properties');
+    await page.goto('/properties');
     await expect(page.locator('.rec', { hasText: 'Sy 777 House' })).toContainText('1,500 sq.ft');
 
     // Change ONLY what it is. The extent field is never touched, so nothing
@@ -351,8 +351,8 @@ test.describe.serial('W02 · what archiving and deleting must not touch', () => 
 
 test.describe('W02 · list view mechanics', () => {
   test('the header is a band of sort controls, and Worth actually sorts', async ({ page }) => {
-    await page.goto('/app/properties');
-    await page.getByRole('button', { name: 'List' }).click();
+    await page.goto('/properties');
+    await page.getByRole('button', { name: 'Table' }).click();
 
     const table = page.locator('.rectable');
     // The DOM says "Record"; the capitals are the stylesheet's doing.
@@ -379,8 +379,8 @@ test.describe('W02 · list view mechanics', () => {
   });
 
   test('every row carries its own kebab, and the header its select-all', async ({ page }) => {
-    await page.goto('/app/properties');
-    await page.getByRole('button', { name: 'List' }).click();
+    await page.goto('/properties');
+    await page.getByRole('button', { name: 'Table' }).click();
 
     await page.getByRole('checkbox', { name: 'Select all shown' }).check();
     await expect(page.locator('.bulkbar')).toContainText('9 records selected');
@@ -393,7 +393,7 @@ test.describe('W02 · list view mechanics', () => {
   });
 
   test('Export writes the visible list to a CSV', async ({ page }) => {
-    await page.goto('/app/properties');
+    await page.goto('/properties');
     await expect(page.getByText('9 of 9 shown')).toBeVisible();
 
     const waiting = page.waitForEvent('download');

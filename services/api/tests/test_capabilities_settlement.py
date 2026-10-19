@@ -29,6 +29,7 @@ BASE = [
     "CREATE TABLE parcels (id TEXT PRIMARY KEY,passbook_id TEXT,survey_no TEXT,boundary TEXT DEFAULT '',created_at TEXT DEFAULT '')",
     "CREATE TABLE properties (id TEXT PRIMARY KEY,owner_user_id TEXT,label TEXT,boundary TEXT DEFAULT '',created_at TEXT DEFAULT '',group_id TEXT DEFAULT '',type TEXT DEFAULT 'open_plot',locality TEXT DEFAULT '',city TEXT DEFAULT '',district TEXT DEFAULT '')",
     "CREATE TABLE documents (id TEXT PRIMARY KEY,owner_user_id TEXT,name TEXT DEFAULT '',record_id TEXT DEFAULT '',parcel_id TEXT DEFAULT '',property_id TEXT DEFAULT '',file_ref TEXT DEFAULT '',subtitle TEXT DEFAULT '',shelf TEXT DEFAULT '',doc_type TEXT DEFAULT '',page_count INT DEFAULT 0,size_bytes BIGINT DEFAULT 0,mime_type TEXT DEFAULT '',source TEXT DEFAULT '',order_ref TEXT DEFAULT '',created_at TEXT DEFAULT '',sort INT DEFAULT 0,aadhaar_record_id TEXT DEFAULT '')",
+    "CREATE TABLE document_record_links (owner_user_id TEXT NOT NULL,document_id TEXT NOT NULL,record_id TEXT NOT NULL,created_at TEXT NOT NULL DEFAULT '',PRIMARY KEY (owner_user_id,document_id,record_id))",
     "CREATE TABLE parcel_photos (id TEXT PRIMARY KEY,owner_user_id TEXT,parcel_id TEXT,file_ref TEXT,caption TEXT,file_name TEXT)",
     "CREATE TABLE property_photos (id TEXT PRIMARY KEY,owner_user_id TEXT,property_id TEXT,file_ref TEXT,caption TEXT,file_name TEXT)",
     "CREATE TABLE work_requests (id TEXT PRIMARY KEY,owner_user_id TEXT,kind TEXT DEFAULT 'ec',service_key TEXT DEFAULT '',title TEXT DEFAULT 'EC',entity_type TEXT DEFAULT 'record',entity_id TEXT DEFAULT 'record-a',assignee TEXT DEFAULT '',cost DOUBLE PRECISION DEFAULT 1000,stage INT DEFAULT 0,needs_you BOOLEAN DEFAULT false,note TEXT DEFAULT '',due_date TEXT DEFAULT '',closed BOOLEAN DEFAULT false,created_at TEXT DEFAULT '',params TEXT DEFAULT '{}',area_key TEXT DEFAULT '',area_label TEXT DEFAULT '',status TEXT DEFAULT '',status_at TEXT DEFAULT '',quoted DOUBLE PRECISION DEFAULT 0,payee_share DOUBLE PRECISION DEFAULT 0,assignee_ref TEXT DEFAULT '')",
@@ -62,7 +63,8 @@ async def database():
             for stmt in w._DDL:
                 if any(word in stmt for word in ("share_links", "service_order_intents", "record_people")):
                     await conn.execute(stmt)
-            for stmt in t.DDL:
+            # The catalogue tables every order now reads its price from.
+            for stmt in [*t.DDL, *w.catalogue.DDL]:
                 await conn.execute(stmt)
             await conn.execute("INSERT INTO properties (id,owner_user_id,label,boundary,locality,city,district) VALUES ('record-a','owner-a','Parcel A','17,82;17.01,82;17.01,82.01','Podili','Podili','Prakasam'),('record-b','owner-b','Parcel B','','Other','Other','Other')")
             await conn.execute("INSERT INTO documents (id,owner_user_id,record_id,file_ref,name) VALUES ('doc-a','owner-a','record-a','file-a','Deed'),('doc-b','owner-b','record-b','file-b','Private deed')")
@@ -204,7 +206,15 @@ def test_order_manifest_idempotency_and_worker_scope(monkeypatch):
             async def stub_send(*args, **kwargs):
                 return {'provider':'stub','status':'logged','error':''}
             monkeypatch.setattr(w, '_send', stub_send)
-            dispatch_id = await mutation.dispatch_ticket('owner-a', ticket['id'], 'worker@example.com', person_name='Surveyor', channel='email')
+            # Sending to a provider is the desk's move now (service order spec §7).
+            monkeypatch.setenv('PLATFORM_ADMIN_UIDS', 'desk-admin')
+            async def no_desk_read(*args, **kwargs):
+                return None
+            monkeypatch.setattr(w, '_desk_read', no_desk_read)
+            async with pool.connection() as conn:
+                await conn.execute(next(d for d in w.associates.DDL if 'platform_settings' in d))
+            assert await mutation.desk_dispatch_ticket('owner-a', ticket['id'], 'worker@example.com') == ''
+            dispatch_id = await mutation.desk_dispatch_ticket('desk-admin', ticket['id'], 'worker@example.com', person_name='Surveyor', channel='email')
             async with pool.connection() as conn:
                 dispatch = await (await conn.execute('SELECT * FROM ticket_dispatches WHERE id=%s', (dispatch_id,))).fetchone()
             import re
@@ -221,9 +231,41 @@ def test_order_manifest_idempotency_and_worker_scope(monkeypatch):
                 dv = await (await conn.execute('SELECT * FROM ticket_deliverables')).fetchone()
                 assert dv['submitted_via'] == 'worker' and dv['submitted_by'] == 'Surveyor'
                 assert (await (await conn.execute('SELECT count(*) AS n FROM documents')).fetchone())['n'] == 2
-            assert await mutation.revoke_dispatch('owner-a', dispatch_id)
+            assert not await mutation.desk_revoke_dispatch('owner-a', dispatch_id)
+            assert await mutation.desk_revoke_dispatch('desk-admin', dispatch_id)
             with pytest.raises(HTTPException):
                 await c.worker_deliverable(token, {'label':'Late submission','fileRef':'late-file'})
+    asyncio.run(run())
+
+
+def test_a_refused_batch_does_not_spend_its_idempotency_key():
+    """A batch blocked by an open request places nothing, so its key stays
+    free: once that request closes, a retry under the same key is placed."""
+    async def run():
+        async with database() as pool:
+            async with pool.connection() as conn:
+                for stmt in w._DDL:
+                    if 'service_batches' in stmt or 'ADD COLUMN IF NOT EXISTS batch_id' in stmt \
+                            or 'ADD COLUMN IF NOT EXISTS service_key' in stmt:
+                        await conn.execute(stmt)
+            mutation = w.WebMutation()
+            manifest = json.dumps({'documentIds': ['doc-a'], 'includeBoundary': True})
+            assert await mutation.order_service(
+                'owner-a', record_ids=['record-a'], kind='ec',
+                attachment_manifest=manifest, idempotency_key='intent-a') == 1
+            items = json.dumps([{'kind': 'ec', 'params': {}}])
+            key = 'asst:s-1:record-a:ec'
+            assert await mutation.order_service_batch(
+                'owner-a', 'record-a', items, idempotency_key=key) is None
+            async with pool.connection() as conn:
+                left = await (await conn.execute(
+                    "SELECT count(*) AS n FROM service_order_intents WHERE intent_key=%s", (key,))).fetchone()
+                assert left['n'] == 0
+                await conn.execute("UPDATE work_requests SET closed=true WHERE owner_user_id='owner-a'")
+            first = await mutation.order_service_batch('owner-a', 'record-a', items, idempotency_key=key)
+            assert first is not None and first.order_count == 1
+            again = await mutation.order_service_batch('owner-a', 'record-a', items, idempotency_key=key)
+            assert again is not None and again.batch_id == first.batch_id
     asyncio.run(run())
 
 
@@ -322,4 +364,19 @@ def test_a_filed_aadhaar_card_never_enters_a_share_or_a_property_link():
             assert await mutation.link_papers("owner-a", ["doc-aadhaar"], ["record-a"]) is False
             assert await mutation.link_papers("owner-a", ["doc-a"], ["record-a"]) is True, \
                 "the refusal is the Aadhaar guard, not a missing record"
+    asyncio.run(run())
+def test_a_paper_linked_to_a_second_record_shares_from_it():
+    """One passbook is filed on its first survey and LINKED to the rest; each
+    of them must be able to share it, and a link on another owner's paper
+    must not pull it into this owner's share."""
+    async def run():
+        async with database() as pool:
+            async with pool.connection() as conn:
+                await conn.execute("INSERT INTO properties (id,owner_user_id,label) VALUES ('record-a2','owner-a','Parcel A2')")
+                await conn.execute("INSERT INTO document_record_links (owner_user_id,document_id,record_id)"
+                                   " VALUES ('owner-a','doc-a','record-a2'),('owner-a','doc-b','record-a2')")
+                snap = await c.snapshot(conn, "owner-a", "record-a2", {"documentIds": ["doc-a"]})
+                assert [i["id"] for i in snap["items"]] == ["doc-a"]
+                snap = await c.snapshot(conn, "owner-a", "record-a2", {}, all_documents=True)
+                assert [i["id"] for i in snap["items"]] == ["doc-a"]
     asyncio.run(run())

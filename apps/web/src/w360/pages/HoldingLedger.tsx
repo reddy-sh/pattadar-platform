@@ -21,12 +21,22 @@ import {
 } from '../api';
 import type { HoldingExpenseRow } from '../api';
 import {
-  Cell, Chip, Empty, Failed, Icon, Loading, Pill, SHELF_WORD, Tag, csvCell, ddmmyyyy,
-  inr, inrOr, num, plural,
+  Card, Cell, Empty, FacetFilter, Failed, Icon, Pill, SHELF_WORD, Segmented, SelectAllBox, SelectCell,
+  SelectionBar, Tag, TablePager, ToolbarBand, YearSelect, ddmmyyyy, downloadCsv, inr, inrOr, num,
+  plural, usePaged, useRowSelection,
 } from '../ui';
 import { useHoldingCtx } from './Holding';
 import { displayDetail } from '../paperFiling';
 import { HoldingExpenseDialog } from './HoldingActions';
+import { SectionHead } from './RecordHead';
+import { Sk, SkRows, SkTable } from '../skeletons';
+
+/** A re-read with new arguments keeps the last answer on screen, dimmed and
+ *  inert, until the new one lands (design.md § Loading). */
+const dimmed = (on: boolean) => ({
+  opacity: on ? 0.6 : 1, pointerEvents: on ? 'none' as const : undefined,
+  transition: 'opacity var(--dur-fast) var(--ease-out)',
+});
 
 // ── Papers ────────────────────────────────────────────────────────────
 
@@ -42,28 +52,16 @@ export function HoldingPapersTab() {
   }, [data]);
 
   const shown = (data ?? []).filter((p) => shelf === 'all' || p.shelf === shelf);
+  const paged = usePaged(shown, { resetKey: shelf, storeKey: 'pattadar.table.holding-papers' });
 
   return (
     <>
-      <header className="sechead">
-        <div className="grow">
-          <h2>All documents in this holding</h2>
-          {/* The count waits for the read. `data?.length ?? 0` stated "0 papers"
-              as a fact beside the spinner, and again beside the failure box —
-              the `data ?? []` shape the service-detail spec bans outright,
-              because it answers a question nobody has been able to ask yet. The
-              three branches below already each say their own sentence, and the
-              Expenses tab in this same file guards on `!data` before it draws a
-              header at all. */}
-          {data && (
-            <p className="note" style={{ margin: '0.25rem 0 0' }}>
-              {plural(data.length, 'document')} in this holding
-            </p>
-          )}
-        </div>
-      </header>
+      {/* The count waits for the read: no sub while loading, on a failure or on
+          an empty tab (design.md § Page head). */}
+      <SectionHead title="Documents"
+                   sub={data && data.length > 0 ? plural(data.length, 'document') : undefined} />
 
-      {isLoading && <Loading h="12rem" what="the documents" />}
+      {isLoading && <SkRows rows={4} label="Loading the documents" />}
       {!isLoading && !data && <Failed what="These documents" error={error} boxed h="18rem" />}
 
       {data && data.length === 0 && (
@@ -75,25 +73,23 @@ export function HoldingPapersTab() {
       {data && data.length > 0 && (
         <>
           {shelves.length > 1 && (
-            <div className="row tight" style={{ marginBottom: 'var(--space-sm)' }}>
-              <Chip active={shelf === 'all'} onClick={() => setShelf('all')} count={data.length}>
-                All
-              </Chip>
-              {shelves.map(([key, n]) => (
-                <Chip key={key} active={shelf === key} onClick={() => setShelf(key)} count={n}>
-                  {SHELF_WORD[key] ?? key}
-                </Chip>
-              ))}
-            </div>
+            <FacetFilter
+              groups={[{ key: 'shelf', label: 'Shelf',
+                options: shelves.map(([key, n]) => ({ key, label: SHELF_WORD[key] ?? key, count: n })) }]}
+              selected={{ shelf: shelf === 'all' ? [] : [shelf] }}
+              onToggle={(_, key) => setShelf(shelf === key ? 'all' : key)}
+              onClear={() => setShelf('all')}
+              tally={`${num(shown.length)} of ${num(data.length)}`}
+            />
           )}
           <div className="rows boxed card" style={{ padding: 0 }}>
-            {shown.map((p) => (
+            {paged.shown.map((p) => (
               <div className="row" key={p.id}>
                 <span style={{ display: 'flex', color: 'var(--w-info)' }}>
                   <Icon name={p.icon || 'unsorted'} size={18} />
                 </span>
                 <span className="grow">
-                  <Link to={`/app/papers/${p.id}`} className="accent"
+                  <Link to={`/papers/${p.id}`} className="accent"
                         style={{ textDecoration: 'none', fontWeight: 700 }}>
                     {p.title}
                   </Link>
@@ -107,12 +103,13 @@ export function HoldingPapersTab() {
                 {p.shared && <Pill kind="for_sale">Shared</Pill>}
                 <Link className="chip"
                       to={p.recordId === holding.id
-                        ? `/app/holdings/${holding.id}` : `/app/records/${p.recordId}`}>
+                        ? `/holdings/${holding.id}` : `/properties/${p.recordId}`}>
                   {p.recordTitle}
                 </Link>
               </div>
             ))}
           </div>
+          <TablePager {...paged} onSize={paged.setSize} label="Document pages" />
         </>
       )}
     </>
@@ -121,9 +118,19 @@ export function HoldingPapersTab() {
 
 // ── Expenses ──────────────────────────────────────────────────────────
 
+/** An expense's kind, in the owner's words: does it improve the land, keep it
+ *  going, or bring money in. Stored codes stay capital / running / income. */
+const KIND_WORD: Record<string, string> = {
+  capital: 'Improvement',
+  running: 'Upkeep',
+  income: 'Money in',
+};
+
+const idOfExpense = (r: HoldingExpenseRow) => r.id;
+
 const SCOPE_WORD: Record<string, string> = {
-  combined: 'Shared cost',
-  record: 'One survey',
+  combined: 'Shared expense',
+  record: 'One property',
 };
 
 export function HoldingExpensesTab() {
@@ -134,7 +141,7 @@ export function HoldingExpensesTab() {
   const category = params.get('cat') ?? 'all';
   const [adding, setAdding] = useState(false);
   const [err, setErr] = useState('');
-  const { data, isFetching, error } = useHoldingExpenses(holding.id, year);
+  const { data, isPlaceholderData: stale, error } = useHoldingExpenses(holding.id, year);
   const del = useDeleteHoldingExpense(false);
 
   const set = (key: string, value: string) => {
@@ -146,111 +153,153 @@ export function HoldingExpensesTab() {
   const rows = (data?.rows ?? []).filter((r) =>
     (scope === 'all' || r.scope === scope)
     && (category === 'all' || r.category === category));
+  const narrow = `${year ?? ''}|${scope}|${category}`;
+  const paged = usePaged(rows, { resetKey: narrow, storeKey: 'pattadar.table.holding-expenses' });
+  const sel = useRowSelection(rows, idOfExpense, narrow);
+  const ticked = sel.picked.length > 0;
+  // The footer sums the ticked rows, else every row the chips let through (not
+  // just this page), and keeps money in apart from money spent — one figure
+  // netting them would lie.
+  const footRows = ticked ? sel.picked : rows;
+  const spentRows = footRows.filter((r) => r.kind !== 'income');
+  const inRows = footRows.filter((r) => r.kind === 'income');
+  const sum = (list: HoldingExpenseRow[]) => list.reduce((t, r) => t + r.amount, 0);
+  /** One noun in the footer, the tick-all box and the bar: "expenses", or
+   *  "entries" once money in is among them (design.md § Tables). */
+  const nounFor = (list: HoldingExpenseRow[]) => (list.some((r) => r.kind === 'income')
+    ? ['entry', 'entries'] as const : ['expense', 'expenses'] as const);
 
   const remove = async (row: HoldingExpenseRow) => {
     setErr('');
     try {
       const ok = (await del.mutateAsync({ expenseId: row.id })).web.deleteCombinedExpense;
-      if (!ok) setErr('That cost could not be removed. Reload the page and try again.');
+      if (!ok) setErr('That expense could not be deleted. Reload the page and try again.');
     } catch {
-      setErr('That did not go through. Nothing was removed.');
+      setErr('That did not go through. Nothing was deleted.');
     }
   };
 
   /** The visible ledger as a file — the thing an owner hands an accountant. The
    *  scope column goes out with it, because a total that mixes the two without
    *  saying so is the defect this whole tab is shaped around. */
-  const exportCsv = () => {
-    const head = ['Date', 'What', 'Scope', 'Record', 'Kind', 'Category', 'Paid by', 'Amount (₹)'];
-    const lines = rows.map((r) => [r.spentOn, r.title, SCOPE_WORD[r.scope] ?? r.scope,
-      r.recordTitle, r.kind, r.category, r.paidBy, Math.round(r.amount)]
-      .map(csvCell).join(','));
-    const blob = new Blob(['\ufeff' + [head.join(','), ...lines].join('\n')],
-      { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${holding.name.replace(/\s+/g, '-').toLowerCase()}-costs-${data?.year ?? ''}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
+  const exportCsv = (list: HoldingExpenseRow[]) => downloadCsv(
+    `${holding.name.replace(/\s+/g, '-').toLowerCase()}-expenses-${data?.year ?? ''}.csv`,
+    [['Date', 'What', 'Scope', 'Property', 'Kind', 'Category', 'Paid by', 'Amount (₹)'],
+      ...list.map((r) => [r.spentOn, r.title, SCOPE_WORD[r.scope] ?? r.scope,
+        r.recordTitle, KIND_WORD[r.kind] ?? r.kind, r.category, r.paidBy, Math.round(r.amount)])]);
 
   if (!data) {
     return error
       ? <Failed what="This ledger" error={error} boxed h="22rem" />
-      : <Loading h="16rem" what="the ledger" />;
+      : (
+        <>
+          <SectionHead title="Expenses" />
+          <div role="status" aria-busy="true" aria-label="Loading this year's totals">
+            <div className="strip" aria-hidden>
+              {['Spent', 'Shared expenses', 'On its properties', 'Upkeep per acre'].map((k) => (
+                <Cell key={k} k={k} v={<Sk w="6rem" h="1.25rem" />} note={<Sk w="8rem" />} />
+              ))}
+            </div>
+            <div className="filterbar band" aria-hidden style={{ margin: 'var(--space-lg) 0' }}>
+              {['5rem', '4.5rem'].map((w) => <Sk key={w} w={w} h="1.75rem" r="var(--radius-pill)" />)}
+            </div>
+          </div>
+          <SkTable label="Loading the expenses" minWidth="46rem"
+                   cols={[{ head: 'When', w: '5rem' }, { head: 'What' }, { head: 'Against' },
+                     { head: 'Kind' }, { head: 'Amount', right: true, w: '5rem' }, { head: '', w: '3.5rem' }]} />
+        </>
+      );
   }
+
+  const facets = [
+    { key: 'scope', label: 'Scope', options: data.scopes.filter((o) => o.key !== 'all') },
+    { key: 'cat', label: 'Category', options: data.categories.filter((o) => o.key !== 'all') },
+  ].filter((g) => g.options.length > 1);
+  const yearPick = data.years.length > 1
+    ? <YearSelect years={data.years} value={year ?? data.year} onChange={(y) => set('year', y)} />
+    : undefined;
+  // The sub counts the whole year, not what the chips let through (the footer does that).
+  const inAll = data.rows.filter((r) => r.kind === 'income').length;
+  const spentAll = data.rows.length - inAll;
 
   return (
     <>
-      <header className="sechead">
-        <div className="grow">
-          <h2>Costs for this holding</h2>
-        </div>
-        <div className="actions">
-          <button type="button" className="btn" onClick={exportCsv} disabled={rows.length === 0}>
-            <FileDownloadOutlined sx={{ fontSize: 16 }} /> Export
-          </button>
-          <button type="button" className="btn primary" onClick={() => setAdding(true)}>
-            <AddOutlined sx={{ fontSize: 17 }} /> Record a cost
-          </button>
-        </div>
-      </header>
+      <SectionHead title="Expenses"
+                   sub={[spentAll > 0 && plural(spentAll, 'expense'),
+                     inAll > 0 && plural(inAll, 'money-in entry', 'money-in entries')]
+                     .filter(Boolean).join(' · ') || undefined}
+                   info="A shared expense belongs to the whole holding. An expense for one property is recorded on that property's own Expenses tab, and shows here too."
+                   actions={{
+                     // Export lives in the More menu (Reddy, 13/10/2026).
+                     overflowHeader: holding.name,
+                     overflow: [{
+                       label: 'Export', icon: <FileDownloadOutlined sx={{ fontSize: 17 }} />,
+                       onClick: () => exportCsv(rows), disabled: stale || rows.length === 0,
+                     }],
+                     primary: {
+                       label: 'Add a shared expense', icon: <AddOutlined sx={{ fontSize: 17 }} />,
+                       onClick: () => setAdding(true),
+                     },
+                   }} />
 
-      <div className="strip" aria-busy={isFetching || undefined}>
+      <div className="strip" aria-busy={stale || undefined} style={dimmed(stale)}>
         <Cell k={`Spent in ${data.year}`} v={inrOr(data.spent)}
-              note={`${inrOr(data.capital)} one-off · ${inrOr(data.running)} running`} />
-        <Cell k="Shared costs" v={inrOr(data.combinedSpend)} />
-        <Cell k="On its surveys" v={inrOr(data.memberSpend)} />
-        <Cell k="Running, per acre"
+              note={`${inrOr(data.capital)} improvement · ${inrOr(data.running)} upkeep`} />
+        <Cell k="Shared expenses" v={inrOr(data.combinedSpend)} />
+        <Cell k="On its properties" v={inrOr(data.memberSpend)} />
+        <Cell k="Upkeep per acre"
               v={data.farmExtent > 0 ? inrOr(data.perAcreRunning) : '—'}
               note={data.farmExtent > 0
                 ? `over ${num(data.farmExtent, 2)} ac of land`
                 : 'no agricultural land in this holding'} />
       </div>
 
-      <div className="row tight" style={{ marginBottom: 'var(--space-sm)' }}>
-        {data.years.length > 1 && data.years.map((y) => (
-          <Chip key={y} active={(year ?? data.year) === y} onClick={() => set('year', y)}>{y}</Chip>
-        ))}
-        {data.years.length > 1 && <span className="vrule" aria-hidden />}
-        {data.scopes.map((s) => (
-          <Chip key={s.key} active={scope === s.key} count={s.count}
-                onClick={() => set('scope', s.key)}>
-            {s.label}
-          </Chip>
-        ))}
-        {data.categories.length > 2 && <span className="vrule" aria-hidden />}
-        {data.categories.length > 2 && data.categories.map((c) => (
-          <Chip key={c.key} active={category === c.key} count={c.count}
-                onClick={() => set('cat', c.key)}>
-            {c.label}
-          </Chip>
-        ))}
-      </div>
+      {/* The band: the year, then Scope and Category as labelled filter
+          groups, so no two controls both read "All" (design.md § Page head,
+          slot 5). A group with one option is not a choice and is left out. */}
+      {facets.length === 0 ? (
+        yearPick && <ToolbarBand left={yearPick} busy={stale} />
+      ) : (
+      <FacetFilter
+        lead={yearPick}
+        busy={stale}
+        groups={facets}
+        selected={{ scope: scope === 'all' ? [] : [scope], cat: category === 'all' ? [] : [category] }}
+        onToggle={(key, value) => set(key, (key === 'scope' ? scope : category) === value ? 'all' : value)}
+        onClear={() => {
+          const next = new URLSearchParams(params);
+          next.delete('scope'); next.delete('cat');
+          setParams(next, { replace: true });
+        }}
+        tally={`${num(rows.length)} of ${num(data.rows.length)}`}
+      />
+      )}
 
       {err && (
         <p className="note" role="alert" style={{ color: 'var(--w-danger)' }}>{err}</p>
       )}
 
+      <div aria-busy={stale || undefined} style={dimmed(stale)}>
       {rows.length === 0 && (
-        <Empty boxed h="16rem" icon="unsorted" title="Nothing recorded yet"
+        <Empty boxed h="16rem" icon="unsorted" title="No expenses yet"
                action={
                  <button type="button" className="btn primary" onClick={() => setAdding(true)}>
-                   <AddOutlined sx={{ fontSize: 17 }} /> Record a cost
+                   <AddOutlined sx={{ fontSize: 17 }} /> Add a shared expense
                  </button>
                }>
-          Costs shared by these records go here.
+          Expenses shared by these properties go here.
         </Empty>
       )}
 
-      {rows.length > 0 && (
-        <div className="card scroll-x" style={{ padding: 0 }}>
-          <table className="rectable" style={{ minWidth: '46rem' }}>
+      {rows.length > 0 && (<>
+        <Card flush className="scroll-x edgefade">
+          <table className="rectable" aria-label="Expenses" style={{ minWidth: '46rem' }}>
             <thead>
               <tr>
+                <th className="selcol">
+                  <SelectAllBox total={rows.length} picked={sel.picked.length}
+                                noun={nounFor(rows)} onToggle={sel.toggleAll} />
+                </th>
                 <th>When</th>
                 <th>What</th>
                 <th>Against</th>
@@ -260,8 +309,10 @@ export function HoldingExpensesTab() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
-                <tr key={r.id}>
+              {paged.shown.map((r) => (
+                <tr key={r.id} className={sel.selected.has(r.id) ? 'selected' : undefined}>
+                  <SelectCell checked={sel.selected.has(r.id)} label={`Select ${r.title}`}
+                              onToggle={() => sel.toggle(r.id)} />
                   <td className="muted num">{ddmmyyyy(r.spentOn)}</td>
                   <td>
                     <strong>{r.title}</strong>
@@ -269,36 +320,68 @@ export function HoldingExpensesTab() {
                   </td>
                   <td>
                     {r.scope === 'combined'
-                      ? <Pill kind="owned">Shared cost</Pill>
+                      ? <Pill kind="owned">Shared expense</Pill>
                       : (
-                        <Link className="chip" to={`/app/records/${r.recordId}/expenses`}>
-                          {r.recordTitle || 'One survey'}
+                        <Link className="chip" to={`/properties/${r.recordId}/expenses`}>
+                          {r.recordTitle || 'One property'}
                         </Link>
                       )}
                   </td>
-                  <td className="muted">{r.kind === 'income' ? 'Money in' : r.kind === 'capital' ? 'One-off' : 'Running'}</td>
+                  <td className="muted">{KIND_WORD[r.kind] ?? KIND_WORD.running}</td>
                   <td className="right num">{inr(r.amount)}</td>
                   <td className="menucol">
-                    {/* Only the holding's own rows can be removed here. A
-                        survey's cost is removed on that survey's ledger, which
-                        is the screen that owns it. */}
+                    {/* Only the holding's own rows can be deleted here. A
+                        property's expense is deleted on that property's
+                        ledger, which is the screen that owns it. */}
                     {r.scope === 'combined' ? (
-                      <button type="button" className="btn sm danger" disabled={del.isPending}
+                      <button type="button" className="btn sm danger" disabled={del.isPending || stale}
                               onClick={() => void remove(r)}>
-                        Remove
+                        Delete
                       </button>
                     ) : (
-                      <Link className="btn sm" to={`/app/records/${r.recordId}/expenses`}>
-                        On its record
+                      <Link className="btn sm" to={`/properties/${r.recordId}/expenses`}>
+                        On its property
                       </Link>
                     )}
                   </td>
                 </tr>
               ))}
             </tbody>
+            <tfoot>
+              {/* Ticking only money-in rows must not read "0 expenses selected". */}
+              {(!ticked || spentRows.length > 0) && (
+                <tr>
+                  <td className="selcol" />
+                  <th scope="row" colSpan={4}>
+                    {ticked ? `Spent · ${plural(spentRows.length, 'expense')} selected`
+                      : `Total spent · ${plural(spentRows.length, 'expense')}`}
+                  </th>
+                  <td className="right num">{inrOr(sum(spentRows))}</td>
+                  <td />
+                </tr>
+              )}
+              {inRows.length > 0 && (
+                <tr>
+                  <td className="selcol" />
+                  <th scope="row" colSpan={4}>
+                    Money in · {plural(inRows.length, 'entry', 'entries')}{ticked && ' selected'}
+                  </th>
+                  <td className="right num">{inrOr(sum(inRows))}</td>
+                  <td />
+                </tr>
+              )}
+            </tfoot>
           </table>
-        </div>
-      )}
+        </Card>
+        <TablePager {...paged} onSize={paged.setSize} label="Expense pages" />
+        <SelectionBar count={sel.picked.length} noun={nounFor(sel.picked)}
+                      label="Act on the selected expenses" onClear={sel.clear}>
+          <button type="button" className="btn sm" onClick={() => exportCsv(sel.picked)}>
+            <FileDownloadOutlined sx={{ fontSize: 15 }} /> Export
+          </button>
+        </SelectionBar>
+      </>)}
+      </div>
 
       {adding && (
         <HoldingExpenseDialog holding={holding} onClose={() => setAdding(false)} />
@@ -312,55 +395,62 @@ export function HoldingExpensesTab() {
 export function HoldingServicesTab() {
   const holding = useHoldingCtx();
   const [closed, setClosed] = useState(false);
-  const { data, isLoading, error } = useHoldingOrders(holding.id, closed);
+  const { data, isLoading, isPlaceholderData: stale, error } = useHoldingOrders(holding.id, closed);
+  const paged = usePaged(data ?? [], { resetKey: String(closed), storeKey: 'pattadar.table.holding-services' });
+  const needsYou = (data ?? []).filter((o) => o.needsYou).length;
 
   return (
     <>
-      <header className="sechead">
-        <div className="grow">
-          <h2>Services on these records</h2>
-        </div>
-        <div className="actions">
-          <div className="segmented" role="group" aria-label="Which services">
-            <button type="button" aria-pressed={!closed} onClick={() => setClosed(false)}>Open</button>
-            <button type="button" aria-pressed={closed} onClick={() => setClosed(true)}>Everything</button>
-          </div>
-        </div>
-      </header>
+      <SectionHead title="Service orders"
+                   sub={data && data.length > 0
+                     ? [plural(data.length, closed ? 'order' : 'open order'),
+                       needsYou > 0 && `${num(needsYou)} need${needsYou === 1 ? 's' : ''} you`]
+                       .filter(Boolean).join(' · ')
+                     : undefined} />
+      <ToolbarBand left={
+        <Segmented label="Which service orders" value={closed ? 'all' : 'open'}
+                   onChange={(v) => setClosed(v === 'all')}
+                   options={[{ value: 'open', label: 'Open' }, { value: 'all', label: 'All' }]} />
+      } />
 
-      {isLoading && <Loading h="12rem" what="the services" />}
-      {!isLoading && !data && <Failed what="These services" error={error} boxed h="18rem" />}
+      {isLoading && <SkRows rows={4} label="Loading the service orders" />}
+      {!isLoading && !data && <Failed what="These service orders" error={error} boxed h="18rem" />}
 
+      <div aria-busy={stale || undefined} style={dimmed(stale)}>
       {data && data.length === 0 && (
         <Empty boxed h="18rem" icon="unsorted" title={closed ? 'Nothing ordered yet' : 'Nothing open'}>
           {closed
-            ? 'No service has been ordered against any record in this holding.'
+            ? 'No service has been ordered for any property in this holding.'
             : 'Nothing is in progress.'}
         </Empty>
       )}
 
-      {data && data.length > 0 && (
+      {data && data.length > 0 && (<>
         <div className="rows boxed card" style={{ padding: 0 }}>
-          {data.map((o) => (
+          {paged.shown.map((o) => (
             <div className="row" key={o.id}>
               <span className="grow">
-                <Link to={`/app/services/${o.id}`} className="accent"
+                <Link to={`/services/${o.id}`} className="accent"
                       style={{ textDecoration: 'none', fontWeight: 700 }}>
                   {o.title}
                 </Link>
                 <small className="note" style={{ display: 'block' }}>
-                  {[o.ref, o.stageLabel, o.dueDate && `due ${o.dueDate}`]
+                  {[o.ref, o.stageLabel, o.dueDate && `due ${ddmmyyyy(o.dueDate)}`]
                     .filter(Boolean).join(' · ')}
                 </small>
               </span>
               {o.needsYou && <Pill kind="for_sale">Needs you</Pill>}
               <Pill kind={o.statusState || 'owned'}>{o.statusLabel}</Pill>
-              <Link className="chip" to={`/app/records/${o.recordId}`}>{o.recordTitle}</Link>
+              {/* An order's property: onto its Services tab, as the expense
+                  chip above lands on Expenses. */}
+              <Link className="chip" to={`/properties/${o.recordId}/services`}>{o.recordTitle}</Link>
               <span className="num">{inrOr(o.cost)}</span>
             </div>
           ))}
         </div>
-      )}
+        <TablePager {...paged} onSize={paged.setSize} label="Service order pages" />
+      </>)}
+      </div>
     </>
   );
 }

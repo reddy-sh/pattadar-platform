@@ -36,7 +36,7 @@ struct ShareFlowSheet: View {
             switch self {
             case .otpLink: "Anyone with the link, but only after a code sent to their phone."
             case .named: "They sign in as themselves. Nothing to forward."
-            case .watermark: "Their name burned across every page. No download."
+            case .watermark: "Their name is printed across every page. They cannot download it."
             }
         }
 
@@ -61,8 +61,8 @@ struct ShareFlowSheet: View {
             Form {
                 Section {
                     VStack(alignment: .leading, spacing: Space.hair) {
-                        Text(paperCount > 0 ? "Share \(paperCount) paper\(paperCount == 1 ? "" : "s")"
-                                            : "Share this record")
+                        Text(paperCount > 0 ? (paperCount == 1 ? "Share 1 document" : "Share \(paperCount) documents")
+                                            : "Share this property")
                             .font(.recordTitle)
                         Text(subject)
                             .font(.bodyCopy).foregroundStyle(.secondary)
@@ -115,16 +115,16 @@ struct ShareFlowSheet: View {
                         Text("in 7 days").tag(7)
                         Text("in 30 days").tag(30)
                     }
-                    Toggle("Mask Aadhaar & PAN", isOn: $maskIdentity)
+                    Toggle("Mask Aadhaar and PAN", isOn: $maskIdentity)
                     Toggle("Tell me each time it's opened", isOn: $notifyOnOpen)
                 } header: {
                     Text("Who and how long")
                 } footer: {
-                    Text("Expires \(expiryLabel). You can revoke at any time from Papers → Shared right now — revoking kills the link in seconds, not at expiry.")
+                    Text("Expires \(expiryLabel). You can revoke at any time from Documents → Shared right now — revoking ends the link in seconds, not at expiry.")
                 }
 
                 Section {
-                    PrimaryButton(title: mode == .named ? "Share with them" : "Create link") {
+                    PrimaryButton(title: mode == .named ? "Share with them" : "Make the link") {
                         explainCreate = true
                     }
                 }
@@ -139,7 +139,7 @@ struct ShareFlowSheet: View {
             .alert("Nothing was sent", isPresented: $explainCreate) {
                 Button("OK", role: .cancel) { dismiss() }
             } message: {
-                Text("The link, the OTP and the watermark are made on the server, and that half is being built now. Until it lands, share a paper's file itself from its own page — this sheet is the contract the server will keep.")
+                Text("The link, the OTP and the watermark are made on the server, and that half is being built now. Until it lands, share a document's file itself from its own page — this sheet is the contract the server will keep.")
             }
         }
         .presentationDetents([.large])

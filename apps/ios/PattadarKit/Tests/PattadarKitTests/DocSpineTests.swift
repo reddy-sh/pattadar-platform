@@ -95,7 +95,7 @@ struct DocSpineTests {
         let s = docSpine(docType: "FMB", village: "Mangalakunta",
                          surveyNo: "01", reading: reading)
         #expect(s.family == "map")
-        #expect(s.identityLabel == "Sy. 1 sheet")
+        #expect(s.identityLabel == "Sy 1 sheet")
         #expect(s.quantumLine == "59.9 ac mapped")
     }
 
@@ -112,7 +112,7 @@ struct DocSpineTests {
             ],
         ]
         let s = docSpine(docType: "FMB", reading: reading)
-        #expect(s.identityLabel == "Sy. 1 sheet")
+        #expect(s.identityLabel == "Sy 1 sheet")
         #expect(s.surveys == ["1/1", "1/2", "1/3", "1/4"])
         #expect(s.quantumLine == "197.05 ac mapped")
     }
@@ -152,8 +152,8 @@ struct DocSpineTests {
         // Six families, six distinct colours — and the unknown wears grey.
         #expect(Set(families.map(familyTint)).count == families.count)
         #expect(familyTint("unsorted") == "gray")
-        #expect(familyLabel("search") == "Search & tax")
-        #expect(familyLabel("unsorted") == "Unsorted")
+        #expect(familyLabel("search") == "EC & tax receipts")
+        #expect(familyLabel("unsorted") == "Not sorted yet")
     }
 
     @Test func theTileLettersFollowTheKind() {
@@ -225,7 +225,7 @@ struct DocSpineTests {
         #expect(s.family == "identity")
         #expect(s.partiesLine == "Test Person")
         #expect(s.primaryPerson == "Test Person")
-        #expect(s.quantumLine == "DOB 1 January 1990")
+        #expect(s.quantumLine == "DOB 01/01/1990")
     }
 
     @Test func theNumberReadsBackOffTheLocalCard() {

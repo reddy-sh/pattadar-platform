@@ -1,0 +1,22 @@
+{
+  "approved": true,
+  "findings": [
+    {
+      "severity": "nit",
+      "blocking": false,
+      "confidence": "confirmed",
+      "label": "Server-only ID-number rejection shows the wrong sentence",
+      "file": "apps/web/src/pages/landing/NetworkInterestForm.tsx",
+      "detail": "serverError() chooses COPY.errors.idNumber only when the ASCII-only client looksLikeAadhaar also matches. If the server rejects a non-ASCII digit run in name/district/mandal/note, the UI shows that field's generic message (e.g. 'Keep the note to 500 characters.'). Fix: map any server invalid on those fields whose client checks pass to COPY.errors.idNumber."
+    },
+    {
+      "severity": "nit",
+      "blocking": false,
+      "confidence": "confirmed",
+      "label": "Unchecked CONSENT_TEXT constant",
+      "file": "services/api/src/network.py",
+      "detail": "CONSENT_TEXT is defined but unused, and nothing asserts sha256(CONSENT_TEXT) == CONSENT_TEXT_SHA256. It matches today (checked by hand), but it can drift silently. Fix: add a one-line pytest or remove the constant."
+    }
+  ],
+  "reviewDoc": "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/.worktrees/landing-pattadar-network/.agents/tasks/landing-pattadar-network/correctness-review.md"
+}

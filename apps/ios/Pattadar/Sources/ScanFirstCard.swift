@@ -139,7 +139,7 @@ struct ScanFirstCard: View {
 
     private func failureView(_ message: String) -> some View {
         VStack(alignment: .leading, spacing: Space.sm) {
-            Label("The document couldn’t be read", systemImage: "exclamationmark.circle")
+            Label("The document could not be read", systemImage: "exclamationmark.circle")
                 .foregroundStyle(Palette.danger).font(.subheadline.weight(.semibold))
             Text(message).font(.caption).foregroundStyle(.secondary)
             HStack(spacing: Space.md) {
@@ -273,7 +273,7 @@ struct ScanFirstCard: View {
             try FileManager.default.copyItem(at: url, to: temp)
             app.startRead(endpoint, fileURL: temp, name: url.lastPathComponent, owner: id)
         } catch {
-            app.readState = .failed("Couldn’t open that file — \(error.localizedDescription)")
+            app.readState = .failed("Could not open that file. Try another copy.")
             manualOpen = true
         }
     }
@@ -281,7 +281,7 @@ struct ScanFirstCard: View {
     private func startPhoto(_ item: PhotosPickerItem) {
         Task {
             guard let data = try? await item.loadTransferable(type: Data.self) else {
-                app.readState = .failed("Couldn’t read that photo.")
+                app.readState = .failed("Could not read that photo.")
                 manualOpen = true
                 return
             }

@@ -59,7 +59,7 @@ async function watchConsole(page: Page): Promise<string[]> {
 test.describe('W01 · dashboard', () => {
   test('states the portfolio, and its totals are its own records summed', async ({ page }) => {
     const errors = await watchConsole(page);
-    await page.goto('/app');
+    await page.goto('/home');
 
     await expect(page.getByText('Your portfolio')).toBeVisible();
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Sankara');
@@ -97,7 +97,7 @@ test.describe('W01 · dashboard', () => {
   });
 
   test('the recently-opened strip mixes parcels and built property', async ({ page }) => {
-    await page.goto('/app');
+    await page.goto('/home');
     const cards = page.locator('.cards .rec');
     await expect(cards).toHaveCount(4);
     await expect(cards.nth(0)).toContainText('Sy 214/2');
@@ -108,7 +108,7 @@ test.describe('W01 · dashboard', () => {
 test.describe('W02 · properties', () => {
   test('one faceted list, and the rail agrees with the grid', async ({ page }) => {
     const errors = await watchConsole(page);
-    await page.goto('/app/properties');
+    await page.goto('/properties');
 
     await expect(page.getByText('9 of 9 shown')).toBeVisible();
     await expect(page.locator('.cards .rec')).toHaveCount(9);
@@ -139,7 +139,7 @@ test.describe('W02 · properties', () => {
   });
 
   test('a facet narrows the grid, and the chip in the row says what is on', async ({ page }) => {
-    await page.goto('/app/properties');
+    await page.goto('/properties');
     await page.getByRole('button', { name: '+ Filter' }).click();
     await page.getByRole('group', { name: 'Narrow the list' })
       .getByRole('button', { name: /^For sale/ }).click();
@@ -161,7 +161,7 @@ test.describe('W02 · properties', () => {
   });
 
   test('the filter lives in the URL, so a narrowed list is shareable', async ({ page }) => {
-    await page.goto('/app/properties?status=disputed');
+    await page.goto('/properties?status=disputed');
     await expect(page.getByText('1 of 9 shown')).toBeVisible();
     await expect(page.locator('.cards .rec').first()).toContainText('Shop 2, Main Rd');
   });
@@ -178,7 +178,7 @@ test.describe('W02 · what a card shows of itself', () => {
     async ({ page }) => {
       const errors = await watchConsole(page);
       await stubTiles(page);
-      await page.goto('/app/properties');
+      await page.goto('/properties');
       await expect(page.locator('.cards .rec')).toHaveCount(9);
 
       // Every located record draws its own ground. Nine of nine here — and
@@ -207,7 +207,7 @@ test.describe('W02 · what a card shows of itself', () => {
 
   test('neighbours share tiles, because they share a zoom', async ({ page }) => {
     await stubTiles(page);
-    await page.goto('/app/properties');
+    await page.goto('/properties');
     await expect(page.locator('.mapart img').first()).toBeAttached({ timeout: 20_000 });
 
     // The zoom is snapped to a four-rung ladder, and this is the whole reason:
@@ -246,7 +246,7 @@ test.describe('W02 · what a card shows of itself', () => {
         // at all — every seeded photo has an empty fileRef.
         await page.route(`**/storage/files/${ref}/content*`, (route) =>
           route.fulfill({ status: 200, contentType: 'image/png', body: PNG }));
-        await page.goto('/app/properties');
+        await page.goto('/properties');
 
         const card = page.locator('.rec', { hasText: 'Sy 214/2' });
         await expect(card.locator('.cardphoto')).toBeVisible({ timeout: 20_000 });
@@ -289,7 +289,7 @@ test.describe('W02 · what a card shows of itself', () => {
 
     try {
       await stubTiles(page);
-      await page.goto('/app/properties');
+      await page.goto('/properties');
       const card = page.locator('.rec', { hasText: 'Sy 909' });
       await expect(card).toBeVisible({ timeout: 20_000 });
 
@@ -326,7 +326,7 @@ test.describe('W02 · everything you own, on one map', () => {
       // server. A map that mounted on arrival would put all of them on the
       // live internet and make a self-contained suite a connectivity check.
       const errors = await watchConsole(page);
-      await page.goto('/app/properties');
+      await page.goto('/properties');
       await expect(page.locator('.cards .rec')).toHaveCount(9);
       await expect(seg(page, 'Grid')).toHaveAttribute('aria-pressed', 'true');
       await expect(page.locator('.leaflet-container')).toHaveCount(0);
@@ -338,7 +338,7 @@ test.describe('W02 · everything you own, on one map', () => {
     async ({ page }) => {
       const errors = await watchConsole(page);
       await stubTiles(page);
-      await page.goto('/app/properties');
+      await page.goto('/properties');
       await seg(page, 'Map').click();
       await expect(page.locator('.pf-map')).toBeVisible({ timeout: 20_000 });
 
@@ -365,7 +365,7 @@ test.describe('W02 · everything you own, on one map', () => {
 
   test('no two names on the map are written over each other', async ({ page }) => {
     await stubTiles(page);
-    await page.goto('/app/properties');
+    await page.goto('/properties');
     await seg(page, 'Map').click();
     await expect(page.locator('.pf-label').first()).toBeVisible({ timeout: 20_000 });
 
@@ -387,7 +387,7 @@ test.describe('W02 · everything you own, on one map', () => {
 
   test('picking one names it and offers the way in', async ({ page }) => {
     await stubTiles(page);
-    await page.goto('/app/properties');
+    await page.goto('/properties');
     await seg(page, 'Map').click();
     await expect(page.locator('path.pf-shape')).toHaveCount(1, { timeout: 20_000 });
 
@@ -397,13 +397,13 @@ test.describe('W02 · everything you own, on one map', () => {
     await expect(pick).toContainText('Sy 214/2');
     await expect(pick).toContainText('Kothapalli');
     await pick.getByRole('link', { name: 'Open' }).click();
-    await expect(page).toHaveURL(new RegExp(`/app/records/${PARCEL}$`));
+    await expect(page).toHaveURL(new RegExp(`/properties/${PARCEL}$`));
   });
 
   test('the basemap switches, and the caption says which one you are on',
     async ({ page }) => {
       await stubTiles(page);
-      await page.goto('/app/properties');
+      await page.goto('/properties');
       await seg(page, 'Map').click();
       await expect(page.locator('.pf-map')).toBeVisible({ timeout: 20_000 });
 
@@ -433,7 +433,7 @@ test.describe('W02 · everything you own, on one map', () => {
 
     try {
       await stubTiles(page);
-      await page.goto('/app/properties');
+      await page.goto('/properties');
       await seg(page, 'Map').click();
       await expect(page.locator('.pf-map')).toBeVisible({ timeout: 20_000 });
 
@@ -452,13 +452,13 @@ test.describe('W02 · everything you own, on one map', () => {
   for (const [name, width, height] of
     [['laptop', 1512, 900], ['tablet', 900, 800], ['phone', 390, 780]] as const) {
     test(`${name} · the map fits inside the window it opens in`, async ({ page }) => {
-      // /app/properties is the FIRST map-bearing route under a sideways-scroll
+      // /properties is the FIRST map-bearing route under a sideways-scroll
       // gate in this suite — the existing responsive test walks it in grid view,
       // where no map mounts, so it has never checked one. A Leaflet host with a
       // min-width, or a panel beside it, fails here and nowhere else.
       await stubTiles(page);
       await page.setViewportSize({ width, height });
-      await page.goto('/app/properties');
+      await page.goto('/properties');
       await seg(page, 'Map').click();
       await expect(page.locator('.pf-map')).toBeVisible({ timeout: 20_000 });
 
@@ -478,7 +478,7 @@ test.describe('W02 · everything you own, on one map', () => {
 test.describe('W03 · the record 360', () => {
   test('hero, hangers and the right rail', async ({ page }) => {
     const errors = await watchConsole(page);
-    await page.goto(`/app/records/${PARCEL}`);
+    await page.goto(`/properties/${PARCEL}`);
 
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sy 214/2');
     await expect(page.getByText('Land parcel · Khata 10021 · Agri')).toBeVisible();
@@ -524,7 +524,7 @@ test.describe('W03 · the record 360', () => {
   });
 
   test('the paper shelf chips filter the list', async ({ page }) => {
-    await page.goto(`/app/records/${PARCEL}`);
+    await page.goto(`/properties/${PARCEL}`);
     await page.getByRole('button', { name: /^Title/ }).click();
     await expect(page.locator('.rows.boxed > div')).toHaveCount(3);
   });
@@ -533,7 +533,7 @@ test.describe('W03 · the record 360', () => {
 test.describe('W07 · features', () => {
   test('fourteen features, worst first, chips matching the categories', async ({ page }) => {
     const errors = await watchConsole(page);
-    await page.goto(`/app/records/${PARCEL}/features`);
+    await page.goto(`/properties/${PARCEL}/site-features`);
 
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sy 214/2');
     await expect(page.getByRole('heading', { level: 2 }).first())
@@ -564,7 +564,7 @@ test.describe('W07 · features', () => {
 test.describe('W08 · people', () => {
   test('five people, graded by whether you pay them', async ({ page }) => {
     const errors = await watchConsole(page);
-    await page.goto(`/app/records/${PARCEL}/people`);
+    await page.goto(`/properties/${PARCEL}/people`);
 
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sy 214/2');
     await expect(page.getByRole('heading', { level: 2 }).first()).toHaveText('Caretakers & staff');
@@ -588,7 +588,7 @@ test.describe('W08 · people', () => {
 test.describe('W10 · money', () => {
   test('paid, government and market are three separate numbers', async ({ page }) => {
     const errors = await watchConsole(page);
-    await page.goto(`/app/records/${BIG}/money`);
+    await page.goto(`/properties/${BIG}/money`);
 
     // The tab's own word (design.md § App vocabulary, "Property tabs"; it
     // read "Costs & value" until 28/09/2026).
@@ -614,7 +614,7 @@ test.describe('W10 · money', () => {
   });
 
   test('changing the appreciation rate changes the estimate', async ({ page }) => {
-    await page.goto(`/app/records/${BIG}/money`);
+    await page.goto(`/properties/${BIG}/money`);
     await expect(page.locator('.card', { hasText: 'Appreciation rate' })).toContainText('10%');
     await page.getByRole('button', { name: '14%', exact: true }).click();
     await expect(page.locator('.card', { hasText: 'Appreciation rate' })).toContainText('14%');
@@ -624,7 +624,7 @@ test.describe('W10 · money', () => {
 test.describe('W11 + W12 · the ledger', () => {
   test('a parcel splits capital from running, and states the cost of holding', async ({ page }) => {
     const errors = await watchConsole(page);
-    await page.goto(`/app/records/${BIG}/expenses`);
+    await page.goto(`/properties/${BIG}/expenses`);
 
     // Inside the property's frame since 28/09/2026 (Money › Expenses): the
     // record is the h1 and the ledger its h2.
@@ -647,7 +647,7 @@ test.describe('W11 + W12 · the ledger', () => {
   });
 
   test('a let property puts rent in the same list as money in', async ({ page }) => {
-    await page.goto(`/app/records/${FLAT}/expenses`);
+    await page.goto(`/properties/${FLAT}/expenses`);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Expenses & rent');
     await expect(page.locator('.strip').first()).toContainText('Rent received');
     await expect(page.locator('.strip').first()).toContainText('Net yield on value');
@@ -658,7 +658,7 @@ test.describe('W11 + W12 · the ledger', () => {
   });
 
   test('the drawer files an expense as capital or running', async ({ page }) => {
-    await page.goto(`/app/records/${BIG}/expenses`);
+    await page.goto(`/properties/${BIG}/expenses`);
     await expect(page.locator('tbody tr').first()).toBeVisible();
     const before = await page.locator('tbody tr').count();
 
@@ -685,7 +685,7 @@ test.describe('W04 · the record draws its own ground', () => {
   test('is the record\u2019s own ground, not a stock drawing', async ({ page }) => {
     await stubTiles(page);
     const errors = await watchConsole(page);
-    await page.goto(`/app/records/${PARCEL}/map`);
+    await page.goto(`/properties/${PARCEL}/location`);
 
     // It used to be an inline <svg> with four literal points, identical on
     // every record in the account. A real basemap is the whole difference.
@@ -702,7 +702,7 @@ test.describe('W04 · the record draws its own ground', () => {
   test('a record with no survey still shows where it is', async ({ page }) => {
     await stubTiles(page);
     const errors = await watchConsole(page);
-    await page.goto(`/app/records/${BIG}/map`);
+    await page.goto(`/properties/${BIG}/location`);
 
     await expect(page.locator('.plot .leaflet-container')).toBeVisible({ timeout: 20_000 });
     // No surveyed corners: a pin, and emphatically not a boundary traced over
@@ -734,7 +734,7 @@ test.describe('W04 · the record draws its own ground', () => {
     try {
       await stubTiles(page);
       const errors = await watchConsole(page);
-      await page.goto(`/app/records/${id}/map`);
+      await page.goto(`/properties/${id}/location`);
       await expect(page.locator('.plot .leaflet-container')).toBeVisible({ timeout: 20_000 });
 
       // Nothing about this parcel's ground is known, so nothing is drawn on it.
@@ -761,9 +761,9 @@ test.describe('W04 · the record draws its own ground', () => {
    *  nothing renders a `still` MapCanvas any more. */
   test('the Location hanger is one click from the papers', async ({ page }) => {
     await stubTiles(page);
-    await page.goto(`/app/records/${PARCEL}`);
+    await page.goto(`/properties/${PARCEL}`);
     await page.locator('.tabs').getByRole('link', { name: /^Location/ }).click();
-    await expect(page).toHaveURL(new RegExp(`/app/records/${PARCEL}/map$`));
+    await expect(page).toHaveURL(new RegExp(`/properties/${PARCEL}/location$`));
     await expect(page.locator('.plot .leaflet-container')).toBeVisible({ timeout: 20_000 });
   });
 });
@@ -792,7 +792,7 @@ test.describe('W04 · map and boundary', () => {
   test('four marks, one moved, and deleting one keeps its history', async ({ page }) => {
     const errors = await watchConsole(page);
     await stubTiles(page);
-    await page.goto(`/app/records/${PARCEL}/map`);
+    await page.goto(`/properties/${PARCEL}/location`);
 
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sy 214/2');
     await expect(page.getByRole('heading', { level: 2 }).first()).toHaveText('Location & boundary');
@@ -812,7 +812,7 @@ test.describe('W04 · map and boundary', () => {
   test('a surveyed record is drawn on real ground, not in sketch space', async ({ page }) => {
     const errors = await watchConsole(page);
     await stubTiles(page);
-    await page.goto(`/app/records/${PARCEL}/map`);
+    await page.goto(`/properties/${PARCEL}/location`);
 
     // Leaflet, mounted. 20s because a lazy chunk plus a tile pane is slower
     // than the 10s default — the same allowance the e2e-ux parcel map takes.
@@ -863,7 +863,7 @@ test.describe('W04 · map and boundary', () => {
 
   test('the whole-parcel hand-off is Google Maps directions, the same on every device', async ({ page }) => {
     await stubTiles(page);
-    await page.goto(`/app/records/${PARCEL}/map`);
+    await page.goto(`/properties/${PARCEL}/location`);
 
     // Behind the overflow now: the row was seven buttons wide, and a hand-off
     // to another app is an errand rather than a tool.
@@ -883,7 +883,7 @@ test.describe('W04 · map and boundary', () => {
   test('a record with no survey is still on real ground, with its stones', async ({ page }) => {
     const errors = await watchConsole(page);
     await stubTiles(page);
-    await page.goto(`/app/records/${BIG}/map`);
+    await page.goto(`/properties/${BIG}/location`);
 
     // Sy 88 has never been surveyed corner by corner, but it is not therefore
     // a drawing. It gets the same basemap every other record gets — what it
@@ -920,7 +920,7 @@ test.describe('W04 · map and boundary', () => {
     // stubbing also exercises watchConsole's tile-host exemption, since a dead
     // <img> is reported to Playwright as a console error.
     await page.route(TILE_HOSTS, (route) => route.abort());
-    await page.goto(`/app/records/${PARCEL}/map`);
+    await page.goto(`/properties/${PARCEL}/location`);
 
     await expect(page.locator('.leaflet-container')).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText(/Map tiles could not be reached/)).toBeVisible();
@@ -955,7 +955,7 @@ test.describe('W04 · map and boundary', () => {
     try {
       await stubTiles(page);
       const errors = await watchConsole(page);
-      await page.goto(`/app/records/${id}/map`);
+      await page.goto(`/properties/${id}/location`);
       await expect(page.locator('.leaflet-container')).toBeVisible({ timeout: 20_000 });
 
       // Idle, a click on the map pans and saves nothing.
@@ -999,7 +999,7 @@ test.describe('W04 · map and boundary', () => {
 
   test('arming an editing mode leaves Leaflet\u2019s own classes alone', async ({ page }) => {
     await stubTiles(page);
-    await page.goto(`/app/records/${PARCEL}/map`);
+    await page.goto(`/properties/${PARCEL}/location`);
     const map = page.locator('.plot .map');
     await expect(map).toHaveClass(/leaflet-container/, { timeout: 20_000 });
 
@@ -1049,7 +1049,7 @@ test.describe('W04 · map and boundary', () => {
     try {
       await stubTiles(page);
       const errors = await watchConsole(page);
-      await page.goto(`/app/records/${id}/map`);
+      await page.goto(`/properties/${id}/location`);
       await expect(page.locator('.leaflet-container')).toBeVisible({ timeout: 20_000 });
 
       await page.getByRole('button', { name: 'Draw boundary' }).click();
@@ -1113,7 +1113,7 @@ test.describe('W04 · map and boundary', () => {
     try {
       await stubTiles(page);
       const errors = await watchConsole(page);
-      await page.goto(`/app/records/${id}/map`);
+      await page.goto(`/properties/${id}/location`);
       await expect(page.locator('.leaflet-container')).toBeVisible({ timeout: 20_000 });
       await expect(page.locator('path.w-ring')).toHaveCount(0);
 
@@ -1175,7 +1175,7 @@ test.describe('W04 · map and boundary', () => {
 
       await stubTiles(page);
       const errors = await watchConsole(page);
-      await page.goto(`/app/records/${id}/map`);
+      await page.goto(`/properties/${id}/location`);
       await expect(page.locator('path.w-ring')).toHaveCount(1, { timeout: 20_000 });
 
       // Both answers are shown, and the screen says they cannot both be right.
@@ -1206,7 +1206,7 @@ test.describe('W04 · map and boundary', () => {
 
   test('the address is on the screen, and stays out of the hand-off URL', async ({ page }) => {
     await stubTiles(page);
-    await page.goto(`/app/records/${PARCEL}/map`);
+    await page.goto(`/properties/${PARCEL}/location`);
 
     // A shared /map link used to arrive with a survey number and nothing else.
     // "Sy 214/2" is not an identifier — the same number exists in every village
@@ -1226,7 +1226,7 @@ test.describe('W04 · map and boundary', () => {
   test('Measurements shows every side, and the unit switch moves lengths only',
     async ({ page }) => {
     await stubTiles(page);
-    await page.goto(`/app/records/${PARCEL}/map`);
+    await page.goto(`/properties/${PARCEL}/location`);
     await expect(page.locator('path.w-ring')).toHaveCount(1, { timeout: 20_000 });
 
     // On by default: the lengths and the letters ARE the useful view of a
@@ -1288,7 +1288,7 @@ test.describe('W04 · map and boundary', () => {
 
   test('the map holds still while the panels around it change', async ({ page }) => {
     await stubTiles(page);
-    await page.goto(`/app/records/${PARCEL}/map`);
+    await page.goto(`/properties/${PARCEL}/location`);
     const ring = page.locator('path.w-ring');
     await expect(ring).toHaveCount(1, { timeout: 20_000 });
     const map = page.locator('.plot .map');
@@ -1362,7 +1362,7 @@ test.describe('W04 · map and boundary', () => {
   test('north is stated, a side can be picked, and its corners can be copied',
     async ({ page }) => {
     await stubTiles(page);
-    await page.goto(`/app/records/${PARCEL}/map`);
+    await page.goto(`/properties/${PARCEL}/location`);
     await expect(page.locator('path.w-ring')).toHaveCount(1, { timeout: 20_000 });
 
     // Web Mercator never rotates, so north is always up — which is exactly why
@@ -1416,7 +1416,7 @@ test.describe('W04 · map and boundary', () => {
 
   test('the boundary can be handed over as GeoJSON', async ({ page }) => {
     await stubTiles(page);
-    await page.goto(`/app/records/${PARCEL}/map`);
+    await page.goto(`/properties/${PARCEL}/location`);
     await expect(page.locator('path.w-ring')).toHaveCount(1, { timeout: 20_000 });
 
     await page.getByRole('button', { name: 'More for this map' }).click();
@@ -1446,7 +1446,7 @@ test.describe('W04 · map and boundary', () => {
 
   test('the boundary is drawn on once, and never again', async ({ page }) => {
     await stubTiles(page);
-    await page.goto(`/app/records/${PARCEL}/map`);
+    await page.goto(`/properties/${PARCEL}/location`);
     await expect(page.locator('path.w-ring')).toHaveCount(1, { timeout: 20_000 });
 
     // The flourish is written down the moment it is claimed, so a re-render
@@ -1471,7 +1471,7 @@ test.describe('W04 · map and boundary', () => {
     await stubTiles(page);
     const lit = () => page.locator('path.w-ring-stars, path.w-ring-glow');
 
-    await page.goto(`/app/records/${PARCEL}/map`);
+    await page.goto(`/properties/${PARCEL}/location`);
     await expect(page.locator('path.w-ring')).toHaveCount(1, { timeout: 20_000 });
     await expect(lit()).toHaveCount(0);
 
@@ -1483,7 +1483,7 @@ test.describe('W04 · map and boundary', () => {
   test('the tip is bolted to one corner, whichever side and wherever panned',
     async ({ page }) => {
     await stubTiles(page);
-    await page.goto(`/app/records/${PARCEL}/map`);
+    await page.goto(`/properties/${PARCEL}/location`);
     await expect(page.locator('path.w-ring')).toHaveCount(1, { timeout: 20_000 });
 
     const map = page.locator('.plot .map');
@@ -1536,7 +1536,7 @@ test.describe('W04 · map and boundary', () => {
 
   test('a pinned row is tinted, not barred, and the side sparks', async ({ page }) => {
     await stubTiles(page);
-    await page.goto(`/app/records/${PARCEL}/map`);
+    await page.goto(`/properties/${PARCEL}/location`);
     await expect(page.locator('path.w-ring')).toHaveCount(1, { timeout: 20_000 });
 
     const row = page.locator('.sidetable tbody tr').nth(1);
@@ -1560,7 +1560,7 @@ test.describe('W04 · map and boundary', () => {
 
   test('seven actions wrap instead of running off the page', async ({ page }) => {
     await stubTiles(page);
-    await page.goto(`/app/records/${PARCEL}/map`);
+    await page.goto(`/properties/${PARCEL}/location`);
     await expect(page.locator('path.w-ring')).toHaveCount(1, { timeout: 20_000 });
 
     // flex-shrink:0 with flex-wrap does nothing on its own — the block takes
@@ -1584,7 +1584,7 @@ test.describe('W04 · map and boundary', () => {
 
   test('a corner and a length can never be mistaken for each other', async ({ page }) => {
     await stubTiles(page);
-    await page.goto(`/app/records/${PARCEL}/map`);
+    await page.goto(`/properties/${PARCEL}/location`);
     await expect(page.locator('path.w-ring')).toHaveCount(1, { timeout: 20_000 });
 
     // They used to be the same grey mono text a few pixels apart, which read
@@ -1636,7 +1636,7 @@ test.describe('W04 · map and boundary', () => {
 
   test('every side gets its length, however cramped', async ({ page }) => {
     await stubTiles(page);
-    await page.goto(`/app/records/${PARCEL}/map`);
+    await page.goto(`/properties/${PARCEL}/location`);
     await expect(page.locator('path.w-ring')).toHaveCount(1, { timeout: 20_000 });
 
     // The first rule here HID a label with no room beside its side, and on a
@@ -1665,7 +1665,7 @@ test.describe('W04 · map and boundary', () => {
 
   test('clicking a node answers about that node, and nothing else', async ({ page }) => {
     await stubTiles(page);
-    await page.goto(`/app/records/${PARCEL}/map`);
+    await page.goto(`/properties/${PARCEL}/location`);
     await expect(page.locator('path.w-ring')).toHaveCount(1, { timeout: 20_000 });
 
     const tip = page.locator('.plot .w-tip');
@@ -1703,7 +1703,7 @@ test.describe('W04 · map and boundary', () => {
 
   test('a mark\u2019s kebab actually opens, and can delete it', async ({ page }) => {
     await stubTiles(page);
-    await page.goto(`/app/records/${PARCEL}/map`);
+    await page.goto(`/properties/${PARCEL}/location`);
     await expect(page.locator('path.w-ring')).toHaveCount(1, { timeout: 20_000 });
 
     const card = page.locator('.card', { hasText: 'Boundary marks' });
@@ -1733,7 +1733,7 @@ test.describe('W04 · map and boundary', () => {
 
     try {
       await stubTiles(page);
-      await page.goto(`/app/records/${id}/map`);
+      await page.goto(`/properties/${id}/location`);
       await expect(page.locator('.leaflet-container')).toBeVisible({ timeout: 20_000 });
       const card = page.locator('.card', { hasText: 'Boundary marks' });
 
@@ -1742,7 +1742,7 @@ test.describe('W04 · map and boundary', () => {
       // which is a record of nothing.
       // The tool moved onto the map with the other three that write; the card
       // beside it lists the stones and no longer carries a second switch.
-      await page.getByRole('button', { name: 'Add boundary mark', exact: true }).click();
+      await page.getByRole('button', { name: 'Add a boundary mark', exact: true }).click();
       await clickMapAt(page, 0.45, 0.45);
       const form = card.locator('.marknote');
       await expect(form).toBeVisible();
@@ -1819,7 +1819,7 @@ test.describe('W04 · map and boundary', () => {
                                 17.0776, 82.1397] } } });
 
       await stubTiles(page);
-      await page.goto(`/app/records/${id}/map`);
+      await page.goto(`/properties/${id}/location`);
       await expect(page.locator('path.w-ring')).toHaveCount(1, { timeout: 20_000 });
       const card = page.locator('.card', { hasText: 'Boundary marks' });
 
@@ -1857,11 +1857,11 @@ test.describe('W04 · map and boundary', () => {
     try {
       await stubTiles(page);
       const errors = await watchConsole(page);
-      await page.goto(`/app/records/${id}/map`);
+      await page.goto(`/properties/${id}/location`);
       await expect(page.locator('.leaflet-container')).toBeVisible({ timeout: 20_000 });
       await expect(page.locator('path.w-ring'), 'starts with no boundary').toHaveCount(0);
 
-      await page.getByRole('button', { name: 'Village map' }).click();
+      await page.getByRole('button', { name: 'Cadastral map' }).click();
       // 2,100 plots as SVG would be ~30,000 DOM nodes; the village draws to a
       // canvas so the map still pans.
       await expect(page.locator('.plot .vmnote')).toContainText('2,100 plots', { timeout: 20_000 });
@@ -1916,7 +1916,7 @@ test.describe('W04 · map and boundary', () => {
 
     try {
       await stubTiles(page);
-      await page.goto(`/app/records/${id}/map`);
+      await page.goto(`/properties/${id}/location`);
       await expect(page.locator('.leaflet-container')).toBeVisible({ timeout: 20_000 });
 
       // Village names repeat. Asked for "Chinthagunta" the geocoder returns
@@ -1956,10 +1956,10 @@ test.describe('W04 · map and boundary', () => {
 
     try {
       await stubTiles(page);
-      await page.goto(`/app/records/${id}/map`);
+      await page.goto(`/properties/${id}/location`);
       await expect(page.locator('.leaflet-container')).toBeVisible({ timeout: 20_000 });
 
-      await page.getByRole('button', { name: 'Village map' }).click();
+      await page.getByRole('button', { name: 'Cadastral map' }).click();
       await expect(page.locator('.plot .vmnote')).toContainText('2,100 plots', { timeout: 20_000 });
 
       // 2,100 shapes, and the owner knows exactly one thing about theirs: what
@@ -2013,7 +2013,7 @@ test.describe('W04 · map and boundary', () => {
         return route.fulfill({ contentType: 'application/json', body: JSON.stringify(wrongDistrict) });
       });
 
-      await page.goto(`/app/records/${id}/map`);
+      await page.goto(`/properties/${id}/location`);
       await expect(page.locator('.leaflet-container')).toBeVisible({ timeout: 20_000 });
 
       // The name matches perfectly and the place is real. It is still the
@@ -2034,7 +2034,7 @@ test.describe('W04 · map and boundary', () => {
 
   test('a village with no shape file says so, and changes nothing', async ({ page }) => {
     await stubTiles(page);
-    await page.goto(`/app/records/${PARCEL}/map`);
+    await page.goto(`/properties/${PARCEL}/location`);
     await expect(page.locator('path.w-ring')).toHaveCount(1, { timeout: 20_000 });
 
     // Kothapalli has not been digitised. Most villages have not — that is the
@@ -2045,19 +2045,19 @@ test.describe('W04 · map and boundary', () => {
     // it is asserted properly in "the tape holds the ground and the village
     // waits" below; here it is just the way in.
     await page.getByRole('button', { name: 'Measure', exact: true }).click();
-    await page.getByRole('button', { name: 'Village map' }).click();
-    await expect(page.locator('.plot .vmnote')).toContainText('No village map on file');
+    await page.getByRole('button', { name: 'Cadastral map' }).click();
+    await expect(page.locator('.plot .vmnote')).toContainText('No cadastral map on file');
     await expect(page.locator('path.w-ring'), 'the record keeps its own boundary')
       .toHaveCount(1);
   });
 
   test('measurements work on either basemap and village plots remain available', async ({ page }) => {
     await stubTiles(page);
-    await page.goto(`/app/records/${PARCEL}/map`);
+    await page.goto(`/properties/${PARCEL}/location`);
     await expect(page.locator('path.w-ring')).toHaveCount(1, { timeout: 20_000 });
 
     const sat = page.getByRole('button', { name: 'Satellite' });
-    const vil = page.getByRole('button', { name: 'Village map' });
+    const vil = page.getByRole('button', { name: 'Cadastral map' });
     const tape = page.getByRole('button', { name: 'Measure', exact: true });
     await expect(tape).toHaveAttribute('aria-pressed', 'true');
     await expect(sat).toBeEnabled();
@@ -2103,13 +2103,13 @@ test.describe('W04 · map and boundary', () => {
 
     try {
       await stubTiles(page);
-      await page.goto(`/app/records/${id}/map`);
+      await page.goto(`/properties/${id}/location`);
       await expect(page.locator('.leaflet-container')).toBeVisible({ timeout: 20_000 });
       await expect(page.locator('path.w-ring'), 'no boundary to measure').toHaveCount(0);
 
       await expect(page.getByRole('button', { name: 'Measure', exact: true })).toHaveCount(0);
       await expect(page.getByRole('button', { name: 'Satellite' })).toBeEnabled();
-      await expect(page.getByRole('button', { name: 'Village map' })).toBeEnabled();
+      await expect(page.getByRole('button', { name: 'Cadastral map' })).toBeEnabled();
     } finally {
       await request.post(GQL, { data: {
         query: 'mutation DR($ids:[String!]!) { web { deleteRecords(ids:$ids) } }',
@@ -2119,7 +2119,7 @@ test.describe('W04 · map and boundary', () => {
 
   test('accepting a moved position settles the mark', async ({ page }) => {
     await stubTiles(page);
-    await page.goto(`/app/records/${PARCEL}/map`);
+    await page.goto(`/properties/${PARCEL}/location`);
     await page.getByRole('button', { name: 'Accept new position' }).click();
     await expect(page.getByRole('button', { name: 'Accept new position' })).toHaveCount(0);
   });
@@ -2128,7 +2128,7 @@ test.describe('W04 · map and boundary', () => {
 test.describe('W05 + W14 · photos', () => {
   test('the gallery states provenance and exposes deliberate photo edits', async ({ page }) => {
     const errors = await watchConsole(page);
-    await page.goto(`/app/records/${PARCEL}/photos`);
+    await page.goto(`/properties/${PARCEL}/media`);
 
     await expect(page.getByText(/31 photos · 1 video · 4 site visits/)).toBeVisible();
     await expect(page.getByText('geo-stamped')).toBeVisible();
@@ -2143,7 +2143,7 @@ test.describe('W05 + W14 · photos', () => {
   });
 
   test('a caption edit persists', async ({ page }) => {
-    await page.goto(`/app/records/${PARCEL}/photos`);
+    await page.goto(`/properties/${PARCEL}/media`);
     const caption = page.getByLabel('Caption');
     await caption.fill('South-east boundary stone, re-shot');
     await caption.blur();
@@ -2156,7 +2156,7 @@ test.describe('W05 + W14 · photos', () => {
 
   test('scoped to a feature it becomes the provenance panel', async ({ page }) => {
     const errors = await watchConsole(page);
-    await page.goto(`/app/records/${PARCEL}/features`);
+    await page.goto(`/properties/${PARCEL}/site-features`);
     await page.locator('.cards > article').first().getByText(/photos$/).click();
 
     await expect(page).toHaveURL(/feature=/);
@@ -2176,31 +2176,31 @@ test.describe('W05 + W14 · photos', () => {
 test.describe('W15 · the vault', () => {
   test('eight shelves and every link out', async ({ page }) => {
     const errors = await watchConsole(page);
-    await page.goto('/app/papers');
+    await page.goto('/papers');
 
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Papers');
-    for (const shelf of ['Title', 'Revenue record', 'Map', 'Identity', 'Search & tax',
-      'Old record', 'Photos', 'Unsorted']) {
+    for (const shelf of ['Title deeds', 'Revenue records', 'Map', 'Identity', 'EC & tax receipts',
+      'Old records', 'Photos & video', 'Not sorted yet']) {
       await expect(page.locator('.shelf', { hasText: shelf }).first()).toBeVisible();
     }
     // Every shelf carries a count. The exact numbers are a property of the
     // portfolio, not of the software — the mock's 14/18/31 was a snapshot of an
     // account with one documented parcel — so what is asserted is that no shelf
     // is empty and that the header equals their sum (next test).
-    for (const shelf of ['Title', 'Revenue record', 'Map', 'Photos']) {
+    for (const shelf of ['Title deeds', 'Revenue records', 'Map', 'Photos & video']) {
       const n = await page.locator('.shelf', { hasText: shelf }).first()
         .locator('.num').innerText();
       expect(Number(n.trim()), `${shelf} shelf count`).toBeGreaterThan(0);
     }
 
-    await expect(page.getByText(/Active share links · \d+/)).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Active share links' })).toBeVisible();
     await expect(page.getByText('K. Prasad, advocate — 4 papers')).toBeVisible();
     await expect(page.getByText('New links are view-only for 30 days.')).toBeVisible();
     expect(errors).toEqual([]);
   });
 
   test('the header total is the shelves added up', async ({ page }) => {
-    await page.goto('/app/papers');
+    await page.goto('/papers');
     await expect(page.locator('.shelf').first()).toBeVisible();
     const counts = await page.locator('.shelf .num').allInnerTexts();
     const sum = counts.reduce((n, t) => n + Number(t.trim()), 0);
@@ -2209,7 +2209,7 @@ test.describe('W15 · the vault', () => {
   });
 
   test('revoking a link removes it from the list', async ({ page }) => {
-    await page.goto('/app/papers');
+    await page.goto('/papers');
     await expect(page.locator('.rows.boxed > div').first()).toBeVisible();
     const before = await page.locator('.rows.boxed > div').count();
     const row = page.locator('.rows.boxed > div', { hasText: 'SBI Kakinada, loan desk' });
@@ -2223,7 +2223,7 @@ test.describe('W15 · the vault', () => {
 test.describe('W13 · reading a document', () => {
   test('the scan on the left, what was read from it on the right', async ({ page }) => {
     const errors = await watchConsole(page);
-    await page.goto(`/app/papers/${DEED}`);
+    await page.goto(`/papers/${DEED}`);
 
     await expect(page.getByText('Sale Deed 4417/2019').first()).toBeVisible();
     await expect(page.getByText(/Sy 214\/2 · Title · 22 pages/)).toBeVisible();
@@ -2248,7 +2248,7 @@ test.describe('W13 · reading a document', () => {
   });
 
   test('paging moves through the scan', async ({ page }) => {
-    await page.goto(`/app/papers/${DEED}`);
+    await page.goto(`/papers/${DEED}`);
     await page.getByRole('button', { name: 'Next page' }).click();
     await expect(page.getByText('2 / 22')).toBeVisible();
   });
@@ -2257,7 +2257,7 @@ test.describe('W13 · reading a document', () => {
 test.describe('W09 · shared with me', () => {
   test("someone else's kit, read-only, and out of your totals", async ({ page }) => {
     const errors = await watchConsole(page);
-    await page.goto('/app/shared');
+    await page.goto('/shared');
 
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sy 96/3, Samalkot');
     await expect(page.getByText('Read-only · Not your property')).toBeVisible();
@@ -2275,7 +2275,7 @@ test.describe('W09 · shared with me', () => {
   });
 
   test("a shared kit's acres are not in the portfolio total", async ({ page }) => {
-    await page.goto('/app');
+    await page.goto('/home');
     // The kit is 4.10 ac. 44.82 is the owned farmland; 48.92 would mean the
     // recipient's list had been unioned into the owner's.
     await expect(page.locator('.strip').first()).toContainText('44.82');
@@ -2286,9 +2286,9 @@ test.describe('W09 · shared with me', () => {
 test.describe('W06 · find by map', () => {
   test('saved map links open the live portfolio map and its searchable records', async ({ page }) => {
     const errors = await watchConsole(page);
-    await page.goto('/app/map');
+    await page.goto('/map');
 
-    await expect(page).toHaveURL(/\/app\/properties\?view=map/);
+    await expect(page).toHaveURL(/\/properties\?view=map/);
     await expect(page.locator('.pf-results .pf-result')).toHaveCount(9);
     await expect(page.locator('.pf-map.leaflet-container')).toBeVisible();
     await expect(page.getByText(/basemap placeholder/)).toHaveCount(0);
@@ -2297,15 +2297,15 @@ test.describe('W06 · find by map', () => {
     await page.locator('.pf-result-pick').click();
     await expect(page.locator('.pf-pick')).toContainText('Sy 214/2');
     await expect(page.locator('.pf-pick').getByRole('link', { name: 'Boundary' }))
-      .toHaveAttribute('href', `/app/records/${PARCEL}/map`);
+      .toHaveAttribute('href', `/properties/${PARCEL}/location`);
     expect(errors).toEqual([]);
   });
 
   test('a facet narrows both the map and the list', async ({ page }) => {
-    // `/app/map` is a redirect onto `/app/properties?view=map` (MapFind.tsx),
+    // `/map` is a redirect onto `/properties?view=map` (MapFind.tsx),
     // so this is the same filter row every other view carries — the facets are
     // options inside the `+ Filter` popover now, not checkboxes in a rail.
-    await page.goto('/app/map');
+    await page.goto('/map');
     await page.getByRole('button', { name: '+ Filter' }).click();
     await page.getByRole('group', { name: 'Narrow the list' })
       .getByRole('button', { name: /^Disputed/ }).click();
@@ -2319,7 +2319,7 @@ test.describe('W06 · find by map', () => {
 test.describe('the shell', () => {
   test('every rail destination resolves and none errors', async ({ page }) => {
     const errors = await watchConsole(page);
-    await page.goto('/app');
+    await page.goto('/home');
     await expect(page.locator('.nav a').first()).toBeVisible();
     const links = await page.locator('.nav a').all();
     expect(links.length).toBe(15);   // …the fifteenth is Maps
@@ -2335,7 +2335,7 @@ test.describe('the shell', () => {
   });
 
   test('the High Contrast theme survives a reload', async ({ page }) => {
-    await page.goto('/app');
+    await page.goto('/home');
     await expect(page.locator('html')).toHaveAttribute('data-scheme', 'dark');
     await page.getByRole('button', { name: 'Change theme' }).click();
     await page.getByRole('menuitemradio', { name: 'High Contrast' }).click();
@@ -2349,7 +2349,7 @@ test.describe('the shell', () => {
   });
 
   test('the jump box actually jumps — parcel, paper, person', async ({ page }) => {
-    await page.goto('/app');
+    await page.goto('/home');
     const box = page.locator('#w360-search');
 
     // A parcel by its survey number.
@@ -2357,7 +2357,7 @@ test.describe('the shell', () => {
     const results = page.locator('.jump-results');
     await expect(results).toBeVisible();
     await results.getByRole('option', { name: /Sy 214\/2/ }).first().click();
-    await expect(page).toHaveURL(new RegExp(`/app/records/${PARCEL}$`));
+    await expect(page).toHaveURL(new RegExp(`/properties/${PARCEL}$`));
 
     // Navigation clears the box (an effect); wait for it or the next fill races it.
     await expect(box).toHaveValue('');
@@ -2366,7 +2366,7 @@ test.describe('the shell', () => {
     await box.fill('Sale Deed 4417');
     await expect(results.getByRole('option', { name: /Sale Deed 4417\/2019/ }).first()).toBeVisible();
     await box.press('Enter');
-    await expect(page).toHaveURL(/\/app\/papers\/w360-d-deed-4417/);
+    await expect(page).toHaveURL(/\/papers\/w360-d-deed-4417/);
 
     await expect(box).toHaveValue('');
 
@@ -2377,17 +2377,17 @@ test.describe('the shell', () => {
   });
 
   test('a search with no hits says so, and Enter still lands somewhere', async ({ page }) => {
-    await page.goto('/app');
+    await page.goto('/home');
     const box = page.locator('#w360-search');
     await box.fill('zzzz-nothing');
     await expect(page.locator('.jump-results')).toContainText('Nothing matches');
     await box.press('Enter');
-    await expect(page).toHaveURL(/\/app\/properties\?q=zzzz-nothing/);
+    await expect(page).toHaveURL(/\/properties\?q=zzzz-nothing/);
     await expect(page.getByText('Nothing matches “zzzz-nothing”')).toBeVisible();
   });
 
   test('at desktop the hamburger collapses the rail to icons, and remembers', async ({ page }) => {
-    await page.goto('/app');
+    await page.goto('/home');
     const nav = page.locator('.nav');
     await expect(nav.locator('.lbl', { hasText: 'Properties' })).toBeVisible();
 
@@ -2404,7 +2404,7 @@ test.describe('the shell', () => {
 
     // An icon still navigates while collapsed…
     await nav.getByRole('link', { name: 'Papers', exact: true }).click();
-    await expect(page).toHaveURL(/\/app\/papers/);
+    await expect(page).toHaveURL(/\/papers/);
     await expect(nav.locator('.lbl', { hasText: 'Properties' })).toBeHidden();
 
     // …and the hamburger brings the words back.
@@ -2414,40 +2414,33 @@ test.describe('the shell', () => {
 
   test('on a phone the hamburger opens the rail', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto('/app');
+    await page.goto('/home');
 
     // Off-canvas at rest, visible after the hamburger, closed again by use.
     await expect(page.locator('.nav')).not.toBeInViewport();
     await page.getByRole('button', { name: 'Menu' }).click();
     await expect(page.locator('.nav')).toBeInViewport();
     await page.locator('.nav').getByText('Properties').click();
-    await expect(page).toHaveURL(/\/app\/properties/);
+    await expect(page).toHaveURL(/\/properties/);
     await expect(page.locator('.nav')).not.toBeInViewport();
   });
 
   test('⌘K focuses the jump box', async ({ page }) => {
-    await page.goto('/app');
+    await page.goto('/home');
     await page.locator('main').click({ position: { x: 5, y: 5 } });
     await page.keyboard.press('ControlOrMeta+k');
     await expect(page.locator('#w360-search')).toBeFocused();
   });
 
-  test('the old vocabulary still resolves', async ({ page }) => {
-    await page.goto('/app/documents');
-    await expect(page).toHaveURL(/\/app\/papers/);
-    await page.goto('/app/parcels');
-    await expect(page).toHaveURL(/\/app\/properties\?kind=parcel/);
-  });
-
   test('a record that is not yours is refused, not crashed', async ({ page }) => {
-    await page.goto('/app/records/does-not-exist');
+    await page.goto('/properties/does-not-exist');
     await expect(page.getByText("This property isn't in your account")).toBeVisible();
   });
 });
 
 test.describe('no record renders as an empty shell', () => {
   test('every record in the list has figures, papers, features and people', async ({ page }) => {
-    await page.goto('/app/properties');
+    await page.goto('/properties');
     await expect(page.locator('.cards .rec')).toHaveCount(9);
     const hrefs = await page.locator('.cards .rec .recgo').evaluateAll(
       (els) => els.map((e) => (e as HTMLAnchorElement).getAttribute('href')!));
@@ -2473,7 +2466,7 @@ test.describe('no record renders as an empty shell', () => {
   });
 
   test("a record's money and ledger both have rows", async ({ page }) => {
-    await page.goto('/app/properties');
+    await page.goto('/properties');
     await expect(page.locator('.cards .rec')).toHaveCount(9);
     const href = await page.locator('.cards .rec .recgo').nth(4)
       .evaluate((e) => (e as HTMLAnchorElement).getAttribute('href')!);
@@ -2504,7 +2497,7 @@ test.describe('the record tab layout contract', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await stubTiles(page);
     for (const [path, layout] of tabs) {
-      const route = `/app/records/${PARCEL}${path ? `/${path}` : ''}`;
+      const route = `/properties/${PARCEL}${path ? `/${path}` : ''}`;
       await page.goto(route);
       const main = page.locator('.w360 main');
       await expect(main).toHaveAttribute('data-tab-layout', layout);
@@ -2517,7 +2510,7 @@ test.describe('the record tab layout contract', () => {
 
   test('Papers puts its heading above both content columns', async ({ page }) => {
     await page.setViewportSize({ width: 1512, height: 900 });
-    await page.goto(`/app/records/${PARCEL}`);
+    await page.goto(`/properties/${PARCEL}`);
     const heading = page.getByRole('heading', { name: 'Property documents' });
     const split = page.locator('.w360 main > .split');
     const rail = split.locator(':scope > aside');
@@ -2543,7 +2536,7 @@ test.describe('the record tab layout contract', () => {
       await add('Layout owner three', true);
       try {
         await page.setViewportSize({ width: 1512, height: 1400 });
-        await page.goto(`/app/records/${PARCEL}/people`);
+        await page.goto(`/properties/${PARCEL}/people`);
         const canvas = page.locator('.ownerchain-canvas');
         const panel = page.locator('.ownerchain');
         const disclaimer = page.getByText('This is the chain of title as it was read or entered');
@@ -2601,7 +2594,7 @@ test.describe('the record tab layout contract', () => {
         ['map', '.split > .plot.live', '.split > aside'],
         ['photos', '.lightbox', '.lightbox > .side'],
       ] as const) {
-        await page.goto(`/app/records/${PARCEL}/${path}`);
+        await page.goto(`/properties/${PARCEL}/${path}`);
         const stage = page.locator(selector).first();
         const rail = page.locator(railSelector).first();
         await expect(stage).toBeVisible();
@@ -2619,7 +2612,7 @@ test.describe('the record tab layout contract', () => {
 
   test('Media comparison stacks without clipping either pane on a phone', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto(`/app/records/${PARCEL}/photos`);
+    await page.goto(`/properties/${PARCEL}/media`);
     await page.getByRole('button', { name: 'Compare', exact: true }).click();
     const compare = page.locator('.media-compare');
     const panes = compare.locator('.compare-pane');
@@ -2643,7 +2636,7 @@ test.describe('the record body fills the window', () => {
   for (const [name, height] of [['tall', 1400], ['short', 800]] as const) {
     test(`${name} window · the two columns reach the bottom of the region`, async ({ page }) => {
       await page.setViewportSize({ width: 1512, height });
-      await page.goto(`/app/records/${PARCEL}`);
+      await page.goto(`/properties/${PARCEL}`);
       await page.waitForLoadState('networkidle');
 
       const { mainH, splitH } = await page.evaluate(() => {
@@ -2665,8 +2658,8 @@ test.describe('responsive', () => {
   ] as const) {
     test(`${name} · no page scrolls sideways`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
-      for (const path of ['/app', '/app/properties', `/app/records/${PARCEL}`,
-        `/app/records/${PARCEL}/features`, `/app/records/${BIG}/money`, '/app/papers']) {
+      for (const path of ['/home', '/properties', `/properties/${PARCEL}`,
+        `/properties/${PARCEL}/site-features`, `/properties/${BIG}/money`, '/papers']) {
         await page.goto(path);
         await page.waitForLoadState('networkidle');
         const overflow = await page.evaluate(() =>

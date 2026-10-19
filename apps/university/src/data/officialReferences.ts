@@ -13,6 +13,7 @@ export interface OfficialReference {
 const reviewedOn = '2026-09-20';
 const verifiedOn = '2026-09-30';
 const recordReviewOn = '2026-10-01';
+const groundwaterReviewOn = '2026-10-10';
 
 export const officialReferences: OfficialReference[] = [
   {
@@ -374,6 +375,69 @@ export const officialReferences: OfficialReference[] = [
     kind: 'law',
     description: 'Official rules used for personal-data notices, safeguards, and governed processing workflows.',
     reviewedOn,
+  },
+  {
+    id: 'cgwb-geophysical-exploration',
+    title: 'Geophysical exploration for groundwater',
+    authority: 'Central Ground Water Board, Ministry of Jal Shakti, Government of India',
+    url: 'https://cgwb.gov.in/en/geophysical-exploration',
+    kind: 'programme',
+    description: 'Explains how resistivity surveys, including vertical electrical sounding, are combined with hydrogeological study to pinpoint drilling sites and reduce the cost of drilling.',
+    reviewedOn: groundwaterReviewOn,
+  },
+  {
+    id: 'walta-act-2002',
+    title: 'Andhra Pradesh Water, Land and Trees Act, 2002 (Act No. 10 of 2002, as enacted)',
+    authority: 'Government of Andhra Pradesh; copy published by the Forest Department, Government of Telangana',
+    url: 'https://forests.telangana.gov.in/Documents/FCA/WALTA%20Act%202002.pdf',
+    kind: 'law',
+    description: 'Text of sections 8 to 14: registration of wells, the 250-metre rule near public drinking water sources, over-exploited areas, distance and depth directions, and registration of drilling rigs.',
+    reviewedOn: groundwaterReviewOn,
+  },
+  {
+    id: 'ap-walta-summary',
+    title: 'APWALTA, 2002: ground water protection measures',
+    authority: 'Land Cell, AMR Andhra Pradesh Academy of Rural Development, Government of Andhra Pradesh',
+    url: 'https://cdn.s3waas.gov.in/s3fa7cdfad1a5aaf8370ebeda47a1ff1c3/uploads/2022/11/2022110121.pdf',
+    kind: 'manual',
+    description: 'Training summary of the Act: the Mandal Authority chaired by the Tahsildar, well registration through the Village Revenue Officer, and the permission route for a new well.',
+    reviewedOn: groundwaterReviewOn,
+  },
+  {
+    id: 'ap-kurnool-groundwater',
+    title: 'Ground Water and Water Audit Department, Kurnool',
+    authority: 'District Administration Kurnool, Government of Andhra Pradesh',
+    url: 'https://kurnool.ap.gov.in/?p=2798',
+    kind: 'service',
+    description: 'District page on identifying sites for wells, technical feasibility under APWALTA, and villages notified as over-exploited where no new borewell is sunk except for drinking water.',
+    reviewedOn: groundwaterReviewOn,
+  },
+  {
+    id: 'ap-prakasam-groundwater',
+    title: 'Ground Water and Water Audit Department, Prakasam',
+    authority: 'District Administration Prakasam, Government of Andhra Pradesh',
+    url: 'https://prakasam.ap.gov.in/?p=27796',
+    kind: 'service',
+    description: 'District page listing hydrogeological and geophysical investigations for selecting well sites for irrigation, industry and individuals.',
+    reviewedOn: groundwaterReviewOn,
+  },
+  {
+    id: 'ts-walta-act',
+    title: 'Telangana Water, Land and Trees Act, 2002',
+    authority: 'India Code, Government of India',
+    url: 'https://www.indiacode.nic.in/handle/123456789/8587',
+    kind: 'law',
+    description: 'Official record of the Water, Land and Trees Act, 2002 as it applies in Telangana.',
+    reviewedOn: groundwaterReviewOn,
+  },
+  {
+    id: 'ts-siddipet-groundwater',
+    title: 'Ground Water Department, Siddipet',
+    authority: 'District Administration Siddipet, Government of Telangana',
+    url: 'https://siddipet.telangana.gov.in/ground-water/',
+    kind: 'service',
+    description: 'District page on hydrogeological, geophysical and hydrological surveys, and on selecting sites for wells under WALTA.',
+    reviewedOn: groundwaterReviewOn,
   },
 ];
 

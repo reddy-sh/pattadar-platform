@@ -1,0 +1,27 @@
+{
+  "verdict": "APPROVED",
+  "findings": [
+    {
+      "id": 1,
+      "severity": "NIT",
+      "section": "§8.3",
+      "title": "Stage-2 reference set misses node-id columns not named *file_ref (record_people.photo_ref, record_owners.photo_ref, evidence_ref); web360.py:725 is combined_property_expenses, not land_expenses",
+      "fix": "Restrict to text columns and widen the catalog predicate to file_ref/photo_ref/evidence_ref plus %\\_file\\_ref and %\\_photo\\_ref (card_node_id stays excluded); use a raw string; add a record_people.photo_ref refused-and-kept test; correct the ~725 attribution."
+    },
+    {
+      "id": 2,
+      "severity": "NIT",
+      "section": "§12.10",
+      "title": "The key-isolation loop uses a non-existent $WEB_PID, omits university, and uses script-internal subshell PIDs whose exec-time environment is not the uvicorn/Vite environment",
+      "fix": "Select processes by listening port (8082, 8081, 5173, university port; never 8080) via lsof -tiTCP:<port> -sTCP:LISTEN, then run a count-only grep -c 'AADHAAR_ENC_KEY='; also run once with the key exported in the launching shell."
+    },
+    {
+      "id": 3,
+      "severity": "NIT",
+      "section": "§4.1",
+      "title": "_encrypt_bytes fernet branch calls _fernet() outside try; an invalid AADHAAR_ENC_KEY raises plain RuntimeError on resolver typed-record paths instead of ProtectionUnavailable",
+      "fix": "Move cipher = _fernet() inside the try so any exception goes through _unavailable(...); add a §12.1 test asserting PROTECTION_FAILED_MESSAGE and a cause=RuntimeError WARNING with no key material."
+    }
+  ],
+  "reviewDoc": "/Users/reddy.sh/reddy.sh/projects/pattadar-platform/.agents/tasks/aadhaar-vault-s3/design-review.md"
+}

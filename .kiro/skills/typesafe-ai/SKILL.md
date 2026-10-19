@@ -1,14 +1,7 @@
 ---
 name: typesafe-ai
 license: MIT
-description: >
-  Use this skill when designing or reviewing a Pattadar feature that could use
-  TypeSafe System One models (Jev) for typed, probabilistic judgments code can
-  branch on — routing, ranking, classification, verification, or selecting among
-  pre-extracted candidates — including when an LLM prompt-and-parse step could
-  become a structured decision. It supplies the TypeSafe programming model and
-  live-docs entry points; it does not authorize provider activation, dependency
-  installation, or sending private records to TypeSafe.
+description: "Use this skill when TypeSafe or its System One models (Jev) are named for designing or reviewing a Pattadar feature with typed, probabilistic judgments code branches on (routing, ranking, classification, verification, picking pre-extracted candidates). Advisory; never authorizes provider activation, SDK installs or sending private records. Not for services/api/src/ai_reading or image/scan extraction, or the chat assistant (assistant-quality)."
 compatibility: >
   Advisory design skill only; text/JSON in, non-authoritative. Defer to
   provider-activation (enablement), dependency-change (SDK/package),
@@ -19,11 +12,14 @@ compatibility: >
 metadata:
   project: pattadar-platform
   standard: agentskills.io
-  verified: "2026-09-24"
+  verified: "2026-10-09"
   upstream-inspiration: typesafe-ai/skills (MIT)
 ---
 
 # Build with TypeSafe
+
+Also use it to judge whether a prompt-and-parse step could become a typed Jev
+decision.
 
 ## Pattadar boundaries (read first)
 
@@ -34,12 +30,21 @@ owner of a reserved decision:
   `RecordBoundary`/FMB), identifiers, consent, authorization, Aadhaar masking,
   and any ownership/title conclusion. Typed output guarantees the interface, not
   truth, and a probability is never public-record proof.
-- TypeSafe is text/JSON only. Do not send raw documents, scans, maps, or images;
-  use existing extraction first and pass minimized, redacted fields as state.
-- Do not send Aadhaar digits, deed contents, phone numbers, or private owner
-  inventories to TypeSafe. Data leaving the platform requires `security-review`
-  and, before any live call, `provider-activation` with Reddy's approval and a
-  reviewed DPA/retention position.
+- TypeSafe is text/JSON only. Do not send raw documents, scans, maps, or images.
+  State is de-identified only: field keys, format and consistency features,
+  candidate indices, and synthetic values. Never send names, parentage,
+  addresses, document or survey numbers, consideration, Aadhaar, phone numbers,
+  other deed content, or private owner inventories; any exception is Reddy's
+  reserved decision.
+- TypeSafe in any code path is a new model provider, a reserved decision
+  (`docs/architecture/ai-system.md` § Changing anything here): present evidence
+  and wait for Reddy. Any live call, even with synthetic data, also needs
+  Reddy's explicit approval, `security-review` and
+  `provider-activation` (its other-model-provider row: DPA/retention, key
+  custody). Once approved, the same change updates
+  `docs/architecture/ai-inventory.yaml` and runs
+  `python scripts/ai-boundary-guard.py --selftest` and
+  `python scripts/ai-boundary-guard.py` (CI runs both).
 - Defer to the owning skill: `provider-activation` (credentials, enablement,
   rotation), `dependency-change` (any SDK/package), `backend-contract-change`
   (API/gateway/service contracts and async jobs), `assistant-quality` (assistant
@@ -125,7 +130,7 @@ including ideas that do not fit an established recipe.
 
 For open-ended requests, offer the few directions that best serve the user's goal
 and recommend a starting point. For a concrete request, choose the relevant pattern
-and build; a brainstorm is not a mandatory detour.
+and design it; a brainstorm is not a mandatory detour.
 
 ## Design the judgments
 

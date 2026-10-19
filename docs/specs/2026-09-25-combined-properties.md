@@ -44,10 +44,11 @@ Tags remain the way to put one record into several overlapping collections.
 2. A record belongs to **at most one** combined property. Two holdings each
    counting the same thirty acres is the one thing this must never allow;
    overlapping groupings are what tags are for.
-3. Only records the account holds **in its own name** (`stake = 'owned'`) may
-   join. Land watched or managed for somebody else is not yours to group and its
-   costs are not yours to total. The dialog says which records it left out and
-   why rather than silently filtering them.
+3. ~~Only records the account holds **in its own name** (`stake = 'owned'`) may
+   join.~~ **Superseded 04/10/2026 — see "Amendment: one stake per holding"
+   below.** Every member shares one stake, all `owned` or all `managed`; never
+   `watch`; never mixed. The dialog says which records it left out and why
+   rather than silently filtering them.
 4. Costs can be recorded at the holding's scope. They are **not** divided
    between the members, and the Expenses tab reports the holding's own costs
    beside its members' with a `scope` on every row.
@@ -62,6 +63,83 @@ Tags remain the way to put one record into several overlapping collections.
    (database cascade) and the holding stays, marked `isComplete = false`. The
    alternative — deleting the holding automatically — would silently destroy
    combined costs the owner recorded.
+
+## Amendment: one stake per holding (04/10/2026)
+
+Founder override of rule 3. Owners who look after a family member's land asked
+to group it the same way they group their own, so a holding may now be made of
+land the account **manages**, as long as it is made of nothing else.
+
+- **Rule.** All members share ONE stake, either all `owned` (Mine) or all
+  `managed` (I manage it). `watch` never joins. Mixed is refused. The point of
+  rule 3 survives: a holding's totals are either your own money or the money of
+  the land you look after, never the two added together.
+- **Refusals are sentences.** `createCombinedProperty` and `setCombinedMembers`
+  raise a GraphQL error (ValueError, passed through `MaskUnexpectedErrors`)
+  whose `message` is the sentence to show, instead of answering `""` / `false`:
+  - `A holding needs at least two records.` / `A holding can have at most 50 records.`
+  - `Give the holding a name.` / `A holding's name can be at most 120 characters.`
+  - `One of these records is no longer in your properties. Reload the list and try again.`
+    (also what another owner's id gets — it reads like a missing one)
+  - `“Sy 94” is land you are watching, and watched land cannot be part of a holding.`
+  - `Every record in a holding must have the same stake — all Mine or all I manage it. “Sy 77” is Mine and “Sy 92” is I manage it.`
+  - `“Sy 78” is already part of the holding “First”. Take it out of that one first.`
+  - `One of these records was just added to another holding. …` (the unique-index race)
+
+  `setCombinedMembers` still answers `false` for a holding id that is not this
+  owner's. An error also releases an `x-idempotency-key` claim (only clean
+  answers are memoized), so a corrected retry runs rather than replaying a refusal.
+- **Idempotent by membership.** `createCombinedProperty` with exactly the
+  records of an existing holding of this owner (order and repeats ignored)
+  returns that holding's id and writes nothing — no second holding and no
+  rename. A superset or overlap is still refused as "already part of". Two
+  presses racing for the same set (the card's holding step and a Combine in
+  another tab) both get the one holding: the loser's unique-index violation
+  looks the exact set up again and returns the winner's id.
+- **A member's stake cannot change on its own while it would leave the
+  holding mixed.** Chosen over silently removing it: removal would shrink the
+  holding (possibly below two records) and take the owner's filed costs out of
+  view without them noticing. `saveRecord` (with `id` and a different `stake`)
+  and root `setStake` raise `This record is part of the holding “…”, and every
+  record in a holding has the same stake. To change it, change the stake of the
+  whole holding (Edit the holding), or take this record out of it first.` A
+  change that leaves every member on one stake (owned or managed) is allowed.
+  The check (`web360._guard_holding_stake`) takes the record's row lock in the
+  same transaction as the write, and the combine check takes `FOR SHARE` on the
+  same rows before reading stakes, so a stake change and a combine cannot
+  interleave into a mixed holding. The legacy web /parcels stake dialog shows
+  that sentence instead of "Couldn't update — try again".
+- **The whole holding changes stake in one act.** `setCombinedStake(id, stake)`
+  (`owned` | `managed`; `watch` refused) sets every member's stake in one
+  transaction, so land you managed and now own changes without ungrouping —
+  `deleteCombinedProperty` would also delete the holding's combined costs.
+  The holding's Edit dialog offers it ("Every record in it is: Mine / I manage
+  it").
+- **Holdings made before this amendment may be mixed.** Before 04/10/2026 the
+  stake rule was checked only at combine time, and root `setStake` / `saveRecord`
+  had no holding guard, so a member could be changed to managed or watched after
+  combining. No migration rewrites them (which stake is right is the owner's
+  call, not the server's). They repair without data loss: the Edit dialog
+  detects a mixed holding, says so, and `setCombinedStake` puts every member on
+  the stake the owner picks; a single member's change that makes the holding
+  uniform is allowed; and a holding of three or more can drop the odd member
+  through `setCombinedMembers`. To find them:
+  `SELECT combined_property_id FROM combined_property_members m LEFT JOIN parcels p
+  ON p.id = m.parcel_id LEFT JOIN properties r ON r.id = m.property_id GROUP BY 1
+  HAVING count(DISTINCT COALESCE(p.stake, r.stake, 'owned')) > 1
+  OR bool_or(COALESCE(p.stake, r.stake) = 'watch')`.
+- **Web.** `canCombine` becomes "stake is owned or managed, and the same as the
+  rest of the selection" (`w360/pages/holdingStake.ts`, unit-tested); the
+  Combine dialog names each record it left out under its own reason (watched,
+  or a different stake than the rest), and `tests/e2e-web360/specs/holdings.spec.ts`
+  asserts each line and a two-managed holding.
+- **Evidence.** `services/api/tests/test_combined_property.py`:
+  `test_a_holding_is_one_stake_mine_or_managed_never_watching`,
+  `test_creating_the_same_holding_twice_returns_the_first`,
+  `test_a_whole_holding_changes_stake_in_one_act_and_keeps_its_costs`,
+  `test_a_legacy_mixed_holding_can_be_put_right_one_record_at_a_time`,
+  `test_two_presses_racing_for_the_same_records_both_get_the_one_holding`,
+  `test_a_member_stake_cannot_change_while_it_is_in_a_holding`.
 
 ## Model
 

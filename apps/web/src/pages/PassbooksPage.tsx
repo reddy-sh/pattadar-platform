@@ -137,7 +137,7 @@ export function PassbooksPage() {
     watermark: 'PATTADAR',
   };
 
-  const openParcels = (b: Passbook) => navigate(`/app/parcels?pb=${b.id}`);
+  const openParcels = (b: Passbook) => navigate(`/legacy/parcels?pb=${b.id}`);
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -155,7 +155,7 @@ export function PassbooksPage() {
 
   const rowActions = (b: Passbook) => [
     { key: 'open', label: 'Open land parcels', onClick: () => openParcels(b) },
-    { key: 'record', label: 'Passbook record', onClick: () => navigate(`/app/passbooks/${b.id}`) },
+    { key: 'record', label: 'Passbook record', onClick: () => navigate(`/legacy/passbooks/${b.id}`) },
     { key: 'delete', label: 'Delete', danger: true, onClick: () => setDeleteTarget(b) },
   ];
 
@@ -321,7 +321,7 @@ export function PassbooksPage() {
                             label={`👪 ${gname}`}
                             onClick={(e) => {
                               e.stopPropagation();
-                              navigate(`/app/parcels?group=${b.groupId}`);
+                              navigate(`/legacy/parcels?group=${b.groupId}`);
                             }}
                           />
                         )}

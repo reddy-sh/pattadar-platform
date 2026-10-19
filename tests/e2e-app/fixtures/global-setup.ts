@@ -14,7 +14,7 @@ import { WEB_URL } from '../playwright.config';
 export default async function globalSetup(): Promise<void> {
   let response: Response;
   try {
-    response = await fetch(`${WEB_URL}/app`, {
+    response = await fetch(`${WEB_URL}/home`, {
       signal: AbortSignal.timeout(10_000),
       headers: { accept: 'text/html' },
     });
@@ -27,7 +27,7 @@ export default async function globalSetup(): Promise<void> {
     );
   }
   if (!response.ok) {
-    throw new Error(`${WEB_URL}/app answered HTTP ${response.status}. The SPA shell should answer 200 for every path under /app.`);
+    throw new Error(`${WEB_URL}/home answered HTTP ${response.status}. The SPA shell should answer 200 for every signed-in path.`);
   }
   const html = await response.text();
   if (!/<div id="root">/.test(html)) {

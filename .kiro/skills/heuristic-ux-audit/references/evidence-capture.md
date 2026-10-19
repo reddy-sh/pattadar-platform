@@ -23,7 +23,7 @@ phone width hides.
 - Its revision is unknown, so label it "user screenshot, revision unknown" and
   confirm every count against current source.
 - Read it by the same size rule as a capture (§ 2, after the spec): never
-  open a side over 2000 px; read a `sips -Z 1800` copy or crops in `scratch/`.
+  open a side over 2000 px; read a copy or crops in `<audit>/scratch/`.
 - When the user asks to keep an audit under `docs/`, leave real-record
   screenshots out and say so.
 
@@ -35,12 +35,14 @@ this skill never starts or stops it.
 
 ### Before
 
-- Check the server the user is running, read-only:
-  `curl -s -o /dev/null -w '%{http_code}' --max-time 3 http://localhost:<port>/app`.
-  `scripts/start-local.sh` pins 5180, which is the harness default; a plain
-  Vite dev server answers on 5173. Use the port from the user's URL when they
-  give one, and pass it to the run as `APP_WEB_URL`. Anything but `200` means
-  source only. Never start a server.
+- Find the server the user is running, read-only, trying the port from the
+  user's URL first, then 5173 (`scripts/start-local.sh`'s default, real
+  sign-in), then 5180 (`LOCAL_AUTH=mock`, a plain `bun run dev:web`, and the
+  harness default):
+  `curl -s --max-time 3 http://localhost:<port>/home | grep -q '<title>Pattadar</title>'`.
+  Other projects on this laptop use 5173 too, so a port counts only when it
+  serves the Pattadar page. Pass that port to the run as `APP_WEB_URL`. None
+  does: source only. Never start a server.
 - Record the test tree's state:
   `git status --short --untracked-files=all tests/ | shasum`.
 
@@ -58,7 +60,7 @@ import { test, expect } from '../fixtures/harness';
 const OUT = process.env.UX_AUDIT_EVIDENCE ?? '';
 
 // Marketing, legal and auth pages are public, so their tests go in here.
-// /app/* tests stay outside it, signed in by the harness.
+// Signed-in page tests stay outside it, signed in by the harness.
 test.describe('public', () => {
   test.use({ signedIn: false });
 
@@ -130,19 +132,21 @@ test('ux-audit states · <page> · <control> @phone', async ({ page }, info) => 
   await page.getByRole('button', { name: '<a match>' }).click(); // or option, link
   await expect(page.getByText('<what choosing it shows>')).toBeVisible();
   await capture('chosen');
-  // High Contrast, W360 pages only: the theme menu is in the signed-in shell.
-  // Elsewhere delete this block and list it as not applicable. The harness
-  // writes its own scheme again on every load, so load once more, switch
-  // through the app's menu and stay. Another load and scheme: not measured.
-  await page.goto('<route>');
-  await page.getByRole('button', { name: 'Change theme' }).click();
-  // Choose with Enter, not a click: after a click, a scripted focus matches
-  // :focus-visible only on a text input, so a button's ring would read none.
-  await page.getByRole('menuitemradio', { name: 'High Contrast' }).press('Enter');
-  await expect(page.locator('[data-scheme="highContrast"]')).toHaveCount(1);
-  await field.focus();
-  rings.highContrast = await ring();
-  await capture('focused-highcontrast', false);
+  // The other schemes in packages/tokens/src/palette/registry.ts, W360 pages
+  // only: the theme menu is in the signed-in shell. Elsewhere delete this loop
+  // and list them as not applicable. Another load and scheme: not measured.
+  const schemes = [['light', 'Light'], ['pattadar', 'Pattadar Gold'], ['highContrast', 'High Contrast']] as const;
+  for (const [id, label] of schemes) {
+    await page.goto('<route>');
+    await page.getByRole('button', { name: 'Change theme' }).click();
+    // Choose with Enter, not a click: after a click, a scripted focus matches
+    // :focus-visible only on a text input, so a button's ring would read none.
+    await page.getByRole('menuitemradio', { name: label }).press('Enter');
+    await expect(page.locator('html')).toHaveAttribute('data-scheme', id);
+    await field.focus();
+    rings[id] = await ring();
+    await capture(`focused-${id.toLowerCase()}`, false);
+  }
 });
 ```
 
@@ -166,8 +170,8 @@ test('ux-audit states · <page> · <control> @phone', async ({ page }, info) => 
 - Read a capture back as SKILL.md § Safety says: check it with
   `sips -g pixelWidth -g pixelHeight`, and never open one with a side over
   2000 px. A `phone` shot is 3× (1170 wide, and a `-full` shot is far taller),
-  so read a `sips -Z 1800` copy, or crops no larger than 1800 px on either
-  side, written to the audit folder's `scratch/`.
+  so read a `sips -Z 1800 <file> --out <audit>/scratch/<name>` copy, or crops
+  no larger than 1800 px on either side, written to `<audit>/scratch/`.
 - A still cannot show motion. Motion findings come from source (pass 7).
 
 ### Run
@@ -176,10 +180,10 @@ From `tests/e2e-app` as the working directory:
 
 ```sh
 APP_WEB_URL="http://localhost:<port>" \
-UX_AUDIT_EVIDENCE="<repo>/.local/ux-audits/<slug>/evidence" \
+UX_AUDIT_EVIDENCE="<repo>/<audit>/evidence" \
   ./node_modules/.bin/playwright test specs/zz-ux-audit-<slug>.spec.ts \
   --project=app --project=phone --reporter=line \
-  --output="<repo>/.local/ux-audits/<slug>/pw-output"
+  --output="<repo>/<audit>/pw-output"
 ```
 
 `--reporter=line` replaces the configured reporters, so the user's
@@ -223,8 +227,9 @@ control, each loading the page itself and naming its own `control`.
 
 - Name every evidence file `<page>-<control>-<state>-<project>`, the control
   being a slug of its inventory name (`search`, `filter`, `results`) and the
-  state `resting`, `focused`, `focused-highcontrast`, `typed-match`,
-  `typed-none`, `popover-open`, `chosen`, `loading`, `empty` or `failed`.
+  state `resting`, `focused`, `focused-<scheme id, lower case>` (such as
+  `focused-highcontrast`), `typed-match`, `typed-none`, `popover-open`,
+  `chosen`, `loading`, `empty` or `failed`.
 - Write the viewport instrument (a map stage, a chain canvas, a media viewer)
   in every state to `<page>-<control>-shift-<project>.json`, the shift file:
   its viewport box (`x`, `y`, `width`, `height`), its ancestors' summed scroll
@@ -236,28 +241,30 @@ control, each loading the page itself and naming its own `control`.
   `outline-color` and `outline-offset` of the focused element and of the
   visible container that draws the control (a pill, a field row), plus the
   `box-shadow` and `border-color` some rings use, to
-  `<page>-<control>-focus-<project>.json`, in Dark and in High Contrast. Pass
+  `<page>-<control>-focus-<project>.json`, in every registered scheme. Pass
   12 traces the rule behind each value.
 - Read every ring as a keyboard user meets it. The rings in `w360.css` and
   `site.css` are `:focus-visible` rules, and once the last input is a click,
   Chromium (the `app` project) and WebKit (`phone`) match `:focus-visible` on
   a scripted `focus()` only for a text input. So when any other control's
-  ring is read after clicks (a trigger once High Contrast is on, an option in
+  ring is read after clicks (a trigger once another scheme is on, an option in
   a popover opened by click), make the last input a key: choose with Enter, as
   the template does, or move with Tab or an arrow key. A modifier key alone,
   such as Shift, counts in Chromium but not in WebKit.
 - Key both JSON objects by control and write them again after every state, as
   the template does, so a step that fails keeps what was measured before it.
-- High Contrast, W360 pages only: the theme menu and `data-scheme` belong to
-  the signed-in W360 shell, and design.md § Theme choice and persistence keeps
-  marketing dark. On any other page, list High Contrast as not applicable.
-  The harness's `scheme` option takes only `dark` or `light`, its init script
-  writes that scheme again on every document load, and `fixtures/` is never
-  edited. So after `goto`, click
-  `getByRole('button', { name: 'Change theme' })`, then press Enter on
-  `getByRole('menuitemradio', { name: 'High Contrast' })`, assert
-  `[data-scheme="highContrast"]`, and do not navigate again. This state comes
-  from another load and scheme, so it is not measured for the shift file.
+- Schemes, W360 pages only: every scheme in
+  `packages/tokens/src/palette/registry.ts` (Light, Dark, Pattadar Gold and
+  High Contrast today) is offered by the signed-in W360 shell's theme menu and
+  written to `<html data-scheme>`. design.md § Theme choice and persistence
+  keeps marketing dark, and its pages wrap themselves in
+  `data-scheme="dark"`, so on any other page list the other schemes as not
+  applicable. The harness's `scheme` option takes only `dark` or `light`, and
+  `fixtures/` is never edited. So after `goto`, click
+  `getByRole('button', { name: 'Change theme' })`, press Enter on the scheme's
+  `menuitemradio`, and assert `<html data-scheme>`, as the template's loop
+  does. These states come from another load and scheme, so they are not
+  measured for the shift file.
 - Not verified: a user's screenshot shows one state and source only shows
   none. Name every state not captured, with its control and width, in the
   report and in the footer's "Not verified" line.

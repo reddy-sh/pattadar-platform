@@ -11,9 +11,9 @@ import PattadarKit
 /// intents inside a Swift package need their own export ceremony to be
 /// discovered; one file in two targets is the version that simply works.
 struct FileAPaperIntent: AppIntent {
-    static let title: LocalizedStringResource = "File a paper"
+    static let title: LocalizedStringResource = "Add a document"
     static let description = IntentDescription(
-        "Open Pattadar ready to photograph a deed or a passbook.")
+        "Open Pattadar ready to take a photo of a deed or a passbook.")
 
     /// The whole point is to arrive at the camera, so the app comes up.
     static let openAppWhenRun = true
