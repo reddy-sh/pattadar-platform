@@ -25,7 +25,7 @@ The signals that should bring you here:
 | Source | What it means |
 |---|---|
 | GuardDuty finding | Credential misuse, crypto-mining, malicious IP, or an S3 object flagged `THREATS_FOUND` |
-| CloudTrail | Unexpected `PutBucketPolicy`, `DeleteTrail`, `CreateUser`, `AttachRolePolicy`, or role assumption from an unknown source |
+| CloudTrail (off in prod from 22/10/2026, `enable_cloudtrail = false`; older logs only) | Unexpected `PutBucketPolicy`, `DeleteTrail`, `CreateUser`, `AttachRolePolicy`, or role assumption from an unknown source |
 | `pattadar-<env>-cron-failed-invocations` / `-cron-did-not-run` | The family-safeguard escalation stopped running |
 | `pattadar-<env>-<service>-no-healthy-hosts` | A service is down or failing health checks |
 | Audit chain verification fails | `services/api/scripts/verify_audit_chain.py` reports a broken link — the ledger was modified outside the append path |
@@ -72,6 +72,9 @@ how much left the platform.
   CloudTrail holds management events. Note that CloudTrail does not record S3
   object-level reads unless data events are enabled — if they are not, say
   plainly in the assessment that object-level reads cannot be enumerated.
+  Since 22/10/2026 the prod trail is deleted (`enable_cloudtrail = false`,
+  applied that day, cost), so there is no new CloudTrail record at all: only
+  the older logs left in the trail bucket. Say so in the assessment.
 - **Cross-border**: if the incident involves document extraction or assistant
   chat, those payloads reached Anthropic in the US. That is a disclosed
   processor, but it belongs in the scope description.

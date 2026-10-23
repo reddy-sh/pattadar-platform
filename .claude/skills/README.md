@@ -10,8 +10,8 @@
 >   frontmatter, references, eval names) so it does not shadow Claude Code's
 >   built-in `/security-review`;
 > - the always-on steering is `.claude/rules/*.md`, without the
->   `inclusion: always` frontmatter, and paths name `.claude/rules` and
->   `.claude/skills`;
+>   `inclusion: always` frontmatter, and `.kiro/steering/<name>.md` paths name
+>   `.claude/rules/<name>.md`;
 > - Kiro wording reads as Claude Code: `heuristic-ux-audit` opens images with
 >   the Read tool instead of `create_artifact`; cleanup, long runs and browser
 >   work name TaskStop, Monitors, `run_in_background`, the built-in `run` and
@@ -23,8 +23,9 @@
 > - this README, `agent-skill-maintenance`, its `evaluation-method.md` and the
 >   eval `method` text speak from this copy's side.
 >
-> The first two are generic transforms in the script; the rest are wording rules
-> in `scripts/claude-adaptations.txt`. The validators (`scripts/validate-*.py`)
+> The first two are generic transforms in the script; the rest, including a few
+> `.claude/skills` and `.claude/rules` path references, are wording rules in
+> `scripts/claude-adaptations.txt`. The validators (`scripts/validate-*.py`)
 > and the Kiro PostFileSave hook read only `.kiro`; `--check` is the only check
 > of this copy.
 
@@ -89,8 +90,8 @@ made while this freeze (07944a0, 16/09/2026) stands:
 
 ## Evaluation and maintenance
 
-- Static structure: `python3 scripts/validate-agent-skills.py --strict`; portfolio fixtures: `python3 scripts/validate-skill-evals.py`; both read `.kiro` only.
-- Actual trigger quality requires fresh Claude Code sessions (a new `claude -p` at the repo root, or a clean subagent; `.claude/` is untracked, so a git worktree does not contain it). Run each positive/negative prompt repeatedly and record the client version, model, enabled plugins, which skills the listing showed without a description, and whether the Skill tool loaded the skill. Keep Kiro and Claude Code results apart.
+- Static structure: `python3 scripts/validate-agent-skills.py --strict`; portfolio fixtures: `python3 scripts/validate-skill-evals.py`; `python3 scripts/validate-agent-governance.py` runs both plus the catalog, steering, hook and reference checks (CI runs it; the Kiro PostFileSave hook never runs under Claude Code). All read `.kiro` only.
+- Actual trigger quality requires fresh Claude Code sessions (a new `claude -p` at the repo root; `.claude/` is untracked, so a git worktree does not contain it). Run each positive/negative prompt repeatedly and record the client version, model, enabled plugins, which skills the listing showed without a description, and whether the Skill tool loaded the skill. Keep Kiro and Claude Code results apart (`agent-skill-maintenance` `references/evaluation-method.md`).
 - Output quality follows with-skill versus no-skill/old-skill runs, objective assertions after first outputs, timing/tokens, evidence-based grading, and human feedback. See `agent-skill-maintenance`.
 - Keep `.kiro/skills` canonical. Cross-tool copies are thin adapters, except this generated Claude Code copy (see the header).
 - Ground changes in real code/runbooks/incidents; update `metadata.verified`, catalog, eval manifest and validators together.

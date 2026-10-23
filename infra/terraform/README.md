@@ -4,7 +4,8 @@ Infrastructure for the Pattadar platform on AWS `ap-south-1`, split into two
 layers per environment:
 
 - **persistent** — survives a decommission. Data, identity, audit and
-  supply-chain: KMS, S3 (documents/logs/CloudTrail), CloudTrail + AWS Config,
+  supply-chain: KMS, S3 (documents/logs/CloudTrail), CloudTrail (trail off in
+  prod via `enable_cloudtrail = false`; bucket kept) + AWS Config,
   ECR, Secrets Manager, Cognito (users!), Route53 zone, SES identity,
   GuardDuty, GitHub OIDC deploy role. `scripts/platform-down.sh` never touches
   this layer (it only parks documents into `parking_storage_class`).

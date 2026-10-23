@@ -4,10 +4,10 @@
 |---|---|---|
 | Bun unit tests (`bun:test`) | core/tokens/web/mobile/university pure logic | CI: `bun test packages/core packages/tokens apps/web/src apps/mobile/tests apps/university/src` |
 | `scripts/*-tests.ts` + guards | offline rules/classes of UI/icon defect | discovered by CI |
-| `scripts/tests` pytest | `deploy-release.py` | CI |
+| `scripts/tests` pytest | `deploy-release.py`; `sync-claude-from-kiro.py` (every `scripts/claude-adaptations.txt` rule still matches `.kiro` exactly once; CI has no `.claude`) | CI (backend job) |
 | `scripts/ai-boundary-guard.py` (`--selftest`, then plain) | prompt/provider/secret/MCP boundaries in `docs/architecture/ai-inventory.yaml` | CI; static, calls no provider |
 | `scripts/emit-vectors.ts --check` + `scripts/parity-check.ts` | web/native vectors and contracts | CI (ios job) |
-| `scripts/validate-agent-governance.py` | skill/eval/steering/hook structure | CI; reads `.kiro` only, never this `.claude` copy |
+| `scripts/validate-agent-governance.py` | skill/eval/steering/hook structure | CI; reads `.kiro` only, never the untracked `.claude` copy |
 | API pytest | domain/schema/idempotency/account/import/payment | CI |
 | Gateway pytest | auth/header/proxy/storage/public route contracts | CI |
 | Assistant pytest | attachment/public-record/tool-policy contracts | full directory in CI |

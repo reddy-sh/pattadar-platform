@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Regenerate the untracked Claude Code copy in `.claude/` from canonical `.kiro/`.
 
-`.kiro/steering` becomes `.claude/rules` (Kiro frontmatter dropped), `.kiro/skills`
+`.kiro/steering` becomes `.claude/rules` (its `inclusion: always` frontmatter dropped;
+any other inclusion mode stops the sync, since Claude Code loads every rule), `.kiro/skills`
 becomes `.claude/skills` and `.kiro/skill-evals` becomes `.claude/skill-evals`. Two
 generic transforms run on every file: `security-review` is renamed
 `pattadar-security-review` (Claude Code ships a built-in `/security-review`) and
@@ -30,7 +31,7 @@ RULES_FILE = Path(__file__).resolve().with_name("claude-adaptations.txt")
 TREES = (("steering", "rules"), ("skills", "skills"), ("skill-evals", "skill-evals"))
 RENAMED_SKILLS = {"security-review": "pattadar-security-review"}
 IGNORED_NAMES = {".DS_Store"}
-FRONTMATTER_RE = re.compile(r"\A---\n.*?\n---\n\n?", re.S)
+STEERING_FRONTMATTER = "---\ninclusion: always\n---\n"
 RENAME_RE = re.compile(r"(?<![\w/-])(" + "|".join(map(re.escape, RENAMED_SKILLS)) + r")(?![\w-])")
 STEERING_PATH_RE = re.compile(r"\.kiro/steering/([a-z0-9-]+\.md)")
 MARK = "@@@ "
@@ -91,9 +92,20 @@ def generic(text: str) -> str:
     return STEERING_PATH_RE.sub(r".claude/rules/\1", text)
 
 
+def strip_steering_frontmatter(rel: str, text: str) -> str:
+    # Claude Code loads every .claude/rules file, so only always-on steering may become a rule.
+    if "\r" in text:
+        raise SyncError(f".kiro/{rel} has CRLF line endings; save it with LF")
+    if not text.startswith(STEERING_FRONTMATTER):
+        raise SyncError(f".kiro/{rel} must start with exactly {STEERING_FRONTMATTER!r}; "
+                        "other inclusion modes have no Claude Code equivalent here")
+    text = text[len(STEERING_FRONTMATTER):]
+    return text[1:] if text.startswith("\n") else text
+
+
 def render_text(rel: str, text: str, rules: list[Rule], source: str) -> str:
     if rel.startswith("steering/"):
-        text = FRONTMATTER_RE.sub("", text, count=1)
+        text = strip_steering_frontmatter(rel, text)
     spans = []
     for rule in rules:
         count = text.count(rule.kiro)
@@ -127,16 +139,21 @@ def render(root: Path, rules: list[Rule], source: str = "claude-adaptations.txt"
             raise SyncError(f".kiro/{kiro_dir} is missing")
         for path in sorted(p for p in base.rglob("*") if p.is_file() and p.name not in IGNORED_NAMES):
             rel = path.relative_to(kiro).as_posix()
+            destination = target(rel)
+            if destination in rendered:
+                raise SyncError(f".kiro/{rel} and another .kiro file both map to .claude/{destination}")
             data = path.read_bytes()
             file_rules = by_file.pop(rel, [])
             try:
                 text = data.decode("utf-8")
             except UnicodeDecodeError:
+                if rel.startswith("steering/"):
+                    raise SyncError(f".kiro/{rel} is not UTF-8 text; steering must be") from None
                 if file_rules:
                     raise SyncError(f"{source}: rules name binary file .kiro/{rel}") from None
-                rendered[target(rel)] = data
+                rendered[destination] = data
                 continue
-            rendered[target(rel)] = render_text(rel, text, file_rules, source).encode("utf-8")
+            rendered[destination] = render_text(rel, text, file_rules, source).encode("utf-8")
     if by_file:
         raise SyncError(f"{source}: rules name files missing from .kiro: {', '.join(sorted(by_file))}")
     return rendered
@@ -170,6 +187,15 @@ def sync(root: Path, rules: list[Rule], check: bool, say: Callable[[str], None] 
             "run python3 scripts/sync-claude-from-kiro.py")
         return 1
     claude = root / ".claude"
+    # Fail before touching anything when a kept file sits where a generated path needs to go.
+    stale_paths = {claude / rel for rel in stale}
+    for rel in changed:
+        destination = claude / rel
+        kept_inside = destination.is_dir() and any(
+            p.is_file() and p not in stale_paths and p.name not in IGNORED_NAMES for p in destination.rglob("*"))
+        kept_parent = any(p.is_file() and p not in stale_paths for p in destination.parents if claude in p.parents)
+        if kept_inside or kept_parent:
+            raise SyncError(f"cannot write .claude/{rel}: another file is in the way; move it and rerun")
     if existing:
         # .claude is untracked, so git cannot restore what this replaces.
         backup = root / ".local" / "claude-sync-backup" / datetime.now().strftime("%Y%m%d-%H%M%S-%f")
@@ -177,16 +203,18 @@ def sync(root: Path, rules: list[Rule], check: bool, say: Callable[[str], None] 
             if (claude / claude_dir).is_dir():
                 shutil.copytree(claude / claude_dir, backup / claude_dir)
         say(f"backed up the previous copy to {backup.relative_to(root)}")
-    for rel in changed:
-        destination = claude / rel
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes(rendered[rel])
     for rel in stale:
         (claude / rel).unlink()
     for _, claude_dir in TREES:
         for directory in sorted((claude / claude_dir).rglob("*"), key=lambda p: len(p.parts), reverse=True):
-            if directory.is_dir() and not any(directory.iterdir()):
+            if directory.is_dir() and all(p.name in IGNORED_NAMES for p in directory.iterdir()):
+                for ignored in directory.iterdir():
+                    ignored.unlink()
                 directory.rmdir()
+    for rel in changed:
+        destination = claude / rel
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(rendered[rel])
     say(f"wrote {len(changed)} file(s), deleted {len(stale)}")
     return 0
 
@@ -198,7 +226,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         rules = parse_rules(RULES_FILE.read_text(encoding="utf-8"), RULES_FILE.name)
         return sync(ROOT, rules, args.check)
-    except (SyncError, OSError) as error:
+    except (SyncError, OSError, ValueError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 2
 

@@ -39,7 +39,7 @@ this skill never starts or stops it.
   user's URL first, then 5173 (`scripts/start-local.sh`'s default, real
   sign-in), then 5180 (`LOCAL_AUTH=mock`, a plain `bun run dev:web`, and the
   harness default):
-  `curl -s --max-time 3 http://localhost:<port>/app | grep -q '<title>Pattadar</title>'`.
+  `curl -s --max-time 3 http://localhost:<port>/home | grep -q '<title>Pattadar</title>'`.
   Other projects on this laptop use 5173 too, so a port counts only when it
   serves the Pattadar page. Pass that port to the run as `APP_WEB_URL`. None
   does: source only. Never start a server.
@@ -60,7 +60,7 @@ import { test, expect } from '../fixtures/harness';
 const OUT = process.env.UX_AUDIT_EVIDENCE ?? '';
 
 // Marketing, legal and auth pages are public, so their tests go in here.
-// /app/* tests stay outside it, signed in by the harness.
+// Signed-in page tests stay outside it, signed in by the harness.
 test.describe('public', () => {
   test.use({ signedIn: false });
 

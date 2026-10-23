@@ -15,8 +15,9 @@ Use `reddy-governance` for cross-cutting project reviews and final synthesis.
 Specialist skills remain authoritative for their workflows; Reddy resolves
 conflicts and accepts exceptions.
 
-Pattadar rules and skills, including AGENTS.md's CodeGraph-first search,
-outrank plugin personas, hooks and agents. Never self-accept a known limit, such as a
+Pattadar rules and skills, including the CodeGraph-first search in the root
+AGENTS.md (Claude Code does not load AGENTS.md itself, so read it), outrank
+plugin personas, hooks and agents. Never self-accept a known limit, such as a
 `shortcut:` comment; raise it through `reddy-governance`. Keep governed work
 (security or secret review, tests/e2e, docs/runbooks, schema/migration,
 dependencies, deletion/refactor, build fixes) in the main session or in a

@@ -97,7 +97,9 @@ jobs:
           .local/api-venv/bin/python scripts/ai-boundary-guard.py --selftest
           .local/api-venv/bin/python scripts/ai-boundary-guard.py
       # deploy-release.py decides what reaches production ECS; it is the one
-      # script whose bugs cannot be caught by a later test.
+      # script whose bugs cannot be caught by a later test. The sync-claude
+      # tests also fail here when a .kiro edit breaks a rule in
+      # scripts/claude-adaptations.txt: update the rule (agent-skill-maintenance).
       - run: .local/api-venv/bin/python -m pytest scripts/tests -q
       - run: bunx playwright install --with-deps chromium
         working-directory: tests/e2e-web360

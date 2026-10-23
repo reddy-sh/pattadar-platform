@@ -165,8 +165,10 @@ resource "aws_s3_bucket_policy" "cloudtrail" {
 
 # --- Trail ------------------------------------------------------------------
 
+# var.enable_cloudtrail drops only the trail; the bucket above stays so the
+# logs already written are kept.
 resource "aws_cloudtrail" "main" {
-  count = var.manage_org_security ? 1 : 0
+  count = var.manage_org_security && var.enable_cloudtrail ? 1 : 0
 
   name                          = local.trail_name
   s3_bucket_name                = aws_s3_bucket.cloudtrail[0].id

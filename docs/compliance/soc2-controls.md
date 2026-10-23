@@ -24,7 +24,7 @@ Status legend: `[template]` = in the Terraform/CI scaffold now · `[phase-N]` = 
 | CI gate | Required CI checks (typecheck, tests, lint, `terraform plan`) before merge | [template] |
 | Secret hygiene | GitHub secret scanning + push protection; `.env.example` only, never real secrets | [template] |
 | Solo-founder compensating control | Two-person review is impossible with one engineer. Compensating controls: every change lands via a reviewed CI run with full check history; infrastructure changes only via Terraform plan/apply logs; application audit trail records data changes. Documented for the auditor as a compensating control, not hidden. | [template] + [organizational] |
-| Infra change trail | All infrastructure in Terraform; CloudTrail records out-of-band console changes | [template] |
+| Infra change trail | All infrastructure in Terraform; CloudTrail records out-of-band console changes. **Gap:** prod sets `enable_cloudtrail = false` (Reddy, 22/10/2026, cost), applied the same day, so out-of-band changes are no longer recorded | [template] — disabled |
 
 ## Encryption (CC6.1, Confidentiality)
 
@@ -38,7 +38,7 @@ Status legend: `[template]` = in the Terraform/CI scaffold now · `[phase-N]` = 
 
 | Criteria area | Mechanism in this stack | Status |
 |---|---|---|
-| API/audit evidence | CloudTrail (all regions, management events) → S3, immutable — `aws_cloudtrail` in the Terraform persistent layer | [template] |
+| API/audit evidence | CloudTrail (all regions, management events) → S3, immutable — `aws_cloudtrail` in the Terraform persistent layer. **Gap:** off in prod (`enable_cloudtrail = false`, Reddy, 22/10/2026, cost); the bucket and older logs are kept. Re-enable before a SOC 2 audit window | [template] — disabled |
 | Config drift | AWS Config recording resource configuration changes — `aws_config` in the Terraform persistent layer | [template] |
 | Application logs | ECS → CloudWatch Logs, 365-day retention | [template] |
 | Access logs | ALB access logs + S3 server access logs to a logging bucket | [template] |

@@ -35,9 +35,9 @@ what was not verified, and any intentionally retained artifact/process.
 
 ## Skill owners
 
-For Pattadar work these project skills take precedence over generic built-in or
-plugin skills; the skill listing can cut their descriptions when many plugins
-are enabled, so route by this list:
+For Pattadar work these project skills take precedence over generic built-in,
+user (`~/.claude/skills`) or plugin skills; the skill listing can cut their
+descriptions when many plugins are enabled, so route by this list:
 
 - `apps/web` and `apps/university` UI: `web-feature-delivery`; Expo: `mobile-feature-delivery`.
 - Web-to-native-iOS parity: `sync-ios`.

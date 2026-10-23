@@ -65,7 +65,7 @@ made while this freeze (07944a0, 16/09/2026) stands:
 - Actual trigger quality requires fresh Kiro sessions; run each positive/negative prompt repeatedly and record whether the skill loaded. Claude Code runs use the untracked `.claude` copy; keep Kiro and Claude Code results apart (`agent-skill-maintenance` `references/evaluation-method.md`).
 - Output quality follows with-skill versus no-skill/old-skill runs, objective assertions after first outputs, timing/tokens, evidence-based grading, and human feedback. See `agent-skill-maintenance`.
 - New skills activate after a new Kiro session/index refresh. Static validation cannot prove discovery.
-- Keep `.kiro/skills` canonical. Cross-tool copies are thin adapters, except the untracked Claude Code copy in `.claude/`, which `python3 scripts/sync-claude-from-kiro.py` regenerates from `.kiro` (wording rules in `scripts/claude-adaptations.txt`; `agent-skill-maintenance` step 4).
+- Keep `.kiro/skills` canonical. Cross-tool copies are thin adapters, except the untracked Claude Code copy in `.claude/`, which `python3 scripts/sync-claude-from-kiro.py` regenerates from `.kiro` (wording rules in `scripts/claude-adaptations.txt`; `agent-skill-maintenance` step 4). The untracked `.agents/skills` Codex copy was retired on 18/10/2026 (kept under `.local/retired/`).
 - Ground changes in real code/runbooks/incidents; update `metadata.verified`, catalog, eval manifest and validators together.
 
 ## Upstream provenance

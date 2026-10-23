@@ -33,7 +33,7 @@ brand: no four-colour system, product icons or sparkle branding (§ Provenance).
 | Type | Routes | Owning source | Governing design.md sections | Frozen |
 |---|---|---|---|---|
 | Marketing | `/`, `/pricing` | `apps/web/src/pages/landing/`, `apps/web/src/pages/pricing/`, `apps/web/src/styles/site.css` | § Macrostructure family (marketing), § Motion, § CTA voice, § Per-page allowances, § What pages MUST share | `landingContent.ts`, `pricingContent.ts` (§ Copy freeze) |
-| W360 app | `/app/*` | `apps/web/src/w360/` (primitives in `ui.tsx`, styles in `w360.css`, screens in `pages/`) | § Macrostructure family (app), § App vocabulary, § App-surface rules, § Data provenance, § Theme choice and persistence | vocabulary table (founder decision) |
+| W360 app | `/home`, `/properties`, … (top level, no `/app`) | `apps/web/src/w360/` (primitives in `ui.tsx`, styles in `w360.css`, screens in `pages/`) | § Macrostructure family (app), § App vocabulary, § App-surface rules, § Data provenance, § Theme choice and persistence | vocabulary table (founder decision) |
 | Content, legal, auth | `/privacy`, `/terms`, `/login`, `/signup`, `/forgot-password` | `apps/web/src/pages/legal/`, `apps/web/src/pages/auth/` | § Macrostructure family (content/legal), § Per-page allowances (typography only) | as the page's spec says |
 
 Routes live in `apps/web/src/routes.tsx`. `/legacy/*` keeps its older copy

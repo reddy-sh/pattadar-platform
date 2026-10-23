@@ -214,7 +214,7 @@ flowchart TB
     SEC[Secrets Manager]
     COG[Cognito]
     DNS[Route53 + SES]
-    GOV[CloudTrail + Config + GuardDuty]
+    GOV["Config + GuardDuty + CloudTrail bucket (trail off in prod)"]
     OIDC[GitHub OIDC roles]
   end
   subgraph R[Runtime — recreated]

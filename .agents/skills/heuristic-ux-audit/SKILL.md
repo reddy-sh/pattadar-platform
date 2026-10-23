@@ -27,7 +27,7 @@ builds.
 
 ## Scope
 
-- Web only: `apps/web` marketing (`/`, `/pricing`), the W360 app (`/app/*`),
+- Web only: `apps/web` marketing (`/`, `/pricing`), the W360 app (`/home`, `/properties`, …),
   and content, legal and auth frames. `/legacy/*` keeps its own copy until it
   is retired.
 - Expo and native iOS are not covered yet. Say so and route to

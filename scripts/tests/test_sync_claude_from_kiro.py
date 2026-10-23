@@ -78,6 +78,23 @@ def test_rule_must_match_exactly_once(root,kiro,count):
         sync.render(root,[rule('skills/README.md',kiro,'x')])
 
 
+@pytest.mark.parametrize('text,message',[
+    ('# Safety\n','must start with'),
+    ('---\ninclusion: manual\n---\n\n# Safety\n','must start with'),
+    ('---\r\ninclusion: always\r\n---\r\n\r\n# Safety\r\n','CRLF'),
+])
+def test_only_always_on_lf_steering_becomes_a_rule(root,text,message):
+    write(root/'.kiro/steering/pattadar-safety.md',text)
+    with pytest.raises(sync.SyncError,match=message):
+        sync.render(root,RULES)
+
+
+def test_two_kiro_files_for_one_claude_path_fail(root):
+    write(root/'.kiro/skills/pattadar-security-review/SKILL.md','other\n')
+    with pytest.raises(sync.SyncError,match='both map to .claude/skills/pattadar-security-review/SKILL.md'):
+        sync.render(root,RULES)
+
+
 def test_rule_for_missing_file_fails(root):
     with pytest.raises(sync.SyncError,match='missing from .kiro: skills/gone/SKILL.md'):
         sync.render(root,[rule('skills/gone/SKILL.md','a','b')])
@@ -121,3 +138,56 @@ def test_sync_writes_backs_up_prunes_and_leaves_settings(root):
     messages=[]
     assert sync.sync(root,RULES,check=True,say=messages.append)==0
     assert messages==['.claude is in sync with .kiro']
+
+
+def test_sync_prunes_a_stale_directory_left_with_only_ds_store(root):
+    write(root/'.claude/skills/old/SKILL.md','stale\n')
+    write(root/'.claude/skills/old/.DS_Store','finder\n')
+    assert sync.sync(root,RULES,check=False,say=lambda _:None)==0
+    assert not (root/'.claude/skills/old').exists()
+
+
+def test_stale_directory_in_place_of_a_generated_file_is_replaced(root):
+    write(root/'.claude/rules/pattadar-safety.md/leftover.md','stale\n')
+    assert sync.sync(root,RULES,check=False,say=lambda _:None)==0
+    assert (root/'.claude/rules/pattadar-safety.md').read_text()=='# Safety\nAsk first.\n'
+
+
+def test_a_file_in_the_way_stops_before_backup_delete_or_write(root):
+    write(root/'.claude/rules/old.md','stale\n')
+    write(root/'.claude/skills','not a directory\n')
+    with pytest.raises(sync.SyncError,match='in the way'):
+        sync.sync(root,RULES,check=False,say=lambda _:None)
+    assert (root/'.claude/rules/old.md').read_text()=='stale\n'
+    assert not (root/'.claude/rules/pattadar-safety.md').exists()
+    assert not (root/'.local').exists()
+
+
+def test_a_kept_directory_in_place_of_a_generated_file_stops_the_sync(root,tmp_path_factory):
+    outside=tmp_path_factory.mktemp('outside')
+    write(outside/'keep.md','keep\n')
+    (root/'.claude/rules').mkdir(parents=True)
+    (root/'.claude/rules/pattadar-safety.md').symlink_to(outside,target_is_directory=True)
+    with pytest.raises(sync.SyncError,match='in the way'):
+        sync.sync(root,RULES,check=False,say=lambda _:None)
+    assert (outside/'keep.md').read_text()=='keep\n'
+
+
+def test_stale_file_in_place_of_a_generated_directory_is_replaced(root):
+    write(root/'.kiro/skills/newskill/SKILL.md','---\nname: newskill\n---\n')
+    write(root/'.claude/skills/newskill','stale file\n')
+    assert sync.sync(root,RULES,check=False,say=lambda _:None)==0
+    assert (root/'.claude/skills/newskill/SKILL.md').read_text()=='---\nname: newskill\n---\n'
+
+
+def test_non_utf8_steering_stops_the_sync(root):
+    (root/'.kiro/steering/pattadar-safety.md').write_bytes(b'---\ninclusion: always\n---\n\n\xff\n')
+    with pytest.raises(sync.SyncError,match='not UTF-8'):
+        sync.render(root,RULES)
+
+
+def test_unreadable_rules_file_exits_2_not_drift(tmp_path,monkeypatch):
+    bad=tmp_path/'claude-adaptations.txt'
+    bad.write_bytes(b'\xff\xfe not utf-8')
+    monkeypatch.setattr(sync,'RULES_FILE',bad)
+    assert sync.main(['--check'])==2

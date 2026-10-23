@@ -27,14 +27,15 @@ description because the listing budget cut them), the Skill-tool calls, and
 whether the expected route occurred. Run each prompt at least three times and
 keep each client's results apart (a `client` field). Track positive trigger
 rate, adjacent false-trigger rate and collision expected-set accuracy. Fixtures
-cannot name built-in or plugin skills yet (`/security-review`, `code-review`,
-`skill-creator`); record such a route in the run notes and score it as a miss
-when a Pattadar skill was expected.
+cannot name built-in, user or plugin skills yet (`/security-review`,
+`code-review`, `skill-creator`); record such a route in the run notes and score
+it as a miss when a Pattadar skill was expected.
 
 Before diagnosing a discovery failure, parse the frontmatter with
 `yaml.safe_load`: `scripts/validate-agent-skills.py` splits on the first `:`
-and is not a YAML parser, so it passes the unquoted `: ` in the `.kiro`
-`platform-lifecycle` description, which strict YAML rejects.
+and is not a YAML parser, so it passes an unquoted `: ` inside a description
+that strict YAML rejects (the `.kiro` `platform-lifecycle` description had one
+until 18/10/2026).
 
 ## Output quality
 

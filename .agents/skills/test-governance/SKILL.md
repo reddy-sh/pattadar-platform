@@ -38,7 +38,7 @@ coverage threshold, and no commit unless asked.
    PASS/FAIL/BLOCKED/NOT_RUN/SKIPPED, reconciled counts, finding classification,
    and evidence handling. A run that collected or executed nothing is BLOCKED.
 7. Update `verify-change` routing through `agent-skill-maintenance` (step 4, Two
-   trees: `.kiro` is canonical, this copy is mirrored) and run relevant local
+   trees: edit canonical `.kiro`, then regenerate `.Codex`) and run relevant local
    checks.
 
 Do not introduce generic Playwright helpers that bypass the repository's

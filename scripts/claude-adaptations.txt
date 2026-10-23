@@ -34,9 +34,9 @@
 For Pattadar work these project skills take precedence over generic global
 (`~/.kiro/skills`) or third-party skills; route by this list:
 @@@ claude
-For Pattadar work these project skills take precedence over generic built-in or
-plugin skills; the skill listing can cut their descriptions when many plugins
-are enabled, so route by this list:
+For Pattadar work these project skills take precedence over generic built-in,
+user (`~/.claude/skills`) or plugin skills; the skill listing can cut their
+descriptions when many plugins are enabled, so route by this list:
 @@@ end
 
 @@@ file steering/reddy-authority.md
@@ -51,8 +51,9 @@ never in a custom agent that cannot load skills and steering (Kiro custom
 agents load skills only through `skill://` and steering only through `file://`
 resources).
 @@@ claude
-Pattadar rules and skills, including AGENTS.md's CodeGraph-first search,
-outrank plugin personas, hooks and agents. Never self-accept a known limit, such as a
+Pattadar rules and skills, including the CodeGraph-first search in the root
+AGENTS.md (Claude Code does not load AGENTS.md itself, so read it), outrank
+plugin personas, hooks and agents. Never self-accept a known limit, such as a
 `shortcut:` comment; raise it through `reddy-governance`. Keep governed work
 (security or secret review, tests/e2e, docs/runbooks, schema/migration,
 dependencies, deletion/refactor, build fixes) in the main session or in a
@@ -74,8 +75,8 @@ Canonical Kiro portfolio following the [Agent Skills specification](https://agen
 >   frontmatter, references, eval names) so it does not shadow Claude Code's
 >   built-in `/security-review`;
 > - the always-on steering is `.claude/rules/*.md`, without the
->   `inclusion: always` frontmatter, and paths name `.claude/rules` and
->   `.claude/skills`;
+>   `inclusion: always` frontmatter, and `.kiro/steering/<name>.md` paths name
+>   `.claude/rules/<name>.md`;
 > - Kiro wording reads as Claude Code: `heuristic-ux-audit` opens images with
 >   the Read tool instead of `create_artifact`; cleanup, long runs and browser
 >   work name TaskStop, Monitors, `run_in_background`, the built-in `run` and
@@ -87,8 +88,9 @@ Canonical Kiro portfolio following the [Agent Skills specification](https://agen
 > - this README, `agent-skill-maintenance`, its `evaluation-method.md` and the
 >   eval `method` text speak from this copy's side.
 >
-> The first two are generic transforms in the script; the rest are wording rules
-> in `scripts/claude-adaptations.txt`. The validators (`scripts/validate-*.py`)
+> The first two are generic transforms in the script; the rest, including a few
+> `.claude/skills` and `.claude/rules` path references, are wording rules in
+> `scripts/claude-adaptations.txt`. The validators (`scripts/validate-*.py`)
 > and the Kiro PostFileSave hook read only `.kiro`; `--check` is the only check
 > of this copy.
 
@@ -106,27 +108,27 @@ The four `.claude/rules/` files (`pattadar-standards.md`, `pattadar-safety.md`,
 @@@ kiro
 `python3 scripts/validate-agent-governance.py` runs both plus the catalog, steering, hook and reference checks (the Kiro PostFileSave hook runs it after agent edits). All read `.kiro` only.
 @@@ claude
-both read `.kiro` only.
+`python3 scripts/validate-agent-governance.py` runs both plus the catalog, steering, hook and reference checks (CI runs it; the Kiro PostFileSave hook never runs under Claude Code). All read `.kiro` only.
 @@@ end
 
 @@@ file skills/README.md
 @@@ kiro
 - Actual trigger quality requires fresh Kiro sessions;
 @@@ claude
-- Actual trigger quality requires fresh Claude Code sessions (a new `claude -p` at the repo root, or a clean subagent;
+- Actual trigger quality requires fresh Claude Code sessions (a new `claude -p` at the repo root;
 @@@ end
 
 @@@ file skills/README.md
 @@@ kiro
 run each positive/negative prompt repeatedly and record whether the skill loaded. Claude Code runs use the untracked `.claude` copy; keep Kiro and Claude Code results apart (`agent-skill-maintenance` `references/evaluation-method.md`).
 @@@ claude
-`.claude/` is untracked, so a git worktree does not contain it). Run each positive/negative prompt repeatedly and record the client version, model, enabled plugins, which skills the listing showed without a description, and whether the Skill tool loaded the skill. Keep Kiro and Claude Code results apart.
+`.claude/` is untracked, so a git worktree does not contain it). Run each positive/negative prompt repeatedly and record the client version, model, enabled plugins, which skills the listing showed without a description, and whether the Skill tool loaded the skill. Keep Kiro and Claude Code results apart (`agent-skill-maintenance` `references/evaluation-method.md`).
 @@@ end
 
 @@@ file skills/README.md
 @@@ kiro
 - New skills activate after a new Kiro session/index refresh. Static validation cannot prove discovery.
-- Keep `.kiro/skills` canonical. Cross-tool copies are thin adapters, except the untracked Claude Code copy in `.claude/`, which `python3 scripts/sync-claude-from-kiro.py` regenerates from `.kiro` (wording rules in `scripts/claude-adaptations.txt`; `agent-skill-maintenance` step 4).
+- Keep `.kiro/skills` canonical. Cross-tool copies are thin adapters, except the untracked Claude Code copy in `.claude/`, which `python3 scripts/sync-claude-from-kiro.py` regenerates from `.kiro` (wording rules in `scripts/claude-adaptations.txt`; `agent-skill-maintenance` step 4). The untracked `.agents/skills` Codex copy was retired on 18/10/2026 (kept under `.local/retired/`).
 @@@ claude
 - Keep `.kiro/skills` canonical. Cross-tool copies are thin adapters, except this generated Claude Code copy (see the header).
 @@@ end
@@ -151,12 +153,11 @@ Not this skill: Claude Code mods or plugins (plugin-authoring).
    or third-party skills the client loads) and cross-tool copies before
    creating anything. Prefer composition or a thin adapter over duplicated full
    instructions.
-3. The portfolio is frozen (`.kiro/skills/README.md` Portfolio status): add,
 @@@ claude
-2. Audit adjacent skills (Pattadar, plus the built-in and plugin skills in the
-   session's skill listing) and cross-tool copies before creating anything.
-   Prefer composition or a thin adapter over duplicated full instructions.
-3. The portfolio is frozen (`.claude/skills/README.md` Portfolio status): add,
+2. Audit adjacent skills (Pattadar, plus the built-in, user (`~/.claude/skills`)
+   and plugin skills in the session's skill listing) and cross-tool copies
+   before creating anything. Prefer composition or a thin adapter over
+   duplicated full instructions.
 @@@ end
 
 @@@ file skills/agent-skill-maintenance/references/evaluation-method.md
@@ -202,9 +203,9 @@ description because the listing budget cut them), the Skill-tool calls, and
 whether the expected route occurred. Run each prompt at least three times and
 keep each client's results apart (a `client` field). Track positive trigger
 rate, adjacent false-trigger rate and collision expected-set accuracy. Fixtures
-cannot name built-in or plugin skills yet (`/security-review`, `code-review`,
-`skill-creator`); record such a route in the run notes and score it as a miss
-when a Pattadar skill was expected.
+cannot name built-in, user or plugin skills yet (`/security-review`,
+`code-review`, `skill-creator`); record such a route in the run notes and score
+it as a miss when a Pattadar skill was expected.
 @@@ end
 
 @@@ file skills/cloud-cost-governance/SKILL.md
@@ -275,7 +276,8 @@ guard. If Reddy approves the agent running `platform-up.sh`, run it as a
 background process and follow its output, so a command timeout cannot stop it
 @@@ claude
 guard. If Reddy approves Claude running `platform-up.sh`, use
-`run_in_background` and follow its output; foreground Bash stops at 10 minutes,
+`run_in_background` and follow its output; a foreground Bash call times out
+(2 minutes by default, 10 at most), stopping it
 @@@ end
 
 @@@ file skills/reddy-governance/SKILL.md
@@ -382,21 +384,21 @@ a generic built-in or plugin review (Claude Code's built-in security review comm
 @@@ kiro
 Run trigger prompts and output cases (with-skill versus baseline/old-skill) in fresh Kiro sessions;
 @@@ claude
-Run trigger prompts and output cases (with-skill versus baseline/old-skill) in fresh Claude Code sessions: a new `claude -p` at the repo root, or a clean subagent. .claude is untracked, so a git worktree has no project skills;
+Run trigger prompts and output cases (with-skill versus baseline/old-skill) in fresh Claude Code sessions: a new `claude -p` at the repo root. .claude is untracked, so a git worktree has no project skills;
 @@@ end
 
 @@@ file skill-evals/portfolio.json
 @@@ kiro
 record per run the client version, model, discoverable skill set and loaded skill(s).
 @@@ claude
-run baselines in a scratch copy of the repo without the skill directory. Record per run the client version, model, enabled plugins, the session's skill listing (including which skills arrived without a description) and the Skill-tool calls. Score
+run baselines in a scratch copy of the repo without the skill directory (or with the old-skill snapshot in its place). Record per run the client version, model, enabled plugins, the session's skill listing (including which skills arrived without a description) and the Skill-tool calls. Score
 @@@ end
 
 @@@ file skill-evals/portfolio.json
 @@@ kiro
 Claude Code runs use the untracked .claude copy (its fixtures carry the pattadar-security-review name) and follow agent-skill-maintenance references/evaluation-method.md. Built-in, global and third-party skills appear only in prompt and required_stop text because the schema cannot name them.
 @@@ claude
-Claude Code runs against this .claude copy; built-in and plugin skills appear only in prompt and required_stop text because the schema cannot name them.
+Claude Code runs against this .claude copy, following agent-skill-maintenance references/evaluation-method.md; built-in, user and plugin skills appear only in prompt and required_stop text because the schema cannot name them.
 @@@ end
 
 @@@ file skill-evals/portfolio.json

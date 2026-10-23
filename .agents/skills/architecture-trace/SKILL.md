@@ -35,16 +35,17 @@ typed-diagram approach without importing its Node renderer/runtime.
    evidence it makes stale (`docs/architecture.md`, `docs/architecture/*`,
    `docs/diagrams/*`) and update it through `runbook-consistency`. Map fixes
    land in canonical `.kiro/skills/architecture-trace/references/system-map.md`
-   first, then are mirrored here.
+   first, then regenerated into the untracked `.Codex` copy.
 
 ## Diagram output
 
 Use Mermaid by default (`flowchart`, `sequenceDiagram`, `stateDiagram`) because
 it is reviewable in GitHub and needs no imported renderer. The `archify` user
 skill may be installed (it produced `docs/diagrams/*.html`). Use it only when
-the user explicitly asks for Archify/HTML output, feed it a redacted spec built
-from this skill's evidence, and ask before it runs a browser preview or visual
-check. Static topology and validation are not proof of perceptual visual quality.
+the user explicitly asks for Archify/HTML output; if it is not installed,
+propose installing and reviewing the MIT package separately and never fetch
+or execute it implicitly. Feed it a redacted spec built from this skill's
+evidence, and ask before it runs a browser preview or visual check. Static topology and validation are not proof of perceptual visual quality.
 
 ## Safety
 

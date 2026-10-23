@@ -40,7 +40,7 @@ the full record.
 ## Looks
 
 - `bloom-dark` for marketing, content, legal and auth pages.
-- `wire-light` for `/app/*`. W360 offers every scheme in
+- `wire-light` for the signed-in app (`/home`, `/properties`, …). W360 offers every scheme in
   `packages/tokens/src/palette/registry.ts`, so its schematic stays neutral
   and shows structure, not a scheme.
 - Both panels use the same look. The look supplies every colour: add no

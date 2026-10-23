@@ -22,10 +22,11 @@ Not this skill: Claude Code mods or plugins (plugin-authoring).
 1. Capture intent, triggering contexts/near-misses, expected output, safety
    boundary, dependencies, and why this belongs in a skill rather than
    steering/rules, hook, CI, runbook, or ordinary agent judgment.
-2. Audit adjacent skills (Pattadar, plus the built-in and plugin skills in the
-   session's skill listing) and cross-tool copies before creating anything.
-   Prefer composition or a thin adapter over duplicated full instructions.
-3. The portfolio is frozen (`.claude/skills/README.md` Portfolio status): add,
+2. Audit adjacent skills (Pattadar, plus the built-in, user (`~/.claude/skills`)
+   and plugin skills in the session's skill listing) and cross-tool copies
+   before creating anything. Prefer composition or a thin adapter over
+   duplicated full instructions.
+3. The portfolio is frozen (`.kiro/skills/README.md` Portfolio status): add,
    merge or delete a skill only on Reddy's explicit request, and record it there.
 4. Two trees. `.kiro` is canonical (git, validators, Kiro hook); `.claude` is the
    untracked copy Claude Code loads (`git ls-files .claude` is empty, so nothing
@@ -51,7 +52,9 @@ Not this skill: Claude Code mods or plugins (plugin-authoring).
    baseline/old-skill in clean sessions. Store raw runs under ignored
    `.kiro/skill-eval-workspace/`, never in skill-creator's `<skill>-workspace/`
    sibling, which git does not ignore. Static CI validates schemas only and
-   cannot prove discovery or routing in either client.
+   cannot prove discovery or routing in either client. CI's backend
+   `pytest scripts/tests` also fails when a `.kiro` edit breaks a
+   `scripts/claude-adaptations.txt` rule.
 8. Add objective assertions after first outputs, record timing/tokens when
    available, grade with evidence, compare, get human feedback, and iterate.
 9. Update catalog, metadata verification date, provenance, adapters and CI/hook

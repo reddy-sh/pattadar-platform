@@ -97,6 +97,12 @@ variable "trail_documents_data_events" {
   default     = true
 }
 
+variable "enable_cloudtrail" {
+  description = "Create the CloudTrail trail itself. Only takes effect when manage_org_security is true. False removes the trail but keeps its S3 bucket and the logs already in it."
+  type        = bool
+  default     = true
+}
+
 # --- Container registry ---
 
 variable "ecr_keep_last_images" {

@@ -1,7 +1,7 @@
 ---
 name: agent-skill-maintenance
 description: Use this skill when creating, reviewing, evaluating, pruning or debugging triggering of Pattadar Agent Skills in .kiro/skills or .Codex/skills, Kiro steering or .Codex/rules, Kiro hooks, skill catalog, skill-evals registries or scripts/validate-*.py, or measuring a skill against a baseline. Prefer it over skill-creator for Pattadar skills. Not for Codex settings, permissions or harness hooks (update-config) or skills outside this repo.
-compatibility: Requires pattadar-platform .kiro and .Codex configuration and Python 3. Trigger and output quality need fresh Kiro or Codex sessions; static CI cannot prove them.
+compatibility: Requires pattadar-platform .kiro configuration and Python 3, plus the untracked .Codex copy when mirroring. Trigger and output quality need fresh Kiro or Codex sessions; static CI cannot prove them.
 metadata:
   project: pattadar-platform
   standard: agentskills.io
@@ -22,22 +22,24 @@ Not this skill: Codex mods or plugins (plugin-authoring).
 1. Capture intent, triggering contexts/near-misses, expected output, safety
    boundary, dependencies, and why this belongs in a skill rather than
    steering/rules, hook, CI, runbook, or ordinary agent judgment.
-2. Audit adjacent skills (Pattadar, plus the built-in and plugin skills in the
-   session's skill listing) and cross-tool copies before creating anything.
-   Prefer composition or a thin adapter over duplicated full instructions.
-3. The portfolio is frozen (`.Codex/skills/README.md` Portfolio status): add,
+2. Audit adjacent skills (Pattadar, plus the built-in, user (`~/.Codex/skills`)
+   and plugin skills in the session's skill listing) and cross-tool copies
+   before creating anything. Prefer composition or a thin adapter over
+   duplicated full instructions.
+3. The portfolio is frozen (`.kiro/skills/README.md` Portfolio status): add,
    merge or delete a skill only on Reddy's explicit request, and record it there.
 4. Two trees. `.kiro` is canonical (git, validators, Kiro hook); `.Codex` is the
    untracked copy Codex loads (`git ls-files .Codex` is empty, so nothing
-   there can be restored from git). Edit `.kiro` and mirror into `.Codex`; when
-   the user limits the task to the copy, edit only `.Codex` and say the change
-   is local and uncommitted. Never bulk re-copy: diff `.kiro/skills` vs
-   `.Codex/skills`, `.kiro/steering` vs `.Codex/rules` and both
-   `skill-evals`, keep the Codex adaptations (the
+   there can be restored from git). Edit only `.kiro`, then run
+   `python3 scripts/sync-Codex-from-kiro.py` to regenerate `.Codex/rules`,
+   `.Codex/skills` and `.Codex/skill-evals`; it backs up what it replaces under
+   `.local/Codex-sync-backup/`, and `--check` reports drift without writing.
+   Never edit `.Codex` by hand. Its Codex adaptations (the
    `pattadar-security-review` rename, `.Codex/rules` without `inclusion: always`
-   frontmatter, the Read tool instead of `create_artifact`, and any others the
-   `.Codex/skills/README.md` header lists), and stop and ask Reddy about any
-   other difference.
+   frontmatter, the Read tool instead of `create_artifact`, and the rest) are
+   generic transforms in that script plus wording rules in
+   `scripts/Codex-adaptations.txt`. When a `.kiro` edit breaks a rule the sync
+   stops: update the rule, and ask Reddy before adding a new difference.
 5. Draft/modify `SKILL.md`; put conditional details in one-level `references/`.
 6. Read `references/evaluation-method.md`. The central
    `.kiro/skill-evals/portfolio.json` is the canonical pilot fixture registry;
@@ -50,7 +52,9 @@ Not this skill: Codex mods or plugins (plugin-authoring).
    baseline/old-skill in clean sessions. Store raw runs under ignored
    `.kiro/skill-eval-workspace/`, never in skill-creator's `<skill>-workspace/`
    sibling, which git does not ignore. Static CI validates schemas only and
-   cannot prove discovery or routing in either client.
+   cannot prove discovery or routing in either client. CI's backend
+   `pytest scripts/tests` also fails when a `.kiro` edit breaks a
+   `scripts/Codex-adaptations.txt` rule.
 8. Add objective assertions after first outputs, record timing/tokens when
    available, grade with evidence, compare, get human feedback, and iterate.
 9. Update catalog, metadata verification date, provenance, adapters and CI/hook

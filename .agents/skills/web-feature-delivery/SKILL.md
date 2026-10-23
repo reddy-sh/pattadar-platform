@@ -37,7 +37,7 @@ test uses bun:test, never Vitest.
    component yet (form fields, tables) moves into `ui.tsx` at its second copy
    (design.md § "One component per concern"). `shared-components-tests.ts`
    counts only `ui.tsx` names, so passing it does not prove reuse.
-   Every signed-in `/app` screen opens with `PageHead` (design.md § Page head,
+   Every signed-in screen opens with `PageHead` (design.md § Page head,
    locked by Reddy on 09/10/2026): crumbs on a detail page and no eyebrow on a
    top-level one, commands as `HeadActions` data, and on every top-level rail
    page a `summary` line of the page's own figures under the title, as on
@@ -46,6 +46,20 @@ test uses bun:test, never Vitest.
    rail entry fails `shared-components-tests.ts` (SC-H*) and
    `tests/e2e-app/specs/31-page-head.spec.ts` until it does; never give a
    feature its own header variant.
+   Every rows-and-columns view follows design.md § Tables (founder, 10/10/2026)
+   from the shared parts in `ui.tsx` § Tables: tick boxes on every data table,
+   a total row (`<tfoot>`, `<th scope="row">`) on every table with ticks or
+   sums whatever its size, `SelectionBar` with Export, `TablePager` (20
+   default), Grid · Table on every collection page, `SectionHead` over a table
+   inside a section. Do not exempt a table because it is small, has no bulk
+   action or "has only one view" — those are the exemptions the founder had to
+   reverse. Ordering has one flow: every "Order a service" links through
+   `orderHref` (orderFlow.ts) into `/order`, on the services step when
+   the properties are known; never a second order dialog or route (SC-O1).
+   Loading follows design.md § Loading: a region's first read is a skeleton of
+   its own shape (`SkTable`, `SkGrid`, `SkRows`), never the generic `Loading`
+   box (SC-L1); a re-read with new arguments keeps the last answer dimmed
+   (`keepPreviousData`) instead of blanking.
 2. Trace route → page/component → data hook/core operation → API contract. Put
    reusable domain/format rules in `packages/core`, not UI components.
    Reconstruct the user's task on the screen, not just its styling: name the
@@ -104,5 +118,8 @@ Codex in Chrome
 (`functional-acceptance`, "Distinguish a code defect from a missing backend").
 Keep the shipped iOS payment link: the app opens `/app/tickets/<id>/pay`
 (`apps/ios/Pattadar/Sources/ServicesScreen.swift`) and `apps/web/src/routes.tsx`
-redirects `tickets/:id/pay` to `/app/services/:id/pay`; never remove that
-redirect.
+redirected `tickets/:id/pay` to the checkout; never remove that
+redirect. Drift (11/10/2026): the move to top-level addresses (design.md
+§ Addresses and ids: no `/app` prefix, no redirects) removed it, so the iOS
+link reaches the not-found page; the checkout is now `/services/:id/pay`.
+Do not restore or drop either side on your own — stop and ask Reddy.

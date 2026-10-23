@@ -21,7 +21,8 @@ provider "aws" {
 }
 
 # Prod owns the account singletons (hosted zone + SES, GitHub OIDC,
-# CloudTrail/Config/GuardDuty) — the manage_* flags default to true.
+# CloudTrail bucket/Config/GuardDuty) — the manage_* flags default to true.
+# The trail itself is switched off below (enable_cloudtrail).
 provider "aws" {
   alias  = "us_east_1"
   region = "us-east-1"
@@ -75,4 +76,10 @@ module "persistent" {
   # bucket. Add platform./university. here in the same change that gives them
   # DNS — not after.
   documents_cors_origins = ["https://pattadar.com"]
+
+  # CloudTrail off to save cost (Reddy, 22/10/2026). The trail and its
+  # document-write data events go; the trail bucket and its existing logs stay.
+  # Config and GuardDuty are unchanged.
+  enable_cloudtrail           = false
+  trail_documents_data_events = false
 }

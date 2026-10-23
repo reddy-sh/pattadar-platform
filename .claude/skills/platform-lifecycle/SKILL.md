@@ -62,7 +62,8 @@ Not this skill: row/object reconciliation after a restore (safe-data-migration).
 `platform-down.sh` prompts with `read` under `set -e` and aborts without a TTY:
 Reddy runs down himself (terminal or `Platform down` workflow) and types the
 guard. If Reddy approves Claude running `platform-up.sh`, use
-`run_in_background` and follow its output; foreground Bash stops at 10 minutes,
+`run_in_background` and follow its output; a foreground Bash call times out
+(2 minutes by default, 10 at most), stopping it
 mid-apply. Never pipe or preset answers, set `PLATFORM_DOWN_CONFIRM` or
 `ALLOW_PENDING_ALARMS`, or pass `decommission-prod` yourself.
 

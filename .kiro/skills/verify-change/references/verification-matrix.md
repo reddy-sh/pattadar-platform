@@ -144,7 +144,9 @@ CI is the gate. Plan/apply are never validation.
   it as the first step of the web job. It never reads `.claude`, and the Kiro
   hook does not run under Claude Code: check the `.claude` copy with
   `python3 scripts/sync-claude-from-kiro.py --check` (the two-trees step in
-  `agent-skill-maintenance`).
+  `agent-skill-maintenance`). A `.kiro` edit to text an adaptation rule
+  matches also fails `.local/api-venv/bin/python -m pytest scripts/tests -q`,
+  as it does in CI's backend job.
 - Use `git diff --check HEAD` for whitespace/conflict markers in tracked files.
   Untracked files, including all of `.claude`, need
   `git ls-files -o --exclude-standard -z | xargs -0 grep -nIE '[[:blank:]]$|^(<<<<<<<|>>>>>>>)( |$)'`.

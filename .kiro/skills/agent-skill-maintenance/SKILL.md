@@ -52,7 +52,9 @@ Not this skill: client extensions such as Kiro powers or Claude Code plugins.
    baseline/old-skill in clean sessions. Store raw runs under ignored
    `.kiro/skill-eval-workspace/`, never in skill-creator's `<skill>-workspace/`
    sibling, which git does not ignore. Static CI validates schemas only and
-   cannot prove discovery or routing in either client.
+   cannot prove discovery or routing in either client. CI's backend
+   `pytest scripts/tests` also fails when a `.kiro` edit breaks a
+   `scripts/claude-adaptations.txt` rule.
 8. Add objective assertions after first outputs, record timing/tokens when
    available, grade with evidence, compare, get human feedback, and iterate.
 9. Update catalog, metadata verification date, provenance, adapters and CI/hook
