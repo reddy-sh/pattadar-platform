@@ -51,6 +51,14 @@ Grouped from the 27/09/2026 plan. Changed key names only; re-plan before acting.
   sets `budget_alert_emails`: `scripts/platform-up.sh` step 1 applies
   persistent with `-auto-approve`, so a failed create aborts every bring-up
   before the runtime is touched.
+- **One-host runtime statements (added 26/10/2026, code only):** the CMK key
+  policy gains `EventsUse` (`events.amazonaws.com`, `kms:Decrypt` and
+  `kms:GenerateDataKey*`, same-account only), so the runtime ECS task-stopped
+  rule can publish to the encrypted alarm topic. The access-logs bucket policy
+  swaps the dead `ALBAccessLogsDelivery` grant for
+  `CloudFrontAccessLogsDelivery` (`delivery.logs.amazonaws.com`, prefix
+  `cloudfront/`, same-account us-east-1 delivery sources only). Both are
+  cutover gates in `docs/runbooks/tested-release.md`.
 
 Each needs a fresh plan, Reddy's approval and a fresh confirmation right before
 `terraform apply`. A `-target` on anything that reads a Secrets Manager secret

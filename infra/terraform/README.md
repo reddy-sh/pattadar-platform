@@ -9,8 +9,9 @@ layers per environment:
   ECR, Secrets Manager, Cognito (users!), Route53 zone, SES identity,
   GuardDuty, GitHub OIDC deploy role. `scripts/platform-down.sh` never touches
   this layer (it only parks documents into `parking_storage_class`).
-- **runtime** — destroyable/recreatable on demand: VPC, ALB, ECS, CloudFront,
-  WAF (prod: off until launch), RDS (snapshotted on down), EventBridge scheduler, observability, DNS
+- **runtime** — destroyable/recreatable on demand: VPC, the one ECS host
+  (EC2) and its ECS services, CloudFront (SPA and api distributions, VPC
+  origins), WAF (prod: off until launch), RDS (snapshotted on down), EventBridge scheduler, observability, DNS
   records. `scripts/platform-up.sh <env>` / `platform-down.sh <env>` apply and
   destroy it. Runtime reads persistent outputs via `terraform_remote_state`.
 
@@ -53,7 +54,8 @@ persistent state to exist):
    of the five is missing, and it checks names only, never values. The Secrets
    Manager containers `anthropic-api-key`, `cron-secret`, `cognito-config` and
    `notify-providers` are no longer read by the runtime. They are kept until
-   their values are copied, then deleted as a separate approved change.
+   their values are copied, then deleted as a separate approved change
+   (docs/specs/2026-10-26-one-server-runtime.md).
 3. Push images to ECR (`pattadar/api`, `pattadar/gateway`, `pattadar/assistant`)
    — normally done by `.github/workflows/deploy.yml` via the
    `pattadar-github-deploy` OIDC role.
@@ -65,23 +67,41 @@ persistent state to exist):
 
 ## Runtime layer
 
-`modules/runtime/` is the destroyable half: VPC (2 public subnets, NO NAT —
-tasks get public IPs, with documented per-address cost), ALB (`idle_timeout =
-200`; extraction runs to 180s, never retried), three ARM64 Fargate services
-(gateway/API/assistant) plus an optional staged web service, RDS PG17,
-EventBridge Scheduler cron, CloudFront + WAF and the SPA bucket, alarms, and DNS.
-The ALB forwards only `/cron/inactivity-check` directly to API; `/api/*` goes to
-the gateway. The browser client is the static SPA served from CloudFront/S3. The
-ALB web target group and the `web` ECS service are dormant (`web_desired_count`
-is 0 and no image is published): they were staged for a Next.js client that has
-since been removed, and are candidates for deletion on the next infra pass.
+`modules/runtime/` is the destroyable half (Design A, Reddy 26/10/2026; see
+[the decision record](../../docs/specs/2026-10-26-one-server-runtime.md)):
+
+- VPC with 2 public subnets and NO NAT. The one host has a public IPv4 for
+  egress only.
+- One ECS-optimized AL2023 arm64 EC2 host (`ec2.tf`, `instance_type` default
+  `t4g.medium`). It is a standalone instance with simplified auto-recovery, has
+  no key pair or SSH (access is SSM Session Manager), requires IMDSv2 and blocks
+  IMDS from containers.
+- Three ECS services on that host (gateway, api, assistant), EC2 launch type,
+  bridge mode, static host ports 8080/8081/8082. Every container listens on
+  8080, and each task keeps a 512 CPU / 1024 MiB limit. The gateway reaches the
+  api and the assistant on `172.17.0.1:8081` and `:8082`.
+- `api_edge.tf`: the `api.<domain>` CloudFront distribution with two VPC
+  origins on the host, gateway :8080 and api_cron :8081. `/api/*` goes to the
+  gateway, the exact path `/cron/inactivity-check` (POST only) goes to the
+  api, and everything else is a 404 from a CloudFront Function. The SPA
+  distribution's `/api/*` also goes to the gateway VPC origin.
+  `scripts/tests/test_edge_routes.py` fails CI if this routing drifts.
+- RDS PG17, EventBridge Scheduler cron (through the api distribution), the SPA
+  bucket, alarms and DNS.
+
+There is no ALB, Fargate, Service Connect or `web` ECS service or task any
+more. `aws_iam_role.web_task` is kept because the persistent deploy role's
+PassRole names it.
+`web_desired_count`, `web_image_tag` and `web_origin = "ecs"` are unused, and
+`web_origin` must stay `spa`.
 
 ### Down (`scripts/platform-down.sh`)
 
 Use the reviewed lifecycle script or its manual workflow, not an ad-hoc targeted
 apply. The script performs a **full runtime apply** with deletion protection
 disabled, destroys runtime under a unique final-snapshot identifier, and then
-parks documents according to the configured class. A targeted `-target` apply
+parks documents according to the configured class. VPC-origin deletion adds
+about 15-30 minutes to the destroy. A targeted `-target` apply
 can desynchronize dependencies/state and is explicitly not the current flow.
 Production retains the typed `decommission-prod` confirmation.
 
@@ -103,22 +123,45 @@ high-risk operation that needs Reddy's approval (`docs/runbooks/up-down.md`).
   SSM SecureString `/pattadar/<env>/db-app-password` (`modules/runtime/rds.tf`).
   It outlives platform-down. Losing it means generating a new one and running
   a master-user `ALTER ROLE` (reserved for Reddy).
-- **CloudFront origin timeout**: default service quota caps
-  `origin_read_timeout` at 60s. This is no longer an extraction ceiling —
-  document reading runs as a durable server job (`services/api/src/import_jobs.py`)
-  whose every HTTP hop is short, and the browser only ever calls relative
-  `/api` paths (see the docblock in `apps/web/src/api/client.ts`), so nothing
-  talks to `https://api.pattadar.com` directly any more. What the 60s cap still
-  binds is a **large upload**: the gateway accepts up to
-  `STORAGE_MAX_UPLOAD_BYTES` (100 MB) and CloudFront will cut the connection at
-  60s regardless, so a big scan on a slow rural link fails at the edge. Until
-  either the "Response timeout per origin" quota increase lands (then set
-  `cloudfront_origin_read_timeout = 180`) or uploads move to a presigned S3 PUT
-  that bypasses CloudFront, treat 100 MB as advertised-but-not-deliverable over
-  a slow connection.
-- **ALB access logs** land in the persistent logs bucket under `alb/` — the
-  bucket policy statement `ALBAccessLogsDelivery` (persistent/s3.tf) is what
-  authorises the regional ELB account; removing it breaks the runtime apply.
+- **CloudFront origin timeout**: `cloudfront_origin_read_timeout` (default
+  120 s) bounds every request through the VPC origins, and with the ALB gone
+  (it had 200 s) that includes iOS and Expo traffic on `api.pattadar.com`. Web
+  document reading is a durable job whose every HTTP hop is short, but the
+  older synchronous readings (iOS passbook, Expo passbook and deed) wait on the
+  model for up to 170 s (`services/api/src/ai_reading/config.py`). Request the
+  CloudFront "Response timeout per origin" quota increase and set 180 once it
+  lands. Before cutover, move the iOS passbook read to `/import-passbook-async`,
+  or have Reddy accept 180 s with a 10 s margin. A large upload is bound the
+  same way: the gateway accepts up to `STORAGE_MAX_UPLOAD_BYTES` (100 MB) and
+  CloudFront cuts it at the timeout, so a big scan on a slow link can still
+  fail at the edge.
+- **Edge access logs**: the ALB access logs are gone. Both CloudFront
+  distributions deliver standard logs (v2, configured in us-east-1) to the
+  persistent access-logs bucket under `cloudfront/<api|web>/`, the only record
+  of viewer IP and path now that the gateway and api see CloudFront's ENI as
+  the client. The persistent bucket policy swaps `ALBAccessLogsDelivery` for
+  `CloudFrontAccessLogsDelivery`, so the persistent apply must land before the
+  runtime one (`platform-up.sh` order). Code only, not applied.
+- **Host recovery**: hardware or system failure is handled by EC2 simplified
+  auto-recovery (same instance id, so the VPC origins stay valid), and an OS
+  hang by the `host-instance-status` alarm's reboot action. Replacing the
+  instance (`-replace` on `module.runtime.aws_instance.host`, reserved) is
+  create-before-destroy, because the VPC origins force it on everything they
+  depend on. The sequence: the new instance boots and registers; new VPC
+  origins are created (up to 15 minutes); both distributions repoint to the
+  new host while the tasks are still on the old one, so the **outage starts
+  at the repoint**; the old origins are deleted (up to another 15 minutes);
+  only then does the old instance terminate and ECS move the tasks. Expect
+  about 20-40 minutes in all, most of it with the API down. Never run it at
+  05:30-06:30 UTC, and time it in the dev proof. Draining the old host first
+  (desired count 0) is optional and makes the outage explicit, not shorter.
+  The SG and instance profile take a `name_prefix` and the cluster must never
+  be renamed, or the replacement collides on a fixed name. An edit to a VPC
+  origin's endpoint config (port, protocol) must also be applied with
+  `-replace` on that origin: AWS refuses an in-place update while it is in
+  use. `ignore_changes = [ami]` means the host stays on its boot AMI until a
+  deliberate, scheduled replacement; weekly Patch Manager (Sunday 21:30 UTC)
+  patches it in place.
 - **Shared-account dev**: dev persistent runs `manage_dns = false`, so the dev
   runtime root must set `route53_zone_id` to prod's zone id and use dev
   hostnames (`api-dev.pattadar.com`) — see `dev.auto.tfvars.example`.
@@ -172,15 +215,17 @@ prod's ECR repositories. Separate accounts need none of this.
 ## Invariants baked into this layout
 
 - API trusts gateway-injected `x-user-id` and is never generally
-  internet-reachable; the single `/cron/inactivity-check` exception is guarded
-  by `CRON_SECRET`. The api container refuses any other path without the
-  gateway's `INTERNAL_PROXY_SECRET` (`services/api/src/private_ingress.py`).
-  New identities use immutable Cognito issuer/subject.
+  internet-reachable; the single exception is the api distribution's exact-path
+  `/cron/inactivity-check` behaviour to the api VPC origin, guarded by
+  `CRON_SECRET`. On the shared host the api container refuses any other path
+  without the gateway's `INTERNAL_PROXY_SECRET`
+  (`services/api/src/private_ingress.py`). New identities use immutable Cognito issuer/subject.
   Existing owner keys resolve only through reviewed `IDENTITY_LEGACY_BINDINGS`;
   neither API nor gateway derives authority from the email local part.
-- Extraction routes need >= 200s timeouts and NO retries — ALB
-  `idle_timeout = 200` and zero-retry semantics everywhere (scheduler
-  `maximum_retry_attempts = 0`; CloudFront quota caveat above).
+- Extraction routes get NO retries anywhere: the scheduler sets
+  `maximum_retry_attempts = 0`, both VPC origins use `connection_attempts = 1`,
+  and the gateway never retries. Synchronous extraction is bounded by the
+  CloudFront origin timeout (caveat above).
 - `CRON_SECRET` is always set. Its value lives in the out-of-band SSM
   SecureString `/pattadar/<env>/cron-secret`, and enters state only through
   the scheduler's connection data source.
@@ -190,8 +235,7 @@ prod's ECR repositories. Separate accounts need none of this.
 CI already runs `terraform fmt -check -recursive` and
 `terraform init -backend=false && terraform validate` across all five roots
 (`dev/prod` × `persistent/runtime`, plus `envs/prod/university`), and
-`pytest scripts/tests` runs `test_edge_routes.py`, the static guard on the
-task definitions' proxy-secret wiring and the api image's private-ingress
-command. Local `init` downloads
+`pytest scripts/tests` runs `test_edge_routes.py`, the static guard on the api
+distribution's routes and the host's ingress. Local `init` downloads
 providers and writes `.terraform`; mention that side effect before running it.
 A successful static validation is not a reviewed plan or applied-state proof.

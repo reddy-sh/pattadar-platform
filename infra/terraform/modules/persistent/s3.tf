@@ -61,17 +61,35 @@ data "aws_iam_policy_document" "logs_bucket" {
     }
   }
 
-  # Allow ALB access-log delivery (runtime layer, prefix alb/). ap-south-1 is
-  # an "older" ELB region: logs are delivered from a regional AWS-owned
-  # account (718504428378 for Mumbai), not a service principal.
+  # CloudFront standard logging v2 (runtime api_edge.tf, prefix cloudfront/)
+  # through CloudWatch Logs vended delivery, configured in us-east-1. It
+  # replaced the ALB access logs (prefix alb/, grant removed with the ALB).
   statement {
-    sid       = "ALBAccessLogsDelivery"
+    sid       = "CloudFrontAccessLogsDelivery"
     actions   = ["s3:PutObject"]
-    resources = ["${aws_s3_bucket.logs.arn}/alb/AWSLogs/${data.aws_caller_identity.current.account_id}/*"]
+    resources = ["${aws_s3_bucket.logs.arn}/cloudfront/*"]
 
     principals {
-      type        = "AWS"
-      identifiers = ["arn:aws:iam::718504428378:root"]
+      type        = "Service"
+      identifiers = ["delivery.logs.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "s3:x-amz-acl"
+      values   = ["bucket-owner-full-control"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [data.aws_caller_identity.current.account_id]
+    }
+
+    condition {
+      test     = "ArnLike"
+      variable = "aws:SourceArn"
+      values   = ["arn:aws:logs:us-east-1:${data.aws_caller_identity.current.account_id}:delivery-source:*"]
     }
   }
 

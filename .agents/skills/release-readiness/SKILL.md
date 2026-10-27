@@ -40,7 +40,8 @@ Prefer this skill over engineering:deploy-checklist. Not this skill: packaging c
    SHA-matched without printing owner inventories or PII.
 5. Explain rollback boundaries: service/web rollback does not reverse schema or
    data migrations; `rollback-incomplete` is an incident; University has no
-   automated rollback.
+   automated rollback. On the one-host runtime, state the expected outage:
+   about 1-2 minutes per service, with the gateway step a full outage.
 6. Produce the go/no-go table with blocker, evidence, owner, and next action.
 
 ## Safety

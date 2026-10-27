@@ -17,10 +17,12 @@ flowchart LR
   TOK[packages/tokens\ndesign tokens]
   COG[Cognito\nissuer/sub access tokens]
   EDGE[Route53 → CloudFront\nWAF off until launch]
-  ALB[ALB]
-  GW[services/gateway\nJWT, storage, capabilities, account, admin, proxy]
-  API[services/api\nFastAPI + Strawberry]
-  AST[services/assistant\nSSE chat + bounded tools]
+  AEDGE[Route53 → CloudFront api.pattadar.com\n404 by default]
+  subgraph HOST[One ECS host — EC2 t4g.medium, bridge mode]
+    GW[services/gateway :8080\nJWT, storage, capabilities, account, admin, proxy]
+    API[services/api :8081\nFastAPI + Strawberry]
+    AST[services/assistant :8082\nSSE chat + bounded tools]
+  end
   PG[(RDS PostgreSQL 17)]
   S3[(S3 documents/attachments)]
   ANT[Anthropic]
@@ -30,10 +32,11 @@ flowchart LR
   MOB --> CORE
   WEB & MOB --> TOK
   WEB & IOS & MOB --> COG
-  WEB --> EDGE --> ALB
-  IOS & MOB --> ALB
-  ALB -->|/api/*| GW
-  ALB -->|/cron/inactivity-check only| API
+  WEB --> EDGE
+  IOS & MOB --> AEDGE
+  EDGE -->|/api/* via VPC origin| GW
+  AEDGE -->|/api/* via VPC origin| GW
+  AEDGE -->|/cron/inactivity-check only| API
   GW -->|validated x-user-id + api proxy secret| API
   GW -->|validated x-user-id + assistant proxy secret, SSE| AST
   GW --> S3
@@ -43,15 +46,26 @@ flowchart LR
 ```
 
 `services/api` and `services/assistant` trust gateway-injected identity and must
-not be generally internet reachable. The one direct API listener rule is the
-cron endpoint, jointly protected by exact path routing and `CRON_SECRET`.
+not be generally internet reachable. The one direct path to the API is the
+cron endpoint: the api distribution's exact-path `/cron/inactivity-check`
+behaviour (POST only, forwarding only `x-cron-secret` and `content-type`),
+protected by `CRON_SECRET`. Anything else on `api.pattadar.com` gets a 404 from
+a CloudFront Function and never reaches the host
+(`infra/terraform/modules/runtime/api_edge.tf`, guarded in CI by
+`scripts/tests/test_edge_routes.py`).
 
-Security groups are not the only lock. The API container
+The three services share one host (Reddy, 26/10/2026), so the edge is not the
+only lock. The host admits only CloudFront's VPC-origin security group, on 8080
+and 8081; the assistant's 8082 is never admitted. The API container
 (`services/api/src/private_ingress.py`) refuses every request without the
 gateway's `INTERNAL_PROXY_SECRET` except `/health` and the cron path, and
 refuses to start without it. The gateway sends the API and the assistant
 different secrets (`INTERNAL_PROXY_SECRET_API`, `INTERNAL_PROXY_SECRET_ASSISTANT`),
-so a compromised assistant cannot pose as the gateway.
+so a compromised assistant cannot pose as the gateway. CloudFront reaches the
+host over HTTP inside AWS (a recorded exception; viewer TLS ends at CloudFront).
+The shared host is accepted for pre-launch only; its launch gate, cutover
+gates and the rollback to Fargate are in
+[the one-server runtime decision](specs/2026-10-26-one-server-runtime.md).
 
 ## Authentication and owner identity
 
@@ -176,8 +190,11 @@ value. Implemented in code, not deployed; consent wording is a draft (D4).
 Active web document reading submits a durable job and polls authenticated status.
 The provider is called after durable claim and consent recheck; interruption is
 persisted and the non-idempotent provider call is not automatically replayed.
-Legacy synchronous extraction endpoints remain for older clients with a longer
-proxy timeout and still no retries.
+Legacy synchronous extraction endpoints remain for older clients, still with no
+retries. Without the ALB their budget is the CloudFront origin response
+timeout: 120 s now, 180 s after the quota request, against the model's 170 s.
+Moving the iOS passbook read to the async route, or Reddy accepting the 180 s
+cap, is a cutover gate.
 
 Aadhaar reading is a stricter sub-flow. The provider may transiently read the
 12 digits, but `services/api/src/aadhaar.py` immediately replaces them with a
@@ -227,8 +244,8 @@ flowchart TB
   subgraph R[Runtime — recreated]
     VPC[VPC / two public subnets / no NAT]
     CF[CloudFront + SPA bucket\nWAF off until launch]
-    ALB[ALB + ACM]
-    ECS[ECS gateway/API/assistant/optional web]
+    AEDGE[api CloudFront + VPC origins\nus-east-1 ACM]
+    ECS[One ECS host EC2 t4g.medium\ngateway/API/assistant tasks]
     RDS[(RDS PostgreSQL)]
     SCH[EventBridge cron destination]
     OBS[CloudWatch logs/alarms + SNS]
@@ -238,10 +255,12 @@ flowchart TB
   P -->|remote-state outputs| R
   STATE --> P
   STATE --> R
-  CF --> ALB --> ECS --> RDS
-  SCH -->|x-cron-secret; controlled retries| ALB
+  CF -->|/api/* VPC origin, HTTP in AWS| ECS
+  AEDGE -->|VPC origins, HTTP in AWS| ECS
+  ECS --> RDS
+  SCH -->|x-cron-secret; 0 retries| AEDGE
   SSM -->|task secrets| ECS
-  KMS -. encrypts .-> DOC & SEC & SSM & RDS & OBS
+  KMS -. encrypts .-> DOC & SEC & SSM & ECS & RDS & OBS
   AKMS -. direct field encryption .-> ECS
 ```
 

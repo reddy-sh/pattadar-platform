@@ -1,6 +1,15 @@
 # Per-service log groups, CMK-encrypted SNS alarms topic + email subscription,
-# CloudWatch alarms (RDS, ECS, ALB). The persistent CMK policy already admits
-# logs.<region>, cloudwatch and sns service principals.
+# and eleven CloudWatch alarms: RDS x2, cron x2, no-running-task x3, host
+# instance/system status, CPU surplus charged, host unhealthy. The free tier
+# covers ten, so the eleventh (the security review's host probe) costs about
+# $0.10/month: Reddy has not yet accepted that, nor folded one away.
+# ECS task crashes reach the same topic through a free EventBridge rule; it
+# delivers only once the persistent CMK policy's EventsUse statement
+# (modules/persistent/kms.tf) is applied.
+#
+# Expected noise: the Sunday 21:30 UTC patch reboot can stop tasks
+# (EssentialContainerExited) and leave the host probe with no task to probe,
+# and host-unhealthy breaches at every platform-up until the first probe runs.
 
 resource "aws_cloudwatch_log_group" "service" {
   for_each = local.services
@@ -26,6 +35,49 @@ resource "aws_sns_topic_subscription" "alarms_email" {
   topic_arn = aws_sns_topic.alarms.arn
   protocol  = "email"
   endpoint  = var.alert_email
+}
+
+# Replaces the default topic policy: alarms and the task-stopped rule publish;
+# same-account IAM principals keep their access through IAM.
+data "aws_iam_policy_document" "alarms_topic" {
+  statement {
+    sid       = "CloudWatchAlarms"
+    actions   = ["sns:Publish"]
+    resources = [aws_sns_topic.alarms.arn]
+
+    principals {
+      type        = "Service"
+      identifiers = ["cloudwatch.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [data.aws_caller_identity.current.account_id]
+    }
+  }
+
+  statement {
+    sid       = "EcsTaskStoppedRule"
+    actions   = ["sns:Publish"]
+    resources = [aws_sns_topic.alarms.arn]
+
+    principals {
+      type        = "Service"
+      identifiers = ["events.amazonaws.com"]
+    }
+
+    condition {
+      test     = "ArnEquals"
+      variable = "aws:SourceArn"
+      values   = [aws_cloudwatch_event_rule.ecs_task_stopped.arn]
+    }
+  }
+}
+
+resource "aws_sns_topic_policy" "alarms" {
+  arn    = aws_sns_topic.alarms.arn
+  policy = data.aws_iam_policy_document.alarms_topic.json
 }
 
 # --- RDS --------------------------------------------------------------------
@@ -72,148 +124,7 @@ resource "aws_cloudwatch_metric_alarm" "rds_free_storage_low" {
   tags          = local.tags
 }
 
-# --- ECS (per service) ------------------------------------------------------
-
-resource "aws_cloudwatch_metric_alarm" "ecs_cpu_high" {
-  for_each = local.services
-
-  alarm_name          = "${local.prefix}-ecs-${each.key}-cpu-high"
-  alarm_description   = "ECS service ${each.key} CPU above 80% for 10 minutes"
-  namespace           = "AWS/ECS"
-  metric_name         = "CPUUtilization"
-  statistic           = "Average"
-  period              = 300
-  evaluation_periods  = 2
-  threshold           = 80
-  comparison_operator = "GreaterThanThreshold"
-  treat_missing_data  = "missing"
-
-  dimensions = {
-    ClusterName = aws_ecs_cluster.main.name
-    ServiceName = each.key
-  }
-
-  alarm_actions = [aws_sns_topic.alarms.arn]
-  ok_actions    = [aws_sns_topic.alarms.arn]
-  tags          = local.tags
-}
-
-resource "aws_cloudwatch_metric_alarm" "ecs_memory_high" {
-  for_each = local.services
-
-  alarm_name          = "${local.prefix}-ecs-${each.key}-memory-high"
-  alarm_description   = "ECS service ${each.key} memory above 80% for 10 minutes"
-  namespace           = "AWS/ECS"
-  metric_name         = "MemoryUtilization"
-  statistic           = "Average"
-  period              = 300
-  evaluation_periods  = 2
-  threshold           = 80
-  comparison_operator = "GreaterThanThreshold"
-  treat_missing_data  = "missing"
-
-  dimensions = {
-    ClusterName = aws_ecs_cluster.main.name
-    ServiceName = each.key
-  }
-
-  alarm_actions = [aws_sns_topic.alarms.arn]
-  ok_actions    = [aws_sns_topic.alarms.arn]
-  tags          = local.tags
-}
-
-# --- ALB --------------------------------------------------------------------
-
-# 5xx as a RATE (percent of requests), not a raw count — a single retrying
-# client should not page at low traffic.
-resource "aws_cloudwatch_metric_alarm" "alb_5xx_rate" {
-  alarm_name          = "${local.prefix}-alb-5xx-rate"
-  alarm_description   = "More than 5% of ALB requests returned 5xx over 10 minutes"
-  evaluation_periods  = 2
-  threshold           = 5
-  comparison_operator = "GreaterThanThreshold"
-  treat_missing_data  = "notBreaching"
-
-  metric_query {
-    id          = "e1"
-    expression  = "IF(requests > 0, 100 * (elb5xx + target5xx) / requests, 0)"
-    label       = "5xx rate (%)"
-    return_data = true
-  }
-
-  metric_query {
-    id = "elb5xx"
-
-    metric {
-      namespace   = "AWS/ApplicationELB"
-      metric_name = "HTTPCode_ELB_5XX_Count"
-      stat        = "Sum"
-      period      = 300
-
-      dimensions = {
-        LoadBalancer = aws_lb.main.arn_suffix
-      }
-    }
-  }
-
-  metric_query {
-    id = "target5xx"
-
-    metric {
-      namespace   = "AWS/ApplicationELB"
-      metric_name = "HTTPCode_Target_5XX_Count"
-      stat        = "Sum"
-      period      = 300
-
-      dimensions = {
-        LoadBalancer = aws_lb.main.arn_suffix
-      }
-    }
-  }
-
-  metric_query {
-    id = "requests"
-
-    metric {
-      namespace   = "AWS/ApplicationELB"
-      metric_name = "RequestCount"
-      stat        = "Sum"
-      period      = 300
-
-      dimensions = {
-        LoadBalancer = aws_lb.main.arn_suffix
-      }
-    }
-  }
-
-  alarm_actions = [aws_sns_topic.alarms.arn]
-  ok_actions    = [aws_sns_topic.alarms.arn]
-  tags          = local.tags
-}
-
-# WARNING (not an outage): extraction requests legitimately run to 180s; p99
-# above 150s means they are drifting toward the 200s ALB idle timeout, where
-# they would start failing without ever being retried.
-resource "aws_cloudwatch_metric_alarm" "alb_p99_latency_high" {
-  alarm_name          = "${local.prefix}-alb-p99-latency-high"
-  alarm_description   = "ALB p99 target response time above 150s — extraction requests approaching the 200s idle-timeout ceiling"
-  namespace           = "AWS/ApplicationELB"
-  metric_name         = "TargetResponseTime"
-  extended_statistic  = "p99"
-  period              = 300
-  evaluation_periods  = 2
-  threshold           = 150
-  comparison_operator = "GreaterThanThreshold"
-  treat_missing_data  = "notBreaching"
-
-  dimensions = {
-    LoadBalancer = aws_lb.main.arn_suffix
-  }
-
-  alarm_actions = [aws_sns_topic.alarms.arn]
-  ok_actions    = [aws_sns_topic.alarms.arn]
-  tags          = local.tags
-}
+# --- Cron -------------------------------------------------------------------
 
 # The daily inactivity check is the family safeguard: reminders on days 181,
 # 187 and 195 of an idle account. It runs with no retries (a re-fired run could
@@ -262,38 +173,143 @@ resource "aws_cloudwatch_metric_alarm" "cron_did_not_run" {
   tags          = local.tags
 }
 
-# Whole-service-down was previously invisible: the CPU/memory alarms go quiet
-# when a service has no running tasks at all, which reads the same as idle.
-#
-# HealthyHostCount rather than ECS RunningTaskCount on purpose — the latter is
-# a Container Insights metric, and Insights is disabled for cost (see the
-# cluster setting in ecs.tf), so an alarm on it would never receive a data
-# point and would sit permanently in ALARM. The assistant has no target group;
-# its container health check replaces the task instead of pausing on a wedged
-# event loop, and gateway 5xx covers the user-visible half.
-resource "aws_cloudwatch_metric_alarm" "service_no_healthy_hosts" {
-  for_each = {
-    gateway = aws_lb_target_group.gateway.arn_suffix
-    api     = aws_lb_target_group.api.arn_suffix
-  }
+# --- ECS host and services --------------------------------------------------
 
-  alarm_name          = "${local.prefix}-${each.key}-no-healthy-hosts"
-  alarm_description   = "${each.key} has no healthy targets — the service is down or failing its health check"
-  namespace           = "AWS/ApplicationELB"
-  metric_name         = "HealthyHostCount"
-  statistic           = "Minimum"
+# Whole-service-down: the service CPU metric stops arriving when a service has
+# no running task. SampleCount rather than RunningTaskCount on purpose — the
+# latter is a Container Insights metric, and Insights is disabled for cost.
+resource "aws_cloudwatch_metric_alarm" "ecs_no_running_task" {
+  for_each = local.services
+
+  alarm_name          = "${local.prefix}-${each.key}-no-running-task"
+  alarm_description   = "${each.key} has no running task — the service is down, crash-looping or the host is gone"
+  namespace           = "AWS/ECS"
+  metric_name         = "CPUUtilization"
+  statistic           = "SampleCount"
   period              = 300
-  evaluation_periods  = 2
+  evaluation_periods  = 1
   threshold           = 1
   comparison_operator = "LessThanThreshold"
   treat_missing_data  = "breaching"
 
   dimensions = {
-    LoadBalancer = aws_lb.main.arn_suffix
-    TargetGroup  = each.value
+    ClusterName = aws_ecs_cluster.main.name
+    ServiceName = each.key
   }
 
   alarm_actions = [aws_sns_topic.alarms.arn]
   ok_actions    = [aws_sns_topic.alarms.arn]
   tags          = local.tags
+}
+
+# Simplified auto-recovery covers system (hardware) failures but not an OS
+# hang, so the instance check reboots the host.
+resource "aws_cloudwatch_metric_alarm" "host_instance_status" {
+  alarm_name          = "${local.prefix}-host-instance-status"
+  alarm_description   = "ECS host failed its instance status check (OS hang, memory exhaustion, filesystem) — rebooting it"
+  namespace           = "AWS/EC2"
+  metric_name         = "StatusCheckFailed_Instance"
+  statistic           = "Maximum"
+  period              = 60
+  evaluation_periods  = 3
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "missing"
+
+  dimensions = {
+    InstanceId = aws_instance.host.id
+  }
+
+  alarm_actions = ["arn:aws:automate:${data.aws_region.current.region}:ec2:reboot", aws_sns_topic.alarms.arn]
+  ok_actions    = [aws_sns_topic.alarms.arn]
+  tags          = local.tags
+}
+
+resource "aws_cloudwatch_metric_alarm" "host_system_status" {
+  alarm_name          = "${local.prefix}-host-system-status"
+  alarm_description   = "ECS host failed its system status check — AWS auto-recovery is moving it; expect 5-10 minutes of full outage"
+  namespace           = "AWS/EC2"
+  metric_name         = "StatusCheckFailed_System"
+  statistic           = "Maximum"
+  period              = 60
+  evaluation_periods  = 2
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "missing"
+
+  dimensions = {
+    InstanceId = aws_instance.host.id
+  }
+
+  alarm_actions = [aws_sns_topic.alarms.arn]
+  ok_actions    = [aws_sns_topic.alarms.arn]
+  tags          = local.tags
+}
+
+resource "aws_cloudwatch_metric_alarm" "host_cpu_surplus_charged" {
+  alarm_name          = "${local.prefix}-host-cpu-surplus-charged"
+  alarm_description   = "Unlimited-mode CPU credits were charged today — sustained load; consider Standard credit mode (hard cap) or a bigger host"
+  namespace           = "AWS/EC2"
+  metric_name         = "CPUSurplusCreditsCharged"
+  statistic           = "Sum"
+  period              = 86400
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    InstanceId = aws_instance.host.id
+  }
+
+  alarm_actions = [aws_sns_topic.alarms.arn]
+  ok_actions    = [aws_sns_topic.alarms.arn]
+  tags          = local.tags
+}
+
+# Published by the host_probe association (ec2.tf) every 30 minutes; missing
+# data breaches so a dead probe is not mistaken for a healthy host.
+resource "aws_cloudwatch_metric_alarm" "host_unhealthy" {
+  alarm_name          = "${local.prefix}-host-unhealthy"
+  alarm_description   = "Host probe failed (its Run Command output says which): a task reached 169.254.169.254 (instance role exposed - treat as a credential exposure), a probe could not run, no task was running, or the root volume is over 85%; or the probe stopped reporting"
+  namespace           = local.host_metric_namespace
+  metric_name         = "HostUnhealthy"
+  statistic           = "Maximum"
+  period              = 3600
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "breaching"
+
+  alarm_actions = [aws_sns_topic.alarms.arn]
+  ok_actions    = [aws_sns_topic.alarms.arn]
+  tags          = local.tags
+}
+
+# Crash, OOM, failed start or failed health check — not the routine stop of
+# every deploy (ServiceSchedulerInitiated with a deployment reason).
+resource "aws_cloudwatch_event_rule" "ecs_task_stopped" {
+  name        = "${local.prefix}-ecs-task-stopped"
+  description = "An ECS task on the host crashed, failed to start or failed its health check"
+
+  event_pattern = jsonencode({
+    source      = ["aws.ecs"]
+    detail-type = ["ECS Task State Change"]
+    detail = {
+      clusterArn = [aws_ecs_cluster.main.arn]
+      lastStatus = ["STOPPED"]
+      "$or" = [
+        { stopCode = ["EssentialContainerExited", "TaskFailedToStart"] },
+        { stoppedReason = [{ prefix = "Task failed" }] },
+      ]
+    }
+  })
+
+  tags = local.tags
+}
+
+resource "aws_cloudwatch_event_target" "ecs_task_stopped" {
+  rule      = aws_cloudwatch_event_rule.ecs_task_stopped.name
+  target_id = "alarms-topic"
+  arn       = aws_sns_topic.alarms.arn
 }

@@ -1,14 +1,18 @@
 # Copy to dev.auto.tfvars (git-ignored) and adjust. No secrets in tfvars.
-# Dev posture: no CDN/WAF (the SPA runs locally via `bun dev` and talks
-# straight to the dev ALB), short log retention, single task per service.
+# Dev posture: no SPA CDN/WAF (the SPA runs locally via `bun dev`), short log
+# retention, single task per service. Dev still gets its own api CloudFront
+# distribution on api-dev.pattadar.com, so its cron goes through CloudFront.
 
 region          = "ap-south-1"
 tf_state_bucket = "pattadar-terraform-state-<ACCOUNT_ID>"
 
 log_retention_days = 30
 desired_count      = 1
-enable_cdn         = false # dev talks straight to the ALB
+enable_cdn         = false # no SPA distribution; the api distribution is unconditional
 enable_waf         = false
+
+# ECS host; t4g.small cannot hold the three 1 GiB tasks:
+# instance_type = "t4g.medium"
 
 # Dev must NOT claim prod's api.pattadar.com — use a dev host in the shared zone:
 api_domain   = "api-dev.pattadar.com"
@@ -31,5 +35,5 @@ api_base_url = "https://api-dev.pattadar.com"
 # e.g. aws ssm put-parameter --type SecureString --key-id alias/pattadar-dev \
 #        --name /pattadar/dev/<name> --value file://<file>
 # The --key-id is required: platform-up refuses a parameter under the default
-# aws/ssm key, which any principal in the account can decrypt through SSM. Its
-# check reads names and key ids, never values.
+# aws/ssm key, which any principal in the account (the instance role too) can
+# decrypt through SSM. Its check reads names and key ids, never values.

@@ -14,9 +14,14 @@ resource "aws_guardduty_detector" "main" {
 
 # Pinned so features stop following AWS's unmanaged defaults (Reddy,
 # 25/10/2026). RDS login monitoring is off pre-launch: the DB is private,
-# reachable only from the ECS task SGs (~$2.38/month); turn it on at launch.
+# reachable only from the ECS host SG (~$2.38/month); turn it on at launch.
 # S3 Protection stays on for the documents bucket. The Malware Protection plan
 # below does not depend on any of these.
+#
+# RUNTIME_MONITORING is the one-host runtime's launch trigger (Reddy,
+# 26/10/2026): before real Aadhaar data, either flip it to ENABLED here with
+# EC2 agent management (an additional_configuration block) or revert to
+# Fargate. Enabling it outside Terraform is reverted by the next apply.
 resource "aws_guardduty_detector_feature" "pinned" {
   for_each = { for name, status in {
     S3_DATA_EVENTS     = "ENABLED"

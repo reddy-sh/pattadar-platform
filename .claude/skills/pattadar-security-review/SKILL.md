@@ -40,10 +40,10 @@ For a pattadar-platform diff touching these areas, prefer it over the built-in /
 
 - `services/api` and `services/assistant` trust gateway-injected `x-user-id`
   and must be reachable only through the gateway (one declared exception: the
-  ALB `cron_to_api` exact-path rule for `/cron/inactivity-check`, guarded by
-  `CRON_SECRET`). The api requires the gateway-only `INTERNAL_PROXY_SECRET` on
-  every path but `/health` and that cron path
-  (`services/api/src/private_ingress.py`, Reddy 26/10/2026).
+  CloudFront api-distribution exact-path behaviour `/cron/inactivity-check` →
+  api VPC origin, guarded by `CRON_SECRET`). On the shared ECS host the api
+  requires the gateway-only `INTERNAL_PROXY_SECRET` on every path but `/health`
+  and that cron path (`services/api/src/private_ingress.py`, Reddy 26/10/2026).
   The gateway strips client-supplied identity headers and
   `x-internal-proxy-secret` before injecting the Cognito-derived principal.
 - S3 document storage and share/verification routes handle the most sensitive

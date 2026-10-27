@@ -20,7 +20,7 @@ provider "aws" {
   }
 }
 
-# CloudFront-scoped resources (ACM cert, WAF web ACL) must live in us-east-1.
+# CloudFront-scoped resources (ACM certs, WAF web ACL) must live in us-east-1.
 provider "aws" {
   alias  = "us_east_1"
   region = "us-east-1"
@@ -72,6 +72,7 @@ module "runtime" {
   web_image_tag       = var.web_image_tag
   desired_count       = var.desired_count
   web_desired_count   = var.web_desired_count
+  instance_type       = var.instance_type
 
   deletion_protection         = var.deletion_protection
   final_snapshot_suffix       = var.final_snapshot_suffix

@@ -1,9 +1,10 @@
 # SPA hosting + edge: private S3 bucket behind CloudFront via OAC, /api/*
-# proxied to the ALB (SAME-ORIGIN API — the browser never leaves
-# https://pattadar.com, so no CORS anywhere), WAF managed rules at the edge.
+# proxied to the gateway VPC origin on the ECS host (api_edge.tf; SAME-ORIGIN
+# API — the browser never leaves https://pattadar.com, so no CORS anywhere),
+# WAF managed rules at the edge.
 #
 # Whole file is gated on var.enable_cdn (dev = false: SPA runs locally via
-# `bun dev` and talks straight to the dev ALB). WAF additionally gated on
+# `bun dev`; dev still gets the api distribution). WAF additionally gated on
 # var.enable_waf. The ACM cert and WAF ACL are us-east-1 (CloudFront-scope
 # APIs); everything else stays in ap-south-1.
 
@@ -278,8 +279,8 @@ data "aws_cloudfront_cache_policy" "caching_disabled" {
   name = "Managed-CachingDisabled"
 }
 
-# Forwards ALL viewer headers (incl. Authorization) except Host — required so
-# the ALB cert/vhost sees api.<domain>, not pattadar.com.
+# Forwards ALL viewer headers (incl. Authorization) except Host; the gateway
+# strips client identity headers. Shared with api_edge.tf.
 data "aws_cloudfront_origin_request_policy" "all_viewer_except_host" {
   name = "Managed-AllViewerExceptHostHeader"
 }
@@ -383,18 +384,16 @@ resource "aws_cloudfront_distribution" "web" {
     }
   }
 
+  # The gateway VPC origin (api_edge.tf), HTTP inside AWS. One attempt: a
+  # retried request could re-run a paid reading (invariant 3). Web readings
+  # are durable jobs with short polls, so the timeout bounds large uploads.
   origin {
-    origin_id   = "api"
-    domain_name = var.api_domain
+    origin_id           = "api"
+    domain_name         = aws_instance.host.private_dns
+    connection_attempts = 1
 
-    custom_origin_config {
-      http_port              = 80
-      https_port             = 443
-      origin_protocol_policy = "https-only"
-      origin_ssl_protocols   = ["TLSv1.2"]
-      # See var.cloudfront_origin_read_timeout: default quota caps this at 60.
-      # It bounds large uploads, not extraction — extraction is a durable job
-      # with short polls. Raise to 180 after the service-quota increase.
+    vpc_origin_config {
+      vpc_origin_id            = aws_cloudfront_vpc_origin.gateway.id
       origin_read_timeout      = var.cloudfront_origin_read_timeout
       origin_keepalive_timeout = 60
     }
@@ -402,7 +401,9 @@ resource "aws_cloudfront_distribution" "web" {
 
   # Default behavior serves the SITE.
   #   spa mode -> S3 bucket, CachingOptimized, GET/HEAD, spa_router (rewrite).
-  #   ecs mode -> ALB origin ("api"), CachingDisabled + AllViewerExceptHostHeader
+  #   ecs mode -> DEAD since the web service went with the ALB (web_origin must
+  #     stay "spa"; removed in the web_* cleanup). It was the "api" origin,
+  #     CachingDisabled + AllViewerExceptHostHeader
   #     (mirrors /api/* so authenticated HTML is never edge-cached and every
   #     header except Host reaches Next), all methods (App Router server
   #     actions POST to page routes), and the redirect-only www function.
@@ -455,8 +456,8 @@ resource "aws_cloudfront_distribution" "web" {
     }
   }
 
-  # ecs mode only: Next's immutable, content-hashed build assets. Long-cache
-  # them at the edge (CachingOptimized) straight from the ALB origin. The SPA
+  # ecs mode only (dead, see the default behavior): Next's immutable,
+  # content-hashed build assets, long-cached at the edge. The SPA
   # (Vite) never emits /_next/static, so this behavior is inert in spa mode
   # and is therefore not created there.
   dynamic "ordered_cache_behavior" {
@@ -476,9 +477,8 @@ resource "aws_cloudfront_distribution" "web" {
   # /.well-known/* — mobile app-link files (assetlinks.json /
   # apple-app-site-association). Origin follows the switch:
   #   spa mode -> S3 bucket (files uploaded there out-of-band).
-  #   ecs mode -> ALB origin, so Next serves them from
-  #     the web container's public/.well-known/ (decision D9, now moot:
-  #     that client was removed and the SPA bucket serves these files).
+  #   ecs mode -> dead (see the default behavior); it was the web container's
+  #     public/.well-known/ (decision D9, now moot).
   # CachingDisabled either way (app-link files must update promptly). The SPA
   # rewrite lives on the DEFAULT behavior only, so a missing file is a genuine
   # 404 here, not an index.html.

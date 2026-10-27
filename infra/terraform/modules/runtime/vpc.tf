@@ -1,10 +1,10 @@
 # 2-AZ public-subnet VPC. Deliberately NO NAT gateways (~$35/mo each saved):
-# Fargate tasks run in the public subnets with public IPs and tight security
-# groups (ingress only from the ALB / peer-service SGs). Each running task's
-# public IPv4 costs ~$3.6/mo ($0.005/h) — still far cheaper than NAT.
+# the one ECS host (ec2.tf) sits in public subnet 0 with a public IPv4 for
+# egress only (~$3.6/mo) and a security group whose sole ingress is the
+# CloudFront VPC origins. The second subnet exists for the RDS subnet group.
 #
 # TODO(Phase 2): add private subnets + VPC endpoints (ECR api/dkr, S3, Logs,
-# Secrets Manager) and move the tasks private once traffic justifies it.
+# SSM) and move the host private once traffic justifies it.
 
 resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr

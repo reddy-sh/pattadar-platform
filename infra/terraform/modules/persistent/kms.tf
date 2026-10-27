@@ -80,6 +80,28 @@ data "aws_iam_policy_document" "kms" {
       values   = [data.aws_caller_identity.current.account_id]
     }
   }
+
+  # The runtime ECS task-stopped EventBridge rule publishes to the alarms
+  # topic; without this every crash notification is dropped silently.
+  statement {
+    sid = "EventsUse"
+    actions = [
+      "kms:Decrypt",
+      "kms:GenerateDataKey*",
+    ]
+    resources = ["*"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["events.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [data.aws_caller_identity.current.account_id]
+    }
+  }
 }
 
 resource "aws_kms_key" "main" {

@@ -64,7 +64,9 @@ fi
 cat <<EOF
 
   You are about to bring DOWN the '${ENV}' runtime layer:
-    - ECS services, ALB, CloudFront, VPC, EventBridge cron are DESTROYED
+    - ECS services and the ECS host, the CloudFront api distribution and its
+      VPC origins, the SPA distribution (prod), VPC and EventBridge cron are
+      DESTROYED (VPC-origin deletion adds ~15-30 minutes to the destroy)
     - prod: the SPA bucket goes with its objects (force_destroy). Deploy
       re-uploads the site, but the release backups under releases/<id>/
       (each release's rollback copy of the previous site) are LOST
@@ -125,7 +127,7 @@ fi
 # --- 3. Destroy runtime (RDS takes a final snapshot) --------------------------
 TF_VAR_final_snapshot_suffix="$(date +%Y%m%d%H%M)"
 export TF_VAR_final_snapshot_suffix
-log "Destroying runtime layer — RDS final snapshot: pattadar-${ENV}-pg-final-${TF_VAR_final_snapshot_suffix}"
+log "Destroying runtime layer — RDS final snapshot: pattadar-${ENV}-pg-final-${TF_VAR_final_snapshot_suffix} (VPC origins add ~15-30 minutes)"
 terraform -chdir="$RUNTIME_DIR" destroy -input=false -auto-approve
 
 # --- 4. Park documents into the cold storage class -----------------------------

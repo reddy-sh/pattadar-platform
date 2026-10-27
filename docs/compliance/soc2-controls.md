@@ -41,7 +41,7 @@ Status legend: `[template]` = in the Terraform/CI scaffold now · `[phase-N]` = 
 | API/audit evidence | CloudTrail (all regions, management events) → S3, immutable — `aws_cloudtrail` in the Terraform persistent layer. **Gap:** off in prod (`enable_cloudtrail = false`, Reddy, 22/10/2026, cost); the bucket and older logs are kept. Re-enable before a SOC 2 audit window | [template] — disabled |
 | Config drift | AWS Config recording resource configuration changes — `aws_config` in the Terraform persistent layer | [template] |
 | Application logs | ECS → CloudWatch Logs, 365-day retention | [template] |
-| Access logs | ALB access logs + S3 server access logs to a logging bucket | [template] |
+| Access logs | CloudFront access logs (the ALB's until 26/10/2026) + S3 server access logs to a logging bucket | [template] |
 | Application audit trail | Port the predecessor's audit-trail writer into services/api (`audit_events`) | [phase-1] |
 | Alerting | CloudWatch alarms (5xx rate, RDS storage/CPU, ECS task health) → SNS → founder email/SMS | [template], tuning [phase-2] |
 | Log PII scrubbing | Strip PII (Aadhaar, phone) from application log lines | [phase-2] |

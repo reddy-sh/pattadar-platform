@@ -8,7 +8,11 @@ tf_state_bucket = "pattadar-terraform-state-<ACCOUNT_ID>"
 # gateway_image_tag = "sha-abc1234"
 # api_image_tag     = "sha-abc1234"
 
-# Raise after the CloudFront "Response timeout per origin" quota increase:
+# ECS host (one instance runs gateway, api and assistant):
+# instance_type = "t4g.medium"
+
+# 120 by default. Raise after the CloudFront "Response timeout per origin"
+# quota increase (the iOS synchronous passbook read needs it at cutover):
 # cloudfront_origin_read_timeout = 180
 
 # App secrets are SSM SecureStrings created OUT OF BAND (never in tfvars or
@@ -21,8 +25,8 @@ tf_state_bucket = "pattadar-terraform-state-<ACCOUNT_ID>"
 # e.g. aws ssm put-parameter --type SecureString --key-id alias/pattadar-prod \
 #        --name /pattadar/prod/<name> --value file://<file>
 # The --key-id is required: platform-up refuses a parameter under the default
-# aws/ssm key, which any principal in the account can decrypt through SSM. Its
-# check reads names and key ids, never values.
+# aws/ssm key, which any principal in the account (the instance role too) can
+# decrypt through SSM. Its check reads names and key ids, never values.
 
 # First WAF rollout can observe before blocking:
 # waf_block_mode = false

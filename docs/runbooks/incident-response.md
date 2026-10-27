@@ -27,7 +27,10 @@ The signals that should bring you here:
 | GuardDuty finding | Credential misuse, crypto-mining, malicious IP, or an S3 object flagged `THREATS_FOUND` |
 | CloudTrail (off in prod from 22/10/2026, `enable_cloudtrail = false`; older logs only) | Unexpected `PutBucketPolicy`, `DeleteTrail`, `CreateUser`, `AttachRolePolicy`, or role assumption from an unknown source |
 | `pattadar-<env>-cron-failed-invocations` / `-cron-did-not-run` | The family-safeguard escalation stopped running |
-| `pattadar-<env>-<service>-no-healthy-hosts` | A service is down or failing health checks |
+| `pattadar-<env>-<service>-no-running-task` | A gateway, api or assistant task has been gone for 5 minutes (missing data counts as breaching) |
+| `pattadar-<env>-ecs-task-stopped` (EventBridge rule to the alarm topic) | A task crashed, failed to start or failed its health check. It publishes only once the persistent CMK key policy's `EventsUse` statement (admits `events.amazonaws.com`; in code) is applied. The Sunday 21:30 UTC patch reboot can raise it too |
+| `pattadar-<env>-host-instance-status` / `-host-system-status` | The one ECS host failed a status check. Instance failures reboot automatically; system failures auto-recover onto new hardware with the same instance id. Every service is down meanwhile |
+| `pattadar-<env>-host-unhealthy` | The 30-minute host probe failed or stopped reporting; its Run Command output names the reason. A container reached the instance metadata service (169.254.169.254): treat it as a possible credential exposure on the shared host. Otherwise the root volume is over 85 % (uploads spool there; a full disk stops every service), a probe could not run inside a task, or no task was running (expected briefly after platform-up and the patch reboot) |
 | Audit chain verification fails | `services/api/scripts/verify_audit_chain.py` reports a broken link — the ledger was modified outside the append path |
 | A user reports seeing someone else's record | Treat as confirmed until disproven |
 
@@ -68,8 +71,16 @@ how much left the platform.
   recorded as `download_document` and `recipient.download`. Share and work
   tokens are hashed at rest, so match on the hash, not the link.
 - **What changed**: correction events carry before/after values.
-- **What left AWS**: ALB access logs (400-day retention) hold request URLs;
-  CloudTrail holds management events. Note that CloudTrail does not record S3
+- **What left AWS**: since the ALB was removed (26/10/2026) the edge record is
+  the CloudFront access logs (viewer IP, path, query, status) under
+  `cloudfront/<api|web>/` in the persistent access-logs bucket, kept 400
+  days. They are in code but not yet applied (a cutover gate); until they
+  are, there is no edge request log. The gateway and api see CloudFront's ENI
+  as the client, so their container logs `/pattadar/<env>/<service>` (30-day
+  retention in prod) carry the path but not the viewer IP. Older ALB logs may
+  remain under `alb/`. All three services share one host, so a host
+  compromise exposes every task's credentials, the app secrets and Aadhaar
+  decryption: scope it that way. CloudTrail holds management events. Note that CloudTrail does not record S3
   object-level reads unless data events are enabled — if they are not, say
   plainly in the assessment that object-level reads cannot be enumerated.
   Since 22/10/2026 the prod trail is deleted (`enable_cloudtrail = false`,

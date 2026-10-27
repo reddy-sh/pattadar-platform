@@ -25,8 +25,11 @@ The active web application is `apps/web` (React/W360), and the native iOS applic
                    └────────┬─────┘  └──────┬────────┘
                             │               │
         Route53 + ACM → CloudFront (+WAF)   │ (same API, same tokens)
-                            │               │
-                       ALB (idle ≥200s) ◄───┘
+         pattadar.com /api/*│               │ api.pattadar.com
+                            │               │ (CloudFront, 404 default)
+                            ▼               ▼
+              VPC origins (HTTP inside AWS) → one ECS host
+                 (EC2 t4g.medium, gateway :8080, api :8081)
                             │
      ┌──────────────────────┼──────────────────────────┐
      │ services/gateway     │ services/api             │ services/assistant
@@ -48,10 +51,10 @@ Region: **ap-south-1 (Mumbai)**. Auth: **Amazon Cognito** (ap-south-1, Essential
 |---|---|
 | `pattadar.com` | Public landing page at `/` + the Cognito-gated web app at top-level feature paths (`/home`, `/properties`, `/properties/<id>`, …; no `/app` prefix) — one SPA via CloudFront |
 | `www.pattadar.com` | Same CloudFront distribution |
-| `api.pattadar.com` | ALB directly — EventBridge cron target + direct API access |
+| `api.pattadar.com` | Its own CloudFront distribution — iOS/Expo `/api/*` and the EventBridge cron (exact path `/cron/inactivity-check`); everything else is a 404 at the edge |
 | `pattadar-auth-<env>` (Cognito prefix domain) | Cognito hosted-UI auth for the pilot (custom `auth.pattadar.com` later) |
 
-Browser app traffic stays **same-origin**: the SPA calls `/api/*` on `pattadar.com`, which CloudFront routes to the ALB origin — no CORS.
+Browser app traffic stays **same-origin**: the SPA calls `/api/*` on `pattadar.com`, which CloudFront routes to the gateway's VPC origin on the ECS host — no CORS. The one-host runtime and its pre-launch limits: [docs/specs/2026-10-26-one-server-runtime.md](docs/specs/2026-10-26-one-server-runtime.md).
 
 ## Repository layout
 
@@ -82,7 +85,7 @@ Browser app traffic stays **same-origin**: the SPA calls `/api/*` on `pattadar.c
 | Web | React 19.2, MUI 9.2, Vite 8.1, TypeScript 7.0, React Router 8.3, TanStack Query 5 |
 | Mobile | SwiftUI + PattadarKit on iOS; Expo/React Native compatibility client for Android |
 | Backend | Python FastAPI + Strawberry GraphQL (ported), PostgreSQL 17 |
-| Infra | Terraform ≥1.10, AWS provider 6.x, ECS Fargate, RDS, S3+KMS, CloudFront+WAF |
+| Infra | Terraform ≥1.10, AWS provider 6.x, ECS on one EC2 host (CloudFront VPC origins), RDS, S3+KMS, CloudFront+WAF |
 | Auth | Amazon Cognito (ap-south-1, Essentials tier; hosted UI) |
 | AI | Anthropic API (document vision extraction), model catalog under super-admin |
 

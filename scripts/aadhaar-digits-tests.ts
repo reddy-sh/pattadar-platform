@@ -45,7 +45,6 @@ const PATH_ALLOW: Allow[] = [
   { path: 'infra/terraform/envs/prod/runtime/backend.tf', reason: 'AWS account id in the Terraform state bucket name' },
   { path: 'infra/terraform/envs/prod/university/backend.tf', reason: 'AWS account id in the Terraform state bucket name' },
   { path: 'infra/terraform/envs/prod/university/main.tf', reason: 'AWS account id in the remote-state bucket name' },
-  { path: 'infra/terraform/modules/persistent/s3.tf', reason: 'AWS-owned ELB log-delivery account for ap-south-1' },
   // UUIDs: a UUID's middle groups or its last group can form a 12-digit run
   { path: 'packages/core/src/format/audit.test.ts', reason: 'UUID audit target fixture' },
   { path: 'tests/e2e-app/fixtures/session.ts', reason: 'UUID-shaped Cognito subject fixture' },

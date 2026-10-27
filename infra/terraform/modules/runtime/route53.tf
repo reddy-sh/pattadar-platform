@@ -67,7 +67,8 @@ resource "aws_route53_record" "www_aaaa" {
   }
 }
 
-# api -> ALB (direct API + EventBridge cron target + CloudFront /api/* origin).
+# api -> the api CloudFront distribution (api_edge.tf: iOS/Expo API and the
+# EventBridge cron target).
 
 resource "aws_route53_record" "api" {
   zone_id = local.zone_id
@@ -75,8 +76,20 @@ resource "aws_route53_record" "api" {
   type    = "A"
 
   alias {
-    name                   = aws_lb.main.dns_name
-    zone_id                = aws_lb.main.zone_id
-    evaluate_target_health = true
+    name                   = aws_cloudfront_distribution.api.domain_name
+    zone_id                = aws_cloudfront_distribution.api.hosted_zone_id
+    evaluate_target_health = false
+  }
+}
+
+resource "aws_route53_record" "api_aaaa" {
+  zone_id = local.zone_id
+  name    = var.api_domain
+  type    = "AAAA"
+
+  alias {
+    name                   = aws_cloudfront_distribution.api.domain_name
+    zone_id                = aws_cloudfront_distribution.api.hosted_zone_id
+    evaluate_target_health = false
   }
 }

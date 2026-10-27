@@ -1,7 +1,7 @@
 # Static Cost Architecture Reference
 
-Verified from repository configuration on 09/10/2026; values are directional,
-not live billing.
+Verified from repository configuration on 09/10/2026, and the runtime on
+26/10/2026 (Design A, code only); values are directional, not live billing.
 
 ## Root classes
 
@@ -18,26 +18,34 @@ not live billing.
 
 - RDS PostgreSQL 17 defaults to `db.t4g.micro`, 20 GiB gp3, single-AZ, 7-day
   backups; down cycles create final manual snapshots.
-- Prod config runs gateway/API/assistant Fargate tasks (ARM64, default 0.5 vCPU /
-  1 GiB) with public IPv4 instead of NAT. The `web` ECS service, ALB target
-  group, ECR repository and log group are dormant leftovers of the removed
-  Next.js client (`web_desired_count` 0, no image); removing them is a reviewed
-  infrastructure-change because it touches CloudFront/ALB routing. `web_origin`
-  must stay `spa` (`deploy.yml` passes `--web-origin spa`): `ecs` sends
-  CloudFront's default behaviour to the ALB, whose default action is the empty
-  web target group.
-- ALB bills while runtime exists even with zero tasks. Prod enables CloudFront
-  (WAF off until launch, since 25/10/2026); dev tfvars disable both. Service log
-  retention is 30 days in both env
-  roots (they override the module's 365 default; prod says revisit at launch).
+- Gateway, api and assistant run as ECS tasks on **one EC2 host**
+  (`instance_type` default `t4g.medium`, ECS-optimized AL2023 arm64, unlimited
+  CPU credits), each held to 512 CPU / 1024 MiB. The host has a public IPv4
+  for egress instead of NAT. There is no ALB and no Fargate.
+- CloudFront VPC origins put the host behind two distributions: the SPA
+  distribution (prod; dev tfvars disable it) and the api distribution, which
+  exists in every env. WAF is off until launch (since 25/10/2026).
+- The `web` ECS service, task, target group and log group were removed on
+  26/10/2026. The persistent `web` ECR repository remains, and `web_origin`
+  must stay `spa`.
+- Estimate (`docs/specs/2026-10-26-one-server-runtime.md`): about
+  $48.59/month on demand, including RDS. That is about $50.19 until the 4
+  unused Secrets Manager containers are deleted, about $44 with a 1-yr Compute
+  Savings Plan on the instance (rate unverified), and about $70 at 1k users
+  with the launch WAF. The 1-yr RDS RI ($0.0165/h) saves about $3.28.
+  Unlimited credits can add up to $46.72 if both vCPUs stay pinned
+  (`host-cpu-surplus-charged` alarm; Standard mode is the hard-cap fallback).
+  The 11 alarms are one over the free 10.
+- Service log retention is 30 days in both env roots (they override the
+  module's 365 default; prod says revisit at launch).
   The RDS `postgresql` log export creates a log group Terraform does not manage
   (no retention in code, survives runtime destroy); include it in idle review.
 - ECS services and task definitions are tagged, but no service sets
-  `propagate_tags`, so tasks are untagged: do not assume Fargate spend
-  allocates by tag.
-- Repository comments estimate public IPv4 around $3.60/task/month, avoided NAT
-  around $35/gateway/month, and disabled Container Insights around $18/month
-  across environments. Revalidate before decisions.
+  `propagate_tags`, so tasks are untagged. Compute spend is the one tagged
+  instance, not per service.
+- Repository comments estimate the host's public IPv4 at around $3.6/month,
+  avoided NAT at around $35/gateway/month, and disabled Container Insights at
+  around $18/month across environments. Revalidate before decisions.
 
 ## Persistent/parked
 
@@ -73,11 +81,13 @@ no CDN. State these effects with any parking option.
 
 ## Usage-variable and controls
 
-Traffic, WAF/S3 requests, logs, malware scans, Config, and Anthropic calls need
-usage data. Controls include no NAT, ARM64, disabled Container Insights, storage
-lifecycles, bucket keys, ECR retention, and singleton ownership. A $50 budget
-and an anomaly monitor exist in persistent code (`modules/persistent/budgets.tf`)
-but are not applied.
+Traffic, WAF/S3 requests, logs, malware scans, Config, CPU surplus credits and
+Anthropic calls need usage data. Controls include one shared host, no NAT,
+ARM64, disabled Container Insights, storage lifecycles, bucket keys, ECR
+retention, and singleton ownership. A $50 budget and an anomaly monitor exist
+in persistent code (`modules/persistent/budgets.tf`) but are not applied.
+Savings Plan and RI purchases are irreversible 1-year commitments for Reddy,
+made only after the dev proof and a stable prod stretch.
 
 ## Down/up guidance
 

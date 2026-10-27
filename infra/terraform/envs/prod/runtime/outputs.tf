@@ -1,7 +1,11 @@
 # Root-level re-exports for scripts/platform-up.sh, deploy.yml and runbooks.
 
-output "alb_dns_name" {
-  value = module.runtime.alb_dns_name
+output "api_domain" {
+  value = module.runtime.api_domain
+}
+
+output "host_instance_id" {
+  value = module.runtime.host_instance_id
 }
 
 output "task_definition_arns" {

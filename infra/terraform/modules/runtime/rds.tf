@@ -31,7 +31,7 @@ resource "aws_db_instance" "main" {
 
   db_subnet_group_name   = aws_db_subnet_group.main.name
   vpc_security_group_ids = [aws_security_group.rds.id]
-  publicly_accessible    = false # subnets are public but the instance gets no public address; rds_sg admits only gateway + api
+  publicly_accessible    = false # subnets are public but the instance gets no public address; rds_sg admits only the ECS host
   multi_az               = false # TODO(Phase 2): enable for production HA once traffic justifies the cost.
 
   # Restore-from-snapshot up-flow: empty string = fresh instance. When

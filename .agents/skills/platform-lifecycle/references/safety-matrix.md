@@ -17,8 +17,8 @@
 | Path | Guard | Bypass the agent never uses |
 |---|---|---|
 | `Platform down` workflow, prod | `confirm` input `decommission-prod` (`platform-down.yml:14-35`) | passing that string itself |
-| `scripts/platform-down.sh` locally | type the env name at the prompt (`:81-87`); no `decommission-prod` check | `PLATFORM_DOWN_CONFIRM=yes` |
-| `scripts/platform-up.sh` | exits 1 on pending SNS confirmations (`:184-195`) | `ALLOW_PENDING_ALARMS=1` |
+| `scripts/platform-down.sh` locally | type the env name at the prompt (`:82-88`); no `decommission-prod` check | `PLATFORM_DOWN_CONFIRM=yes` |
+| `scripts/platform-up.sh` | exits 1 on pending SNS confirmations (`:203-214`) | `ALLOW_PENDING_ALARMS=1` |
 
 ## Authority order
 
@@ -26,12 +26,12 @@
    inputs/guards.
 2. `docs/runbooks/up-down.md`, `s3-thaw.md`, `rds-restore-drill.md` and
    `scripts/recovery-drill.py`. `up-down.md` was realigned with the scripts on
-   26/10/2026 (SSM check, `force_destroy` caveat, SNS exit) except its smoke
-   step, which still says `http://`; report drift through runbook-consistency.
+   26/10/2026 (SSM check, CloudFront smoke, `force_destroy` caveat); report any
+   new drift through runbook-consistency.
 3. Terraform modules/env roots.
 4. `infra/terraform/README.md` only when consistent.
 
 Stale text, do not follow: `modules/runtime/rds.tf:44-45` and
-`modules/runtime/variables.tf:129` say down runs a targeted apply.
-Authoritative: `platform-down.sh:89-119` (full apply, no `-target`) and
+`modules/runtime/variables.tf:135` say down runs a targeted apply.
+Authoritative: `platform-down.sh:94-108` (full apply, no `-target`) and
 `up-down.md` § "The deletion-protection flip, explained".

@@ -7,16 +7,23 @@ diff actually touches.
 ## Trust boundary (gateway ↔ api/assistant)
 
 - [ ] `services/api` and `services/assistant` are reachable only through
-      `services/gateway`. Declared ingress (`infra/terraform/modules/runtime/`):
-      ALB→gateway for `/api/*`; ALB→api only through the `cron_to_api`
-      exact-path rule for `/cron/inactivity-check` (guarded by `CRON_SECRET`,
-      reads no `x-user-id`); gateway→api and gateway→assistant. Flag any new
-      api/assistant listener rule, hostname, wider path pattern or ingress.
+      `services/gateway`. Declared ingress (`infra/terraform/modules/runtime/`
+      `api_edge.tf`, `cloudfront.tf`, `ec2.tf`): CloudFront `/api/*` → gateway
+      VPC origin (host :8080); api only through the api distribution's
+      exact-path `/cron/inactivity-check` behaviour → api_cron VPC origin
+      (host :8081; POST only; forwards only `x-cron-secret` and
+      `content-type`; guarded by `CRON_SECRET`; reads no `x-user-id`);
+      default behaviour 404; host SG admits only
+      `CloudFront-VPCOrigins-Service-SG` on 8080-8081; gateway→api and
+      gateway→assistant over `172.17.0.1`. Flag any new behaviour, VPC origin,
+      hostname, wider path pattern, SG rule or port (8082, 22, a cidr) and
+      any task with host network, privileged mode or `docker.sock`
+      (`scripts/tests/test_edge_routes.py` guards these).
 - [ ] The gateway strips every client-supplied identity header and
       `x-internal-proxy-secret` (`_IDENTITY_HEADERS` in
       `services/gateway/src/main.py`) before injecting the Cognito-derived
       value; a new identity header is added there.
-- [ ] Proxy secrets: the api container
+- [ ] Proxy secrets on the shared host: the api container
       (`services/api/src/private_ingress.py`) fails closed and refuses to
       start without `INTERNAL_PROXY_SECRET`. The assistant check still fails
       open when unset. The gateway must send the api only

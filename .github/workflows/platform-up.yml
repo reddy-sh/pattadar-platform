@@ -36,4 +36,7 @@ jobs:
           terraform_wrapper: false
 
       - name: Bring platform up
+        env:
+          # prod: Reddy's shared-host security-review sign-off (repository variable).
+          SHARED_HOST_SECURITY_SIGNOFF: ${{ vars.SHARED_HOST_SECURITY_SIGNOFF }}
         run: ./scripts/platform-up.sh "${{ inputs.environment }}"

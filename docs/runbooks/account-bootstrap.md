@@ -103,16 +103,24 @@ brew install hashicorp/tap/terraform
 terraform -version
 ```
 
-## 8. Fargate vCPU quota
+## 8. EC2 vCPU and CloudFront timeout quotas
+
+The runtime is one `t4g.medium` (2 vCPUs). A deliberate host replacement runs
+two hosts briefly, so 4 vCPUs is the floor.
 
 ```sh
 aws service-quotas get-service-quota \
-  --service-code fargate --quota-code L-3032A538   # Fargate On-Demand vCPU
-
-# If the value is < 16 (fresh accounts often start at 6):
-aws service-quotas request-service-quota-increase \
-  --service-code fargate --quota-code L-3032A538 --desired-value 20
+  --service-code ec2 --quota-code L-1216C47A   # Running On-Demand Standard (A, C, D, H, I, M, R, T, Z) vCPUs
 ```
+
+CloudFront "Response timeout per origin" is the budget for the synchronous
+readings (default use 120 s). Request 180 s in the Service Quotas console
+(us-east-1 → Amazon CloudFront → "Response timeout per origin"). Once it is
+granted, set `cloudfront_origin_read_timeout = 180` in `envs/prod/runtime`
+through a reviewed change. Both the quota request and the apply need Reddy's
+approval. The request does not replace the cutover gate that moves the iOS
+passbook read to the async route
+([decision](../specs/2026-10-26-one-server-runtime.md)).
 
 ## 9. SES sandbox exit
 
@@ -138,7 +146,8 @@ working on Azure DNS until the registrar NS switch. Order matters:
 
 2. **Recreate the needed records in Route53 FIRST** — the site stays live
    because both providers serve identical answers. Terraform manages the new
-   platform records (apex/`www` → CloudFront, `api` → ALB); add any Azure-era
+   platform records (apex/`www` → the SPA CloudFront distribution, `api` →
+   the api CloudFront distribution, A and AAAA); add any Azure-era
    records you must keep (e.g. existing MX/TXT verifications) to the zone too.
 
    ```sh
@@ -189,8 +198,8 @@ never enter state or tfvars, and platform-down never deletes them.
 Pass each value through a private file, never on the command line, and delete
 the file afterwards. `tr -d '\n'` keeps a trailing newline out of the value.
 Always pass `--key-id`: `scripts/platform-up.sh` refuses a parameter under the
-default `aws/ssm` key, which any principal in the account can decrypt through
-SSM.
+default `aws/ssm` key, which any principal in the account, the ECS instance
+role included, can decrypt through SSM.
 
 ```sh
 ENV=prod                       # or dev
@@ -217,12 +226,12 @@ rm -rf "$d"
 is probably past recovery. Generate a new value
 (`openssl rand -base64 30 | tr -d '/+=\n'`), store it the same way, and set it
 on the role as the RDS master user, whose credential is the RDS-managed secret
-(`rds_master_secret_arn` output). RDS is not public, so this needs an approved
-network path into the VPC. Run `ALTER ROLE pattadar_app PASSWORD '…'` on a
+(`rds_master_secret_arn` output). RDS is not public, so connect through an SSM
+port-forward on the ECS host. Run `ALTER ROLE pattadar_app PASSWORD '…'` on a
 restored database, or create the role and the `hub` database on a fresh one,
 as `scripts/platform-up.sh` prints. The order is forced: the parameter must
 exist before `platform-up.sh` applies, but the role can only be changed once
-RDS is up. So store the parameter, run the up, and expect its
+RDS and the host are up. So store the parameter, run the up, and expect its
 smoke to fail on database login. Then run the SQL, force a new deployment of
 the three services, and re-run the smoke. Each step needs Reddy's approval.
 

@@ -1,9 +1,14 @@
 # Consumed by scripts/platform-up.sh (health checks), deploy.yml (SPA sync +
 # CloudFront invalidation + release templates) and the runbooks.
 
-output "alb_dns_name" {
-  description = "ALB DNS name (api.<domain> aliases here)."
-  value       = aws_lb.main.dns_name
+output "api_domain" {
+  description = "Public API name on the api CloudFront distribution (iOS, Expo and the cron)."
+  value       = var.api_domain
+}
+
+output "host_instance_id" {
+  description = "ECS host instance id (aws ssm start-session --target)."
+  value       = aws_instance.host.id
 }
 
 output "task_definition_arns" {

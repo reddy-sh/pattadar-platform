@@ -1,15 +1,18 @@
-"""Static guard for the api's private ingress and its proxy secrets.
+"""Static guard for the api edge (Design A, Reddy 26/10/2026).
 
-Invariant 1: the api trusts x-user-id, so its image serves the fail-closed
-private_ingress wrapper and each service holds only its own proxy secret.
-Each check reads the Terraform block it is about (a small HCL block reader
-below; no hcl2 in the venv), not a loose pattern over the files.
+Invariant 1: the api trusts x-user-id, so its only internet path is the api
+distribution's exact /cron/inactivity-check behaviour. Each check reads the
+Terraform block it is about (a small HCL block reader below; no hcl2 in the
+venv), not a loose pattern over the files.
 """
 import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 MODULE = ROOT / 'infra/terraform/modules/runtime'
+CRON_PATH = '/cron/inactivity-check'
 
 HEADER = re.compile(r'^([A-Za-z_][\w-]*)((?:\s+"[^"]*")*)\s*\{\s*(\})?$')
 ATTR = re.compile(r'^([A-Za-z_][\w-]*)\s*=\s*(.*)$')
@@ -110,10 +113,35 @@ def literal(expr):
     return found and found.group(1)
 
 
+def literals(expr):
+    return set(re.findall(r'"([^"]*)"', expr))
+
+
 def dynamic(block, kind):
     return block.children(kind) + [d.child('content') for d in block.children('dynamic') if d.labels == (kind,)]
 
 
+def origins(dist):
+    """origin_id -> the aws_cloudfront_vpc_origin it uses (None for S3 origins)."""
+    found = {}
+    for origin in dynamic(dist, 'origin'):
+        vpc = origin.children('vpc_origin_config')
+        if vpc:
+            ref = re.fullmatch(r'aws_cloudfront_vpc_origin\.(\w+)\.id', vpc[0].attrs['vpc_origin_id'])
+            assert ref, origin.attrs['origin_id']
+            # One attempt: CloudFront never re-sends a paid reading (invariant 3).
+            assert origin.attrs.get('connection_attempts') == '1', origin.attrs['origin_id']
+        found[literal(origin.attrs['origin_id'])] = ref.group(1) if vpc else None
+    return found
+
+
+def targets(behaviour):
+    """Every origin id the target expression can name (both arms of a conditional)."""
+    return literals(behaviour.attrs['target_origin_id'])
+
+
+DISTS = declared('resource', 'aws_cloudfront_distribution')
+VPC_ORIGINS = declared('resource', 'aws_cloudfront_vpc_origin')
 TASKS = declared('resource', 'aws_ecs_task_definition')
 
 
@@ -125,8 +153,96 @@ def test_reader_skips_braces_in_heredocs_strings_and_comments():
     assert block.child('nested').attrs['v'] == '{\nk = "{"\n}' and block.child('empty')
 
 
+def test_module_has_both_distributions_and_vpc_origins():
+    assert set(DISTS) == {'web', 'api'}
+    assert set(VPC_ORIGINS) == {'gateway', 'api_cron'}
+
+
+def test_only_the_exact_cron_behaviour_reaches_the_api():
+    hits = []
+    for name, dist in DISTS.items():
+        cron = {oid for oid, vpc in origins(dist).items() if vpc == 'api_cron'}
+        assert not targets(dist.child('default_cache_behavior')) & cron, name
+        hits += [(name, b) for b in dynamic(dist, 'ordered_cache_behavior') if targets(b) & cron]
+    assert [name for name, _ in hits] == ['api']
+    behaviour = hits[0][1]
+    assert literal(behaviour.attrs['path_pattern']) == CRON_PATH
+    assert targets(behaviour) == {'api_cron'}
+
+    # private_ingress exempts this path from the proxy secret, so only the cron
+    # header (and content-type) may reach the api, and only on POST.
+    assert behaviour.attrs['origin_request_policy_id'] == 'aws_cloudfront_origin_request_policy.cron.id'
+    policy = declared('resource', 'aws_cloudfront_origin_request_policy')['cron']
+    assert literal(policy.child('cookies_config').attrs['cookie_behavior']) == 'none'
+    assert literal(policy.child('query_strings_config').attrs['query_string_behavior']) == 'none'
+    headers = policy.child('headers_config')
+    assert literal(headers.attrs['header_behavior']) == 'whitelist'
+    assert literals(headers.child('headers').attrs['items']) == {'x-cron-secret', 'content-type'}
+    function = behaviour.child('function_association')
+    assert literal(function.attrs['event_type']) == 'viewer-request'
+    assert function.attrs['function_arn'] == 'aws_cloudfront_function.cron_post_only.arn'
+    assert "method !== 'POST'" in declared('resource', 'aws_cloudfront_function')['cron_post_only'].attrs['code']
+
+
+def test_api_distribution_serves_nothing_but_the_two_routes():
+    api = DISTS['api']
+    assert sorted(literal(b.attrs['path_pattern']) for b in dynamic(api, 'ordered_cache_behavior')) == ['/api/*', CRON_PATH]
+    function = api.child('default_cache_behavior').child('function_association')
+    assert literal(function.attrs['event_type']) == 'viewer-request'
+    assert function.attrs['function_arn'] == 'aws_cloudfront_function.api_not_found.arn'
+    code_404 = declared('resource', 'aws_cloudfront_function')['api_not_found'].attrs['code']
+    assert 'statusCode: 404' in code_404 and 'event.request' not in code_404
+
+
+@pytest.mark.parametrize('name', ['web', 'api'])
+def test_api_paths_reach_only_the_gateway(name):
+    dist = DISTS[name]
+    gateway = {oid for oid, vpc in origins(dist).items() if vpc == 'gateway'}
+    (behaviour,) = [b for b in dynamic(dist, 'ordered_cache_behavior') if literal(b.attrs['path_pattern']) == '/api/*']
+    assert gateway and targets(behaviour) <= gateway
+
+
+def host_ports(service):
+    return [int(p) for p in re.findall(r'hostPort\s*=\s*(\d+)', TASKS[service].attrs['container_definitions'])]
+
+
+def test_vpc_origins_match_the_host_ports():
+    ports = {}
+    for name, origin in VPC_ORIGINS.items():
+        endpoint = origin.child('vpc_origin_endpoint_config')
+        assert endpoint.attrs['arn'] == 'aws_instance.host.arn'
+        assert literal(endpoint.attrs['origin_protocol_policy']) == 'http-only'
+        lifecycle = origin.child('lifecycle')
+        assert lifecycle.attrs['create_before_destroy'] == 'true'
+        assert 'aws_instance.host' in lifecycle.attrs['replace_triggered_by']
+        ports[name] = int(endpoint.attrs['http_port'])
+    assert host_ports('gateway') == [ports['gateway']]
+    assert host_ports('api') == [ports['api_cron']]
+
+
+def test_host_admits_only_cloudfront_vpc_origins():
+    host = declared('resource', 'aws_security_group')['host']
+    assert not host.children('ingress') and 'ingress' not in host.attrs
+    ingress = [b for b in BLOCKS if b.kind == 'resource' and b.attrs.get('security_group_id') == 'aws_security_group.host.id'
+               and (b.labels[0] == 'aws_vpc_security_group_ingress_rule'
+                    or b.labels[0] == 'aws_security_group_rule' and literal(b.attrs.get('type', '')) == 'ingress')]
+    assert [b.labels for b in ingress] == [('aws_vpc_security_group_ingress_rule', 'host_from_cloudfront')]
+    rule = ingress[0]
+    assert not {'cidr_ipv4', 'cidr_ipv6', 'prefix_list_id', 'cidr_blocks', 'ipv6_cidr_blocks', 'prefix_list_ids'} & set(rule.attrs)
+    assert rule.attrs['referenced_security_group_id'] == 'data.aws_security_group.cloudfront_vpc_origins.id'
+    low, high = int(rule.attrs['from_port']), int(rule.attrs['to_port'])
+    assert (low, high) == (8080, 8081) and not low <= 22 <= high
+    assert not any(low <= port <= high for port in host_ports('assistant'))
+    # Destroy order: the rule goes before the origins, or the managed group
+    # cannot be deleted and the VPC destroy wedges.
+    assert set(re.findall(r'aws_cloudfront_vpc_origin\.\w+', rule.attrs['depends_on'])) == {
+        'aws_cloudfront_vpc_origin.gateway', 'aws_cloudfront_vpc_origin.api_cron'}
+    group = declared('data', 'aws_security_group')['cloudfront_vpc_origins']
+    assert literal(group.attrs['name']) == 'CloudFront-VPCOrigins-Service-SG'
+
+
 def test_no_task_shares_the_host_namespaces_or_docker():
-    assert set(TASKS) == {'gateway', 'api', 'assistant', 'web'}
+    assert set(TASKS) == {'gateway', 'api', 'assistant'}
     for name, task in TASKS.items():
         for mode in ('network_mode', 'pid_mode', 'ipc_mode'):
             assert literal(task.attrs.get(mode, '""')) != 'host', (name, mode)
@@ -162,5 +278,4 @@ def test_each_service_holds_only_its_own_proxy_secret():
                     'INTERNAL_PROXY_SECRET_ASSISTANT': 'internal-proxy-secret-assistant'},
         'api': {'INTERNAL_PROXY_SECRET': 'internal-proxy-secret-api'},
         'assistant': {'INTERNAL_PROXY_SECRET': 'internal-proxy-secret-assistant'},
-        'web': {},
     }

@@ -7,7 +7,8 @@ order** — each layer rules out the next.
 ## Hard rule first
 
 **Never retry an extraction POST.** Not with curl, not by clicking again, not
-by adding retries to gateway/ALB/EventBridge/CloudFront config. A duplicate
+by adding retries to gateway/EventBridge/CloudFront config (VPC origins keep
+`connection_attempts = 1`). A duplicate
 call doubles Anthropic spend and can double-import documents. Diagnose, fix,
 then let the *user* re-submit once the cause is fixed.
 
@@ -33,29 +34,39 @@ The api logs the exact Anthropic exception/status server-side (no more silent
 <https://status.anthropic.com> — if Sonnet is degraded, stop here; wait it
 out. Do not retry stuck requests (see hard rule).
 
-## 3. ALB: target 5xx vs timeout
+## 3. Edge: CloudFront 5xx vs timeout
+
+There is no ALB. Web traffic reaches the gateway through the SPA
+distribution's `/api/*` VPC origin, and iOS/Expo through the
+`api.pattadar.com` distribution. CloudFront metrics live in `us-east-1`:
 
 ```sh
-# Is the target erroring (5xx) or timing out (504 + no target 5xx)?
-aws cloudwatch get-metric-statistics --namespace AWS/ApplicationELB \
-  --metric-name HTTPCode_Target_5XX_Count \
-  --dimensions Name=LoadBalancer,Value=<alb-arn-suffix> \
+# Is the origin erroring, or is CloudFront timing it out?
+aws cloudwatch get-metric-statistics --region us-east-1 --namespace AWS/CloudFront \
+  --metric-name 5xxErrorRate \
+  --dimensions Name=DistributionId,Value=<distribution-id> Name=Region,Value=Global \
   --start-time "$(date -u -v-1H +%FT%TZ)" --end-time "$(date -u +%FT%TZ)" \
-  --period 300 --statistics Sum
-# Also compare: HTTPCode_ELB_504_Count, TargetResponseTime (Maximum)
+  --period 300 --statistics Average
 ```
 
-- **Target 5xx** → app-level; back to step 1's logs.
-- **504 with no target 5xx** → a timeout in the chain. Verify the invariant:
+- **The gateway log shows the request finishing with a 5xx** → app-level; back
+  to step 1's logs.
+- **A 504 at the client, with the gateway log still waiting at about the
+  origin timeout** → the CloudFront origin response timeout cut it. Check the
+  value:
 
 ```sh
-aws elbv2 describe-load-balancer-attributes --load-balancer-arn <arn> \
-  --query "Attributes[?Key=='idle_timeout.timeout_seconds'].Value"
+aws cloudfront get-distribution-config --id <distribution-id> \
+  --query "DistributionConfig.Origins.Items[].{origin:Id,read:VpcOriginConfig.OriginReadTimeout}"
 ```
 
-`idle_timeout` **must stay >= 200** (extraction runs up to 180 s). Same for
-the CloudFront origin-response timeout on the `/api/*` behavior and the
-gateway's proxy timeout. If someone "tuned" any of these down, that's the bug.
+The origin timeout is `cloudfront_origin_read_timeout`: 120 s now, 180 s after
+the quota request. The synchronous reads (iOS passbook, Expo passbook and
+deed) wait on the model for up to 170 s, so at 120 s a slow read fails at the
+edge while the api may still finish and be billed. That is why moving them to
+the `-async` routes is a cutover gate. The gateway's own proxy timeout is
+200 s for these routes (`services/gateway/src/routes/proxy.py`). If someone
+"tuned" either one down, that's the bug.
 
 ## 4. GuardDuty scan-tag gate
 
@@ -83,4 +94,7 @@ Also confirm the object isn't parked in a Glacier class
   find a retry setting anywhere on these paths, removing it *is* the fix.
 - Repeated `ReadTimeout` on ordinary single-page documents usually means the
   model call is fine but response streaming is being buffered somewhere new —
-  compare gateway and ALB timestamps for the same request id.
+  compare gateway and api timestamps for the same request.
+- A release restarts each service with about 1-2 minutes of outage (one host,
+  static ports). A reading in flight on an api restart is marked failed and
+  never retried. The user re-submits once; do not replay it.

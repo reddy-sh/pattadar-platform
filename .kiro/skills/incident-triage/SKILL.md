@@ -26,8 +26,8 @@ Also covers 'we have an incident', failed extractions, rolled-back releases, aut
    global sign-out) as approval-gated steps before diagnosis, and tell Reddy
    the DPDP/GDPR notification clock is already running.
 3. Check whether the runtime is up or parked. `scripts/platform-down.sh`
-   destroys the whole runtime layer (`infra/terraform/modules/runtime`: ALB,
-   ECS, RDS, alarms, log groups, SPA CloudFront), so a fully parked env gives
+   destroys the whole runtime layer (`infra/terraform/modules/runtime`: the ECS
+   host and services, api and SPA CloudFront, RDS, alarms, log groups), so a fully parked env gives
    no answer; the SPA still served with `/api/*` 502 means the runtime is only
    partly present (`docs/architecture/2026-09-21-dynamodb-migration-review.md`
    records prod in that state). Neither is a new outage; report a partial
@@ -37,8 +37,12 @@ Also covers 'we have an incident', failed extractions, rolled-back releases, aut
    University (`infra/terraform/envs/prod/university`) is a separate always-on
    stack that parking does not touch.
 4. Read `references/symptom-routing.md` and the matching runbook.
-5. Build a timeline and trace the affected path: platform edge → ALB → gateway
-   → API/assistant → provider → storage/database; University is CloudFront →
+5. Build a timeline and trace the affected path: CloudFront (SPA or
+   `api.pattadar.com`) → VPC origin → the one ECS host → gateway →
+   API/assistant → provider → storage/database. All three services share that
+   host, so a host-status or `no-running-task` alarm on every service points at
+   the host, and a host compromise exposes every task's secrets. There is no
+   ALB and no request log at the edge. University is CloudFront →
    S3 only; local is the `scripts/start-local.sh` processes. Separate
    observations from hypotheses.
 6. Propose the smallest discriminating check. Before any live AWS, GitHub,

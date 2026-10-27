@@ -106,7 +106,7 @@ def definition(current,service,image,identity_env=None):
 
 def release_gates(body,service):
     """Nothing copied into a release may switch off the api's fail-closed ingress,
-    the assistant's proxy check or the containers' isolation."""
+    the assistant's proxy check or the containers' isolation on the shared host."""
     if any(body.get(mode)=='host' for mode in ('networkMode','pidMode','ipcMode')):
         raise ValueError('A production release must not share the host network, PID or IPC namespace')
     if any(volume.get('host',{}).get('sourcePath') for volume in body.get('volumes',[])):
@@ -237,8 +237,9 @@ def plan(args,proof):
         raise ValueError('Assistant durable rollback task is not active')
     if rollback.get('networkMode')!=planned['assistant'].get('networkMode') or set(rollback.get('requiresCompatibilities',[]))!=set(planned['assistant'].get('requiresCompatibilities',[])):
         raise ValueError('Assistant rollback task has a different launch shape; regenerate the release preflight')
-    # Other ports leave the assistant unreachable where the gateway calls it,
-    # and without a health check the rollback could never report HEALTHY.
+    # Static host ports: another hostPort collides with the gateway or leaves
+    # the assistant unreachable at 172.17.0.1:8082, and without a health check
+    # the rollback could never report HEALTHY.
     old,new=(next(c for c in body['containerDefinitions'] if c['name']=='assistant') for body in (rollback,planned['assistant']))
     ports=lambda container: {(p.get('containerPort'),p.get('hostPort'),p.get('protocol','tcp')) for p in container.get('portMappings',[])}
     if ports(old)!=ports(new) or not old.get('healthCheck'):
@@ -257,8 +258,8 @@ def healthy(args,service,arn):
     live=aws('ecs','describe-services','--cluster',args.cluster,'--services',service)['services'][0]
     if live['taskDefinition']!=arn or live['runningCount']<1 or live.get('pendingCount',0):
         raise RuntimeError(service+' did not become healthy on the requested revision')
-    # services-stable can pass while the container health check is still
-    # UNKNOWN or failing (no load balancer checks the assistant at all).
+    # No load balancer checks /health, so services-stable can pass while the
+    # container health check is still UNKNOWN or failing.
     for attempt in range(HEALTH_ATTEMPTS):
         arns=aws('ecs','list-tasks','--cluster',args.cluster,'--service-name',service,'--desired-status','RUNNING').get('taskArns',[])
         tasks=aws('ecs','describe-tasks','--cluster',args.cluster,'--tasks',*arns) if arns else {}
@@ -306,7 +307,7 @@ def execute(args,planned,originals,images,rollback_defs=None):
                 path.write_text(json.dumps(body))
                 arn=aws('ecs','register-task-definition','--cli-input-json','file://'+str(path))['taskDefinition']['taskDefinitionArn']
             receipt['next'][service]=arn
-            # The cron reaches only the api (the ALB's exact-path rule), so only the
+            # The cron reaches only the api (its own VPC origin), so only the
             # api waits; restarting the gateway or assistant at 06:00 is harmless.
             if service=='api':
                 cron_hold()

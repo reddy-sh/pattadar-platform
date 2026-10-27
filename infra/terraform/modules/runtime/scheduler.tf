@@ -30,7 +30,7 @@ resource "aws_cloudwatch_event_connection" "cron" {
 
 resource "aws_cloudwatch_event_api_destination" "inactivity_check" {
   name                             = "${local.prefix}-inactivity-check"
-  description                      = "POST /cron/inactivity-check on the api service (via ALB)"
+  description                      = "POST /cron/inactivity-check on the api service (via the CloudFront api distribution)"
   invocation_endpoint              = "${var.api_base_url}/cron/inactivity-check"
   http_method                      = "POST"
   invocation_rate_limit_per_second = 1

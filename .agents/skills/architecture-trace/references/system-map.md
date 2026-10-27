@@ -1,7 +1,8 @@
 # Current Pattadar System Map
 
-Verified from repository source/config on 09/10/2026. This is declared
-architecture, not proof of applied AWS state.
+Verified from repository source/config on 09/10/2026, and the runtime topology
+on 26/10/2026 (Design A, code only; `docs/specs/2026-10-26-one-server-runtime.md`).
+This is declared architecture, not proof of applied AWS state.
 
 ## Client and service roles
 
@@ -19,9 +20,10 @@ architecture, not proof of applied AWS state.
 - `services/gateway`: public JWT boundary, immutable-principal mapping, storage,
   capabilities/account/admin routes, buffered API proxy, streaming assistant proxy.
 - `services/api`: FastAPI + Strawberry product/W360 domains; trusts gateway
-  `x-user-id`; cron is the single ALB-routed exception protected by `CRON_SECRET`.
-  Its container entry `src/private_ingress.py` refuses everything else without
-  the gateway's `INTERNAL_PROXY_SECRET`.
+  `x-user-id`; cron is the single direct path (the api distribution's exact-path
+  behaviour to the api VPC origin) protected by `CRON_SECRET`. Its container
+  entry `src/private_ingress.py` refuses everything else without the gateway's
+  `INTERNAL_PROXY_SECRET`.
 - `services/assistant`: authenticated SSE chat, durable conversation/run state,
   bounded tools, owner-scoped attachments, optional read-only public records.
 
@@ -29,16 +31,16 @@ architecture, not proof of applied AWS state.
 
 ```mermaid
 flowchart LR
-  WEB[apps/web] --> EDGE[CloudFront + WAF]
-  IOS[apps/ios] --> ALB[ALB]
-  MOB[apps/mobile] --> ALB
-  UNI[apps/university] --> UEDGE[University CloudFront + WAF] --> USITE[(S3 university site)]
+  WEB[apps/web] --> EDGE[CloudFront pattadar.com]
+  IOS[apps/ios] --> AEDGE[CloudFront api.pattadar.com\n404 default]
+  MOB[apps/mobile] --> AEDGE
+  UNI[apps/university] --> UEDGE[University CloudFront] --> USITE[(S3 university site)]
   UNI -->|OIDC hosted UI| COG[Cognito]
-  EDGE -->|/api/*| ALB
-  ALB -->|/api/*| GW[services/gateway]
-  ALB -->|/cron/inactivity-check only| API[services/api]
-  GW -->|validated x-user-id + api proxy secret| API
-  GW -->|validated x-user-id + assistant proxy secret, SSE| AST[services/assistant]
+  EDGE -->|/api/* VPC origin :8080| GW[services/gateway]
+  AEDGE -->|/api/* VPC origin :8080| GW
+  AEDGE -->|/cron/inactivity-check only, :8081| API[services/api]
+  GW -->|172.17.0.1:8081 + api proxy secret| API
+  GW -->|172.17.0.1:8082 + assistant proxy secret, SSE| AST[services/assistant]
   GW --> S3[(S3 documents)]
   GW & API & AST --> PG[(PostgreSQL/RDS)]
   API & AST --> ANT[Anthropic]
@@ -77,17 +79,18 @@ the control that guards it:
 Persistent: KMS, S3 documents/logs/village maps (`/vm/*`, served by runtime
 CloudFront), ECR, Secrets Manager, Cognito, DNS/SES,
 CloudTrail/Config/GuardDuty, GitHub OIDC. Out of band (neither root): the five
-app SSM SecureStrings `/pattadar/<env>/*`. Runtime: VPC/public subnets (no NAT),
-ALB, ECS gateway/api/assistant, non-public RDS, CloudFront/WAF/SPA,
-scheduler, logs/alarms/SNS. Runtime reads persistent outputs through remote
-state and is recreated by reviewed lifecycle scripts.
+app SSM SecureStrings `/pattadar/<env>/*`. Runtime: VPC/public subnets (no
+NAT), one ECS host (EC2 t4g.medium; `ec2.tf`) running the gateway, api and
+assistant as bridge-mode tasks on host ports 8080/8081/8082, the api
+CloudFront distribution and VPC origins (`api_edge.tf`), non-public RDS, SPA
+CloudFront/WAF, scheduler, logs/alarms/SNS. Runtime reads persistent outputs
+through remote state and is recreated by reviewed lifecycle scripts. There is
+no ALB, Fargate or Service Connect.
 
-The `web` ECS service, ALB target group, ECR repo and log group are dormant
-leftovers of the removed Next.js client (`web_desired_count` 0); removing them
-is a reviewed infrastructure-change because it touches CloudFront routing.
-The Terraform `web_origin` variable (default `spa`) and `deploy.yml`'s
-`--web-origin spa` must stay `spa`: `ecs` sends CloudFront's default behaviour
-to the ALB, whose default action is that empty target group.
+The `web` ECS service, task and target group were removed on 26/10/2026;
+`aws_iam_role.web_task`, the `web` ECR repo and the dead `web_*` variables
+remain. The `web_origin` variable (default `spa`) and `deploy.yml`'s
+`--web-origin spa` must stay `spa`.
 
 University (`infra/terraform/envs/prod/university`) is a third, standalone
 root: always on, no dev twin, outside platform-up/down. `deploy-university.yml`
@@ -111,7 +114,7 @@ fees, and audit.
 ## Invariants
 
 Gateway-derived identity; one secret-guarded direct cron path, plus a
-gateway-only proxy secret; immutable
+gateway-only proxy secret on the shared host; immutable
 issuer/subject identity; durable non-replayed AI work; server-side authority;
 scoped public tokens; verbatim storage keys; persistent/runtime separation;
 exact-revision release; additive compatibility; DD/MM/YYYY; implemented is not

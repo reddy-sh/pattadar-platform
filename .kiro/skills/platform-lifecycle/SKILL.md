@@ -29,7 +29,11 @@ Not this skill: row/object reconciliation after a restore (safe-data-migration).
    apex/www/api records), pauses the daily inactivity-check escalation
    (`modules/runtime/scheduler.tf`), and parks documents in DEEP_ARCHIVE (thaw
    ~12 h Standard / ~48 h Bulk, 180-day minimum charge). Dev parks in GLACIER_IR
-   (no thaw) and runs without CDN (`dev.auto.tfvars`).
+   (no thaw) and has no SPA distribution (`dev.auto.tfvars`), but it still gets
+   the api distribution. The runtime is one ECS host behind CloudFront VPC
+   origins (`docs/specs/2026-10-26-one-server-runtime.md`). Each VPC origin
+   adds up to ~15 minutes to an up, and their deletion adds ~15-30 minutes to a
+   down.
 3. STOP and escalate to Reddy (no rerun, no hand fix) when:
    - any of the five out-of-band SSM SecureStrings `/pattadar/<env>/*` is
      missing. Up exits at step 3 on every rerun. They live outside Terraform, so
@@ -38,7 +42,7 @@ Not this skill: row/object reconciliation after a restore (safe-data-migration).
      master-user `ALTER ROLE`), so never apply the remedy the script prints
      without approval.
    - prod down while the SPA bucket holds objects and `force_destroy`
-     (`modules/runtime/cloudfront.tf:18`) has not reached state through a full
+     (`modules/runtime/cloudfront.tf:19`) has not reached state through a full
      up apply. After a partial down, step 2 skips its apply, so destroy fails,
      parking never runs and every rerun fails the same way.
    - the approved `terraform plan` of both roots, run with the `TF_VAR_*` the
@@ -46,13 +50,15 @@ Not this skill: row/object reconciliation after a restore (safe-data-migration).
      down), shows any persistent change or an unexpected runtime
      create/replace. The scripts `-auto-approve`, so this plan is the only
      preview; route changes to infrastructure-change.
-4. Smoke checks fail as written: `/health` reaches the ALB default action (the
-   dormant web target group) and an anonymous `/api/gateway/pattadar/health` is
-   rejected 401 by the gateway proxy. Judge health by the gateway and api
-   target-group health and check pending SNS confirmations separately (approved
-   AWS reads); never rerun on a smoke `FAIL` alone.
+4. Smoke checks run through CloudFront: the gateway answers 401, the cron
+   without a header answers 403, `/graphql` answers 404, prod `pattadar.com`
+   `/api` answers 401, and ECS running equals desired. Status `000` usually
+   means DNS, for example a resolver still negatively caching after a long
+   down. Once WAF is on, a WAF 403 on the cron looks like a pass. Judge health
+   by `describe-services` and container `healthStatus` (approved AWS reads),
+   and never rerun on a smoke `FAIL` alone.
 5. After an up, services run the mutable `*_image_tag` images, not the last
-   release (`modules/runtime/ecs.tf:370-377`), and the prod SPA bucket is
+   release (`modules/runtime/ecs.tf:229,315,466`), and the prod SPA bucket is
    empty. Hand off to release-readiness to re-pin the last released SHA
    (separately approved) before calling the environment restored.
 6. Outside the STOP cases, recover an interrupted run by rerunning the same

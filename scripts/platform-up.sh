@@ -8,8 +8,8 @@
 #      are never read)
 #   4. apply the runtime layer
 #   5. warn if parked documents need thawing (docs/runbooks/s3-thaw.md)
-#   6. smoke-check gateway + api through the ALB, remind about pending SNS
-#      subscription confirmations
+#   6. smoke-check gateway + api through CloudFront and the ECS service
+#      counts, remind about pending SNS subscription confirmations
 #
 # Companion: scripts/platform-down.sh. Details: docs/runbooks/up-down.md.
 
@@ -22,6 +22,9 @@ Usage: scripts/platform-up.sh <dev|prod>
 Brings the given environment up: applies infra/terraform/envs/<env>/persistent
 then infra/terraform/envs/<env>/runtime, restoring RDS from the latest parked
 final snapshot when one exists.
+
+prod also requires SHARED_HOST_SECURITY_SIGNOFF=<review id/date>: Reddy's
+pattadar-security-review sign-off for the one shared ECS host.
 
 Requires: aws (authenticated), terraform >= 1.10, jq, curl.
 EOF
@@ -36,6 +39,22 @@ if [[ $# -ne 1 || ! "${1}" =~ ^(dev|prod)$ ]]; then
   exit 1
 fi
 ENV="$1"
+
+# Decision 1 (Reddy, 26/10/2026): gateway, api and assistant share one host
+# and kernel, accepted for PRE-LAUNCH only. Step 2 restores the latest prod
+# snapshot, which can hold real Aadhaar rows, so prod comes up only with
+# Reddy's pattadar-security-review sign-off named. The launch trigger is
+# GuardDuty Runtime Monitoring for EC2 (modules/persistent/guardduty.tf) or
+# the revert to Fargate. Dev proofs run on synthetic data only.
+if [[ "$ENV" == "prod" && -z "${SHARED_HOST_SECURITY_SIGNOFF:-}" ]]; then
+  cat >&2 <<'EOF'
+ERROR: prod runs on one shared ECS host, accepted for pre-launch only.
+Before real Aadhaar data reaches it, Reddy signs off pattadar-security-review
+for the shared host. Set SHARED_HOST_SECURITY_SIGNOFF=<review id/date> to
+record that sign-off. Nothing was changed.
+EOF
+  exit 1
+fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PERSISTENT_DIR="${REPO_ROOT}/infra/terraform/envs/${ENV}/persistent"
@@ -78,7 +97,7 @@ fi
 # missing one would otherwise surface as a failed apply or crash-looping tasks
 # with no explanation. SSM rejects an empty value, so existing means non-empty.
 # They must be under the persistent CMK: the aws/ssm default key lets any
-# principal in the account decrypt through SSM.
+# principal in the account decrypt through SSM, including the instance role.
 ssm_prefix="/pattadar/${ENV}"
 ssm_names=()
 for name in db-app-password cron-secret anthropic-api-key \
@@ -134,7 +153,7 @@ EOF
 fi
 
 # --- 4. Runtime layer --------------------------------------------------------
-log "Applying runtime layer (${ENV})"
+log "Applying runtime layer (${ENV}) — each CloudFront VPC origin takes up to ~15 minutes"
 terraform -chdir="$RUNTIME_DIR" init -input=false
 terraform -chdir="$RUNTIME_DIR" apply -input=false -auto-approve
 
@@ -159,27 +178,73 @@ else
 fi
 
 # --- 6. Post-up smoke --------------------------------------------------------
-log "Smoke-checking gateway + api via the ALB"
-alb_dns="$(terraform -chdir="$RUNTIME_DIR" output -raw alb_dns_name)"
-for path in "/health" "/api/gateway/pattadar/health"; do
-  ok=""
+log "Smoke-checking gateway + api through CloudFront"
+api_domain="$(terraform -chdir="$RUNTIME_DIR" output -raw api_domain)"
+cluster="$(terraform -chdir="$RUNTIME_DIR" output -raw ecs_cluster_name)"
+# Assigned first: a failure inside <<<"$(...)" would not stop the script.
+service_list="$(terraform -chdir="$RUNTIME_DIR" output -json ecs_service_names | jq -r 'join(" ")')"
+read -r -a services <<<"$service_list"
+
+got=""
+reply=""
+status_is() {  # status_is <code> <curl args...>
+  local want="$1" out
+  shift
+  out="$(curl -s --max-time 15 -w '\n%{http_code}' "$@" || true)"
+  got="$(tail -n 1 <<<"$out")"
+  reply="$(sed '$d' <<<"$out")"
+  [[ "$got" == "$want" ]]
+}
+replies() {  # replies <code> <jq test on the body> <curl args...>
+  local want="$1" test="$2"
+  shift 2
+  status_is "$want" "$@" && jq -e "$test" >/dev/null 2>&1 <<<"$reply"
+}
+services_running() {
+  aws ecs describe-services --cluster "$cluster" --services "${services[@]}" --output json |
+    jq -e --argjson n "${#services[@]}" \
+      '(.services | length) == $n and all(.services[]; .desiredCount > 0 and .runningCount == .desiredCount)' >/dev/null
+}
+# Retries for up to 5 minutes: a fresh host is still pulling images and the
+# api runs its boot-time backfills.
+poll() {  # poll <label> <check> [args...]
+  local label="$1" _
+  shift
+  got=""
   for _ in $(seq 1 30); do
-    code="$(curl -sk --max-time 15 -o /dev/null -w '%{http_code}' \
-      -H "Host: api.pattadar.com" "https://${alb_dns}${path}" || echo 000)"
-    if [[ "$code" == "200" ]]; then
-      ok=1
-      break
+    if "$@"; then
+      echo "OK   ${label}"
+      return 0
     fi
     sleep 10
   done
-  if [[ -n "$ok" ]]; then
-    echo "OK   ${path}"
-  else
-    echo "FAIL ${path} — did not become healthy within 5 minutes." >&2
-    echo "     Triage: aws logs tail /pattadar/${ENV}/gateway --since 15m (and .../api)" >&2
-    exit 1
-  fi
-done
+  echo "FAIL ${label} — not within 5 minutes${got:+ (last status ${got}; 000 = no connection, e.g. DNS)}." >&2
+  echo "     Triage: aws logs tail /pattadar/${ENV}/gateway --since 15m (and .../api, .../assistant)" >&2
+  exit 1
+}
+
+# Unauthenticated probes only: each answer comes from the layer named and
+# changes nothing (the cron rejects a missing x-cron-secret before any work).
+poll "anonymous https://${api_domain}/api/gateway/pattadar/health is 401 (gateway)" \
+  status_is 401 "https://${api_domain}/api/gateway/pattadar/health"
+# The one anonymous query the gateway forwards, a single SELECT: proves
+# CloudFront -> gateway -> api proxy secret -> 172.17.0.1:8081 -> api -> RDS.
+poll "anonymous invitePreview via https://${api_domain}/api/gateway/pattadar/graphql is 200 \"invalid\" (gateway -> api -> RDS)" \
+  replies 200 '.data.invitePreview.state == "invalid"' -H 'content-type: application/json' \
+  --data '{"query":"{ invitePreview(token: \"platform-up-smoke\") { state } }"}' \
+  "https://${api_domain}/api/gateway/pattadar/graphql"
+# Only the cron handler answers {"error":"forbidden"}; private_ingress's
+# "Forbidden" would mean the exemption no longer matches and every real cron
+# is refused.
+poll "POST https://${api_domain}/cron/inactivity-check without x-cron-secret is the cron handler's 403 (api, CRON_SECRET set)" \
+  replies 403 '. == {"error": "forbidden"}' --data '' "https://${api_domain}/cron/inactivity-check"
+poll "https://${api_domain}/graphql is 404 (edge default; api not exposed)" \
+  status_is 404 "https://${api_domain}/graphql"
+if [[ "$ENV" == "prod" ]]; then
+  poll "anonymous https://pattadar.com/api/gateway/pattadar/health is 401 (SPA /api/* -> gateway)" \
+    status_is 401 "https://pattadar.com/api/gateway/pattadar/health"
+fi
+poll "ECS ${services[*]}: runningCount == desiredCount" services_running
 
 pending_sns="$(aws sns list-subscriptions \
   --query "length(Subscriptions[?SubscriptionArn=='PendingConfirmation'])" \
@@ -187,7 +252,7 @@ pending_sns="$(aws sns list-subscriptions \
 if [[ "${pending_sns:-0}" != "0" ]]; then
   echo "" >&2
   echo "FAIL: ${pending_sns} SNS subscription(s) are still PendingConfirmation." >&2
-  echo "      Every alarm — RDS storage, the inactivity cron, healthy-host counts —" >&2
+  echo "      Every alarm — RDS storage, the inactivity cron, no running task —" >&2
   echo "      fires into the void until someone clicks 'Confirm subscription'." >&2
   echo "      The platform is up; confirm the subscription, then re-run to verify." >&2
   echo "      (ALLOW_PENDING_ALARMS=1 skips this check.)" >&2

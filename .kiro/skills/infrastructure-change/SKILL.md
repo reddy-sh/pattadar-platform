@@ -25,7 +25,7 @@ wait for Reddy's architecture and budget approval (`reddy-governance`).
    `ci.yml` terraform-validate matrix (currently five), remote-state contracts,
    resource ownership, region/provider alias, and current consumers of
    outputs/secrets.
-2. Trace trust and traffic paths (CloudFront/ALB listeners/SGs/tasks/RDS/S3),
+2. Trace trust and traffic paths (CloudFront behaviours/VPC origins/host SG/tasks/RDS/S3),
    failure/rollback behavior, cost/availability implications, and deployment
    compatibility while old/new tasks coexist.
 3. Keep persistent resources stable unless migration evidence exists. Prefer

@@ -36,7 +36,7 @@ variable "web_domain" {
 }
 
 variable "api_domain" {
-  description = "Hostname of the ALB (direct API + cron target). Dev in the shared zone should override, e.g. api-dev.pattadar.com."
+  description = "Public API name on the api CloudFront distribution (iOS/Expo API + cron target). Dev in the shared zone should override, e.g. api-dev.pattadar.com."
   type        = string
   default     = "api.pattadar.com"
 }
@@ -57,14 +57,20 @@ variable "vpc_cidr" {
 
 # --- ECS ---
 
+variable "instance_type" {
+  description = "ECS host instance type (arm64). t4g.medium holds the three 1 GiB tasks; t4g.small cannot."
+  type        = string
+  default     = "t4g.medium"
+}
+
 variable "task_cpu" {
-  description = "Fargate task CPU units per service."
+  description = "Per-task CPU units on the shared ECS host (a hard cgroup limit; three tasks must fit the instance)."
   type        = number
   default     = 512
 }
 
 variable "task_memory" {
-  description = "Fargate task memory (MiB) per service."
+  description = "Per-task hard memory limit (MiB) on the shared ECS host, so one service's OOM cannot take the others down."
   type        = number
   default     = 1024
 }
@@ -76,7 +82,7 @@ variable "desired_count" {
 }
 
 variable "web_desired_count" {
-  description = "Task count for the web service only. Stays 0 until the D4 cutover pushes a web image — the repo exists but is empty, so launching earlier crash-loops on CannotPullContainerError."
+  description = "UNUSED: the web ECS service was removed with the ALB (Reddy, 26/10/2026); kept until the web_* cleanup."
   type        = number
   default     = 0
 }
@@ -146,7 +152,7 @@ variable "restore_snapshot_identifier" {
 # --- Scheduler ---
 
 variable "api_base_url" {
-  description = "Base URL the inactivity-check cron POSTs to. Must resolve to the ALB (api record in the persistent zone)."
+  description = "Base URL the inactivity-check cron POSTs to. Must resolve to the api CloudFront distribution (api record in the persistent zone)."
   type        = string
   default     = "https://api.pattadar.com"
 }
@@ -168,7 +174,7 @@ variable "alert_email" {
 # --- CloudFront / WAF ---
 
 variable "enable_cdn" {
-  description = "Create the SPA bucket + CloudFront distribution + apex/www records. Prod true; dev false (dev serves the SPA locally and talks straight to the ALB)."
+  description = "Create the SPA bucket + CloudFront distribution + apex/www records. Prod true; dev false (dev serves the SPA locally and talks to the api distribution)."
   type        = bool
   default     = true
 }
@@ -187,13 +193,14 @@ variable "waf_block_mode" {
 
 variable "cloudfront_origin_read_timeout" {
   description = <<-EOT
-    CloudFront origin response timeout (seconds) for the /api/* behavior.
-    Document readings use durable asynchronous jobs and short status polls.
-    Keep this budget for ordinary API responses; do not route new synchronous
-    long-running extraction calls through this behavior.
+    CloudFront origin response timeout (seconds) for the VPC origins on the
+    ECS host. 120 now; 180 after the "Response timeout per origin" quota
+    request. With the ALB gone this bounds the older synchronous readings
+    (iOS passbook, Expo passbook/deed) against the model's 170 s budget, so
+    raising it is a cutover gate; new long work uses durable async jobs.
   EOT
   type        = number
-  default     = 60
+  default     = 120
 }
 
 variable "assistant_image_tag" {
@@ -203,7 +210,7 @@ variable "assistant_image_tag" {
 }
 
 variable "web_image_tag" {
-  description = "Image tag for the web (Next.js) service. Not deployed until the web-migration cutover (D4)."
+  description = "UNUSED: the web ECS task definition was removed with the ALB (Reddy, 26/10/2026); kept until the web_* cleanup."
   type        = string
   default     = "latest"
 }
@@ -215,9 +222,8 @@ variable "web_origin" {
     Which origin CloudFront's DEFAULT behavior serves the site from:
       "spa" — the static Vite SPA in the S3 bucket (current live posture).
       "ecs" — the Next.js app on the web ECS service, via the ALB origin.
-    The flip to "ecs" is the founder-gated cutover (D4); everything else here
-    is staged so the switch is a single-variable change. The S3 SPA bucket +
-    OAC stay intact in either mode for instant rollback.
+    Must stay "spa": the web service and the ALB were removed (Reddy,
+    26/10/2026), so "ecs" has nothing behind it.
   EOT
   type        = string
   default     = "spa"

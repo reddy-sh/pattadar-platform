@@ -19,13 +19,13 @@ variable "route53_zone_id" {
 }
 
 variable "api_domain" {
-  description = "ALB hostname."
+  description = "Public API name on the api CloudFront distribution (iOS/Expo API + cron)."
   type        = string
   default     = "api.pattadar.com"
 }
 
 variable "api_base_url" {
-  description = "Base URL for the inactivity-check cron target."
+  description = "Base URL for the inactivity-check cron target; must resolve to the api CloudFront distribution."
   type        = string
   default     = "https://api.pattadar.com"
 }
@@ -48,8 +48,14 @@ variable "desired_count" {
   default     = 1
 }
 
+variable "instance_type" {
+  description = "ECS host instance type (arm64); t4g.medium holds the three 1 GiB tasks."
+  type        = string
+  default     = "t4g.medium"
+}
+
 variable "web_desired_count" {
-  description = "Web service task count; 0 until the D4 cutover ships a web image."
+  description = "UNUSED: the web ECS service was removed (Reddy, 26/10/2026); kept until the web_* cleanup."
   type        = number
   default     = 0
 }
@@ -103,9 +109,9 @@ variable "waf_block_mode" {
 }
 
 variable "cloudfront_origin_read_timeout" {
-  description = "CloudFront /api/* origin response timeout. Default quota caps it at 60s. Extraction no longer needs headroom here (it is a durable job); this bounds large uploads — see infra/terraform/README.md."
+  description = "Origin response timeout for the VPC origins on the ECS host. 120 now; 180 after the CloudFront \"Response timeout per origin\" quota request. It bounds the older synchronous readings (iOS passbook) now that the ALB's 200 s is gone — see infra/terraform/README.md."
   type        = number
-  default     = 60
+  default     = 120
 }
 
 variable "assistant_image_tag" {
@@ -115,13 +121,13 @@ variable "assistant_image_tag" {
 }
 
 variable "web_image_tag" {
-  description = "Image tag for the web (Next.js) service — deployed at the cutover (D4)."
+  description = "UNUSED: the web ECS task definition was removed (Reddy, 26/10/2026); kept until the web_* cleanup."
   type        = string
   default     = "latest"
 }
 
 variable "web_origin" {
-  description = "CloudFront default-behavior origin: \"spa\" (S3 SPA, current) or \"ecs\" (Next.js via ALB). The flip to \"ecs\" is the founder-gated cutover (D4) — leave at spa here."
+  description = "CloudFront default-behavior origin. Must stay \"spa\" (S3 SPA): the web service and ALB behind \"ecs\" were removed."
   type        = string
   default     = "spa"
 }

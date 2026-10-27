@@ -5,14 +5,15 @@
 #
 # Resource files:
 #   vpc.tf             — 2-AZ public-subnet VPC, IGW (NO NAT — see cost note)
-#   security_groups.tf — alb / gateway / api / rds tiering
-#   alb.tf             — ALB (idle_timeout 200), api.<domain> ACM cert, listeners
-#   ecs.tf             — cluster + gateway/api/assistant/web Fargate services, IAM roles
+#   security_groups.tf — rds admits the ECS host only
+#   ec2.tf             — the one ECS host (t4g, bridge mode), its role, SG, patching, host probe
+#   api_edge.tf        — api.<domain> CloudFront distribution + VPC origins to the host
+#   ecs.tf             — cluster + gateway/api/assistant EC2-launch services, IAM roles
 #   rds.tf             — PostgreSQL 17 (app password is the db-app-password SSM parameter)
-#   scheduler.tf       — daily /cron/inactivity-check (EventBridge Scheduler)
+#   scheduler.tf       — daily /cron/inactivity-check (EventBridge rule -> API destination)
 #   observability.tf   — log groups, SNS alarms topic + email, CloudWatch alarms
 #   cloudfront.tf      — SPA bucket + OAC, distribution, us-east-1 cert, WAF
-#   route53.tf         — apex/www -> CloudFront, api -> ALB (persistent zone)
+#   route53.tf         — apex/www -> SPA distribution, api -> api distribution (persistent zone)
 
 data "aws_caller_identity" "current" {}
 
@@ -38,14 +39,9 @@ data "terraform_remote_state" "persistent" {
 locals {
   prefix = "${var.app_name}-${var.environment}"
 
-  services = toset(["gateway", "api", "assistant", "web"])
+  services = toset(["gateway", "api", "assistant"])
 
   persistent = data.terraform_remote_state.persistent.outputs
-
-  # The web ECR repo lands with the D4 web-migration cutover; until an env's
-  # persistent layer has it, the web task definition/service must not even
-  # EVALUATE (the repo-URL index would fail every plan and destroy).
-  web_enabled = contains(keys(local.persistent.ecr_repository_urls), "web")
 
   # App secrets live in SSM SecureStrings under the persistent CMK, created
   # out of band (`aws ssm put-parameter`) so their values never enter state and
@@ -54,6 +50,8 @@ locals {
     for name in ["db-app-password", "cron-secret", "anthropic-api-key", "internal-proxy-secret-api", "internal-proxy-secret-assistant"] :
     name => "arn:aws:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter/${var.app_name}/${var.environment}/${name}"
   }
+
+  host_metric_namespace = "Pattadar/Host/${var.environment}"
 
   # The persistent zone id is null when this env's persistent layer runs with
   # manage_dns = false (shared-account dev). In that case pass the owning
