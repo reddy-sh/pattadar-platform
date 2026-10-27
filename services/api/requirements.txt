@@ -1,4 +1,4 @@
-fastapi==0.126.0
+fastapi==0.141.1
 starlette==0.50.0
 # Plain uvicorn, not uvicorn[standard]: that extra adds watchfiles (--reload,
 # see requirements-dev.txt), PyYAML (YAML log config), python-dotenv
