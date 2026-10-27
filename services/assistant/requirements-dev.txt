@@ -1,0 +1,3 @@
+# Test-only; never installed in the runtime image (CI and the Dockerfile `test` target add it on top).
+-r requirements.txt
+pytest==9.1.1

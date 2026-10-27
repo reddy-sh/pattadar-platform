@@ -1,8 +1,15 @@
-.env
-.env.*
-!.env.example
-.venv
-__pycache__
-*.pyc
-.pytest_cache
-tests
+# Allowlist: the build context is only what the Dockerfile copies
+# (tests/ is copied by the `test` target alone, never the runtime image).
+*
+!requirements.txt
+!requirements-dev.txt
+!data/
+!scripts/
+!src/
+!tests/
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.env
+**/.env.*
+**/.DS_Store

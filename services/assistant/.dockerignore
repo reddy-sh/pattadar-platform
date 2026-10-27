@@ -1,3 +1,12 @@
-__pycache__/
-*.pyc
-.env
+# Allowlist: the context holds only what the Dockerfile copies (tests feed the `test` target only).
+# Everything else (.env*, README, scripts/, caches, editor files) never reaches the daemon.
+*
+!requirements.txt
+!requirements-semantic.txt
+!requirements-dev.txt
+!src/
+!tests/
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.DS_Store

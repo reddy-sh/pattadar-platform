@@ -75,11 +75,11 @@ jobs:
           echo "$(pg_config --bindir)" >> "$GITHUB_PATH"
       - run: |
           python -m venv .local/api-venv
-          .local/api-venv/bin/pip install -r services/api/requirements.txt pytest
+          .local/api-venv/bin/pip install -r services/api/requirements.txt -r services/api/requirements-dev.txt
           python -m venv .local/gateway-venv
-          .local/gateway-venv/bin/pip install -r services/gateway/requirements.txt pytest
+          .local/gateway-venv/bin/pip install -r services/gateway/requirements.txt -r services/gateway/requirements-dev.txt
           python -m venv .local/assistant-venv
-          .local/assistant-venv/bin/pip install -r services/assistant/requirements.txt pytest
+          .local/assistant-venv/bin/pip install -r services/assistant/requirements.txt -r services/assistant/requirements-dev.txt
       - name: Initialize disposable test database
         run: .local/api-venv/bin/python scripts/init-test-db.py
       - run: .local/api-venv/bin/python -m pytest services/api/tests -q
