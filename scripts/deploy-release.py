@@ -11,8 +11,21 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 import uuid
+
+# Injectable for tests.
+sleep=time.sleep
+def utcnow(): return datetime.now(timezone.utc)
+
+# The daily inactivity cron calls the api at 06:00 UTC (scheduler.tf); no api
+# restart starts inside this window (UTC minutes of the day).
+CRON_HOLD=(5*60+50,6*60+10)
+HEALTH_ATTEMPTS,HEALTH_DELAY=30,10
+# Each name must come from its own target's SSM parameter, never plain env:
+# the assistant must never hold the api's secret (ARCH-01(1)).
+PROXY_SECRETS={'api':{'INTERNAL_PROXY_SECRET':'api'},'assistant':{'INTERNAL_PROXY_SECRET':'assistant'},'gateway':{'INTERNAL_PROXY_SECRET_API':'api','INTERNAL_PROXY_SECRET_ASSISTANT':'assistant'}}
 
 
 def aws(*args):
@@ -91,6 +104,33 @@ def definition(current,service,image,identity_env=None):
     return result
 
 
+def release_gates(body,service):
+    """Nothing copied into a release may switch off the api's fail-closed ingress,
+    the assistant's proxy check or the containers' isolation."""
+    if any(body.get(mode)=='host' for mode in ('networkMode','pidMode','ipcMode')):
+        raise ValueError('A production release must not share the host network, PID or IPC namespace')
+    if any(volume.get('host',{}).get('sourcePath') for volume in body.get('volumes',[])):
+        raise ValueError('A production release must not mount a host path')
+    for container in body['containerDefinitions']:
+        env={item['name']:str(item.get('value','')) for item in container.get('environment',[])}
+        names=set(env)|{item['name'] for item in container.get('secrets',[])}
+        if names&{'ALLOW_INSECURE_LOCAL','LOCAL_AUTH_KEY_FILE'}:
+            raise ValueError('A production release must not set ALLOW_INSECURE_LOCAL or LOCAL_AUTH_KEY_FILE')
+        # The api's private_ingress wrapper exists only in its image CMD.
+        if container.get('command') or container.get('entryPoint'):
+            raise ValueError('A production release must not override the image command')
+        if container.get('privileged'):
+            raise ValueError('A production release must not run a privileged container')
+        # Both Dockerfile CMDs expand these unquoted inside sh -c.
+        if any(not env[name].isdigit() for name in ('UVICORN_WORKERS','UVICORN_TIMEOUT_KEEP_ALIVE') if name in env):
+            raise ValueError('UVICORN_WORKERS and UVICORN_TIMEOUT_KEEP_ALIVE must be plain numbers')
+        if container['name']==service:
+            sources={item['name']:item.get('valueFrom','') for item in container.get('secrets',[])}
+            for name,target in PROXY_SECRETS.get(service,{}).items():
+                if name in env or not sources.get(name,'').endswith('/internal-proxy-secret-'+target):
+                    raise ValueError('Apply the internal proxy secrets for '+service+' from SSM before release')
+
+
 def simulate(role,actions,resource):
     response=aws('iam','simulate-principal-policy','--policy-source-arn',role,'--action-names',*actions,'--resource-arns',resource)
     decisions={row['EvalActionName']:row['EvalDecision'] for row in response.get('EvaluationResults',[])}
@@ -159,6 +199,7 @@ def plan(args,proof):
         if not Path('apps/web/dist/index.html').is_file() or Path('apps/web/dist/.release-sha').read_text().strip()!=args.sha:
             raise ValueError('Web bundle must be built and stamped with this exact release SHA')
     repos=json.loads(args.repositories.read_text())
+    templates=json.loads(args.templates.read_text()) if args.templates else None
     services=['api','assistant','gateway']+(['web'] if args.web_origin=='ecs' else [])
     planned,originals,images,rollback_defs={},{},{},{}
     for service in services:
@@ -178,7 +219,14 @@ def plan(args,proof):
         if len(details)!=1 or not re.fullmatch(r'sha256:[0-9a-f]{64}',details[0].get('imageDigest','')):
             raise ValueError('Missing immutable image digest for '+service)
         images[service]=repo+'@'+details[0]['imageDigest']
+        # The Terraform revision is only the base for the next one, so its
+        # memory, ports, env and secrets ship; rollback stays on what runs.
+        if templates is not None:
+            if service not in templates:
+                raise ValueError('No Terraform template revision for '+service)
+            task=aws('ecs','describe-task-definition','--task-definition',templates[service])['taskDefinition']
         planned[service]=definition(task,service,images[service],identity_env)
+        release_gates(planned[service],service)
     attachments=proof['attachments']
     if attachments.get('storage')!='s3':
         raise ValueError('Production release requires durable S3 attachment migration')
@@ -187,6 +235,15 @@ def plan(args,proof):
     rollback=aws('ecs','describe-task-definition','--task-definition',rollback_arn)['taskDefinition']
     if rollback.get('taskDefinitionArn')!=rollback_arn or rollback.get('status')!='ACTIVE':
         raise ValueError('Assistant durable rollback task is not active')
+    if rollback.get('networkMode')!=planned['assistant'].get('networkMode') or set(rollback.get('requiresCompatibilities',[]))!=set(planned['assistant'].get('requiresCompatibilities',[])):
+        raise ValueError('Assistant rollback task has a different launch shape; regenerate the release preflight')
+    # Other ports leave the assistant unreachable where the gateway calls it,
+    # and without a health check the rollback could never report HEALTHY.
+    old,new=(next(c for c in body['containerDefinitions'] if c['name']=='assistant') for body in (rollback,planned['assistant']))
+    ports=lambda container: {(p.get('containerPort'),p.get('hostPort'),p.get('protocol','tcp')) for p in container.get('portMappings',[])}
+    if ports(old)!=ports(new) or not old.get('healthCheck'):
+        raise ValueError('Assistant rollback task has different ports or no health check; regenerate the release preflight')
+    release_gates(rollback,'assistant')
     durable_runtime(rollback,attachments.get('bucket'))
     rollback_image=next(c for c in rollback['containerDefinitions'] if c['name']=='assistant')['image']
     if not re.search(r'@sha256:[0-9a-f]{64}$',rollback_image):
@@ -200,6 +257,26 @@ def healthy(args,service,arn):
     live=aws('ecs','describe-services','--cluster',args.cluster,'--services',service)['services'][0]
     if live['taskDefinition']!=arn or live['runningCount']<1 or live.get('pendingCount',0):
         raise RuntimeError(service+' did not become healthy on the requested revision')
+    # services-stable can pass while the container health check is still
+    # UNKNOWN or failing (no load balancer checks the assistant at all).
+    for attempt in range(HEALTH_ATTEMPTS):
+        arns=aws('ecs','list-tasks','--cluster',args.cluster,'--service-name',service,'--desired-status','RUNNING').get('taskArns',[])
+        tasks=aws('ecs','describe-tasks','--cluster',args.cluster,'--tasks',*arns) if arns else {}
+        if tasks.get('tasks') and not tasks.get('failures') and all(t.get('taskDefinitionArn')==arn and t.get('healthStatus')=='HEALTHY' for t in tasks['tasks']):
+            return
+        if attempt<HEALTH_ATTEMPTS-1:
+            sleep(HEALTH_DELAY)
+    raise RuntimeError(service+' tasks did not all report HEALTHY on the requested revision')
+
+
+def cron_hold():
+    while True:
+        now=utcnow()
+        minute=now.hour*60+now.minute
+        if not CRON_HOLD[0]<=minute<CRON_HOLD[1]:
+            return
+        print('Holding the api update until 06:10 UTC: the daily cron calls the api at 06:00.',flush=True)
+        sleep((CRON_HOLD[1]-minute)*60-now.second)
 
 
 def invalidate(args):
@@ -229,6 +306,10 @@ def execute(args,planned,originals,images,rollback_defs=None):
                 path.write_text(json.dumps(body))
                 arn=aws('ecs','register-task-definition','--cli-input-json','file://'+str(path))['taskDefinition']['taskDefinitionArn']
             receipt['next'][service]=arn
+            # The cron reaches only the api (the ALB's exact-path rule), so only the
+            # api waits; restarting the gateway or assistant at 06:00 is harmless.
+            if service=='api':
+                cron_hold()
             changed.append(service)
             aws('ecs','update-service','--cluster',args.cluster,'--service',service,'--task-definition',arn)
             healthy(args,service,arn)
@@ -242,6 +323,7 @@ def execute(args,planned,originals,images,rollback_defs=None):
         receipt['status']='deployed'
     except Exception:
         receipt['status']='rolled-back'
+        # No cron hold here: restoring a failed release outranks one cron run.
         for service in reversed(changed):
             try:
                 aws('ecs','update-service','--cluster',args.cluster,'--service',service,'--task-definition',originals[service])
@@ -269,6 +351,7 @@ def main():
     parser.add_argument('--web-origin',choices=['spa','ecs'],default='spa')
     parser.add_argument('--spa-bucket',required=True)
     parser.add_argument('--distribution',required=True)
+    parser.add_argument('--templates',type=Path,help='JSON map of service to Terraform template task-definition ARN')
     parser.add_argument('--execute',action='store_true')
     args=parser.parse_args()
     if not re.fullmatch(r'[0-9a-f]{40}',args.sha):

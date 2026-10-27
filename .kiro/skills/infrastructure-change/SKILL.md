@@ -5,7 +5,7 @@ compatibility: Requires infra/terraform and CI. Static source edits are allowed 
 metadata:
   project: pattadar-platform
   standard: agentskills.io
-  verified: "2026-10-09"
+  verified: "2026-10-26"
 ---
 
 # Infrastructure Change

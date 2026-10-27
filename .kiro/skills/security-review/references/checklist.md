@@ -16,9 +16,15 @@ diff actually touches.
       `x-internal-proxy-secret` (`_IDENTITY_HEADERS` in
       `services/gateway/src/main.py`) before injecting the Cognito-derived
       value; a new identity header is added there.
-- [ ] `INTERNAL_PROXY_SECRET`, the second lock on api `/internal/` routes and
-      the assistant, fails open when unset and nothing in `infra/` sets it
-      today: flag it for any deployed environment.
+- [ ] Proxy secrets: the api container
+      (`services/api/src/private_ingress.py`) fails closed and refuses to
+      start without `INTERNAL_PROXY_SECRET`. The assistant check still fails
+      open when unset. The gateway must send the api only
+      `INTERNAL_PROXY_SECRET_API` and the assistant only
+      `INTERNAL_PROXY_SECRET_ASSISTANT` (no assistant fallback to the legacy
+      variable). `ecs.tf` injects them from SSM, and `deploy-release.py`
+      refuses a release without them. Flag any path that disables these,
+      merges the two values, or adds an exempt path.
 - [ ] Local-only switches (`ALLOW_INSECURE_LOCAL`, `LOCAL_AUTH_KEY_FILE`) never
       reach image builds or task definitions.
 - [ ] Cognito access-token validation is intact: issuer check,

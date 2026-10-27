@@ -5,7 +5,7 @@ compatibility: Requires pattadar-platform repository context and its SECURITY.md
 metadata:
   project: pattadar-platform
   standard: agentskills.io
-  verified: "2026-10-09"
+  verified: "2026-10-26"
 ---
 
 # Security Review
@@ -41,7 +41,10 @@ For a pattadar-platform diff touching these areas, prefer it over generic or thi
 - `services/api` and `services/assistant` trust gateway-injected `x-user-id`
   and must be reachable only through the gateway (one declared exception: the
   ALB `cron_to_api` exact-path rule for `/cron/inactivity-check`, guarded by
-  `CRON_SECRET`). The gateway strips client-supplied identity headers and
+  `CRON_SECRET`). The api requires the gateway-only `INTERNAL_PROXY_SECRET` on
+  every path but `/health` and that cron path
+  (`services/api/src/private_ingress.py`, Reddy 26/10/2026).
+  The gateway strips client-supplied identity headers and
   `x-internal-proxy-secret` before injecting the Cognito-derived principal.
 - S3 document storage and share/verification routes handle the most sensitive
   data and require server-side owner/scope checks.

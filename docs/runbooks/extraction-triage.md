@@ -14,7 +14,7 @@ then let the *user* re-submit once the cause is fixed.
 ## 1. CloudWatch api logs (the exact exception is logged)
 
 ```sh
-aws logs tail /ecs/pattadar-<env>/api --since 30m --follow \
+aws logs tail /pattadar/<env>/api --since 30m --follow \
   --filter-pattern "?extract ?import ?anthropic ?error"
 ```
 

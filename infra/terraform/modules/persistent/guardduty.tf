@@ -12,6 +12,23 @@ resource "aws_guardduty_detector" "main" {
   tags   = local.tags
 }
 
+# Pinned so features stop following AWS's unmanaged defaults (Reddy,
+# 25/10/2026). RDS login monitoring is off pre-launch: the DB is private,
+# reachable only from the ECS task SGs (~$2.38/month); turn it on at launch.
+# S3 Protection stays on for the documents bucket. The Malware Protection plan
+# below does not depend on any of these.
+resource "aws_guardduty_detector_feature" "pinned" {
+  for_each = { for name, status in {
+    S3_DATA_EVENTS     = "ENABLED"
+    RDS_LOGIN_EVENTS   = "DISABLED"
+    RUNTIME_MONITORING = "DISABLED"
+  } : name => status if var.manage_org_security }
+
+  detector_id = aws_guardduty_detector.main[0].id
+  name        = each.key
+  status      = each.value
+}
+
 # --- IAM role GuardDuty assumes to scan + tag documents ---------------------
 
 data "aws_iam_policy_document" "guardduty_malware_assume" {

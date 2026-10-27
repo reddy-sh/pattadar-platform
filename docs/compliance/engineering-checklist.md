@@ -1,17 +1,17 @@
 # Privacy & Security Engineering Checklist
 
-Concrete work items tied to this codebase. Phase tags are historical planning labels. A checked implementation item is not evidence of production deployment or a legal compliance determination. Updated 12 September 2026.
+Concrete work items tied to this codebase. Phase tags are historical planning labels. A checked implementation item is not evidence of production deployment or a legal compliance determination. Updated 26 October 2026.
 
 ## Done (in the ported code)
 
 - [x] Aadhaar repository controls — direct-KMS versioned field ciphertext, masked-only extraction responses/results, owner-scoped records with a separate ciphertext-only vault, one-use readings, reveal retired (`services/api/src/aadhaar.py`) *(retention change pending Reddy's compliance review)*. Deployment and the legacy clear remain open below.
 - [x] Token-based beneficiary/member verification — invite tokens, `verify/:token` landing, no manual status flips
-- [x] `CRON_SECRET` guard on `/cron/inactivity-check` (secret from AWS Secrets Manager, not k8s secret)
+- [x] `CRON_SECRET` guard on `/cron/inactivity-check` (secret from an out-of-band SSM SecureString `/pattadar/<env>/cron-secret` since 26/10/2026; earlier from Secrets Manager, never a k8s secret)
 - [x] Notification provider seam with stub default — email/WhatsApp/SMS env-gated, records to `notification_log`; no real sends without credentials
 
 ## Gateway / trust boundary
 
-- [x] [phase-1] **Strip inbound `x-user-id` at the gateway.** The api trusts this header unconditionally — the gateway must delete any client-supplied value before injecting the Cognito-derived one, and the api must never be exposed directly (security-group: ALB→gateway only, gateway→api only)
+- [x] [phase-1] **Strip inbound `x-user-id` at the gateway.** The api trusts this header unconditionally — the gateway must delete any client-supplied value before injecting the Cognito-derived one, and the api must never be exposed directly (security-group: ALB→gateway only, gateway→api only). Since 26/10/2026 the api container also refuses anything without the gateway's `INTERNAL_PROXY_SECRET` (`services/api/src/private_ingress.py`), with split api/assistant secrets
 - [x] [phase-1] Cognito access-token validation contract: issuer check, `token_use == "access"`, `client_id` allowlist (NOT `aud`), `email` claim required (added by the pre-token-generation trigger)
 - [x] New owners and admin grants use immutable issuer/subject identities; legacy accounts require an explicit reviewed alias mapping, with inventory/collision checks. [Migration runbook](../runbooks/identity-migration.md).
 - [ ] Apply and verify the approved production identity mapping before release.
@@ -20,6 +20,7 @@ Concrete work items tied to this codebase. Phase tags are historical planning la
 - [x] [phase-2] Review share-token routes (`verify/:token` and any document-share links) — unauthenticated **by design**; confirm tokens are single-purpose, unguessable, expiring, and leak nothing beyond their purpose
 - [x] Credential-less public write `registerNetworkInterest` (approved D1, 03/10/2026): single-root in both allowlists (gateway `public_graphql.py`, API `RequireAuthenticatedRoot`), honeypot, insert-once/no-revival, cool-down, global hourly ceiling before the per-contact lookup, no PII in logs, masked DB errors; guarded by `scripts/network-interest-tests.ts`. Implemented in code, not deployed.
 - [ ] Network interest: per-IP limiting (D2) and WAF/ALB-origin restriction (D3) — not in v1 by decision; revisit if the hourly ceiling trips
+- [ ] Launch gate: WAF is off pre-launch (Reddy, 25/10/2026; `enable_waf` defaults false in `infra/terraform/envs/prod/runtime` and `envs/prod/university`). Set it back to true on the app distribution before real users, add a rate-based rule on `/api/*`, and set GuardDuty RDS_LOGIN_EVENTS back to ENABLED (`modules/persistent/guardduty.tf`, off pre-launch since 25/10/2026). The direct `api.pattadar.com` → ALB path is not covered by the CloudFront WAF. Not applied
 
 ## Data protection
 

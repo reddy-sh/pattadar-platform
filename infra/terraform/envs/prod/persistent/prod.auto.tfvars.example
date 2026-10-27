@@ -5,3 +5,7 @@
 region                             = "ap-south-1"
 noncurrent_version_expiration_days = 180
 parking_storage_class              = "DEEP_ARCHIVE" # or GLACIER_IR for fast un-parking
+
+# Cost budget ($50/month) + anomaly alerts; empty creates neither. Put the real
+# address only in prod.auto.tfvars.
+budget_alert_emails = [] # e.g. ["you@example.com"]

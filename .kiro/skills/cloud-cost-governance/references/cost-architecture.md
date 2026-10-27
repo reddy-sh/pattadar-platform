@@ -8,7 +8,8 @@ not live billing.
 - `envs/<env>/persistent` survives parking; `envs/<env>/runtime` is created and
   destroyed by `scripts/platform-up.sh` / `scripts/platform-down.sh`.
 - `envs/prod/university` (no dev twin) is a standalone, always-on stack: its own
-  S3 bucket, CloudFront, WAF (us-east-1), ACM and Cognito client, reading prod
+  S3 bucket, CloudFront, optional WAF (us-east-1, `enable_waf`, off since
+  25/10/2026), ACM and Cognito client, reading prod
   persistent outputs; `deploy-university.yml` publishes its site (no Terraform).
   Up/down never touch it, so it is a separate cost line that keeps billing while
   prod is parked.
@@ -25,8 +26,9 @@ not live billing.
   must stay `spa` (`deploy.yml` passes `--web-origin spa`): `ecs` sends
   CloudFront's default behaviour to the ALB, whose default action is the empty
   web target group.
-- ALB bills while runtime exists even with zero tasks. Prod enables CloudFront/
-  WAF; dev tfvars disable them. Service log retention is 30 days in both env
+- ALB bills while runtime exists even with zero tasks. Prod enables CloudFront
+  (WAF off until launch, since 25/10/2026); dev tfvars disable both. Service log
+  retention is 30 days in both env
   roots (they override the module's 365 default; prod says revisit at launch).
   The RDS `postgresql` log export creates a log group Terraform does not manage
   (no retention in code, survives runtime destroy); include it in idle review.
@@ -40,12 +42,16 @@ not live billing.
 ## Persistent/parked
 
 KMS, documents/log/CloudTrail S3, ECR, Secrets Manager, Cognito, DNS/SES,
-CloudTrail/Config/GuardDuty, and OIDC survive runtime down. Documents move to
+CloudTrail/Config/GuardDuty, and OIDC survive runtime down, and so do the
+out-of-band SSM SecureStrings (standard tier, no charge). Six persistent
+Secrets Manager secrets cost about $2.40/month, four of them unused since
+26/10/2026; deleting those is a separate approved change. Documents move to
 STANDARD_IA after 90 days; noncurrent versions expire after 180 by default;
 parking defaults to Deep Archive (dev overrides Glacier IR). ECR keeps 10 images
 and access/audit logs expire after 400 days. Historical parked estimate
-(`docs/runbooks/up-down.md`) is $3–4/month in ap-south-1, excluding University;
-minimum-storage/restore/scan effects matter.
+(`docs/runbooks/up-down.md`) is about $5–6/month in ap-south-1 (about $4 after
+the Secrets Manager cleanup), excluding University; minimum-storage/restore/scan
+effects matter.
 
 Parking is not only a cost lever. Prod down takes pattadar.com, www and the API
 offline (runtime owns the SPA bucket, CloudFront and those DNS records), stops
@@ -69,13 +75,13 @@ no CDN. State these effects with any parking option.
 
 Traffic, WAF/S3 requests, logs, malware scans, Config, and Anthropic calls need
 usage data. Controls include no NAT, ARM64, disabled Container Insights, storage
-lifecycles, bucket keys, ECR retention, and singleton ownership.
+lifecycles, bucket keys, ECR retention, and singleton ownership. A $50 budget
+and an anomaly monitor exist in persistent code (`modules/persistent/budgets.tf`)
+but are not applied.
 
 ## Down/up guidance
 
 Authoritative: `scripts/platform-down.sh` (full apply, no `-target`),
 `scripts/platform-up.sh` and `docs/runbooks/up-down.md`. Stale, do not follow:
 the "targeted apply" comments on `deletion_protection` in
-`modules/runtime/rds.tf` and `modules/runtime/variables.tf`, and
-`infra/terraform/README.md`'s Down park order (the script destroys, then parks)
-and raw restore `terraform apply`.
+`modules/runtime/rds.tf` and `modules/runtime/variables.tf`.

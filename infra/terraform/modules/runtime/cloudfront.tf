@@ -13,7 +13,10 @@ resource "aws_s3_bucket" "spa" {
   count = var.enable_cdn ? 1 : 0
 
   bucket = "${local.prefix}-spa-${data.aws_caller_identity.current.account_id}"
-  tags   = local.tags
+  # Rebuilt by every Deploy; without this platform-down stops on a non-empty
+  # bucket and parking never runs (Reddy, 26/10/2026).
+  force_destroy = true
+  tags          = local.tags
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "spa" {

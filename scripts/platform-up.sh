@@ -4,7 +4,8 @@
 #   1. apply the persistent layer (idempotent, safe on every run)
 #   2. resolve the latest RDS final snapshot (pattadar-<env>-pg-final-*) and
 #      restore the runtime database from it when one exists
-#   3. fetch CRON_SECRET from Secrets Manager (never printed)
+#   3. check the five out-of-band SSM SecureStrings exist (names only; values
+#      are never read)
 #   4. apply the runtime layer
 #   5. warn if parked documents need thawing (docs/runbooks/s3-thaw.md)
 #   6. smoke-check gateway + api through the ALB, remind about pending SNS
@@ -70,51 +71,67 @@ else
   echo "No final snapshot found — RDS will be created fresh (api's init_db() bootstraps the schema)."
 fi
 
-# --- 3. CRON_SECRET (never echoed) ------------------------------------------
-log "Fetching CRON_SECRET from Secrets Manager (pattadar/${ENV}/cron-secret)"
-cron_secret="$(aws secretsmanager get-secret-value \
-  --secret-id "pattadar/${ENV}/cron-secret" \
-  --query SecretString --output text)"
-if [[ -z "$cron_secret" || "$cron_secret" == "None" ]]; then
-  echo "ERROR: secret pattadar/${ENV}/cron-secret is empty. Fill it first:" >&2
-  echo "  aws secretsmanager put-secret-value --secret-id pattadar/${ENV}/cron-secret --secret-string \"\$(openssl rand -hex 32)\"" >&2
-  exit 1
-fi
-unset cron_secret
-# (The runtime layer reads the secret VALUE itself via a Terraform data source —
-# the check above only guarantees it is non-empty before the apply.)
+# --- 3. App SSM SecureStrings (existence only, values never read) -----------
+# The tasks take PG_PASSWORD, CRON_SECRET, ANTHROPIC_API_KEY and the gateway's
+# per-target proxy secrets from these, and the scheduler's cron connection
+# reads cron-secret through a data source. They live outside Terraform, so a
+# missing one would otherwise surface as a failed apply or crash-looping tasks
+# with no explanation. SSM rejects an empty value, so existing means non-empty.
+# They must be under the persistent CMK: the aws/ssm default key lets any
+# principal in the account decrypt through SSM.
+ssm_prefix="/pattadar/${ENV}"
+ssm_names=()
+for name in db-app-password cron-secret anthropic-api-key \
+  internal-proxy-secret-api internal-proxy-secret-assistant; do
+  ssm_names+=("${ssm_prefix}/${name}")
+done
+log "Checking the app SSM SecureStrings (${ssm_prefix}/*)"
+kms_arn="$(terraform -chdir="$PERSISTENT_DIR" output -raw kms_key_arn)"
+kms_alias="alias/pattadar-${ENV}"
+params="$(aws ssm describe-parameters \
+  --parameter-filters "Key=Name,Values=$(IFS=,; echo "${ssm_names[*]}")" --output json)"
+found="$(jq -r --arg arn "$kms_arn" --arg id "${kms_arn##*/}" --arg alias "$kms_alias" \
+  --arg alias_arn "${kms_arn%%:key/*}:${kms_alias}" \
+  '.Parameters[] | select(.Type == "SecureString" and (.KeyId | IN($arn, $id, $alias, $alias_arn))) | .Name' <<<"$params")"
+missing=()
+for name in "${ssm_names[@]}"; do
+  grep -qxF "$name" <<<"$found" || missing+=("$name")
+done
+if [[ ${#missing[@]} -gt 0 ]]; then
+  {
+    echo "ERROR: missing, not a SecureString, or not under ${kms_alias}: ${missing[*]}"
+    cat <<EOF
 
-# --- 3b. Application DB credential ------------------------------------------
-# Every service now connects as pattadar_app with this password: the api used
-# to get a DSN Terraform composed from the RDS master credential, which
-# rotated out from under it roughly weekly. Terraform creates the secret
-# CONTAINER but never its value, so on a fresh account this is empty and all
-# three services crash-loop on authentication while the health checks below
-# report a timeout with no explanation. Fail here instead, with the fix.
-log "Checking the application DB credential (pattadar/${ENV}/db-app-password)"
-app_password="$(aws secretsmanager get-secret-value \
-  --secret-id "pattadar/${ENV}/db-app-password" \
-  --query SecretString --output text 2>/dev/null || true)"
-if [[ -z "$app_password" || "$app_password" == "None" ]]; then
-  cat >&2 <<EOF
-ERROR: secret pattadar/${ENV}/db-app-password has no value.
+Create each one out of band (never in tfvars or Terraform state), reading
+the value from a file so it stays off the command line. One that exists under
+another key (such as the default aws/ssm) must be re-put with --overwrite and
+the key below. Neither this check nor the fix reads a value:
 
-Every service authenticates as pattadar_app with it, so the apply would
-succeed and then every task would crash-loop. Set the password, and create
-the role and database to match (see docs/runbooks/migration.md):
+  aws ssm put-parameter --type SecureString --key-id alias/pattadar-${ENV} \\
+    --name <name> --value file://<file holding the value>
 
-  pw="\$(openssl rand -base64 30 | tr -d '/+=')"
-  aws secretsmanager put-secret-value \\
-    --secret-id pattadar/${ENV}/db-app-password --secret-string "\$pw"
-
-  # then, connected to the instance as the master user:
-  #   CREATE ROLE pattadar_app LOGIN PASSWORD '<that value>';
-  #   CREATE DATABASE hub OWNER pattadar_app;
-  #   GRANT ALL PRIVILEGES ON DATABASE hub TO pattadar_app;
+  cron-secret, anthropic-api-key: copy from the Secrets Manager secrets of
+    the same name (pattadar/${ENV}/...).
+  internal-proxy-secret-api, internal-proxy-secret-assistant: a separate
+    'openssl rand -hex 32' each, never the same value.
 EOF
+    if [[ " ${missing[*]} " == *" ${ssm_prefix}/db-app-password "* ]]; then
+      cat <<EOF
+
+  db-app-password is RESERVED (Reddy's approval): every service logs in as
+  pattadar_app with it, so it must match the role in the database. Copy it
+  from pattadar/${ENV}/db-app-password in Secrets Manager if it is still
+  recoverable. Otherwise generate one ('openssl rand -base64 30 | tr -d /+=')
+  and, as the master user (docs/runbooks/migration.md):
+    restored database: ALTER ROLE pattadar_app PASSWORD '<that value>';
+    fresh database:    CREATE ROLE pattadar_app LOGIN PASSWORD '<that value>';
+                       CREATE DATABASE hub OWNER pattadar_app;
+                       GRANT ALL PRIVILEGES ON DATABASE hub TO pattadar_app;
+EOF
+    fi
+  } >&2
   exit 1
 fi
-unset app_password
 
 # --- 4. Runtime layer --------------------------------------------------------
 log "Applying runtime layer (${ENV})"
@@ -159,7 +176,7 @@ for path in "/health" "/api/gateway/pattadar/health"; do
     echo "OK   ${path}"
   else
     echo "FAIL ${path} — did not become healthy within 5 minutes." >&2
-    echo "     Triage: aws logs tail /ecs/pattadar-${ENV}/gateway --since 15m (and .../api)" >&2
+    echo "     Triage: aws logs tail /pattadar/${ENV}/gateway --since 15m (and .../api)" >&2
     exit 1
   fi
 done

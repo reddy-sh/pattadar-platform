@@ -14,4 +14,7 @@ USER app
 # 5–10 parallel queries, so even brief sync DB calls block the event loop
 # and the gateway's 30s timeout starts tripping the circuit breaker —
 # generated apps MUST use async resolvers + AsyncConnectionPool (see prompt).
-CMD ["sh", "-c", "exec uvicorn src.main:app --host 0.0.0.0 --port 8080 --workers ${UVICORN_WORKERS:-1}"]
+# src.private_ingress wraps src.main:app and refuses any caller without the
+# gateway's secret (it will not start without one). The keep-alive default is
+# uvicorn's own; the task raises it above the edge's idle timeout.
+CMD ["sh", "-c", "exec uvicorn src.private_ingress:app --host 0.0.0.0 --port 8080 --workers ${UVICORN_WORKERS:-1} --timeout-keep-alive ${UVICORN_TIMEOUT_KEEP_ALIVE:-5}"]

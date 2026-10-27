@@ -13,4 +13,6 @@ RUN useradd --system --create-home --uid 10001 app
 USER app
 # Single worker by default — the psycopg pool is per-process. Override via
 # UVICORN_WORKERS if needed.
-CMD ["sh", "-c", "exec uvicorn src.main:app --host 0.0.0.0 --port 8080 --workers ${UVICORN_WORKERS:-1}"]
+# The keep-alive default is uvicorn's own; the task raises it above the edge's
+# idle timeout so a reused connection is never closed under a request.
+CMD ["sh", "-c", "exec uvicorn src.main:app --host 0.0.0.0 --port 8080 --workers ${UVICORN_WORKERS:-1} --timeout-keep-alive ${UVICORN_TIMEOUT_KEEP_ALIVE:-5}"]

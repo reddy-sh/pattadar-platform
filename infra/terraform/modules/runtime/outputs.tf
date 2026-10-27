@@ -1,9 +1,18 @@
 # Consumed by scripts/platform-up.sh (health checks), deploy.yml (SPA sync +
-# CloudFront invalidation + service redeploys) and the runbooks.
+# CloudFront invalidation + release templates) and the runbooks.
 
 output "alb_dns_name" {
   description = "ALB DNS name (api.<domain> aliases here)."
   value       = aws_lb.main.dns_name
+}
+
+output "task_definition_arns" {
+  description = "Terraform template task-definition revisions per service; deploy-release.py --templates builds each release from these."
+  value = {
+    gateway   = aws_ecs_task_definition.gateway.arn
+    api       = aws_ecs_task_definition.api.arn
+    assistant = aws_ecs_task_definition.assistant.arn
+  }
 }
 
 output "cloudfront_domain_name" {
@@ -35,9 +44,9 @@ output "rds_master_secret_arn" {
   value       = aws_db_instance.main.master_user_secret[0].secret_arn
 }
 
-output "db_app_password_secret_arn" {
-  description = "ARN of the pattadar/<env>/db-app-password secret the services read as PG_PASSWORD."
-  value       = aws_secretsmanager_secret.db_app_password.arn
+output "db_app_password_parameter_name" {
+  description = "Out-of-band SSM SecureString the services read as PG_PASSWORD (name only; the value never enters state)."
+  value       = "/${var.app_name}/${var.environment}/db-app-password"
 }
 
 output "ecs_cluster_name" {
@@ -47,5 +56,5 @@ output "ecs_cluster_name" {
 
 output "ecs_service_names" {
   description = "ECS service names (for aws ecs update-service --force-new-deployment)."
-  value       = [aws_ecs_service.gateway.name, aws_ecs_service.api.name]
+  value       = [aws_ecs_service.gateway.name, aws_ecs_service.api.name, aws_ecs_service.assistant.name]
 }

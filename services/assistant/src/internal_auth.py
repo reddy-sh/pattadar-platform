@@ -17,9 +17,10 @@ import os
 from starlette.responses import JSONResponse
 
 INTERNAL_PROXY_SECRET_HEADER = "x-internal-proxy-secret"
-# Reached without the gateway by design: the load balancer's health probe and
-# an in-task metrics scraper. Neither is proxied to a user.
-_UNGUARDED_PATHS = frozenset({"/health", "/internal/metrics"})
+# Reached without the gateway by design: the container's health probe. Metrics
+# are guarded like any other route, since co-resident containers can reach
+# this port.
+_UNGUARDED_PATHS = frozenset({"/health"})
 
 _log = logging.getLogger("pattadar.assistant.internal_auth")
 

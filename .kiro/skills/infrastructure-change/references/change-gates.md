@@ -13,11 +13,17 @@
 | Evidence | examples, runbooks, alarms, CI validation, migration receipt updated? |
 
 Current traffic invariant: CloudFront `/api/*` → ALB → gateway; ALB direct API
-is only `/cron/inactivity-check`, protected by `CRON_SECRET`; the SPA default
-content comes from S3/CloudFront. University has its own S3 + CloudFront + WAF +
-ACM edge and Cognito client, not the platform edge.
+is only `/cron/inactivity-check`, protected by `CRON_SECRET`; the api container
+(`services/api/src/private_ingress.py`) refuses any other path without the
+gateway's `INTERNAL_PROXY_SECRET`; the SPA default
+content comes from S3/CloudFront. University has its own S3 + CloudFront + ACM
+edge (optional WAF, off pre-launch) and Cognito client, not the platform edge.
 CloudFront `/vm/*` (village maps, public reference data) reads the persistent
 village-maps bucket via OAC; its bucket policy is runtime-owned.
+
+App secrets are out-of-band SSM SecureStrings whose ARNs are built as strings.
+Never add an `aws_ssm_parameter` resource or a value-reading data source for
+them; the scheduler's `cron-secret` data source is the one existing exception.
 
 `web_origin` must stay `spa` (`deploy.yml` passes `--web-origin spa`): `ecs`
 points CloudFront's default behaviour at the ALB, whose default action forwards

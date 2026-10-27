@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # platform-down.sh — one-click decommission of a pattadar environment's
 # RUNTIME layer. The persistent layer (Cognito users, KMS, ECR, documents +
-# state buckets, Route53 zone, secrets) is NEVER touched.
+# state buckets, Route53 zone, Secrets Manager secrets) and the out-of-band
+# SSM SecureStrings (/pattadar/<env>/*) are NEVER touched.
 #
 #   1. confirm
 #   2. full runtime apply with TF_VAR_deletion_protection=false
@@ -64,13 +65,17 @@ cat <<EOF
 
   You are about to bring DOWN the '${ENV}' runtime layer:
     - ECS services, ALB, CloudFront, VPC, EventBridge cron are DESTROYED
+    - prod: the SPA bucket goes with its objects (force_destroy). Deploy
+      re-uploads the site, but the release backups under releases/<id>/
+      (each release's rollback copy of the previous site) are LOST
     - RDS is snapshotted (pattadar-${ENV}-pg-final-<timestamp>) then DESTROYED
     - documents are PARKED into a cold storage class (bytes kept, cheap)
 
   The persistent layer and users are NOT touched:
   Cognito (all user accounts), KMS, ECR images, documents + Terraform state
-  buckets, Route53 zone and secrets all survive. scripts/platform-up.sh
-  restores the environment from the snapshot.
+  buckets, Route53 zone, Secrets Manager secrets and the SSM SecureStrings
+  (/pattadar/${ENV}/*) all survive. scripts/platform-up.sh restores the
+  environment from the snapshot.
 
 EOF
 if [[ "${PLATFORM_DOWN_CONFIRM:-}" != "yes" ]]; then
@@ -82,6 +87,20 @@ if [[ "${PLATFORM_DOWN_CONFIRM:-}" != "yes" ]]; then
 fi
 
 # --- 2. Flip RDS deletion protection off (full apply, no -target) -------------
+# The scheduler reads cron-secret through a data source, so this apply (and
+# the destroy's refresh) fail with ParameterNotFound when it is gone. It lives
+# out of band, where a delete is immediate and permanent. Names only; the
+# value is never read.
+cron_param="/pattadar/${ENV}/cron-secret"
+found="$(aws ssm describe-parameters --parameter-filters "Key=Name,Values=${cron_param}" \
+  --query 'Parameters[0].Name' --output text)"
+if [[ "$found" != "$cron_param" ]]; then
+  echo "ERROR: ${cron_param} is missing, so the runtime cannot be applied or destroyed." >&2
+  echo "       Re-create it first (scripts/platform-up.sh prints the put-parameter command;" >&2
+  echo "       docs/runbooks/account-bootstrap.md § App SSM SecureStrings). Nothing was changed." >&2
+  exit 1
+fi
+
 export TF_VAR_deletion_protection=false
 terraform -chdir="$RUNTIME_DIR" init -input=false
 
@@ -89,7 +108,13 @@ terraform -chdir="$RUNTIME_DIR" init -input=false
 # database may be GONE from state. Re-applying would recreate it EMPTY, and the
 # destroy below would then snapshot that empty database as the NEWEST final
 # snapshot — which the next up would silently restore. Skip the apply instead.
-if terraform -chdir="$RUNTIME_DIR" state list 2>/dev/null | grep -q 'aws_db_instance'; then
+# Caveat: the SPA bucket's force_destroy only reaches state through an apply.
+# After a partial down this step skips the apply, so a bucket created before
+# force_destroy existed still blocks the destroy and parking never runs. Land
+# force_destroy through a full scripts/platform-up.sh apply before any down.
+# A here-string, not a pipe: grep -q exits at the first match and the
+# SIGPIPE'd terraform would make the pipeline false under pipefail.
+if grep -q 'aws_db_instance' <<<"$(terraform -chdir="$RUNTIME_DIR" state list 2>/dev/null)"; then
   log "Runtime apply with deletion_protection=false (${ENV})"
   terraform -chdir="$RUNTIME_DIR" apply -input=false -auto-approve
 else
@@ -151,6 +176,7 @@ Still running (persistent, ~\$3-5/month while parked — see
 docs/runbooks/up-down.md for the cost table):
   - Cognito user pool (ALL user accounts intact)
   - KMS CMK, ECR images, Secrets Manager secrets
+  - SSM SecureStrings /pattadar/${ENV}/* (out of band; platform-up checks them)
   - Documents bucket (parked in ${parking_class}) + Terraform state bucket
   - Route53 zone, CloudTrail
 

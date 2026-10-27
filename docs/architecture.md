@@ -16,7 +16,7 @@ flowchart LR
   CORE[packages/core\nTS API + domain + formats]
   TOK[packages/tokens\ndesign tokens]
   COG[Cognito\nissuer/sub access tokens]
-  EDGE[Route53 → CloudFront + WAF]
+  EDGE[Route53 → CloudFront\nWAF off until launch]
   ALB[ALB]
   GW[services/gateway\nJWT, storage, capabilities, account, admin, proxy]
   API[services/api\nFastAPI + Strawberry]
@@ -34,8 +34,8 @@ flowchart LR
   IOS & MOB --> ALB
   ALB -->|/api/*| GW
   ALB -->|/cron/inactivity-check only| API
-  GW -->|validated x-user-id| API
-  GW -->|validated x-user-id + SSE| AST
+  GW -->|validated x-user-id + api proxy secret| API
+  GW -->|validated x-user-id + assistant proxy secret, SSE| AST
   GW --> S3
   GW & API & AST --> PG
   API & AST --> ANT
@@ -45,6 +45,13 @@ flowchart LR
 `services/api` and `services/assistant` trust gateway-injected identity and must
 not be generally internet reachable. The one direct API listener rule is the
 cron endpoint, jointly protected by exact path routing and `CRON_SECRET`.
+
+Security groups are not the only lock. The API container
+(`services/api/src/private_ingress.py`) refuses every request without the
+gateway's `INTERNAL_PROXY_SECRET` except `/health` and the cron path, and
+refuses to start without it. The gateway sends the API and the assistant
+different secrets (`INTERNAL_PROXY_SECRET_API`, `INTERNAL_PROXY_SECRET_ASSISTANT`),
+so a compromised assistant cannot pose as the gateway.
 
 ## Authentication and owner identity
 
@@ -219,22 +226,32 @@ flowchart TB
   end
   subgraph R[Runtime — recreated]
     VPC[VPC / two public subnets / no NAT]
-    CF[CloudFront + WAF + SPA bucket]
+    CF[CloudFront + SPA bucket\nWAF off until launch]
     ALB[ALB + ACM]
     ECS[ECS gateway/API/assistant/optional web]
     RDS[(RDS PostgreSQL)]
     SCH[EventBridge cron destination]
     OBS[CloudWatch logs/alarms + SNS]
   end
+  SSM[SSM SecureStrings\nout of band, never in state]
   STATE[(S3 Terraform state)]
   P -->|remote-state outputs| R
   STATE --> P
   STATE --> R
   CF --> ALB --> ECS --> RDS
   SCH -->|x-cron-secret; controlled retries| ALB
-  KMS -. encrypts .-> DOC & SEC & RDS & OBS
+  SSM -->|task secrets| ECS
+  KMS -. encrypts .-> DOC & SEC & SSM & RDS & OBS
   AKMS -. direct field encryption .-> ECS
 ```
+
+The five app secrets (`db-app-password`, `cron-secret`, `anthropic-api-key`,
+`internal-proxy-secret-api`, `internal-proxy-secret-assistant`) are SSM
+SecureStrings under `/pattadar/<env>/`, created out of band under the
+persistent CMK ([account bootstrap](runbooks/account-bootstrap.md)). Neither
+Terraform root owns them, so they survive platform down. The one value that
+enters state is `cron-secret`, read by the scheduler's connection data source,
+as before.
 
 Use `docs/runbooks/up-down.md` and the repository lifecycle scripts for operation;
 never substitute targeted Terraform/state surgery. Platform down snapshots RDS

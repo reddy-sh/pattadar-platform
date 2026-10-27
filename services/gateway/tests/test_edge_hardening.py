@@ -10,6 +10,7 @@ Three defects met here:
 - a rejected token was logged at DEBUG under an INFO root logger, and a JWKS
   fetch that never answered was reported to the caller as a bad credential.
 """
+import asyncio
 import logging
 
 import httpx
@@ -20,7 +21,9 @@ from jose.exceptions import JWTError
 
 from src import auth, internal_api, request_context
 from src.main import LimitRequestBodyMiddleware
-from src.routes import proxy
+from src.routes import account, capabilities, proxy
+
+_SECRET_NAMES = ("INTERNAL_PROXY_SECRET", "INTERNAL_PROXY_SECRET_API", "INTERNAL_PROXY_SECRET_ASSISTANT")
 
 
 def _edge(max_bytes: int = 64):
@@ -125,18 +128,104 @@ def test_a_record_outside_a_request_names_no_id():
 def test_the_internal_secret_fails_open_while_it_is_unconfigured(monkeypatch):
     """Local stacks and a half-rolled-out deployment keep working; the upstream
     check is the half that fails closed."""
-    monkeypatch.delenv("INTERNAL_PROXY_SECRET", raising=False)
-    assert internal_api.INTERNAL_PROXY_SECRET_HEADER not in internal_api.internal_headers()
-    monkeypatch.setenv("INTERNAL_PROXY_SECRET", "  shhh  ")
-    assert internal_api.internal_headers()[internal_api.INTERNAL_PROXY_SECRET_HEADER] == "shhh"
+    for name in _SECRET_NAMES:
+        monkeypatch.delenv(name, raising=False)
+    for target in ("api", "assistant"):
+        assert internal_api.INTERNAL_PROXY_SECRET_HEADER not in internal_api.internal_headers(target)
+    monkeypatch.setenv("INTERNAL_PROXY_SECRET_API", "  shhh  ")
+    assert internal_api.internal_headers("api")[internal_api.INTERNAL_PROXY_SECRET_HEADER] == "shhh"
 
 
 def test_a_caller_cannot_supply_the_gateways_proof_of_origin(monkeypatch):
-    monkeypatch.delenv("INTERNAL_PROXY_SECRET", raising=False)
-    out = proxy.outbound_headers(
-        {internal_api.INTERNAL_PROXY_SECRET_HEADER: "forged"}, "shankarreddy.t"
-    )
-    assert internal_api.INTERNAL_PROXY_SECRET_HEADER not in out
+    for name in _SECRET_NAMES:
+        monkeypatch.delenv(name, raising=False)
+    for target in ("api", "assistant"):
+        out = proxy.outbound_headers(
+            {internal_api.INTERNAL_PROXY_SECRET_HEADER: "forged"}, "shankarreddy.t", target
+        )
+        assert internal_api.INTERNAL_PROXY_SECRET_HEADER not in out
+
+
+# Synthetic throughout. Nothing here is, or resembles, a deployed value.
+API_SECRET = "api-only-secret"
+ASSISTANT_SECRET = "assistant-only-secret"
+LEGACY_SECRET = "legacy-shared-secret"
+
+
+class _Body(httpx.SyncByteStream, httpx.AsyncByteStream):
+    """An unread body, so the assistant proxy can stream it as it would SSE."""
+
+    def __iter__(self):
+        yield b'{"owner": "owner-1", "data": {}}'
+
+    async def __aiter__(self):
+        yield b'{"owner": "owner-1", "data": {}}'
+
+
+@pytest.fixture(params=["shared-client", "fresh-client"])
+def upstreams(request, monkeypatch):
+    """Every call the gateway makes to a private service, as (host, secret).
+
+    Run over both client branches: the lifespan's shared client, and the
+    one-off client each helper opens when there is none."""
+    seen = []
+
+    def answer(outgoing):
+        seen.append((outgoing.url.host, outgoing.headers.get(internal_api.INTERNAL_PROXY_SECRET_HEADER)))
+        return httpx.Response(200, headers={"content-type": "application/json"}, stream=_Body())
+
+    transport = httpx.MockTransport(answer)
+    async_client, sync_client = httpx.AsyncClient, httpx.Client
+    monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **kw: async_client(*a, transport=transport, **kw))
+    monkeypatch.setattr(httpx, "Client", lambda *a, **kw: sync_client(*a, transport=transport, **kw))
+    shared = async_client(transport=transport) if request.param == "shared-client" else None
+    monkeypatch.setattr(auth, "proxy_client", shared)
+    monkeypatch.setenv("API_BASE_URL", "http://api.test")
+    monkeypatch.setenv("ASSISTANT_BASE_URL", "http://assistant.test")
+    monkeypatch.setenv("INTERNAL_PROXY_SECRET_API", API_SECRET)
+    monkeypatch.setenv("INTERNAL_PROXY_SECRET_ASSISTANT", ASSISTANT_SECRET)
+    monkeypatch.setenv("INTERNAL_PROXY_SECRET", LEGACY_SECRET)
+
+    async def signed_in(request, *, strict=True):
+        return {"sub": "subject-1"}
+
+    monkeypatch.setattr(auth, "validate_bearer", signed_in)
+    monkeypatch.setattr(auth, "extract_user_id", lambda request: "owner-1")
+    return seen
+
+
+def _call_every_private_route():
+    app = FastAPI()
+    app.include_router(proxy.router)
+    with TestClient(app) as client:
+        assert client.post("/api/gateway/pattadar/graphql", content=b"{}").status_code == 200
+        assert client.post("/api/gateway/assistant/api/chat/stream", content=b"{}").status_code == 200
+    asyncio.run(account.upstream(proxy._api_base_url(), "/internal/account/export", "owner-1"))
+    asyncio.run(account.upstream(proxy._assistant_base_url(), "/internal/account/export", "owner-1"))
+    account._attachment_reader("owner-1")("attachment-1").close()
+    asyncio.run(capabilities._api("GET", "/public/shares/" + "a" * 43))
+    assert asyncio.run(internal_api.record_audit(
+        "storage.read", actor_id="owner-1", actor_kind="user", resource_type="storage_node",
+        resource_id="node-1", affected_owner="owner-1"))
+    return ["api.test", "assistant.test", "api.test", "assistant.test", "assistant.test", "api.test", "api.test"]
+
+
+def test_each_private_service_only_ever_sees_its_own_secret(upstreams):
+    """The assistant parses untrusted attachments on a shared host: holding the
+    api's secret would let it claim any x-user-id there."""
+    hosts = _call_every_private_route()
+    assert [host for host, _ in upstreams] == hosts
+    expected = {"api.test": API_SECRET, "assistant.test": ASSISTANT_SECRET}
+    assert all(secret == expected[host] for host, secret in upstreams), upstreams
+
+
+def test_the_legacy_shared_secret_never_reaches_the_assistant(upstreams, monkeypatch):
+    monkeypatch.delenv("INTERNAL_PROXY_SECRET_API")
+    monkeypatch.delenv("INTERNAL_PROXY_SECRET_ASSISTANT")
+    hosts = _call_every_private_route()
+    assert [host for host, _ in upstreams] == hosts
+    expected = {"api.test": LEGACY_SECRET, "assistant.test": None}
+    assert all(secret == expected[host] for host, secret in upstreams), upstreams
 
 
 @pytest.mark.parametrize(

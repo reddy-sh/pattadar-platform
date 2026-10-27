@@ -75,16 +75,16 @@ def _assistant_base_url() -> str:
     return str(os.getenv("ASSISTANT_BASE_URL", "")).strip().rstrip("/")
 
 
-def outbound_headers(inbound: dict, user_id: Optional[str]) -> dict:
+def outbound_headers(inbound: dict, user_id: Optional[str], target: str = "api") -> dict:
     """Forwardable headers: inbound minus hop-by-hop/auth/identity, plus the
     validated x-user-id (the ONLY way that header ever reaches upstream) and
-    this gateway's internal-proxy secret. The inbound x-request-id survives
-    untouched — the edge middleware has already minted one if the caller
-    sent none."""
+    this gateway's internal-proxy secret for ``target``. The inbound
+    x-request-id survives untouched — the edge middleware has already minted
+    one if the caller sent none."""
     headers = {k: v for k, v in inbound.items() if k.lower() not in _DROP_REQUEST_HEADERS}
     if user_id:
         headers["x-user-id"] = user_id
-    headers.update(internal_headers())
+    headers.update(internal_headers(target))
     return headers
 
 
@@ -157,7 +157,7 @@ async def proxy_pattadar(request: Request, path: str):
         await auth.validate_bearer(request, strict=True)  # raises the 401
     user_id = auth.extract_user_id(request) if claims is not None else None
 
-    headers = outbound_headers(dict(request.headers), user_id)
+    headers = outbound_headers(dict(request.headers), user_id, "api")
 
     # AI vision extraction (multi-page deeds, Aadhaar/passbook import) can run
     # for minutes — give import-*/extract-* paths 200s. NEVER retry: the
@@ -210,7 +210,7 @@ async def proxy_assistant(request: Request, path: str):
     user_id = auth.extract_user_id(request)
 
     body = await request.body()
-    headers = outbound_headers(dict(request.headers), user_id)
+    headers = outbound_headers(dict(request.headers), user_id, "assistant")
     url = f"{base}/{path}"
 
     client = auth.proxy_client or httpx.AsyncClient()

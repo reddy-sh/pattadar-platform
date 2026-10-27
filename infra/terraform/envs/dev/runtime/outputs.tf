@@ -4,6 +4,10 @@ output "alb_dns_name" {
   value = module.runtime.alb_dns_name
 }
 
+output "task_definition_arns" {
+  value = module.runtime.task_definition_arns
+}
+
 output "cloudfront_domain_name" {
   value = module.runtime.cloudfront_domain_name
 }
@@ -24,8 +28,8 @@ output "rds_master_secret_arn" {
   value = module.runtime.rds_master_secret_arn
 }
 
-output "db_app_password_secret_arn" {
-  value = module.runtime.db_app_password_secret_arn
+output "db_app_password_parameter_name" {
+  value = module.runtime.db_app_password_parameter_name
 }
 
 output "ecs_cluster_name" {

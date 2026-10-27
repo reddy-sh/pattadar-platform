@@ -5,7 +5,7 @@ compatibility: Requires pattadar-platform source/config/docs. Read-only by defau
 metadata:
   project: pattadar-platform
   standard: agentskills.io
-  verified: "2026-10-09"
+  verified: "2026-10-26"
   upstream-inspiration: tt-a1i/archify
 ---
 

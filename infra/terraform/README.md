@@ -10,7 +10,7 @@ layers per environment:
   GuardDuty, GitHub OIDC deploy role. `scripts/platform-down.sh` never touches
   this layer (it only parks documents into `parking_storage_class`).
 - **runtime** — destroyable/recreatable on demand: VPC, ALB, ECS, CloudFront,
-  WAF, RDS (snapshotted on down), EventBridge scheduler, observability, DNS
+  WAF (prod: off until launch), RDS (snapshotted on down), EventBridge scheduler, observability, DNS
   records. `scripts/platform-up.sh <env>` / `platform-down.sh <env>` apply and
   destroy it. Runtime reads persistent outputs via `terraform_remote_state`.
 
@@ -42,16 +42,18 @@ Always **persistent -> runtime** (runtime's `terraform_remote_state` needs the
 persistent state to exist):
 
 1. `cd envs/prod/persistent && terraform apply`
-2. Fill the placeholder secrets (values never touch Terraform):
-   ```
-   aws secretsmanager put-secret-value --secret-id pattadar/prod/anthropic-api-key --secret-string '...'
-   aws secretsmanager put-secret-value --secret-id pattadar/prod/cron-secret       --secret-string '...'
-   aws secretsmanager put-secret-value --secret-id pattadar/prod/cognito-config    --secret-string '{...}'
-   aws secretsmanager put-secret-value --secret-id pattadar/prod/notify-providers  --secret-string '{...}'
-   ```
-   `cron-secret` is a HARD prerequisite for the runtime apply: the scheduler
-   reads its value via a data source to build the EventBridge connection, and
-   plan fails on an empty secret.
+2. Create the five app SSM SecureStrings out of band (values never touch
+   Terraform or tfvars): `/pattadar/<env>/{db-app-password, cron-secret,
+   anthropic-api-key, internal-proxy-secret-api, internal-proxy-secret-assistant}`
+   under the persistent CMK `alias/pattadar-<env>`. The commands are in
+   [account-bootstrap.md](../../docs/runbooks/account-bootstrap.md) §
+   "App SSM SecureStrings". `cron-secret` is a HARD prerequisite for the runtime
+   apply: the scheduler reads its value through a data source to build the
+   EventBridge connection. `scripts/platform-up.sh` refuses to apply while any
+   of the five is missing, and it checks names only, never values. The Secrets
+   Manager containers `anthropic-api-key`, `cron-secret`, `cognito-config` and
+   `notify-providers` are no longer read by the runtime. They are kept until
+   their values are copied, then deleted as a separate approved change.
 3. Push images to ECR (`pattadar/api`, `pattadar/gateway`, `pattadar/assistant`)
    — normally done by `.github/workflows/deploy.yml` via the
    `pattadar-github-deploy` OIDC role.
@@ -78,8 +80,8 @@ since been removed, and are candidates for deletion on the next infra pass.
 
 Use the reviewed lifecycle script or its manual workflow, not an ad-hoc targeted
 apply. The script performs a **full runtime apply** with deletion protection
-disabled, creates a unique final-snapshot identifier, parks documents according
-to the configured class, and then destroys runtime. A targeted `-target` apply
+disabled, destroys runtime under a unique final-snapshot identifier, and then
+parks documents according to the configured class. A targeted `-target` apply
 can desynchronize dependencies/state and is explicitly not the current flow.
 Production retains the typed `decommission-prod` confirmation.
 
@@ -89,17 +91,18 @@ recovery from interruption.
 
 ### Up again (restore from snapshot)
 
-Find the latest final snapshot and pass it in:
-`terraform apply -var restore_snapshot_identifier=pattadar-<env>-pg-final-<suffix>`
-— empty (the default) creates a fresh, empty database.
+Run `scripts/platform-up.sh <env>`, not a raw apply. It finds the latest
+`pattadar-<env>-pg-final-*` snapshot and passes it as
+`TF_VAR_restore_snapshot_identifier`. With no snapshot it creates a fresh,
+empty database. It first checks the five SSM SecureStrings. Each run is a
+high-risk operation that needs Reddy's approval (`docs/runbooks/up-down.md`).
 
 ### Runtime caveats (by design, documented not hidden)
 
-- **db-dsn rotation**: `pattadar/<env>/db-dsn` (APP_PG_DSN) is composed by
-  Terraform from the RDS endpoint + the RDS-managed master secret. RDS
-  auto-rotates that master password (~7 days); after a rotation re-run
-  `terraform apply` and `aws ecs update-service --force-new-deployment` for
-  both services. TODO(Phase 2): dedicated app DB user or IAM DB auth.
+- **App database password**: every service logs in as `pattadar_app` with the
+  SSM SecureString `/pattadar/<env>/db-app-password` (`modules/runtime/rds.tf`).
+  It outlives platform-down. Losing it means generating a new one and running
+  a master-user `ALTER ROLE` (reserved for Reddy).
 - **CloudFront origin timeout**: default service quota caps
   `origin_read_timeout` at 60s. This is no longer an extraction ceiling —
   document reading runs as a durable server job (`services/api/src/import_jobs.py`)
@@ -170,19 +173,25 @@ prod's ECR repositories. Separate accounts need none of this.
 
 - API trusts gateway-injected `x-user-id` and is never generally
   internet-reachable; the single `/cron/inactivity-check` exception is guarded
-  by `CRON_SECRET`. New identities use immutable Cognito issuer/subject.
+  by `CRON_SECRET`. The api container refuses any other path without the
+  gateway's `INTERNAL_PROXY_SECRET` (`services/api/src/private_ingress.py`).
+  New identities use immutable Cognito issuer/subject.
   Existing owner keys resolve only through reviewed `IDENTITY_LEGACY_BINDINGS`;
   neither API nor gateway derives authority from the email local part.
 - Extraction routes need >= 200s timeouts and NO retries — ALB
   `idle_timeout = 200` and zero-retry semantics everywhere (scheduler
   `maximum_retry_attempts = 0`; CloudFront quota caveat above).
-- `CRON_SECRET` always set; value lives only in Secrets Manager
-  (`pattadar/<env>/cron-secret`).
+- `CRON_SECRET` is always set. Its value lives in the out-of-band SSM
+  SecureString `/pattadar/<env>/cron-secret`, and enters state only through
+  the scheduler's connection data source.
 
 ## Validation
 
 CI already runs `terraform fmt -check -recursive` and
-`terraform init -backend=false && terraform validate` across all four
-environment roots (`dev/prod` × `persistent/runtime`). Local `init` downloads
+`terraform init -backend=false && terraform validate` across all five roots
+(`dev/prod` × `persistent/runtime`, plus `envs/prod/university`), and
+`pytest scripts/tests` runs `test_edge_routes.py`, the static guard on the
+task definitions' proxy-secret wiring and the api image's private-ingress
+command. Local `init` downloads
 providers and writes `.terraform`; mention that side effect before running it.
 A successful static validation is not a reviewed plan or applied-state proof.

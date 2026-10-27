@@ -16,25 +16,39 @@ scripts/platform-down.sh dev    # park dev
    `TF_VAR_restore_snapshot_identifier` so the runtime layer restores the
    database instead of creating an empty one. No snapshot → fresh DB (the api's
    `init_db()` bootstraps its ~28 tables).
-3. Reads `pattadar/<env>/cron-secret` from Secrets Manager into
-   `TF_VAR_cron_secret_header_value` (never printed) — CRON_SECRET is always
-   set, per the platform invariants.
+3. Checks that the five app SSM SecureStrings exist:
+   `/pattadar/<env>/{db-app-password, cron-secret, anthropic-api-key,
+   internal-proxy-secret-api, internal-proxy-secret-assistant}`, each a
+   SecureString under the persistent CMK (`alias/pattadar-<env>`; the default
+   `aws/ssm` key would let any principal in the account decrypt it). It reads names and
+   key ids only, never values, and SSM refuses an empty value, so CRON_SECRET
+   is always set. When one fails it exits 1 and prints the out-of-band fix. A
+   missing `db-app-password` is **reserved for Reddy**, because it must match
+   the `pattadar_app` role in the database (copy the old value, or set a new
+   one with a master-user `ALTER ROLE`). Creating them:
+   [account-bootstrap.md](account-bootstrap.md) § "App SSM SecureStrings".
 4. `terraform apply` on `envs/<env>/runtime` (VPC, ALB, ECS, RDS, CloudFront,
    EventBridge cron).
 5. Checks the documents bucket for Glacier-class objects and, if any, prints a
    pointer to [s3-thaw.md](s3-thaw.md). It never auto-restores.
 6. Smoke: curls `http://<alb_dns>/health` (gateway) and
    `http://<alb_dns>/api/gateway/pattadar/health` (api via gateway), retrying
-   up to 5 minutes each; then reminds you about pending SNS confirmations.
+   up to 5 minutes each. It then exits 1 while any SNS alarm subscription is
+   still `PendingConfirmation`.
 
 ## What platform-down.sh does
 
 1. Confirmation prompt (or `PLATFORM_DOWN_CONFIRM=yes` in CI). The persistent
-   layer and users are **not** touched.
+   layer and users are **not** touched. It then checks that
+   `/pattadar/<env>/cron-secret` exists (name only): the scheduler reads it
+   through a data source, so without it the apply and destroy fail.
 2. Full runtime `apply` with `TF_VAR_deletion_protection=false`.
 3. Runtime `destroy` with `TF_VAR_final_snapshot_suffix=$(date +%Y%m%d%H%M)` —
    RDS writes the final snapshot `pattadar-<env>-pg-final-<timestamp>` before
-   dying. This snapshot is what the next `platform-up.sh` restores.
+   dying. This snapshot is what the next `platform-up.sh` restores. Prod's SPA
+   bucket goes with its objects (`force_destroy`). Deploy re-uploads the site,
+   but the release backups under `releases/<id>/previous/` (each release's
+   rollback copy) are lost.
 4. Parks every documents-bucket object into `parking_storage_class`
    (Terraform output; default `DEEP_ARCHIVE`) via in-place `aws s3 cp`,
    paginated over the whole `{owner}/...` keyspace, logging counts.
@@ -61,20 +75,32 @@ scripts are idempotent from any interruption point.
 - If parking (step 4) was interrupted, re-running the whole script is safe:
   destroy is a no-op on an empty state and the parking loop skips
   already-parked objects.
+- **`force_destroy` must reach state before any down.** Step 2 re-applies only
+  while the RDS instance is still in state. After a partial down it skips the
+  apply, so a SPA bucket created before `force_destroy` existed still blocks
+  the destroy, and parking never runs. Land it with a full
+  `scripts/platform-up.sh` apply first. This applies to today's partial prod
+  state. Do not empty the bucket by hand.
+- The SSM SecureStrings and the persistent Secrets Manager secrets are outside
+  the runtime state, so a down never deletes them and an up never recreates
+  them.
 
 ## Parked-state monthly cost (approx, ap-south-1)
 
 | Item | ~USD/month |
 | --- | --- |
 | Route53 hosted zone | 0.50 |
-| KMS CMK | 1.00 |
-| Secrets Manager (2 secrets) | 0.80 |
+| KMS CMKs (shared + Aadhaar) | 2.00 |
+| Secrets Manager (6 persistent secrets; 2 after the 4 unused containers are deleted) | 2.40 (0.80) |
+| SSM SecureStrings (5, standard tier) | 0.00 |
 | Documents bucket, ~1.4 GB in DEEP_ARCHIVE | < 0.01 |
 | RDS final snapshot (~1 GB) | 0.10 |
 | ECR images (~2 GB) | 0.20 |
-| CloudTrail + logs/state buckets | < 0.50 |
+| CloudTrail bucket + logs/state buckets | < 0.50 |
 | Cognito (pilot MAU, free tier) | 0.00 |
-| **Total parked** | **~3–4** |
+| **Total parked** | **~5–6 (~4 after the Secrets Manager cleanup)** |
+
+Estimates from list prices, not billing.
 
 Reminder: DEEP_ARCHIVE has a **180-day minimum storage charge** — parking is
 for months, not days, and never park-then-delete within 6 months
@@ -84,7 +110,8 @@ for months, not days, and never park-then-delete within 6 months
 
 - **SNS** (alarm topic): every email subscription starts as
   `PendingConfirmation` — click **Confirm subscription** in the email or
-  alarms go nowhere. `platform-up.sh` prints a reminder when any are pending.
+  alarms go nowhere. `platform-up.sh` exits 1 while any are pending; only a
+  human sets `ALLOW_PENDING_ALARMS=1` to skip that check.
 - **SES**: domain identity verifies via Route53 DKIM records automatically
   once DNS is cut over; any **email-address** identities (pre-cutover testing)
   need their own confirmation click. Production sending requires the sandbox

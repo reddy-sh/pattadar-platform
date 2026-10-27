@@ -5,7 +5,7 @@ compatibility: Requires pattadar-platform repository context. Optional live anal
 metadata:
   project: pattadar-platform
   standard: agentskills.io
-  verified: "2026-10-09"
+  verified: "2026-10-26"
 ---
 
 # Cloud Cost Governance

@@ -54,18 +54,24 @@ resource "aws_iam_role_policy_attachment" "execution_managed" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-# Secrets injection at task start: exactly the three ARNs the task defs
-# reference, plus kms:Decrypt via the persistent CMK they are encrypted with.
+# Secrets injection at task start: exactly the five SSM parameters the task
+# defs reference, the still-optional Secrets Manager ARNs (legacy fernet,
+# Razorpay) when enabled, plus kms:Decrypt via the persistent CMK.
 data "aws_iam_policy_document" "execution_secrets" {
   statement {
-    actions = ["secretsmanager:GetSecretValue"]
-    resources = concat([
-      local.persistent.secret_arns["anthropic-api-key"],
-      local.persistent.secret_arns["cron-secret"],
-      aws_secretsmanager_secret.db_app_password.arn,
-      ], var.enable_aadhaar_legacy_fernet ? [
-      local.persistent.secret_arns["aadhaar-legacy-fernet-key"],
-    ] : [], values(var.payment_secret_arns))
+    actions   = ["ssm:GetParameters"]
+    resources = values(local.ssm_arns)
+  }
+
+  dynamic "statement" {
+    for_each = var.enable_aadhaar_legacy_fernet || length(var.payment_secret_arns) > 0 ? [1] : []
+
+    content {
+      actions = ["secretsmanager:GetSecretValue"]
+      resources = concat(var.enable_aadhaar_legacy_fernet ? [
+        local.persistent.secret_arns["aadhaar-legacy-fernet-key"],
+      ] : [], values(var.payment_secret_arns))
+    }
   }
 
   statement {
@@ -184,6 +190,18 @@ resource "aws_iam_role_policy" "api_task" {
 
 # --- Task definitions --------------------------------------------------------
 
+locals {
+  # deploy-release.py promotes a service only once every task reports
+  # healthStatus HEALTHY, so each container carries a check. Failures inside
+  # startPeriod do not count.
+  health_check = {
+    command  = ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3).status == 200 else 1)\""]
+    interval = 30
+    timeout  = 5
+    retries  = 3
+  }
+}
+
 resource "aws_ecs_task_definition" "gateway" {
   family                   = "${local.prefix}-gateway"
   requires_compatibilities = ["FARGATE"]
@@ -241,10 +259,15 @@ resource "aws_ecs_task_definition" "gateway" {
         { name = "ADMIN_SUBJECT_IDS", value = join(",", var.admin_subject_ids) },
       ]
 
+      # One secret per target: the assistant never holds the api's value.
       secrets = [
-        { name = "PG_PASSWORD", valueFrom = aws_secretsmanager_secret.db_app_password.arn },
-        { name = "ANTHROPIC_API_KEY", valueFrom = local.persistent.secret_arns["anthropic-api-key"] },
+        { name = "PG_PASSWORD", valueFrom = local.ssm_arns["db-app-password"] },
+        { name = "ANTHROPIC_API_KEY", valueFrom = local.ssm_arns["anthropic-api-key"] },
+        { name = "INTERNAL_PROXY_SECRET_API", valueFrom = local.ssm_arns["internal-proxy-secret-api"] },
+        { name = "INTERNAL_PROXY_SECRET_ASSISTANT", valueFrom = local.ssm_arns["internal-proxy-secret-assistant"] },
       ]
+
+      healthCheck = merge(local.health_check, { startPeriod = 60 })
 
       logConfiguration = {
         logDriver = "awslogs"
@@ -309,14 +332,19 @@ resource "aws_ecs_task_definition" "api" {
       ]
 
       # CRON_SECRET is ALWAYS set (invariant): /cron/inactivity-check rejects
-      # callers without the matching x-cron-secret header.
+      # callers without the matching x-cron-secret header. INTERNAL_PROXY_SECRET
+      # is the gateway-only value every other path demands (private_ingress).
       secrets = concat([
-        { name = "ANTHROPIC_API_KEY", valueFrom = local.persistent.secret_arns["anthropic-api-key"] },
-        { name = "CRON_SECRET", valueFrom = local.persistent.secret_arns["cron-secret"] },
-        { name = "PG_PASSWORD", valueFrom = aws_secretsmanager_secret.db_app_password.arn },
+        { name = "ANTHROPIC_API_KEY", valueFrom = local.ssm_arns["anthropic-api-key"] },
+        { name = "CRON_SECRET", valueFrom = local.ssm_arns["cron-secret"] },
+        { name = "PG_PASSWORD", valueFrom = local.ssm_arns["db-app-password"] },
+        { name = "INTERNAL_PROXY_SECRET", valueFrom = local.ssm_arns["internal-proxy-secret-api"] },
         ], var.enable_aadhaar_legacy_fernet ? [
         { name = "AADHAAR_ENC_KEY", valueFrom = local.persistent.secret_arns["aadhaar-legacy-fernet-key"] },
       ] : [], [for name, arn in var.payment_secret_arns : { name = name, valueFrom = arn }])
+
+      # init_db runs its boot-time backfills before /health answers.
+      healthCheck = merge(local.health_check, { startPeriod = 120 })
 
       logConfiguration = {
         logDriver = "awslogs"
@@ -490,21 +518,16 @@ resource "aws_ecs_task_definition" "assistant" {
       ]
 
       secrets = [
-        { name = "PG_PASSWORD", valueFrom = aws_secretsmanager_secret.db_app_password.arn },
-        { name = "PUBLIC_RECORDS_PG_PASSWORD", valueFrom = aws_secretsmanager_secret.db_app_password.arn },
-        { name = "ANTHROPIC_API_KEY", valueFrom = local.persistent.secret_arns["anthropic-api-key"] },
+        { name = "PG_PASSWORD", valueFrom = local.ssm_arns["db-app-password"] },
+        { name = "PUBLIC_RECORDS_PG_PASSWORD", valueFrom = local.ssm_arns["db-app-password"] },
+        { name = "ANTHROPIC_API_KEY", valueFrom = local.ssm_arns["anthropic-api-key"] },
+        { name = "INTERNAL_PROXY_SECRET", valueFrom = local.ssm_arns["internal-proxy-secret-assistant"] },
       ]
 
       # The assistant sits behind no target group, so without this ECS replaces
       # it only when the process exits: a wedged event loop or an exhausted
       # connection pool stays RUNNING while every chat request times out.
-      healthCheck = {
-        command     = ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3).status == 200 else 1)\""]
-        interval    = 30
-        timeout     = 5
-        retries     = 3
-        startPeriod = 30
-      }
+      healthCheck = merge(local.health_check, { startPeriod = 30 })
 
       logConfiguration = {
         logDriver = "awslogs"

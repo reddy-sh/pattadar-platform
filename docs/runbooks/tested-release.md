@@ -47,6 +47,23 @@ to preview. Without `--execute` it performs read-only AWS checks. It refuses:
 missing images or a different source revision, stale web bundles, incomplete
 owner/attachment migrations, missing applied bucket configuration, an inactive
 or unpinned assistant rollback definition, or missing S3/KMS task permissions.
+It also refuses before any change when:
+
+- the assistant rollback definition is not the same shape as the planned
+  revision (`networkMode`, `requiresCompatibilities`), so a rollback ARN of
+  another launch type cannot fail halfway through a rollback;
+- any container sets `ALLOW_INSECURE_LOCAL`;
+- the api or the assistant lacks `INTERNAL_PROXY_SECRET`, or the gateway lacks
+  `INTERNAL_PROXY_SECRET_API` and `INTERNAL_PROXY_SECRET_ASSISTANT`. It checks
+  names only; that the SSM parameters exist is platform-up's check;
+- `--templates` is given and a service is missing from it.
+
+Deploy passes `--templates /tmp/release-templates.json`, the
+`task_definition_arns` output of `envs/prod/runtime`. Each new revision is
+built from the Terraform template, so Terraform changes to memory, ports,
+environment or secrets actually ship. The rollback images,
+the original revisions and the durable-writer check still come from the
+running revision.
 The deployment role needs read-only `iam:SimulatePrincipalPolicy`, S3 encryption
 configuration access, and KMS describe access in addition to its deployment
 permissions. Policy simulation checks the task identity policy; the recorded
@@ -56,7 +73,27 @@ Execution snapshots the whole current website, including mutable public files.
 Old hashed assets remain available for open tabs. API/gateway rollback task
 images are pinned to the digest actually running before the release, even if
 their old task definitions used mutable tags. Backend services promote one at a
-time and must reach the requested task revision. The web index publishes last.
+time, in the order api, assistant, gateway, and must reach the requested task
+revision. The web index publishes last.
+
+A service counts as healthy only when every running task is on
+the requested revision with container `healthStatus` HEALTHY. The script polls
+30 times at 10 s intervals, up to about 5 minutes per service, and otherwise
+rolls back. The api update never starts between 05:50 and 06:10 UTC, so the
+06:00 UTC inactivity cron never meets an api restart, and a release can wait
+up to 20 minutes (it prints a line before it waits). The cron reaches only the
+api, so the assistant and gateway updates and every rollback update do not
+wait. Deploy takes a fresh one-hour AWS session just before the release, so
+the waits cannot outlast the credentials.
+
+Before any change, the release refuses a revision (the planned one, built on
+the Terraform template, and the preflight's assistant rollback) that sets
+`ALLOW_INSECURE_LOCAL` or `LOCAL_AUTH_KEY_FILE`, overrides the image command or
+entry point, runs privileged, uses the host network, PID or IPC namespace,
+mounts a host path, sets a non-numeric `UVICORN_WORKERS` or
+`UVICORN_TIMEOUT_KEEP_ALIVE`, or takes a proxy secret from anywhere but its own
+target's SSM parameter (the assistant must never hold the api's). The
+assistant rollback must also keep the planned ports and a health check.
 
 Any failure rolls changed services back, restores all previous public files even
 if asset upload stopped halfway, and waits for cache invalidation. Each attempt

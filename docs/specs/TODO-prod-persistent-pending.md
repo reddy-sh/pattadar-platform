@@ -34,6 +34,23 @@ Grouped from the 27/09/2026 plan. Changed key names only; re-plan before acting.
   CloudTrail bucket (create) — effectively irreversible once enabled.**
 - **ECR:** image tag mutability on four repositories; replace four lifecycle
   policies.
+- **GuardDuty features (added 25/10/2026, code only):** three
+  `aws_guardduty_detector_feature.pinned` creates — S3_DATA_EVENTS ENABLED,
+  RDS_LOGIN_EVENTS DISABLED (~$2.38/month while RDS runs; turn on at launch),
+  RUNTIME_MONITORING DISABLED. Live feature state is unknown, so the saving may
+  be $0. The Malware Protection plan is unchanged.
+- **Cost guardrails (added 26/10/2026, code only):** `modules/persistent/budgets.tf`
+  creates a $50 monthly cost budget that excludes credits and refunds, emailing
+  at 90% actual and 100% forecast, plus a Cost Anomaly Detection AWS-services
+  monitor with a daily email above $5 of impact. Both are free (AWS pricing
+  pages, 26/10/2026). Nothing is created until `budget_alert_emails` is set in
+  the git-ignored `prod.auto.tfvars`. Before the apply, check for an existing
+  AWS-services monitor: AWS allows one per account and auto-creates it for
+  newer Cost Explorer accounts. If one exists, import it with a root `import`
+  block or the create fails. Land that import in the same reviewed change that
+  sets `budget_alert_emails`: `scripts/platform-up.sh` step 1 applies
+  persistent with `-auto-approve`, so a failed create aborts every bring-up
+  before the runtime is touched.
 
 Each needs a fresh plan, Reddy's approval and a fresh confirmation right before
 `terraform apply`. A `-target` on anything that reads a Secrets Manager secret

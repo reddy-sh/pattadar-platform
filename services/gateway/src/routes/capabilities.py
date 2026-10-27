@@ -16,7 +16,7 @@ from fastapi.responses import Response
 from starlette.background import BackgroundTask
 
 from .. import auth
-from ..internal_api import record_audit
+from ..internal_api import internal_headers, record_audit
 from .proxy import _api_base_url
 from .storage import MAX_UPLOAD_BYTES, _cd, _err, _scope, get_storage
 
@@ -44,12 +44,14 @@ async def _api(method: str, path: str, body: dict | None = None) -> httpx.Respon
     base = _api_base_url()
     if not base:
         raise HTTPException(503, "Recipient access is temporarily unavailable")
-    # No inbound headers, query arguments or absolute URLs cross this boundary.
+    # No inbound headers, query arguments or absolute URLs cross this boundary;
+    # only the gateway's own proof of origin does.
+    headers = internal_headers("api")
     try:
         if auth.proxy_client:
-            return await auth.proxy_client.request(method, base + path, json=body, timeout=30)
+            return await auth.proxy_client.request(method, base + path, json=body, headers=headers, timeout=30)
         async with httpx.AsyncClient(timeout=30) as client:
-            return await client.request(method, base + path, json=body)
+            return await client.request(method, base + path, json=body, headers=headers)
     except httpx.RequestError:
         raise HTTPException(502, "Recipient access could not be reached") from None
 

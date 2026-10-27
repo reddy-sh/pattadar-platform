@@ -42,13 +42,22 @@ jobs:
           terraform -chdir=infra/terraform/envs/prod/runtime init -input=false
           terraform -chdir=infra/terraform/envs/prod/persistent init -input=false
           terraform -chdir=infra/terraform/envs/prod/persistent output -json ecr_repository_urls > /tmp/release-repositories.json
+          terraform -chdir=infra/terraform/envs/prod/runtime output -json task_definition_arns > /tmp/release-templates.json
+          # Assign before echoing: set -e ignores a failed $(...) inside echo's
+          # arguments, which would export an empty value and fail mid-release.
+          cluster="$(terraform -chdir=infra/terraform/envs/prod/runtime output -raw ecs_cluster_name)"
+          spa_bucket="$(terraform -chdir=infra/terraform/envs/prod/runtime output -raw spa_bucket_name)"
+          distribution_id="$(terraform -chdir=infra/terraform/envs/prod/runtime output -raw cloudfront_distribution_id)"
+          cognito_authority="$(terraform -chdir=infra/terraform/envs/prod/persistent output -raw cognito_issuer)"
+          cognito_client_id="$(terraform -chdir=infra/terraform/envs/prod/persistent output -raw cognito_spa_client_id)"
+          cognito_domain="$(terraform -chdir=infra/terraform/envs/prod/persistent output -raw cognito_hosted_ui_domain)"
           {
-            echo "CLUSTER=$(terraform -chdir=infra/terraform/envs/prod/runtime output -raw ecs_cluster_name)"
-            echo "SPA_BUCKET=$(terraform -chdir=infra/terraform/envs/prod/runtime output -raw spa_bucket_name)"
-            echo "DISTRIBUTION_ID=$(terraform -chdir=infra/terraform/envs/prod/runtime output -raw cloudfront_distribution_id)"
-            echo "VITE_COGNITO_AUTHORITY=$(terraform -chdir=infra/terraform/envs/prod/persistent output -raw cognito_issuer)"
-            echo "VITE_COGNITO_CLIENT_ID=$(terraform -chdir=infra/terraform/envs/prod/persistent output -raw cognito_spa_client_id)"
-            echo "VITE_COGNITO_DOMAIN=$(terraform -chdir=infra/terraform/envs/prod/persistent output -raw cognito_hosted_ui_domain)"
+            echo "CLUSTER=$cluster"
+            echo "SPA_BUCKET=$spa_bucket"
+            echo "DISTRIBUTION_ID=$distribution_id"
+            echo "VITE_COGNITO_AUTHORITY=$cognito_authority"
+            echo "VITE_COGNITO_CLIENT_ID=$cognito_client_id"
+            echo "VITE_COGNITO_DOMAIN=$cognito_domain"
             echo "VITE_COGNITO_REDIRECT_URI=https://pattadar.com/auth/callback"
           } >> "$GITHUB_ENV"
       - run: bun install --frozen-lockfile
@@ -77,8 +86,15 @@ jobs:
             aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin "${repo%%/*}"
             docker buildx build --platform linux/arm64 --provenance=false --tag "$repo:$RELEASE_SHA" --push "services/$service"
           done
+      # A fresh one-hour session: the builds above, the cron hold (up to 20
+      # minutes) and per-service stable and health waits, plus a rollback that
+      # waits again, can outlast the first one.
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ap-south-1
       - name: Deploy matching backend and web revisions
-        run: python3 scripts/deploy-release.py --cluster "$CLUSTER" --repositories /tmp/release-repositories.json --sha "$RELEASE_SHA" --preflight /tmp/release-preflight.json --web-origin spa --spa-bucket "$SPA_BUCKET" --distribution "$DISTRIBUTION_ID" --execute
+        run: python3 scripts/deploy-release.py --cluster "$CLUSTER" --repositories /tmp/release-repositories.json --sha "$RELEASE_SHA" --preflight /tmp/release-preflight.json --web-origin spa --spa-bucket "$SPA_BUCKET" --distribution "$DISTRIBUTION_ID" --templates /tmp/release-templates.json --execute
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:

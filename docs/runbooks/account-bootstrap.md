@@ -88,6 +88,13 @@ Cost Anomaly Detection (console): Billing and Cost Management → **Cost Anomaly
 Detection** → Create monitor → "AWS services" (all) → alert subscription: daily
 summaries to the same email.
 
+The prod persistent Terraform now declares a $50 monthly budget and an
+"AWS services" anomaly monitor (`modules/persistent/budgets.tf`). It is code
+only and not applied (docs/specs/TODO-prod-persistent-pending.md). An account
+can hold only one AWS-services monitor, so before that apply, import any
+monitor created here or point the subscription at it, rather than creating a
+second.
+
 ## 7. Install Terraform (>= 1.10)
 
 ```sh
@@ -160,3 +167,75 @@ working on Azure DNS until the registrar NS switch. Order matters:
    ```
 
 6. Only after verification is clean for 48h: delete the Azure DNS zone.
+
+## 11. App SSM SecureStrings
+
+After the persistent apply (it creates the CMK `alias/pattadar-<env>`) and
+before the first runtime apply. Repeat per environment. Every command here
+writes to AWS, so Reddy runs it or approves it for that environment.
+
+The runtime reads five SecureStrings that live outside Terraform. Their values
+never enter state or tfvars, and platform-down never deletes them.
+`scripts/platform-up.sh` refuses to apply while any of them is missing.
+
+| Name (`/pattadar/<env>/…`) | Read by | Value |
+|---|---|---|
+| `db-app-password` | all three services as `PG_PASSWORD` | must match the `pattadar_app` role in the database (reserved, see below) |
+| `cron-secret` | api `CRON_SECRET`, and the scheduler connection (the one value that enters state) | copy `pattadar/<env>/cron-secret` from Secrets Manager |
+| `anthropic-api-key` | gateway, api and assistant `ANTHROPIC_API_KEY` | copy `pattadar/<env>/anthropic-api-key` from Secrets Manager |
+| `internal-proxy-secret-api` | gateway `INTERNAL_PROXY_SECRET_API`, api `INTERNAL_PROXY_SECRET` | new random value |
+| `internal-proxy-secret-assistant` | gateway `INTERNAL_PROXY_SECRET_ASSISTANT`, assistant `INTERNAL_PROXY_SECRET` | new random value, never the same as the api one |
+
+Pass each value through a private file, never on the command line, and delete
+the file afterwards. `tr -d '\n'` keeps a trailing newline out of the value.
+Always pass `--key-id`: `scripts/platform-up.sh` refuses a parameter under the
+default `aws/ssm` key, which any principal in the account can decrypt through
+SSM.
+
+```sh
+ENV=prod                       # or dev
+umask 077; d=$(mktemp -d)
+put() {                        # put <name> <file>
+  aws ssm put-parameter --type SecureString --key-id "alias/pattadar-${ENV}" \
+    --name "/pattadar/${ENV}/$1" --value "file://$2"
+}
+
+for n in cron-secret anthropic-api-key; do
+  aws secretsmanager get-secret-value --secret-id "pattadar/${ENV}/$n" \
+    --query SecretString --output text | tr -d '\n' > "$d/$n"
+  put "$n" "$d/$n"
+done
+for n in internal-proxy-secret-api internal-proxy-secret-assistant; do
+  openssl rand -hex 32 | tr -d '\n' > "$d/$n"
+  put "$n" "$d/$n"
+done
+rm -rf "$d"
+```
+
+`db-app-password` is **reserved for Reddy**. The old runtime secret
+`pattadar/<env>/db-app-password` was destroyed with the runtime, so its value
+is probably past recovery. Generate a new value
+(`openssl rand -base64 30 | tr -d '/+=\n'`), store it the same way, and set it
+on the role as the RDS master user, whose credential is the RDS-managed secret
+(`rds_master_secret_arn` output). RDS is not public, so this needs an approved
+network path into the VPC. Run `ALTER ROLE pattadar_app PASSWORD '…'` on a
+restored database, or create the role and the `hub` database on a fresh one,
+as `scripts/platform-up.sh` prints. The order is forced: the parameter must
+exist before `platform-up.sh` applies, but the role can only be changed once
+RDS is up. So store the parameter, run the up, and expect its
+smoke to fail on database login. Then run the SQL, force a new deployment of
+the three services, and re-run the smoke. Each step needs Reddy's approval.
+
+Verify with names only, never values:
+
+```sh
+aws ssm describe-parameters \
+  --parameter-filters "Key=Name,Option=BeginsWith,Values=/pattadar/${ENV}/" \
+  --query "Parameters[].[Name,Type]" --output table
+```
+
+Changing a value later is `put-parameter --overwrite` (approved). The services
+read it only at task start, so restart the services that share it together.
+For a proxy secret that means the gateway and its target; while they disagree,
+the target answers 403. Never `delete-parameter`: deletion is immediate and
+permanent, and losing `db-app-password` forces the reserved `ALTER ROLE`.

@@ -58,21 +58,29 @@ resource "aws_db_instance" "main" {
 }
 
 # --- Application database credential ----------------------------------------
-# Every service connects as pattadar_app with this static password, taking the
+# Every service connects as pattadar_app with a static password, taking the
 # host/port/user/database as plain env and only the password as a secret.
 #
-# There used to be a second secret here, pattadar/<env>/db-dsn, composed from
-# the RDS-managed MASTER credential and handed to the api as APP_PG_DSN. Two
-# things were wrong with it: RDS rotates that master password about every
-# seven days, so every new api connection failed until an operator re-applied
-# and forced a redeployment; and composing it in Terraform wrote the master
-# password into state, where the CI read roles could reach it. Both are gone.
+# The password lives in the SSM SecureString /<app>/<env>/db-app-password
+# (local.ssm_arns), created out of band under the persistent CMK so it never
+# transits Terraform state and survives platform-down/up. platform-up.sh
+# refuses to continue while it is missing; losing it means a master-user
+# ALTER ROLE (reserved).
 #
-# The password value is seeded out of band (see platform-up.sh, which creates
-# the role and the database and refuses to continue while this secret has no
-# version) so that it never transits Terraform state.
-resource "aws_secretsmanager_secret" "db_app_password" {
-  name       = "${var.app_name}/${var.environment}/db-app-password"
-  kms_key_id = local.persistent.kms_key_arn
-  tags       = local.tags
+# There used to be a second secret here, pattadar/<env>/db-dsn, composed from
+# the RDS-managed MASTER credential and handed to the api as APP_PG_DSN. RDS
+# rotates that master password about every seven days, so every new api
+# connection failed until an operator re-applied, and composing it wrote the
+# master password into state. Neither is deployed any more.
+
+# The old Secrets Manager container for this password left the module with
+# the move to SSM. Any state that still holds it forgets it rather than
+# deleting it: it is the copy source for the SSM value, and the containers are
+# retired in a later, separate change (Reddy, 26/10/2026).
+removed {
+  from = aws_secretsmanager_secret.db_app_password
+
+  lifecycle {
+    destroy = false
+  }
 }

@@ -5,13 +5,14 @@
 # (ValidationException: Arn not in correct format — verified empirically);
 # scheduled rules do.
 #
-# The header value is read from the persistent cron-secret secret, so the
-# founder must have filled it (`aws secretsmanager put-secret-value`) BEFORE
-# the first runtime apply — otherwise this data source fails with
-# ResourceNotFoundException on the secret version. See README apply order.
+# The header value is read from the out-of-band SSM SecureString
+# /<app>/<env>/cron-secret (the one the api takes as CRON_SECRET), so it must
+# exist BEFORE the first runtime apply — otherwise this data source fails with
+# ParameterNotFound. Like the old Secrets Manager read, the value lands in
+# state through the connection; it is the only secret that does.
 
-data "aws_secretsmanager_secret_version" "cron_secret" {
-  secret_id = local.persistent.secret_arns["cron-secret"]
+data "aws_ssm_parameter" "cron_secret" {
+  name = "/${var.app_name}/${var.environment}/cron-secret"
 }
 
 resource "aws_cloudwatch_event_connection" "cron" {
@@ -22,7 +23,7 @@ resource "aws_cloudwatch_event_connection" "cron" {
   auth_parameters {
     api_key {
       key   = "x-cron-secret"
-      value = data.aws_secretsmanager_secret_version.cron_secret.secret_string
+      value = data.aws_ssm_parameter.cron_secret.value
     }
   }
 }

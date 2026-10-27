@@ -20,3 +20,16 @@ api_base_url = "https://api-dev.pattadar.com"
 
 # Optional: skip the down-flip dance for a throwaway dev database:
 # deletion_protection = false
+
+# App secrets are SSM SecureStrings created OUT OF BAND (never in tfvars or
+# Terraform state) under the persistent CMK, before the first runtime apply:
+#   /pattadar/dev/db-app-password                  PG_PASSWORD (all three services)
+#   /pattadar/dev/cron-secret                      CRON_SECRET + the cron connection header
+#   /pattadar/dev/anthropic-api-key                ANTHROPIC_API_KEY
+#   /pattadar/dev/internal-proxy-secret-api        gateway -> api only
+#   /pattadar/dev/internal-proxy-secret-assistant  gateway -> assistant only
+# e.g. aws ssm put-parameter --type SecureString --key-id alias/pattadar-dev \
+#        --name /pattadar/dev/<name> --value file://<file>
+# The --key-id is required: platform-up refuses a parameter under the default
+# aws/ssm key, which any principal in the account can decrypt through SSM. Its
+# check reads names and key ids, never values.

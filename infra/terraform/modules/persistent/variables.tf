@@ -225,9 +225,15 @@ variable "manage_dns" {
 }
 
 variable "manage_org_security" {
-  description = "Create CloudTrail (trail + bucket), AWS Config recorder and GuardDuty (detector + S3 malware protection). Account/region singletons: enable in exactly one env per AWS account."
+  description = "Create CloudTrail (trail + bucket), AWS Config recorder, GuardDuty (detector + S3 malware protection) and, with budget_alert_emails set, the cost budget and anomaly alerts. Account/region singletons: enable in exactly one env per AWS account."
   type        = bool
   default     = true
+}
+
+variable "budget_alert_emails" {
+  description = "Addresses for the monthly cost budget and Cost Anomaly Detection alerts (budgets.tf). Empty creates neither; both also need manage_org_security. Set in the git-ignored *.auto.tfvars, never in a tracked file."
+  type        = list(string)
+  default     = []
 }
 
 variable "manage_ecr" {

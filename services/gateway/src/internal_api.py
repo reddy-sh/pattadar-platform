@@ -29,10 +29,20 @@ AUDIT_INGEST_PATH = "/internal/audit/ingest"
 _AUDIT_TIMEOUT = httpx.Timeout(5.0, connect=2.0)
 
 
-def internal_headers() -> dict:
-    """Headers for a gateway-minted call to a private service.
+#: Each private service gets its own secret, read in this order. The assistant
+#: has no fallback to the legacy shared name: the api's value must never reach
+#: the service that parses untrusted attachments.
+_TARGET_SECRETS = {
+    "api": ("INTERNAL_PROXY_SECRET_API", "INTERNAL_PROXY_SECRET"),
+    "assistant": ("INTERNAL_PROXY_SECRET_ASSISTANT",),
+}
 
-    Fails OPEN when INTERNAL_PROXY_SECRET is unset or empty — the local stack
+
+def internal_headers(target: str = "api") -> dict:
+    """Headers for a gateway-minted call to a private service, ``api`` or
+    ``assistant``.
+
+    Fails OPEN when the target's secret is unset or empty — the local stack
     and a half-rolled-out deployment have to keep working. Once the variable
     is set on both sides it is the upstream check that fails closed.
     """
@@ -40,9 +50,11 @@ def internal_headers() -> dict:
     request_id = current_request_id()
     if request_id:
         headers[REQUEST_ID_HEADER] = request_id
-    secret = os.getenv("INTERNAL_PROXY_SECRET", "").strip()
-    if secret:
-        headers[INTERNAL_PROXY_SECRET_HEADER] = secret
+    for name in _TARGET_SECRETS[target]:
+        secret = os.getenv(name, "").strip()
+        if secret:
+            headers[INTERNAL_PROXY_SECRET_HEADER] = secret
+            break
     return headers
 
 
@@ -82,13 +94,13 @@ async def record_audit(
             response = await client.post(
                 base + AUDIT_INGEST_PATH,
                 json=payload,
-                headers=internal_headers(),
+                headers=internal_headers("api"),
                 timeout=_AUDIT_TIMEOUT,
             )
         else:
             async with httpx.AsyncClient(timeout=_AUDIT_TIMEOUT) as fresh:
                 response = await fresh.post(
-                    base + AUDIT_INGEST_PATH, json=payload, headers=internal_headers()
+                    base + AUDIT_INGEST_PATH, json=payload, headers=internal_headers("api")
                 )
         if response.status_code >= 400:
             _log.warning(

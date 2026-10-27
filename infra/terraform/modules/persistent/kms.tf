@@ -1,5 +1,6 @@
 # Customer-managed KMS key encrypting S3 documents, Secrets Manager secrets,
-# CloudWatch log groups and the SNS alarms topic (runtime layer).
+# SSM SecureStrings, CloudWatch log groups and the SNS alarms topic (runtime
+# layer).
 
 data "aws_iam_policy_document" "kms" {
   statement {

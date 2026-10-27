@@ -28,6 +28,14 @@ provider "aws" {
 
 data "aws_caller_identity" "current" {}
 
+variable "enable_waf" {
+  description = "Attach the WAF web ACL to the University distribution."
+  type        = bool
+  # Off (Reddy, 25/10/2026): static OAC-only S3 site, GET/HEAD only, no server
+  # to attack; the ACL was ~$6 of the stack's ~$6/month.
+  default = false
+}
+
 data "terraform_remote_state" "persistent" {
   backend = "s3"
   config = {
@@ -139,6 +147,7 @@ resource "aws_acm_certificate_validation" "site" {
 }
 
 resource "aws_wafv2_web_acl" "site" {
+  count    = var.enable_waf ? 1 : 0
   provider = aws.us_east_1
   name     = "pattadar-prod-university"
   scope    = "CLOUDFRONT"
@@ -201,7 +210,7 @@ resource "aws_cloudfront_distribution" "site" {
   aliases             = [local.domain]
   default_root_object = "index.html"
   price_class         = "PriceClass_200"
-  web_acl_id          = aws_wafv2_web_acl.site.arn
+  web_acl_id          = var.enable_waf ? aws_wafv2_web_acl.site[0].arn : null
 
   origin {
     origin_id                = "university-site"

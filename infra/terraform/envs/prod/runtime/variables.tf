@@ -93,7 +93,9 @@ variable "enable_cdn" {
 variable "enable_waf" {
   description = "Attach the WAF web ACL to CloudFront."
   type        = bool
-  default     = true
+  # Off until launch (Reddy, 25/10/2026): ~$8/month guarding a pre-launch SPA.
+  # Turn back on before real users.
+  default = false
 }
 
 variable "waf_block_mode" {

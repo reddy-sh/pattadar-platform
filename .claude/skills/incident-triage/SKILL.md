@@ -5,7 +5,7 @@ compatibility: Requires pattadar-platform runbooks and logs. Repository analysis
 metadata:
   project: pattadar-platform
   standard: agentskills.io
-  verified: "2026-10-09"
+  verified: "2026-10-26"
 ---
 
 # Incident Triage

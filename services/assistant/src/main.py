@@ -414,7 +414,8 @@ async def health():
 @app.get("/internal/metrics")
 async def metrics():
     """Under /internal so the gateway refuses to proxy it: aggregate usage and
-    error counters are for an in-task scraper, not for signed-in users."""
+    error counters are for an operator holding the internal secret, not for
+    signed-in users."""
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 

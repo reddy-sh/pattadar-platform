@@ -20,6 +20,8 @@ architecture, not proof of applied AWS state.
   capabilities/account/admin routes, buffered API proxy, streaming assistant proxy.
 - `services/api`: FastAPI + Strawberry product/W360 domains; trusts gateway
   `x-user-id`; cron is the single ALB-routed exception protected by `CRON_SECRET`.
+  Its container entry `src/private_ingress.py` refuses everything else without
+  the gateway's `INTERNAL_PROXY_SECRET`.
 - `services/assistant`: authenticated SSE chat, durable conversation/run state,
   bounded tools, owner-scoped attachments, optional read-only public records.
 
@@ -35,8 +37,8 @@ flowchart LR
   EDGE -->|/api/*| ALB
   ALB -->|/api/*| GW[services/gateway]
   ALB -->|/cron/inactivity-check only| API[services/api]
-  GW -->|validated x-user-id| API
-  GW -->|validated SSE| AST[services/assistant]
+  GW -->|validated x-user-id + api proxy secret| API
+  GW -->|validated x-user-id + assistant proxy secret, SSE| AST[services/assistant]
   GW --> S3[(S3 documents)]
   GW & API & AST --> PG[(PostgreSQL/RDS)]
   API & AST --> ANT[Anthropic]
@@ -61,14 +63,21 @@ the control that guards it:
   pins type and size range), then HeadObject re-reads the size before the file
   row exists (`services/gateway/src/storage.py`).
 - `/internal/*`: refused by the proxy (`_private_path` in
-  `services/gateway/src/routes/proxy.py`); the API's second lock,
-  `x-internal-proxy-secret`, fails open while `INTERNAL_PROXY_SECRET` is unset.
+  `services/gateway/src/routes/proxy.py`). In the container the API's
+  `private_ingress` wrapper requires `x-internal-proxy-secret` on every path
+  except `/health` and the cron path, and refuses to start without it unless
+  `ALLOW_INSECURE_LOCAL=1`. The local stack runs `src.main:app` directly, where
+  the inner check still fails open while `INTERNAL_PROXY_SECRET` is unset. The
+  gateway sends per-target secrets (`INTERNAL_PROXY_SECRET_API`,
+  `INTERNAL_PROXY_SECRET_ASSISTANT`); `deploy-release.py` refuses a release
+  without them or with `ALLOW_INSECURE_LOCAL`.
 
 ## Persistent/runtime split
 
 Persistent: KMS, S3 documents/logs/village maps (`/vm/*`, served by runtime
 CloudFront), ECR, Secrets Manager, Cognito, DNS/SES,
-CloudTrail/Config/GuardDuty, GitHub OIDC. Runtime: VPC/public subnets (no NAT),
+CloudTrail/Config/GuardDuty, GitHub OIDC. Out of band (neither root): the five
+app SSM SecureStrings `/pattadar/<env>/*`. Runtime: VPC/public subnets (no NAT),
 ALB, ECS gateway/api/assistant, non-public RDS, CloudFront/WAF/SPA,
 scheduler, logs/alarms/SNS. Runtime reads persistent outputs through remote
 state and is recreated by reviewed lifecycle scripts.
@@ -83,7 +92,7 @@ to the ALB, whose default action is that empty target group.
 University (`infra/terraform/envs/prod/university`) is a third, standalone
 root: always on, no dev twin, outside platform-up/down. `deploy-university.yml`
 publishes the site from its outputs but never applies it. It owns its own S3
-site, ACM, WAF, CloudFront (S3 origin, GET/HEAD only) and Cognito client, reads
+site, ACM, optional WAF, CloudFront (S3 origin, GET/HEAD only) and Cognito client, reads
 persistent outputs (Cognito pool/issuer/hosted UI domain, Route 53 zone), and
 calls no Pattadar API.
 
@@ -101,7 +110,8 @@ fees, and audit.
 
 ## Invariants
 
-Gateway-derived identity; one secret-guarded direct cron path; immutable
+Gateway-derived identity; one secret-guarded direct cron path, plus a
+gateway-only proxy secret; immutable
 issuer/subject identity; durable non-replayed AI work; server-side authority;
 scoped public tokens; verbatim storage keys; persistent/runtime separation;
 exact-revision release; additive compatibility; DD/MM/YYYY; implemented is not

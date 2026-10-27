@@ -79,9 +79,10 @@ async def check_account_access(request, claims):
 async def upstream(base, path, owner, method="GET", body=None, timeout=_DEFAULT_TIMEOUT):
     if not base:
         raise HTTPException(503, "Account service unavailable")
+    target = "assistant" if base == _assistant_base_url() else "api"
     async def send(client):
         response = await client.request(method, base + path,
-                                        headers={"x-user-id": owner, **internal_headers()}, json=body,
+                                        headers={"x-user-id": owner, **internal_headers(target)}, json=body,
                                         timeout=timeout)
         if response.status_code >= 400:
             # API validation messages are safe; private upstream response bodies
@@ -149,7 +150,7 @@ def _attachment_reader(owner):
         try:
             response = client.send(client.build_request(
                 "GET", f"{base}/api/attachments/{attachment_id}",
-                headers={"x-user-id": owner, **internal_headers()}), stream=True)
+                headers={"x-user-id": owner, **internal_headers("assistant")}), stream=True)
         except Exception:
             client.close()
             raise

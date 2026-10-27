@@ -5,7 +5,7 @@ compatibility: Requires pattadar-platform release workflows and runbooks. Live G
 metadata:
   project: pattadar-platform
   standard: agentskills.io
-  verified: "2026-10-09"
+  verified: "2026-10-26"
 ---
 
 # Release Readiness

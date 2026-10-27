@@ -5,7 +5,7 @@ compatibility: Requires pattadar-platform Terraform/scripts/runbooks. Static ana
 metadata:
   project: pattadar-platform
   standard: agentskills.io
-  verified: "2026-10-09"
+  verified: "2026-10-26"
 ---
 
 # Platform Lifecycle
@@ -13,7 +13,7 @@ metadata:
 Use repository scripts/runbooks, not ad-hoc Terraform/AWS commands. Identify dev
 or prod and persistent versus runtime scope before proposing anything.
 `infra/terraform/envs/prod/university` is a separate always-on root (own S3,
-CloudFront, WAF, ACM, Cognito client; reads prod persistent outputs; site ships
+CloudFront, optional WAF, ACM, Cognito client; reads prod persistent outputs; site ships
 via `deploy-university.yml`): up/down never touch it and it stays up while parked.
 
 Not this skill: row/object reconciliation after a restore (safe-data-migration).
@@ -31,13 +31,16 @@ Not this skill: row/object reconciliation after a restore (safe-data-migration).
    ~12 h Standard / ~48 h Bulk, 180-day minimum charge). Dev parks in GLACIER_IR
    (no thaw) and runs without CDN (`dev.auto.tfvars`).
 3. STOP and escalate to Reddy (no rerun, no hand fix) when:
-   - `pattadar/<env>/db-app-password` is missing, empty or scheduled for
-     deletion. It is a runtime secret (`modules/runtime/rds.tf:74`), so a down
-     schedules it for deletion and up exits at step 3b on every rerun; never apply the remedy
-     the script prints without approval.
-   - prod down while the SPA bucket holds objects: no `force_destroy`
-     (`modules/runtime/cloudfront.tf:12`), so destroy fails, parking never runs
-     and every rerun fails the same way.
+   - any of the five out-of-band SSM SecureStrings `/pattadar/<env>/*` is
+     missing. Up exits at step 3 on every rerun. They live outside Terraform, so
+     a down never deletes them, and an agent never creates them. A missing
+     `db-app-password` must match the `pattadar_app` role (new value plus a
+     master-user `ALTER ROLE`), so never apply the remedy the script prints
+     without approval.
+   - prod down while the SPA bucket holds objects and `force_destroy`
+     (`modules/runtime/cloudfront.tf:18`) has not reached state through a full
+     up apply. After a partial down, step 2 skips its apply, so destroy fails,
+     parking never runs and every rerun fails the same way.
    - the approved `terraform plan` of both roots, run with the `TF_VAR_*` the
      script sets (restore snapshot for up, `deletion_protection=false` for
      down), shows any persistent change or an unexpected runtime
@@ -49,7 +52,7 @@ Not this skill: row/object reconciliation after a restore (safe-data-migration).
    target-group health and check pending SNS confirmations separately (approved
    AWS reads); never rerun on a smoke `FAIL` alone.
 5. After an up, services run the mutable `*_image_tag` images, not the last
-   release (`modules/runtime/ecs.tf:342-349`), and the prod SPA bucket is
+   release (`modules/runtime/ecs.tf:370-377`), and the prod SPA bucket is
    empty. Hand off to release-readiness to re-pin the last released SHA
    (separately approved) before calling the environment restored.
 6. Outside the STOP cases, recover an interrupted run by rerunning the same
