@@ -6,6 +6,11 @@ output "kms_key_arn" {
   value = module.persistent.kms_key_arn
 }
 
+# The runtime grants and injects the Aadhaar field-encryption key from this.
+output "aadhaar_kms_key_arn" {
+  value = module.persistent.aadhaar_kms_key_arn
+}
+
 output "documents_bucket_name" {
   value = module.persistent.documents_bucket_name
 }
