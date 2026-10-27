@@ -143,9 +143,15 @@ EOF
   recoverable. Otherwise generate one ('openssl rand -base64 30 | tr -d /+=')
   and, as the master user (docs/runbooks/migration.md):
     restored database: ALTER ROLE pattadar_app PASSWORD '<that value>';
-    fresh database:    CREATE ROLE pattadar_app LOGIN PASSWORD '<that value>';
+    fresh database (PostgreSQL 17 needs the temporary membership to hand
+    over ownership, and the api must own pattadar to create its tables):
+                       CREATE ROLE pattadar_app LOGIN PASSWORD '<that value>';
+                       GRANT pattadar_app TO <master user>;
                        CREATE DATABASE hub OWNER pattadar_app;
-                       GRANT ALL PRIVILEGES ON DATABASE hub TO pattadar_app;
+                       ALTER DATABASE pattadar OWNER TO pattadar_app;
+                       \c pattadar
+                       ALTER SCHEMA public OWNER TO pattadar_app;
+                       REVOKE pattadar_app FROM <master user>;
 EOF
     fi
   } >&2

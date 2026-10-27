@@ -227,9 +227,17 @@ is probably past recovery. Generate a new value
 (`openssl rand -base64 30 | tr -d '/+=\n'`), store it the same way, and set it
 on the role as the RDS master user, whose credential is the RDS-managed secret
 (`rds_master_secret_arn` output). RDS is not public, so connect through an SSM
-port-forward on the ECS host. Run `ALTER ROLE pattadar_app PASSWORD '…'` on a
-restored database, or create the role and the `hub` database on a fresh one,
-as `scripts/platform-up.sh` prints. The order is forced: the parameter must
+port-forward on the ECS host: `aws ssm start-session --target <host_instance_id>
+--document-name AWS-StartPortForwardingSessionToRemoteHost` to a local port,
+then `psql` with `PGSSLMODE=require`. This needs the Session Manager plugin; if
+Homebrew asks for a password it cannot get, copy the signed binary from AWS's
+`sessionmanager-bundle.zip` into `~/.local/bin` (check `codesign --verify`
+first). Run `ALTER ROLE pattadar_app PASSWORD '…'` on a restored database. On a
+fresh one, run the full fresh-database SQL that `scripts/platform-up.sh`
+prints: besides the role and `hub`, the api must own the `pattadar` database
+and its `public` schema, and PostgreSQL 17 only lets the master hand over
+ownership while it is temporarily a member of `pattadar_app` (proven in the
+dev proof, 27/10/2026). The order is forced: the parameter must
 exist before `platform-up.sh` applies, but the role can only be changed once
 RDS and the host are up. So store the parameter, run the up, and expect its
 smoke to fail on database login. Then run the SQL, force a new deployment of

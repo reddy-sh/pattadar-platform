@@ -169,8 +169,15 @@ resource "aws_instance" "host" {
   }
 
   # The ECS and SSM agents register at first boot with these policies, and
-  # cloud-init's dnf needs the egress rule (the SG has no inline egress).
-  depends_on = [aws_iam_role_policy_attachment.host_managed, aws_vpc_security_group_egress_rule.host_all]
+  # cloud-init's dnf needs the egress rule (the SG has no inline egress). The
+  # route must outlive the host on destroy: without it the ECS agent loses its
+  # endpoint, the services never finish draining and the destroy deadlocks
+  # (dev proof, 27/10/2026).
+  depends_on = [
+    aws_iam_role_policy_attachment.host_managed,
+    aws_vpc_security_group_egress_rule.host_all,
+    aws_route_table_association.public,
+  ]
 
   tags = merge(local.tags, { Name = "${local.prefix}-ecs-host" })
 }

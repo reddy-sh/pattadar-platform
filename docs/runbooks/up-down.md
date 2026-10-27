@@ -110,6 +110,24 @@ scripts are idempotent from any interruption point.
 - The SSM SecureStrings and the persistent Secrets Manager secrets are outside
   the runtime state, so a down never deletes them and an up never recreates
   them.
+- **Network dropped mid-apply** ("failed to upload state", `errored.tfstate`
+  in the root folder): Terraform could not save what it created. Do not re-run
+  first; that forks the state. With Reddy's approval: read the lock ID from the
+  `<env>/runtime.tfstate.tflock` object, `terraform force-unlock -force <ID>`,
+  then `terraform state push errored.tfstate` (Terraform refuses a different
+  lineage or an older serial), confirm the lineage matches, delete the local
+  copy (it holds state-derived data), and re-run the script.
+- **CloudFront VPC origins marked tainted** after an interrupted create: check
+  they are `Deployed` (`aws cloudfront list-vpc-origins`), then, with approval,
+  `terraform untaint` both and re-run. Letting Terraform replace them fails:
+  the new origin gets the same instance-derived name ("already exists").
+- **Gateway crash-loops with exit code 3** after a bare up: it needs
+  `IDENTITY_LEGACY_BINDINGS`, which a release (Deploy) injects from reviewed
+  migration evidence. `platform-up.sh` alone never sets it. For an empty
+  installation the value is `{}`.
+- Re-running `platform-up.sh` on a live stack is safe for the database: the
+  restore snapshot applies only when the instance is created
+  (`ignore_changes`), so a found final snapshot never replaces it.
 
 ## Parked-state monthly cost (approx, ap-south-1)
 

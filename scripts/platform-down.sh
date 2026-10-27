@@ -104,6 +104,11 @@ if [[ "$found" != "$cron_param" ]]; then
 fi
 
 export TF_VAR_deletion_protection=false
+# Set before the step-2 apply: destroy reads final_snapshot_identifier from
+# state, so a suffix exported after it never reaches the snapshot name and
+# every down after the first collides on pattadar-<env>-pg-final-manual.
+TF_VAR_final_snapshot_suffix="$(date +%Y%m%d%H%M)"
+export TF_VAR_final_snapshot_suffix
 terraform -chdir="$RUNTIME_DIR" init -input=false
 
 # GUARD (review finding): if a prior down partially destroyed the stack, the
@@ -125,8 +130,6 @@ else
 fi
 
 # --- 3. Destroy runtime (RDS takes a final snapshot) --------------------------
-TF_VAR_final_snapshot_suffix="$(date +%Y%m%d%H%M)"
-export TF_VAR_final_snapshot_suffix
 log "Destroying runtime layer — RDS final snapshot: pattadar-${ENV}-pg-final-${TF_VAR_final_snapshot_suffix} (VPC origins add ~15-30 minutes)"
 terraform -chdir="$RUNTIME_DIR" destroy -input=false -auto-approve
 

@@ -125,28 +125,78 @@ Run `scripts/platform-up.sh dev` for about a day (roughly $2), then
 parameters ([account bootstrap](../runbooks/account-bootstrap.md)
 § "App SSM SecureStrings"). Record evidence for each item:
 
-- [ ] Two VPC origins on one instance ARN (8080, 8081) are accepted
-- [ ] A VPC origin reaches the public-subnet instance with a public IPv4
-- [ ] From inside a task, IMDS times out while task credentials work, and the
+- [x] Two VPC origins on one instance ARN (8080, 8081) are accepted
+- [x] A VPC origin reaches the public-subnet instance with a public IPv4
+- [x] From inside a task, IMDS times out while task credentials work, and the
       `HostUnhealthy` metric reports 0
-- [ ] All three tasks place with `dockerSecurityOptions` `no-new-privileges`
+- [x] All three tasks place with `dockerSecurityOptions` `no-new-privileges`
       (the agent registers `ECS_SELINUX_CAPABLE=true`)
-- [ ] One ECS task-stopped event and one alarm reach the email subscription
+- [~] One ECS task-stopped event and one alarm reach the email subscription
       (after the persistent `EventsUse` KMS statement is applied)
-- [ ] CloudFront access logs for both distributions land under
+- [~] CloudFront access logs for both distributions land under
       `cloudfront/` in the access-logs bucket
-- [ ] The gateway reaches `172.17.0.1:8081` and `:8082`
-- [ ] `describe-tasks` reports `imageDigest` for EC2 tasks
-- [ ] Registered memory is ≥ 3072 MiB, and all three tasks place
-- [ ] `runtime_platform` is accepted on the EC2 task definitions
-- [ ] No 502s at the 65 s keep-alive; a 100 MiB upload and SSE chat work through CloudFront
-- [ ] The smoke passes: gateway 401, anonymous `invitePreview` 200 through the api, cron handler 403, `/graphql` 404, all services running
-- [ ] Session Manager works with no SSH. Measure the api and gateway boot time
+- [~] The gateway reaches `172.17.0.1:8081` and `:8082`
+- [x] `describe-tasks` reports `imageDigest` for EC2 tasks
+- [x] Registered memory is ≥ 3072 MiB, and all three tasks place
+- [x] `runtime_platform` is accepted on the EC2 task definitions
+- [~] No 502s at the 65 s keep-alive; a 100 MiB upload and SSE chat work through CloudFront
+- [x] The smoke passes: gateway 401, anonymous `invitePreview` 200 through the api, cron handler 403, `/graphql` 404, all services running
+- [~] Session Manager works with no SSH. Measure the api and gateway boot time
       against the health-check `startPeriod` (estimates: 120 s and 60 s)
 - [ ] A release through `deploy-release.py` passes the health gate and the
       rollback-shape check
-- [ ] Instance `-replace` and the VPC-origin repoint, timed
-- [ ] `platform-down.sh dev` destroys cleanly, with timing
+- [x] Instance `-replace` and the VPC-origin repoint, timed
+- [x] `platform-down.sh dev` destroys cleanly, with timing
+
+### Dev proof results (26-27/10/2026)
+
+`[x]` proven, `[~]` partly, `[ ]` not run. Evidence is from the dev run at
+commits `d294499`..`a39d85f` (slim images `onesrv-d294499`).
+
+- Both VPC origins (ports 8080, 8081) on one public-subnet instance ARN deployed,
+  and traffic reached the gateway (`/api/*`) and the api (exact cron path).
+- Inside all three tasks: IMDS times out, task credentials return HTTP 200,
+  uid 10001; host DOCKER-USER drop present, IMDSv1 401; `HostUnhealthy` read 1
+  during the crash loop and 0 once healthy.
+- Tasks HEALTHY on EC2 with `no-new-privileges`; `imageDigest` reported;
+  registered memory 3579 MiB (507 MiB left); `runtime_platform` accepted.
+- Smoke through CloudFront: gateway 401, `invitePreview` 200 through
+  gateway → api → RDS (so 172.17.0.1:8081 works), cron 403 from the handler,
+  `/graphql` and `/internal/*` 404 at the edge, cron GET 405 at the edge.
+- Keep-alive: 45/45 requests with no 502 across two 75 s idle gaps.
+- Instance `-replace`: 16 min end to end (instance 17 s, new VPC origins
+  2m11s, api distribution repoint 3m57s, old origins deleted 8m43s), no
+  `CannotUpdateEntityWhileInUse`; services stable and smoke passing after.
+- Partly: task-stopped events reached SNS (315 published) but the email
+  subscription was never confirmed, so no email arrived; CloudFront logs landed
+  for the api distribution (dev has no SPA distribution); the assistant port
+  8082 path, a 100 MiB upload and SSE chat need a signed-in user and were not
+  run; Session Manager port-forwarding works (boot times not measured).
+- Not run: a release through `deploy-release.py` (needs reviewed identity and
+  writer preflight evidence).
+- Down: complete and clean after the fixes below (services 42 min only because of the route deadlock, then instance 1m42s, internet gateway, database 7m0s with a timestamped final snapshot, VPC); documents parked (0 objects). Nothing dev-runtime remains.
+
+Bugs the dev proof found, all fixed on this branch (four are also on main):
+
+1. Env persistent roots never exported `aadhaar_kms_key_arn`, so every runtime
+   plan failed (`b178480`).
+2. Re-running `platform-up.sh` on a live stack planned to replace the database
+   with the newest final snapshot; `snapshot_identifier` is now ignored after
+   creation (`a39d85f`).
+3. Destroy deleted the route table first, the ECS agent lost its endpoint and
+   the services never finished draining (deadlock). The host now depends on its
+   route table association. Unblocked in dev by force-deregistering the
+   disconnected container instance.
+4. `platform-down.sh` exported the final-snapshot suffix after the apply that
+   writes it to state, so every down after the first collided on
+   `pattadar-<env>-pg-final-manual`. The export now precedes that apply.
+5. The fresh-database SQL that `platform-up.sh` prints missed the `pattadar`
+   database and schema ownership (and the PostgreSQL 17 membership step).
+
+Operational notes now in `docs/runbooks/up-down.md`: recovering from a network
+drop mid-apply (`errored.tfstate`, stale lock), tainted VPC origins after an
+interrupted create (verify `Deployed`, untaint), and the gateway's
+`IDENTITY_LEGACY_BINDINGS` (`{}` for an empty installation) after a bare up.
 
 ## Apply sequence
 
