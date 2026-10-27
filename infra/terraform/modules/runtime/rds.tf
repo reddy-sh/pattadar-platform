@@ -55,6 +55,13 @@ resource "aws_db_instance" "main" {
   enabled_cloudwatch_logs_exports = ["postgresql"]
 
   tags = local.tags
+
+  # The restore snapshot applies only when the instance is created. Without
+  # this, re-running platform-up on a live stack (which finds the newest final
+  # snapshot) would replace the running database with that snapshot.
+  lifecycle {
+    ignore_changes = [snapshot_identifier]
+  }
 }
 
 # --- Application database credential ----------------------------------------

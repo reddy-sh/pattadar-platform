@@ -84,7 +84,7 @@ snapshot="$(aws rds describe-db-snapshots \
   --query "reverse(sort_by(DBSnapshots[?starts_with(DBSnapshotIdentifier, 'pattadar-${ENV}-pg-final-')], &SnapshotCreateTime))[0].DBSnapshotIdentifier" \
   --output text 2>/dev/null || true)"
 if [[ -n "$snapshot" && "$snapshot" != "None" ]]; then
-  echo "Restoring RDS from snapshot: ${snapshot}"
+  echo "Restore snapshot: ${snapshot} (used only if the database does not exist yet)"
   export TF_VAR_restore_snapshot_identifier="$snapshot"
 else
   echo "No final snapshot found — RDS will be created fresh (api's init_db() bootstraps the schema)."
