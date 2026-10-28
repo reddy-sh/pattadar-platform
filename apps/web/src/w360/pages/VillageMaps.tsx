@@ -1,4 +1,6 @@
-/** Cadastral maps — the survey department's village shape files, browsable.
+/** Maps (formerly Cadastral maps; Reddy, 25/10/2026) — the survey
+ *  department's village shape files, browsable, under the same layers as a
+ *  property's Maps tab (mapLayers.ts; docs/specs/2026-10-25-pattadar-maps.md).
  *
  *  Everywhere else in this app you start from a record and ask where it is.
  *  Here you start from the ground and ask whose it is, which is how an owner
@@ -16,7 +18,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import UploadFileOutlined from '@mui/icons-material/UploadFileOutlined';
 import DeleteOutlineOutlined from '@mui/icons-material/DeleteOutlineOutlined';
 import PrintOutlined from '@mui/icons-material/PrintOutlined';
@@ -31,11 +33,24 @@ import { formatAcresGuntas, fromAcres, naturalCompare, villageKey } from '@patta
 import { apiFetch } from '../../api/client';
 import { EMPTY_FILTER, usePapers, useProperties, useSaveRecord, useSetBoundary } from '../api';
 import type { RecordCard } from '../api';
-import { Card, Empty, FacetFilter, Failed, PageHead, PlaceLine, num, plural } from '../ui';
+import {
+  Card, Empty, FacetFilter, Failed, PageHead, PlaceLine, extentText, num, pairs, plural, statusWord, useFullscreen,
+} from '../ui';
 import type { FacetFilterHandle, HeadActions } from '../ui';
 import { Sk, SkMap } from '../skeletons';
-import { BANDS, VillageCanvas, bandOf } from '../VillageCanvasLazy';
+import { VillageCanvas, bandOf } from '../VillageCanvasLazy';
 import { FenceStudio } from '../FenceStudio';
+import { ClimateKey } from '../ClimateKey';
+import { FACTOR_LABEL, GRADES, NOT_ASSESSED_WHY, gradeColours, limitSentence, loadSuitability } from '../suitability';
+import type { Suitability } from '../suitability';
+import type { ClimateId } from '../climateLayers';
+import type { ClimateState } from '../climateTiles';
+import { MapLayerControl } from '../MapLayerControl';
+import { ALL_LAYERS, BASES, chooseBase, chooseInsight, layerLabel, resolveLayers, toggleOverlay } from '../mapLayers';
+import type { LayerChoice, LayerPlace } from '../mapLayers';
+import { ExtentKey, SuitabilityKey } from '../ParcelKeys';
+import { FlowKey, WaterFlowCard, useHydrogeology } from '../WaterFlowCard';
+import type { PropertyMark } from '../propertiesLayer';
 import type { MeasureState, VillageCanvasHandle, VillageMode } from '../VillageCanvasLazy';
 import type { MandalEntry, VillageEntry, VillageFacts } from '../villageIndex';
 import {
@@ -46,6 +61,7 @@ import { recordInVillage, resolveVillage } from '../villageResolve';
 import { acresText } from '../villageGeom';
 import type { PlotFacts } from '../villageGeom';
 import { surveyNumber } from '../surveyNumber';
+import { inAcres } from '../PropertyTable';
 import { ConfirmDialog } from './PropertyActions';
 
 /** What the API says came of an upload. Reported in full rather than as a
@@ -68,12 +84,9 @@ interface MapScope {
 }
 const NO_SCOPE: MapScope = { districts: [], mandals: [], villages: [], properties: [], auto: [] };
 
-const MODES: Array<{ key: VillageMode; label: string }> = [
-  { key: 'satellite', label: 'Satellite' },
-  { key: 'street', label: 'Street map' },
-  { key: 'extent', label: 'Extent' },
-  { key: 'boundaries', label: 'Boundaries' },
-];
+/** Why a parcel layer cannot be had on the overview, where no village's
+ *  parcels have been read. */
+const OPEN_FIRST = 'Open a village first.';
 
 /** The uploaded maps, listed, added to and taken off at one path. */
 const UPLOADS = '/api/gateway/pattadar/village-maps';
@@ -143,10 +156,16 @@ export function VillageMaps() {
    *  with the list from the same read, so it can never describe a different
    *  attempt than the villages on screen. */
   const [uploadsGone, setUploadsGone] = useState(false);
-  const [mode, setMode] = useState<VillageMode>('satellite');
+  /** What the reader asked the map to show (mapLayers.ts). Measuring and
+   *  marking never change it: they hold Satellite and pause the insight on top
+   *  of it, so putting the tape away shows exactly this again. */
+  const [layers, setLayers] = useState<LayerChoice>(
+    { base: 'satellite', overlays: ['cadastral', 'numbers', 'properties'], insight: null });
   const [tilesFailed, setTilesFailed] = useState(false);
-  const [numbers, setNumbers] = useState(true);
   const [measuring, setMeasuring] = useState(false);
+  /** Which of Climate's four pictures, chosen in its key. */
+  const [climatePick, setClimatePick] = useState<ClimateId>('rain');
+  const [climateState, setClimateState] = useState<ClimateState>(null);
   const [tape, setTape] = useState<MeasureState | null>(null);
   /** The tape is out to mark land that is not on the village map, and what
    *  the owner calls it. Marking IS measuring, with a property at the end. */
@@ -186,6 +205,21 @@ export function VillageMaps() {
   const [skipped, setSkipped] = useState<Skipped[]>([]);
   const fileBox = useRef<HTMLInputElement>(null);
   const canvas = useRef<VillageCanvasHandle>(null);
+  /** The map alone, filling the screen; Esc brings the page back. Framed
+   *  again for the box it now has: the selected parcel, else everything. */
+  const full = useFullscreen<HTMLDivElement>();
+  const framedFull = useRef(false);
+  useEffect(() => {
+    if (framedFull.current === full.on) return undefined;
+    framedFull.current = full.on;
+    const frame = requestAnimationFrame(() => {
+      if (selected && canvas.current?.goTo(selected)) return;
+      canvas.current?.fit();
+    });
+    return () => cancelAnimationFrame(frame);
+    // Only the size change frames the view.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [full.on]);
   const plotOptionsBox = useRef<HTMLDivElement>(null);
   const fenceTrigger = useRef<HTMLButtonElement>(null);
   /** A property chosen in the filter, waiting for its village's plots to
@@ -194,19 +228,12 @@ export function VillageMaps() {
   /** The filter, so a pick that opens a village can put the popover away
    *  rather than leave it over the map that just opened. */
   const facetFilter = useRef<FacetFilterHandle>(null);
-  /** Measuring is a satellite-ground tool, not another display layer. Remember
-   *  what the reader was studying so putting the tape away takes them back to
-   *  that exact map rather than leaving a hidden mode change behind. */
-  const modeBeforeMeasure = useRef<VillageMode | null>(null);
   const resetTape = () => {
-    const restore = modeBeforeMeasure.current;
-    modeBeforeMeasure.current = null;
     setMeasuring(false);
     setTape(null);
     setMarking(false);
     setNewName('');
     setNewVillage('');
-    if (restore) setMode(restore);
   };
 
   // Every record, unfiltered — the village sheets have to place all of them.
@@ -281,6 +308,18 @@ export function VillageMaps() {
     return () => { dropped = true; };
   }, [village, openEntry, attempt]);
 
+  /** The village's land suitability grades (suitability.ts), or null when
+   *  none were built for it — then Suitability says so in Layers. */
+  const [suit, setSuit] = useState<Suitability | null>(null);
+  useEffect(() => {
+    let dropped = false;
+    setSuit(null);
+    void loadSuitability(openEntry).then((data) => { if (!dropped) setSuit(data); });
+    return () => { dropped = true; };
+  }, [openEntry]);
+  /** Each graded parcel's colour, for the canvas. */
+  const gradeInk = useMemo(() => gradeColours(suit), [suit]);
+
   /** Measurement depends on visible ground. Entering it keeps the current
    *  display mode aside, switches to satellite imagery and locks the layer
    *  controls; leaving restores the prior mode and clears the tape. */
@@ -289,8 +328,6 @@ export function VillageMaps() {
       resetTape();
       return;
     }
-    modeBeforeMeasure.current = mode;
-    setMode('satellite');
     setTape(null);
     setMeasuring(true);
   };
@@ -312,26 +349,11 @@ export function VillageMaps() {
     if (!canMark) return;
     // One Add the property on screen at a time: the selected parcel's card goes.
     selectFromMap(null);
-    if (!measuring) {
-      modeBeforeMeasure.current = mode;
-      setMode('satellite');
-      setMeasuring(true);
-    }
+    if (!measuring) setMeasuring(true);
     setTape(null);
     canvas.current?.clearMeasure();
     setErr('');
     setMarking(true);
-  };
-
-  /** A mode chip is a switch, not a radio button: clicking the one that is
-   *  already on turns it off. "Off" for the imagery is the bare cadastre,
-   *  which is what Boundaries is; off for anything else is back to the
-   *  imagery, which is where the screen starts. Measuring owns Satellite, so
-   *  layer changes are refused defensively as well as disabled in the UI. */
-  const pickMode = (m: VillageMode) => {
-    if (measuring) return;
-    if (m !== mode) { setMode(m); return; }
-    setMode(m === 'satellite' ? 'boundaries' : 'satellite');
   };
 
   // Esc backs out of whatever is on: the tape first, then the selection.
@@ -361,7 +383,7 @@ export function VillageMaps() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fencing, measuring, marking, leaving, tape, mode]);
+  }, [fencing, measuring, marking, leaving, tape]);
 
   const refresh = async (keys: string[] = []) => {
     // `readVillageIndex(true)` clears the index cache itself. The separate
@@ -747,6 +769,101 @@ export function VillageMaps() {
   const plot: PlotFacts | null = selected ? facts?.byLp.get(selected) ?? null : null;
   const record = plot ? mine.get(plot.lp) ?? null : null;
   const papers = usePapers(record?.id);
+
+  // ── The layers (mapLayers.ts; docs/specs/2026-10-25-pattadar-maps.md) ──
+  /** Hydrogeology is read off a property's saved boundary, so on Maps it is
+   *  about one of the owner's properties that has one and sits on a village
+   *  with a cadastral map: the last of them selected, or the one Hydrogeology
+   *  chose when it was turned on (`chooseHydrogeology`). It stays on that
+   *  property while another parcel is looked at. */
+  const bounded = useMemo(() => mappedRecords.filter((m) => m.record.ring.length >= 6), [mappedRecords]);
+  const [flowFocus, setFlowFocus] = useState<string | null>(null);
+  useEffect(() => { if (record && record.ring.length >= 6) setFlowFocus(record.id); }, [record]);
+  const flowRecord = bounded.find((m) => m.record.id === flowFocus)?.record ?? null;
+  /** Your properties: each one's saved boundary, else the parcel it was
+   *  matched to here by its survey number, else its pin. */
+  const propertyMarks = useMemo((): PropertyMark[] => {
+    const plotOf = new Map([...mine].map(([lp, r]) => [r.id, lp]));
+    return (records.data?.cards ?? []).flatMap((r) => {
+      const own = pairs(r.ring);
+      const lp = plotOf.get(r.id);
+      const ring = own.length >= 3 ? own : (lp ? facts?.byLp.get(lp)?.ring : undefined) ?? [];
+      const at: [number, number] | null = r.lat || r.lon ? [r.lat, r.lon] : null;
+      return ring.length >= 3 || at ? [{ id: r.id, title: r.title, ring, at }] : [];
+    });
+  }, [records.data, mine, facts]);
+  const place: LayerPlace = {
+    // Measurements are one property's side lengths: a property's Maps tab.
+    offers: ALL_LAYERS.filter((id) => id !== 'measurements'),
+    unavailable: {
+      ...(facts ? {} : {
+        // Not Cadastral map: the overview IS the cadastral map, village by
+        // village, and the layer turns those outlines off and on.
+        numbers: OPEN_FIRST, extent: OPEN_FIRST,
+        suitability: OPEN_FIRST,
+      }),
+      ...(facts && !suit ? { suitability: `Not graded for ${facts.village} yet.` } : {}),
+      ...(bounded.length ? {} : { hydrogeology: 'None of your properties has a saved boundary yet.' }),
+      ...(propertyMarks.length ? {} : { properties: 'None of your properties has a pin or a boundary yet.' }),
+    },
+    // The tape is laid on ground you can see, and a click is a corner.
+    tool: measuring ? {
+      doing: marking ? 'you mark land' : 'you measure', base: 'satellite',
+      pauses: ['extent', 'suitability', 'hydrogeology', 'climate'],
+    } : null,
+  };
+  const resolved = resolveLayers(layers, place);
+  const hydro = useHydrogeology(flowRecord?.id, resolved.insight === 'hydrogeology');
+  /** The water-flow card has the inspector to itself when no parcel is. */
+  const flowShown = resolved.insight === 'hydrogeology' && !!flowRecord;
+  /** Hydrogeology turned on with none of your properties in hand picks one —
+   *  the selected parcel if it is yours with a boundary, else one in the open
+   *  village, else the first — and opens the map on it, so turning it on
+   *  always shows water on land rather than a reason to go and find some. */
+  const chooseHydrogeology = () => {
+    if (flowRecord) return;
+    const own = (record && record.ring.length >= 6 ? record : null)
+      ?? [...mine.values()].find((r) => r.ring.length >= 6) ?? bounded[0]?.record;
+    if (!own) return;
+    setFlowFocus(own.id);
+    for (const [lp, r] of mine) if (r.id === own.id) { flyTo(lp); return; }
+    const m = bounded.find((x) => x.record.id === own.id);
+    if (m && m.entry.key !== openEntry?.key) {
+      openVillage(m.entry.village, m.entry);
+      pendingPlot.current = own.id;
+    }
+  };
+  /** The canvas's own word for the ground and its shading together. Extent
+   *  and Suitability only ever show on Satellite (mapLayers.ts). */
+  const mode: VillageMode = resolved.insight === 'extent' || resolved.insight === 'suitability'
+    ? resolved.insight : resolved.base;
+  /** A property clicked on the map: its parcel when it is in this village,
+   *  else its village opened on it, else its own Maps tab. */
+  /** The property picked in the Your properties list (only properties on the
+   *  map), lit on the map and framed. */
+  const [pickedProperty, setPickedProperty] = useState<string | null>(null);
+  /** With only your properties on the map, a property is picked where it is —
+   *  lit, framed, its row in the list scrolled to — rather than its village
+   *  opened onto a map that is not showing villages. One with no pin or
+   *  boundary has nothing to frame, so its own Maps tab is where it goes. */
+  const pickProperty = (id: string) => {
+    const m = propertyMarks.find((x) => x.id === id);
+    if (!m) { nav(`/properties/${id}/location`); return; }
+    setPickedProperty(id);
+    canvas.current?.show(m.ring.length >= 3 ? m.ring : m.at ? [m.at] : []);
+    requestAnimationFrame(() => document.getElementById(`vm-prop-${id}`)?.scrollIntoView({ block: 'nearest' }));
+  };
+  const openProperty = (id: string) => {
+    if (villagesOff) { pickProperty(id); return; }
+    for (const [lp, r] of mine) if (r.id === id) { selectFromMap(lp); return; }
+    const m = mappedRecords.find((x) => x.record.id === id);
+    if (m && m.entry.key !== openEntry?.key) {
+      openVillage(m.entry.village, m.entry);
+      pendingPlot.current = id;
+      return;
+    }
+    nav(`/properties/${id}/location`);
+  };
   const neighbours = plot ? facts?.neighbours.get(plot.lp) ?? [] : [];
 
   /** Plot-number suggestions are prefix-only. Typing `1` offers `1`, `10`,
@@ -1077,10 +1194,18 @@ export function VillageMaps() {
       .sort((a, b) => distance(a) - distance(b) || naturalCompare(a.title, b.title));
   }, [records.data, village, plot, openEntry, sharedName]);
 
+  /** A new village or the overview is a new map, framed from scratch: Climate
+   *  starts off there rather than zooming out from a view not yet framed.
+   *  Above the loading return below, as every hook must be. */
+  const climateStage = facts ? `village:${facts.village}` : (!villageErr && mandal.length > 0 ? 'mandal' : '');
+  useEffect(() => {
+    setLayers((c) => (c.insight === 'climate' ? { ...c, insight: null } : c));
+  }, [climateStage]);
+
   if (index === null) {
     return (
       <main className="vm">
-        <PageHead title="Cadastral maps" summary={<Sk w="18rem" h="1rem" r="var(--radius-xs)" />} />
+        <PageHead title="Maps" summary={<Sk w="18rem" h="1rem" r="var(--radius-xs)" />} />
         {/* The page's own boxes, grey: the place line and filter band, then
             the stage at its real height, so nothing moves when the index lands. */}
         <section className="vm-map-filters" aria-hidden>
@@ -1105,6 +1230,18 @@ export function VillageMaps() {
    *  village named beside it. */
   const stage: 'village' | 'mandal' | null =
     facts ? 'village' : (!villageErr && mandal.length > 0 ? 'mandal' : null);
+  const layerControl = (
+    <MapLayerControl resolved={resolved} fullscreen={full}
+               onBase={(b) => setLayers((c) => chooseBase(c, b))}
+               onOverlay={(id) => setLayers((c) => toggleOverlay(c, id))}
+               onInsight={(id) => {
+                 setLayers((c) => chooseInsight(c, id));
+                 if (id === 'hydrogeology') chooseHydrogeology();
+               }} />
+  );
+  const climateKey = (here: string) => resolved.insight === 'climate' && (
+    <ClimateKey layer={climatePick} state={climateState} onLayer={setClimatePick} here={here} />
+  );
 
   /** Upload is a page action when maps exist and the empty state's primary
    *  action when none do. The picker and its outcome are separate so the
@@ -1170,7 +1307,7 @@ export function VillageMaps() {
 
   const tileNotice = tilesFailed && (
     <div className="vc-legend vc-tile-error" role="status">
-      <span className="note">{mode === 'street' ? 'Street map' : 'Imagery'} could not fully load.</span>
+      <span className="note">{resolved.base === 'street' ? 'Street map' : 'Imagery'} could not fully load.</span>
       <button type="button" className="btn sm" onClick={() => canvas.current?.retryTiles()}>Retry map</button>
     </div>
   );
@@ -1180,7 +1317,7 @@ export function VillageMaps() {
    *  nothing; a village sits under the page; a plot with a tool open on it sits
    *  under its village. Naming the level itself put "Village maps" on the first
    *  screen three times with the rail, and a village's name twice. */
-  const above = fencing && toFence ? village : village ? 'Cadastral maps' : null;
+  const above = fencing && toFence ? village : village ? 'Maps' : null;
 
   /** Back up one level out of a village. Picks that opened it go with it,
    *  or the chips would name a village no longer on screen. */
@@ -1255,6 +1392,34 @@ export function VillageMaps() {
    *  stand under a village's name is the overview's or another village's
    *  figures. */
   const parcelsOnFile = index.reduce((t, v) => t + (v.plots ?? 0), 0);
+  /** The overview with its villages not on the map — the cadastral map off,
+   *  or paused under Climate: the head says what the map IS showing, in
+   *  facts (design.md § Page head), not the villages it no longer draws. */
+  const villagesOff = !village && !resolved.shown.has('cadastral');
+  /** Your properties on, it is their summary — as Properties states it, in
+   *  acres (inAcres) — and how many the map cannot draw yet, because that is
+   *  the land still to be put on it. Otherwise the insight, else the ground. */
+  const allLand = records.data?.cards ?? [];
+  const drawn = new Set(propertyMarks.map((m) => m.id));
+  const missing = allLand.length - drawn.size;
+  const drawnAcres = allLand.filter((r) => drawn.has(r.id)).reduce((t, r) => t + inAcres(r), 0);
+  /** Only your properties on the map: the list beside it, those it draws
+   *  first, then those still to be placed. */
+  const propertiesPanel = villagesOff && resolved.shown.has('properties') && allLand.length > 0;
+  const markById = new Map(propertyMarks.map((m) => [m.id, m]));
+  const propertyRows = allLand
+    .map((card) => ({ card, mark: markById.get(card.id) }))
+    .sort((a, b) => Number(!a.mark) - Number(!b.mark) || naturalCompare(a.card.title, b.card.title));
+  const onTheMap = resolved.shown.has('properties') ? [
+    missing > 0
+      ? `${num(drawn.size)} of ${plural(allLand.length, 'property', 'properties')} on the map`
+      : `${plural(drawn.size, 'property', 'properties')} on the map`,
+    drawnAcres >= 0.005 ? `${num(drawnAcres, 2)} ac` : '',
+    missing > 0 ? `${num(missing)} without a pin or boundary` : '',
+    resolved.insight ? layerLabel(resolved.insight) : '',
+  ].filter(Boolean).join(' · ') : resolved.insight
+    ? layerLabel(resolved.insight)
+    : BASES.find((b) => b.id === resolved.base)?.label ?? '';
   const summary: ReactNode = fencing && toFence
     ? toFence.figure
     : village && facts && !loading
@@ -1264,7 +1429,9 @@ export function VillageMaps() {
       ].filter(Boolean).join(' · ')
       : village
         ? (villageErr ? undefined : <Sk w="18rem" h="1rem" r="var(--radius-xs)" />)
-        : index.length && !uploadsGone
+        : villagesOff
+          ? onTheMap
+          : index.length && !uploadsGone
           ? [
             plural(index.length, 'village'),
             parcelsOnFile > 0 ? plural(parcelsOnFile, 'parcel') : '',
@@ -1373,7 +1540,7 @@ export function VillageMaps() {
           page, so it has none. */}
       <PageHead
         eyebrow={above ?? undefined}
-        title={fencing && toFence ? toFence.title : village ?? 'Cadastral maps'}
+        title={fencing && toFence ? toFence.title : village ?? 'Maps'}
         actions={headActions}
         summary={summary}
       />
@@ -1400,7 +1567,8 @@ export function VillageMaps() {
             ref={facetFilter}
             fold={villageKey}
             missingOptionLabel={chipLabel}
-            tally={plural(shown.length, 'village')}
+            // A count of villages, so only while villages are on the map.
+            tally={villagesOff ? undefined : plural(shown.length, 'village')}
             ariaLabel="Narrow the cadastral map"
             searchPlaceholder="Search areas, villages or properties"
           />
@@ -1444,8 +1612,8 @@ export function VillageMaps() {
         // and the fence calculator's own bar says the same in the same words.
         // While the calculator has the stage that column stands down and gives
         // it the width: two panels answering one question is one too many.
-        <div className={`vm-body${(fencing && toFence) || !plot ? ' solo' : ''}`}>
-          <div className="vm-stage">
+        <div className={`vm-body${(fencing && toFence) || !(plot || flowShown || propertiesPanel) ? ' solo' : ''}`}>
+          <div className="vm-stage" ref={full.ref}>
             {fencing && toFence ? (
               <FenceStudio
                 title={toFence.title}
@@ -1475,7 +1643,7 @@ export function VillageMaps() {
                   plots={facts.plots}
                   outline={facts.outline}
                   mode={mode}
-                  numbers={numbers}
+                  numbers={resolved.shown.has('numbers')}
                   selected={selected}
                   hovered={hovered}
                   measuring={measuring}
@@ -1484,33 +1652,21 @@ export function VillageMaps() {
                   onZoom={setZoom}
                   onMeasure={setTape}
                   onTilesFailed={setTilesFailed}
+                  climate={resolved.insight === 'climate' ? climatePick : null}
+                  onClimateState={setClimateState}
+                  grades={gradeInk}
+                  showPlots={resolved.shown.has('cadastral')}
+                  properties={resolved.shown.has('properties') ? propertyMarks : undefined}
+                  onProperty={openProperty}
+                  waterFlow={resolved.insight === 'hydrogeology' ? hydro.layer : null}
+                  onFlowPin={hydro.setSelected}
                 />
 
                 <div className="vc-tl">
-                  <span className="row tight" role="group" aria-label="Map layer">
-                    {MODES.map((m) => (
-                      <button key={m.key} type="button"
-                              className="chip wash"
-                              aria-pressed={mode === m.key}
-                              disabled={measuring}
-                              title={measuring
-                                ? 'Satellite is locked while measuring.'
-                                : mode === m.key ? `Turn ${m.label.toLowerCase()} off` : ''}
-                              onClick={() => pickMode(m.key)}>
-                        {m.label}
-                      </button>
-                    ))}
-                  </span>
+                  {layerControl}
                   <span className="row tight">
-                    {/* View chips, washed when pressed, as on a property's
-                        Location tab: they change what you see, not the
-                        record. Fill on this screen is for the one action
-                        that commits. */}
-                    <button type="button" className="chip wash"
-                            aria-pressed={numbers}
-                            onClick={() => setNumbers((on) => !on)}>
-                      Numbers
-                    </button>
+                    {/* Tools, not layers: they change what a click on the
+                        map does, and hold the ground they need while on. */}
                     <button type="button" className="chip wash"
                             aria-pressed={measuring && !marking}
                             disabled={marking}
@@ -1521,25 +1677,21 @@ export function VillageMaps() {
                     {markButton}
                   </span>
                   {tileNotice}
-                  {mode === 'extent' && (
-                    <div className="vc-legend">
-                      <span className="eyebrow">Extent</span>
-                      {BANDS.map((b) => (
-                        <span key={b.key} className="row tight">
-                          <i style={{ background: b.hex }} aria-hidden />
-                          <span className="grow">{b.label}</span>
-                          <span className="num">{num(bandCounts.get(b.key) ?? 0)}</span>
-                        </span>
-                      ))}
-                    </div>
-                  )}
+                  {climateKey(`The ringed dot is ${facts.village}.`)}
+                  {resolved.insight === 'suitability' && suit && <SuitabilityKey suit={suit} />}
+                  {resolved.insight === 'extent' && <ExtentKey counts={bandCounts} />}
+                  {resolved.insight === 'hydrogeology' && hydro.layer && <FlowKey flow={hydro.layer} />}
                   {!phone && tapePanel}
                 </div>
 
                 <span className="vc-badge">
-                  {facts.village} · zoom {zoom || '—'} · numbers {numbers ? 'on' : 'off'}
+                  {facts.village} · zoom {zoom || '—'} · numbers {resolved.shown.has('numbers') ? 'on' : 'off'}
                 </span>
 
+                {/* Only with parcels on the map to find. Under Climate, or with
+                    the cadastral map off, it would search for something the
+                    map is not showing. */}
+                {resolved.shown.has('cadastral') && (
                 <div className={marking ? 'vc-tr marking' : 'vc-tr'}>
                   <label className="eyebrow" htmlFor="vm-goto">Find a parcel or survey number</label>
                   <span className="row tight">
@@ -1623,6 +1775,7 @@ export function VillageMaps() {
                     </div>
                   )}
                 </div>
+                )}
               </>
             ) : villageErr ? (
               /* The village that could not be read, said here rather than
@@ -1657,32 +1810,35 @@ export function VillageMaps() {
                   onZoom={setZoom}
                   onMeasure={setTape}
                   onTilesFailed={setTilesFailed}
+                  climate={resolved.insight === 'climate' ? climatePick : null}
+                  onClimateState={setClimateState}
+                  showPlots={resolved.shown.has('cadastral')}
+                  properties={resolved.shown.has('properties') ? propertyMarks : undefined}
+                  onProperty={openProperty}
+                  activeProperty={propertiesPanel ? pickedProperty : null}
                 />
                 <div className="vc-tl">
-                  <span className="row tight" role="group" aria-label="Map layer">
-                    {MODES.filter((m) => m.key !== 'extent').map((m) => (
-                      <button key={m.key} type="button"
-                              className="chip wash"
-                              aria-pressed={mode === m.key}
-                              disabled={measuring}
-                              onClick={() => pickMode(m.key)}>
-                        {m.label}
-                      </button>
-                    ))}
-                  </span>
+                  {layerControl}
                   {markButton && <span className="row tight">{markButton}</span>}
                   {tileNotice}
+                  {climateKey('')}
                   {!phone && tapePanel}
                 </div>
                 {/* The mandal stays up while a village is read. Tearing the
                     map down for a corner note meant the screen went blank for
                     the second or two a shape file takes, which reads as a
                     panel that failed rather than as work in progress. */}
-                <span className="vc-badge">
-                  {loading && village
-                    ? `Reading ${village}’s map file…`
-                    : plural(mandal.length, 'village')}
-                </span>
+                {/* What the map is showing, so only while it shows the
+                    villages: with the cadastral map off, or paused under
+                    Climate, "902 villages" named nothing on screen. The read
+                    in progress is said either way. */}
+                {(loading && village) || resolved.shown.has('cadastral') ? (
+                  <span className="vc-badge">
+                    {loading && village
+                      ? `Reading ${village}’s map file…`
+                      : plural(mandal.length, 'village')}
+                  </span>
+                ) : null}
               </>
             ) : loading ? (
               // No outlines to hold the stage, so it holds its shape instead.
@@ -1702,8 +1858,34 @@ export function VillageMaps() {
             <div className="vm-tape-below">{tapePanel}</div>
           )}
 
-          {!(fencing && toFence) && plot && (
+          {!(fencing && toFence) && (plot || flowShown || propertiesPanel) && (
           <aside className="vm-side">
+            {/* Only your properties on the map: their summary beside it, the
+                Properties map's rows, each framed on the map when picked. */}
+            {propertiesPanel && (
+              <Card title="Your properties">
+                <div className="vm-props">
+                  {propertyRows.map(({ card: c, mark }) => (
+                    <div key={c.id} id={`vm-prop-${c.id}`}
+                         className={`pf-result${pickedProperty === c.id ? ' on' : ''}`}>
+                      <button type="button" className="pf-result-pick" aria-pressed={pickedProperty === c.id}
+                              onClick={() => pickProperty(c.id)}>
+                        <strong>{c.title}</strong>
+                        <span className="note">{[c.village, c.mandal].filter(Boolean).join(', ') || 'Place not added'}</span>
+                        <span className="note">{extentText(c)} · {statusWord(c.status)}</span>
+                        <span className="note">
+                          {mark ? (mark.ring.length >= 3 ? 'Boundary on map' : 'Location pin only')
+                            : 'Add a location to show on map'}
+                        </span>
+                      </button>
+                      <Link className="link" to={`/properties/${c.id}/location`}>
+                        {mark && mark.ring.length >= 3 ? 'View / measure boundary' : 'Locate / draw boundary'}
+                      </Link>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            )}
             {plot && (
               <Card title="Selected parcel">
                 <div className="vm-plot">
@@ -1762,6 +1944,25 @@ export function VillageMaps() {
                   <dd className="num">
                     {plot.centre[0].toFixed(5)}, {plot.centre[1].toFixed(5)}
                   </dd>
+                  {suit?.plots[plot.lp] && (() => {
+                    const g = suit.plots[plot.lp];
+                    return (
+                      <>
+                        <dt>Suitability</dt>
+                        <dd>
+                          {g.g < 0
+                            ? <>Not assessed <span className="note">· {NOT_ASSESSED_WHY[g.why ?? ''] ?? 'No data here'}</span></>
+                            : <>
+                                {GRADES[g.g].label}
+                                <span className="note" style={{ display: 'block' }}>
+                                  {g.lim ? `Held back by ${FACTOR_LABEL[g.lim].toLowerCase()}. ` : ''}
+                                  {limitSentence(g)}
+                                </span>
+                              </>}
+                        </dd>
+                      </>
+                    );
+                  })()}
                   {/* No Village row: the village is the page's title and the
                       switch above this card, and a fourth copy of its name
                       here told the owner nothing new. */}
@@ -1927,6 +2128,15 @@ export function VillageMaps() {
               </Card>
             )}
 
+            {flowShown && flowRecord && (
+              <>
+                {/* Said when it is not the parcel in the card above. */}
+                {flowRecord.id !== record?.id && (
+                  <p className="note">Hydrogeology for {flowRecord.title}</p>
+                )}
+                <WaterFlowCard {...hydro.card} />
+              </>
+            )}
           </aside>
           )}
         </div>

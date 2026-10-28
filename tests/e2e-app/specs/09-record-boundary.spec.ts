@@ -146,6 +146,15 @@ const marksCard = (page: Page) => page.locator('.card', { hasText: 'Boundary mar
  *  under the same name (it said "Draw it instead"), and it arms this tool. */
 const mapTool = (page: Page, name: string) =>
   page.locator('#w360-maptools').getByRole('button', { name, exact: true });
+/** A layer's tick box or radio in the Layers panel (MapLayerControl), which
+ *  is opened first if it is shut. */
+async function layer(page: Page, name: string) {
+  const panel = page.locator('.w-layers-panel');
+  if (!(await panel.isVisible())) {
+    await page.locator('.maptools').getByRole('button', { name: 'Layers', exact: true }).click();
+  }
+  return panel.getByLabel(name, { exact: true });
+}
 /** The screen's own error line — `pinErr`, which every write on this page
  *  reports through (RecordBoundary.tsx:827). */
 const mapError = (page: Page) => page.locator('.mapsays p[role="alert"]');
@@ -569,23 +578,49 @@ test('an outline too small to be called guntas is measured in square metres', as
   await expect(kv(card, 'On record')).toHaveText('4 acres 12 guntas');
 });
 
+test('what is on is named on the map with the panel shut, and × turns it off', async ({ page }) => {
+  await openMap(page, ID.parcel);
+  const on = page.locator('.maptools .w-layers-on');
+
+  await expect(on).toContainText('Measurements');
+  await on.getByRole('button', { name: 'Turn off Measurements' }).click();
+
+  await expect(page.locator('.w-side')).toHaveCount(0);
+  await expect(on).toHaveCount(0);
+});
+
+test('the map can take the whole screen and give it back', async ({ page }) => {
+  await openMap(page, ID.parcel);
+  const canFill = await page.evaluate(() => document.fullscreenEnabled === true);
+  test.skip(!canFill, 'this browser does not offer full screen to a page');
+
+  await page.getByRole('button', { name: 'View full screen' }).click();
+  await expect.poll(() => page.evaluate(() =>
+    !!document.fullscreenElement?.classList.contains('plot'))).toBe(true);
+  await expect(page.getByRole('button', { name: 'Exit full screen' })).toBeVisible();
+  await expect(page.locator('path.w-ring')).toHaveCount(1);
+
+  await page.evaluate(() => document.exitFullscreen());
+  await expect(page.getByRole('button', { name: 'View full screen' })).toBeVisible();
+});
+
 test('hiding the measurements takes the lengths off the map with them', async ({ page }) => {
   await openMap(page, ID.parcel);
   await expect(page.locator('.w-side')).toHaveCount(4);
 
-  // One control shows and hides them, the map's own Measure chip: the card
-  // no longer carries a × of its own that did the same thing a second way.
-  const measure = page.getByRole('button', { name: 'Measure', exact: true });
-  await expect(measure).toHaveAttribute('aria-pressed', 'true');
+  // One control shows and hides them, the Measurements layer: the card no
+  // longer carries a × of its own that did the same thing a second way.
+  const measure = await layer(page, 'Measurements');
+  await expect(measure).toBeChecked();
   await expect(page.locator('.card', { hasText: 'Measurements' }).getByRole('button', { name: 'Hide measurements' }))
     .toHaveCount(0);
-  await measure.click();
+  await measure.uncheck();
 
   await expect(page.locator('.card', { hasText: 'Measurements' })).toHaveCount(0);
   await expect(page.locator('.w-side')).toHaveCount(0);
   // The ring itself is not a measurement and must stay.
   await expect(page.locator('path.w-ring')).toHaveCount(1);
-  await expect(page.getByRole('button', { name: 'Measure', exact: true })).toHaveAttribute('aria-pressed', 'false');
+  await expect(measure).not.toBeChecked();
 });
 
 test('a traced outline within a few percent of the record is called close, not wrong', async ({ page, world }) => {
@@ -617,21 +652,29 @@ test('an outline nowhere near the recorded extent is called a mistake', async ({
 
 // ── the basemap ────────────────────────────────────────────────────────
 
-test('the basemap switches between street and satellite, and the caption says which', async ({ page }) => {
+test('the map type switches street, satellite and none, and the caption says which', async ({ page }) => {
   await openMap(page, ID.parcel);
-  const chip = page.getByRole('button', { name: 'Satellite' });
+  const satellite = page.getByRole('button', { name: 'Satellite' });
 
-  await expect(chip).toHaveAttribute('aria-pressed', 'true');
+  await expect(satellite).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.plot .cap')).toContainText('Esri World Imagery');
 
-  await chip.click();
-  await expect(chip).toHaveAttribute('aria-pressed', 'false');
+  await page.getByRole('button', { name: 'Street map' }).click();
+  await expect(satellite).toHaveAttribute('aria-pressed', 'false');
   await expect(page.locator('.plot .cap')).toContainText('OpenStreetMap');
-  // The boundary is drawn on either. It is the reason most people switch.
+  // The boundary is drawn on any of them. It is the reason most people switch.
   await expect(page.locator('path.w-ring')).toHaveCount(1);
 
-  await chip.click();
+  await satellite.click();
   await expect(page.locator('.plot .cap')).toContainText('Esri World Imagery');
+
+  // The same switch as Maps: Satellite off is Boundaries, no ground at all,
+  // and the caption names no imagery it is not drawn on.
+  await satellite.click();
+  await expect(page.getByRole('button', { name: 'Boundaries' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.plot .leaflet-tile-pane img')).toHaveCount(0);
+  await expect(page.locator('.plot .cap')).not.toContainText('Esri');
+  await expect(page.locator('path.w-ring')).toHaveCount(1);
 });
 
 test.describe('with no basemap at all', () => {
@@ -646,7 +689,7 @@ test.describe('with no basemap at all', () => {
     const notice = page.locator('.plot p.nogeo.low');
     await expect(notice).toContainText('Satellite imagery is unavailable here.');
 
-    await page.getByRole('button', { name: 'Satellite' }).click();
+    await page.getByRole('button', { name: 'Street map' }).click();
     await expect(notice).toContainText('Street map tiles are unavailable.');
 
     // Whatever the tiles did, the record's own ring is the record's own ring.
@@ -1846,9 +1889,13 @@ test('an unsurveyed record says it has never been surveyed and draws no shape', 
   await expect(page.locator('path.w-ring')).toHaveCount(0);
   await expect(page.locator('.w-corner-no')).toHaveCount(0);
   await expect(page.locator('.w-side')).toHaveCount(0);
-  // No shape means nothing to measure and nothing to hand over.
-  await expect(page.getByRole('button', { name: 'Measure', exact: true })).toHaveCount(0);
+  // No shape means nothing to measure and nothing to hand over — and the
+  // layers that need one say so, rather than vanishing.
   await expect(page.locator('.card', { hasText: 'Measurements' })).toHaveCount(0);
+  await expect(await layer(page, 'Measurements')).toBeDisabled();
+  await expect(await layer(page, 'Measurements')).not.toBeChecked();
+  await expect(await layer(page, 'Hydrogeology')).toBeDisabled();
+  await expect(page.locator('.w-layers-panel')).toContainText('Draw or import the boundary first.');
 });
 
 test('an unsurveyed record offers to have its corners established', async ({ page }) => {
@@ -1980,7 +2027,7 @@ test('a record whose only location is its stones draws them and joins nothing', 
 test('a village with no shape file on the wall says so and changes nothing', async ({ page, world }) => {
   await openMap(page, ID.parcel);
 
-  await page.getByRole('button', { name: 'Cadastral map' }).click();
+  await (await layer(page, 'Cadastral map')).check();
 
   await expect(page.locator('.vmnote')).toHaveText('No cadastral map on file for Katragunta');
   // It opens on the record's own survey number, because that is the one
@@ -1996,8 +2043,14 @@ test('the village map is not offered while the record is being edited', async ({
   await openMap(page, ID.parcel);
 
   await page.getByRole('button', { name: 'Redraw boundary' }).click();
-  await expect(page.getByRole('button', { name: 'Cadastral map' })).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'Measure', exact: true })).toBeDisabled();
+  await expect(await layer(page, 'Cadastral map')).toBeDisabled();
+  await expect(await layer(page, 'Measurements')).toBeDisabled();
+  // Still ticked: the edit pauses it, and finishing brings it back.
+  await expect(await layer(page, 'Measurements')).toBeChecked();
+  await expect(page.locator('.w-layers-panel')).toContainText('Paused while you edit the boundary.');
+  // Named on the map too, and not removable while the tool holds it.
+  await expect(page.locator('.w-layers-on')).toContainText('Measurements · paused');
+  await expect(page.getByRole('button', { name: 'Turn off Measurements' })).toHaveCount(0);
   // And the measurements go with them: they are of the SAVED outline, and
   // leaving them beside a draft that is being moved about states them of a
   // shape they were never taken from.

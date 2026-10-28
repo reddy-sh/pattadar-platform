@@ -299,6 +299,13 @@ const plotOptions = (page: Page) => plotFinder(page).getByRole('option');
 const tape = (page: Page) => page.locator('.vc-measure');
 const chip = (page: Page, name: string) =>
   page.locator('.vc-tl').getByRole('button', { name, exact: true });
+/** A layer's tick box or radio in the Layers panel (MapLayerControl), which
+ *  is opened first if it is shut. */
+async function layer(page: Page, name: string) {
+  const panel = page.locator('.w-layers-panel');
+  if (!(await panel.isVisible())) await chip(page, 'Layers').click();
+  return panel.getByLabel(name, { exact: true });
+}
 
 /** Select a plot through the compact finder — the keyboard alternative to
  *  clicking one of the canvas polygons. */
@@ -326,8 +333,12 @@ async function startMeasure(page: Page): Promise<void> {
 }
 
 async function clickMap(page: Page, fx: number, fy: number): Promise<void> {
-  const box = (await page.locator('.vc-map').boundingBox())!;
-  await page.mouse.click(box.x + box.width * fx, box.y + box.height * fy);
+  // Through the map element, as 09's clickMapAt does, so the point is
+  // scrolled into view first: a phone's map runs past the fold, and a raw
+  // mouse click below it lands on nothing.
+  const map = page.locator('.vc-map');
+  const box = (await map.boundingBox())!;
+  await map.click({ force: true, position: { x: box.width * fx, y: box.height * fy } });
 }
 
 async function beginTape(page: Page, fx: number, fy: number): Promise<void> {
@@ -419,7 +430,7 @@ test('with no village map anywhere, the screen says so and offers the upload rat
   await ground(page, world, { list: () => ({ json: [] }) });
   await openMaps(page);
 
-  await expect(page.getByRole('heading', { level: 1, name: 'Cadastral maps' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Maps' })).toBeVisible();
   await expect(page.locator('.pagehead-summary')).toHaveCount(0);
 
   const empty = sideCard(page, 'No cadastral maps yet');
@@ -468,7 +479,7 @@ test('while the index is still coming the screen waits rather than claiming ther
   await expect(page.getByText('No cadastral maps yet')).toHaveCount(0);
   await expect(page.getByText('Cadastral maps could not be loaded')).toHaveCount(0);
 
-  await expect(page.getByRole('heading', { level: 1, name: 'Cadastral maps' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Maps' })).toBeVisible();
   await expect(page.getByRole('button', { name: '+ Filter' })).toBeVisible();
 });
 
@@ -574,13 +585,17 @@ test('clicking a village on the mandal map opens it', async ({ page, world }) =>
   await expect(page.locator('.vc-badge')).toContainText(VILLAGE);
 });
 
-test('the mandal map offers no Plot size, because it is not showing plots', async ({ page, world }) => {
+test('the mandal map offers no Extent until a village is open, and says so', async ({ page, world }) => {
   await ground(page, world);
   await openMaps(page);
   await expect(page.locator('.vc-village')).toBeVisible();
 
-  // Three layers; no Extent.
-  await expect(page.locator('.vc-tl .chip')).toHaveCount(3);
+  // The three map types and Layers.
+  for (const name of ['Satellite', 'Street map', 'Boundaries', 'Layers']) {
+    await expect(chip(page, name)).toBeVisible();
+  }
+  // No parcels on the overview, so nothing to find among them.
+  await expect(plotFinder(page)).toHaveCount(0);
   // Mark a new boundary is not drawn above the 200 m scale (Reddy,
   // 13/10/2026): the fixture's villages fit close in, so zoom out past it.
   const mark = page.getByRole('button', { name: 'Mark a new boundary' });
@@ -592,12 +607,49 @@ test('the mandal map offers no Plot size, because it is not showing plots', asyn
   }
   await expect(mark).toHaveCount(0);
   await expect(page.getByText('Zoom in to about 200 m')).toHaveCount(0);
+  // Zoomed out, a property's outline is under a fingertip: Your properties
+  // gives it a dot, or the layer is on and shows nothing.
+  // (Off-screen ones are drawn empty by Leaflet, so only the visible count.)
+  await expect(page.locator('path.w-prop-pin:visible').first()).toBeVisible();
   for (let i = 0; i < 8 && !(await mark.isVisible()); i++) {
     await page.locator('.leaflet-control-zoom-in').click();
     await page.waitForTimeout(400);
   }
   await expect(mark).toBeEnabled();
-  await expect(chip(page, 'Extent')).toHaveCount(0);
+  // Extent is listed, as on every map, and says why it cannot be had here.
+  await expect(await layer(page, 'Extent')).toBeDisabled();
+  // The overview IS the cadastral map, village by village: ticked, and a
+  // working switch. Parcel numbers wait for a village's parcels, unticked.
+  await expect(await layer(page, 'Cadastral map')).toBeChecked();
+  await expect(await layer(page, 'Cadastral map')).toBeEnabled();
+  await expect(await layer(page, 'Parcel numbers')).not.toBeChecked();
+  await expect(await layer(page, 'Parcel numbers')).toBeDisabled();
+  await (await layer(page, 'Cadastral map')).uncheck();
+  await expect(page.locator('.vc-village')).toHaveCount(0);
+  // Nor does the page go on counting villages it no longer shows: no badge,
+  // no tally, and the head says what IS on the map.
+  await expect(page.locator('.vc-badge')).toHaveCount(0);
+  await expect(page.locator('main.vm .tally')).toHaveCount(0);
+  await expect(page.locator('.pagehead-summary')).not.toContainText('village');
+  // Your properties is on, so the head is their summary, in acres as the
+  // Properties page states them, and what the map cannot draw yet.
+  await expect(page.locator('.pagehead-summary')).toContainText(/\d+ of \d+ properties on the map · [\d.,]+ ac · \d+ without a pin or boundary/);
+  // And beside the map, their summary: each property, picked where it is.
+  const list = sideCard(page, 'Your properties');
+  await expect(list).toContainText('Sy 214/2');
+  await expect(list).toContainText('Boundary on map');
+  await list.getByRole('button', { name: /Sy 214\/2/ }).click();
+  await expect(list.getByRole('button', { name: /Sy 214\/2/ })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator(':is(path.w-prop.on, path.w-prop-pin.on)').first()).toBeAttached();
+  await (await layer(page, 'Cadastral map')).check();
+  await expect(page.locator('.vc-village')).toContainText(VILLAGE);
+  await expect(page.locator('.vc-badge')).toContainText('1 village');
+  await expect(page.locator('.pagehead-summary')).toContainText('1 village');
+  await expect(page.locator('main.vm .tally')).toContainText('1 village');
+  // The villages back on the map, the panel stands down.
+  await expect(sideCard(page, 'Your properties')).toHaveCount(0);
+  await expect(page.locator('.w-layers-panel')).toContainText('Open a village first.');
+  await expect(await layer(page, 'Climate')).toBeEnabled();
 
   // Which photograph a village sits on is a fair question before opening it,
   // so the other three still work.
@@ -653,7 +705,7 @@ test('the way back out of a village is to all of them, and lets go of the pick t
 
   await page.getByRole('button', { name: 'All villages' }).click();
 
-  await expect(page.getByRole('heading', { level: 1, name: 'Cadastral maps' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Maps' })).toBeVisible();
   await expect(page.locator('.vc-badge')).toHaveText('1 village');
   await expect(plotCard(page)).toHaveCount(0);
   // A chip naming a village no longer on screen would be a lie.
@@ -904,7 +956,7 @@ test('a village picked in the Filter opens, and a second pick goes back to the o
   // Two villages is not one to open: the overview comes back, narrowed to them.
   await chooseVillage(page, 'KATRAPADU');
   await closeFilter(page);
-  await expect(page.getByRole('heading', { level: 1, name: 'Cadastral maps' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Maps' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Remove filter Village KATRAPADU' })).toBeVisible();
   await expect(page.getByRole('button', { name: `Remove filter Village ${VILLAGE}` })).toBeVisible();
   await expect(page.locator('.filterbar .tally')).toHaveText('2 villages');
@@ -946,7 +998,7 @@ test('a village opens with every plot numbered, and the head counts them', async
   await openVillage(page);
 
   // The eyebrow names the level above, the page; the title names this one.
-  await expect(page.locator('main.vm .pagehead .eyebrow')).toHaveText('Cadastral maps');
+  await expect(page.locator('main.vm .pagehead .eyebrow')).toHaveText('Maps');
   await expect(page.locator('.pagehead-summary')).toHaveText(`7 parcels · ${TOTAL_ACRES} ac`);
   await expect(sideCard(page, 'All plots')).toHaveCount(0);
   await expect(page.getByLabel('Find a parcel or survey number')).toBeVisible();
@@ -978,21 +1030,130 @@ test('the number and the extent are written on the plot, and never on each other
   }
 });
 
-test('Numbers puts the plot numbers away, and the badge says which way it is', async ({ page, world }) => {
+test('Parcel numbers puts the numbers away, and the badge says which way it is', async ({ page, world }) => {
   await ground(page, world);
   await openVillage(page);
+  // A village open, the parcels are on without being asked again.
+  await expect(await layer(page, 'Cadastral map')).toBeChecked();
 
-  const numbers = page.getByRole('button', { name: 'Numbers' });
-  await expect(numbers).toHaveAttribute('aria-pressed', 'true');
+  const numbers = await layer(page, 'Parcel numbers');
+  await expect(numbers).toBeChecked();
 
-  await numbers.click();
+  await numbers.uncheck();
 
-  await expect(numbers).toHaveAttribute('aria-pressed', 'false');
+  await expect(numbers).not.toBeChecked();
   await expect(page.locator('.vc-label')).toHaveCount(0);
   await expect(page.locator('.vc-badge')).toContainText('numbers off');
 
-  await numbers.click();
+  await numbers.check();
   await expect(page.locator('.vc-label')).toHaveCount(7);
+});
+
+test('the numbers are part of the cadastral map: off with it, back with it', async ({ page, world }) => {
+  await ground(page, world);
+  await openVillage(page);
+
+  // Off: the parcels and their numbers go, and Parcel numbers says why it is
+  // not showing although it is still ticked — paused, never unticked.
+  await (await layer(page, 'Cadastral map')).uncheck();
+  await expect(page.locator('.vc-label')).toHaveCount(0);
+  // Nothing on the map to find a parcel among, so no finder.
+  await expect(plotFinder(page)).toHaveCount(0);
+  await expect(await layer(page, 'Parcel numbers')).toBeChecked();
+  await expect(page.locator('.w-layers-panel')).toContainText('Paused: shows with Cadastral map.');
+
+  await (await layer(page, 'Cadastral map')).check();
+  await expect(page.locator('.vc-label')).toHaveCount(7);
+});
+
+test('Extent is coloured for imagery: Street map pauses it, Satellite brings it back', async ({ page, world }) => {
+  await ground(page, world);
+  await openVillage(page);
+
+  await (await layer(page, 'Extent')).check();
+  await expect(page.locator('.vc-legend', { hasText: 'Extent' })).toBeVisible();
+
+  await chip(page, 'Street map').click();
+  await expect(page.locator('.vc-legend', { hasText: 'Extent' })).toHaveCount(0);
+  await expect(await layer(page, 'Extent')).toBeChecked();
+  await expect(page.locator('.w-layers-panel')).toContainText('Paused: shows on Satellite.');
+
+  await chip(page, 'Satellite').click();
+  await expect(page.locator('.vc-legend', { hasText: 'Extent' })).toBeVisible();
+});
+
+test('one insight at a time: Climate replaces Extent and None clears it', async ({ page, world }) => {
+  await ground(page, world);
+  await openVillage(page);
+
+  await (await layer(page, 'Extent')).check();
+  await (await layer(page, 'Climate')).check();
+  await expect(await layer(page, 'Extent')).not.toBeChecked();
+  await expect(page.locator('.vc-legend', { hasText: 'Extent' })).toHaveCount(0);
+  await expect(page.locator('.w-climate-key')).toBeVisible();
+  // At district zoom the parcels are under a pixel: paused, still ticked.
+  await expect(await layer(page, 'Cadastral map')).toBeChecked();
+  await expect(page.locator('.w-layers-panel'))
+    .toContainText('Paused while Climate is on: too small to see at district zoom.');
+
+  // The parcel finder is about parcels, which Climate has paused.
+  await expect(plotFinder(page)).toHaveCount(0);
+
+  await (await layer(page, 'None')).check();
+  await expect(page.locator('.w-climate-key')).toHaveCount(0);
+  await expect(page.locator('.vc-label')).toHaveCount(7);
+  await expect(plotFinder(page)).toBeVisible();
+});
+
+test('the map can take the whole screen and give it back', async ({ page, world }) => {
+  await ground(page, world);
+  await openVillage(page);
+  const canFill = await page.evaluate(() => document.fullscreenEnabled === true);
+  test.skip(!canFill, 'this browser does not offer full screen to a page');
+
+  await chip(page, 'View full screen').click();
+  await expect.poll(() => page.evaluate(() =>
+    !!document.fullscreenElement?.classList.contains('vm-stage'))).toBe(true);
+  await expect(chip(page, 'Exit full screen')).toBeVisible();
+  // The map has the window, and its layers came with it.
+  expect((await page.locator('.vm-stage').boundingBox())!.width).toBeGreaterThan(1400);
+  await expect(chip(page, 'Layers')).toBeVisible();
+
+  await page.evaluate(() => document.exitFullscreen());
+  await expect(chip(page, 'View full screen')).toBeVisible();
+});
+
+test('with the panel shut, what is on stays named on the map, and × turns it off', async ({ page, world }) => {
+  await ground(page, world);
+  await openVillage(page);
+
+  await (await layer(page, 'Climate')).check();
+  await chip(page, 'Layers').click();
+  await expect(page.locator('.w-layers-panel')).toHaveCount(0);
+
+  const on = page.locator('.vc-tl .w-layers-on');
+  await expect(on).toContainText('Climate');
+  // The parcels are still chosen, and say why they are not on the map.
+  await expect(on).toContainText('Cadastral map · paused');
+
+  await on.getByRole('button', { name: 'Turn off Climate' }).click();
+  await expect(page.locator('.w-climate-key')).toHaveCount(0);
+  await expect(on).not.toContainText('paused');
+  await expect(page.locator('.vc-label')).toHaveCount(7);
+});
+
+test('Hydrogeology turned on finds one of your properties and shows its water flow', async ({ page, world }) => {
+  world.set('waterFlow', () => ({ status: 'computing', reason: '', data: null }));
+  await ground(page, world);
+  await openVillage(page);
+
+  await (await layer(page, 'Hydrogeology')).check();
+
+  // Sy 214/2 is this account's parcel with a saved boundary: chosen for the
+  // owner rather than a reason to go and find one.
+  await expect(plotCard(page)).toContainText('214/2');
+  await expect(sideCard(page, 'Hydrogeology')).toBeVisible();
+  expect(world.calls('waterFlow').length).toBeGreaterThan(0);
 });
 
 test('the three basemaps are three different maps', async ({ page, world }) => {
@@ -1034,7 +1195,7 @@ test('Plot size shades the village by extent and counts every band', async ({ pa
   await ground(page, world);
   await openVillage(page);
 
-  await chip(page, 'Extent').click();
+  await (await layer(page, 'Extent')).check();
 
   const legend = page.locator('.vc-legend', { hasText: 'Extent' });
   await expect(legend).toBeVisible();
@@ -1230,8 +1391,7 @@ test('the plot number is outlined and as wide as the number needs', async ({ pag
   await expect(chip(page, 'Satellite')).toHaveAttribute('aria-pressed', 'true');
   await expect(chip(page, 'Satellite').locator('svg')).toHaveCount(0);
   await expect(chip(page, 'Satellite')).toHaveCSS('font-weight', '700');
-  await expect(page.getByRole('button', { name: 'Numbers' })).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByRole('button', { name: 'Numbers' }).locator('svg')).toHaveCount(0);
+  await expect(chip(page, 'Layers').locator('svg')).toHaveCount(0);
   await expect(chip(page, 'Street map')).toHaveCSS('font-weight', '400');
 });
 
@@ -1666,9 +1826,12 @@ test('Measure switches to Satellite, locks layers, and restores the previous map
   await expect(measure).toHaveAttribute('aria-pressed', 'true');
   await expect(chip(page, 'Satellite')).toHaveAttribute('aria-pressed', 'true');
   await expect(tape(page)).toContainText('Satellite view on');
-  for (const name of ['Satellite', 'Street map', 'Extent', 'Boundaries']) {
+  for (const name of ['Satellite', 'Street map', 'Boundaries']) {
     await expect(chip(page, name)).toBeDisabled();
   }
+  // The insights wait while the tape is out; the panel says so.
+  await expect(await layer(page, 'Extent')).toBeDisabled();
+  await chip(page, 'Layers').click();
 
   // Keep the synthetic tape below the Measure panel and the plot finder; this
   // scenario is about layer dependency, not whether overlay chrome takes clicks.
@@ -1682,9 +1845,10 @@ test('Measure switches to Satellite, locks layers, and restores the previous map
 
   await expect(measure).toHaveAttribute('aria-pressed', 'false');
   await expect(chip(page, 'Boundaries')).toHaveAttribute('aria-pressed', 'true');
-  for (const name of ['Satellite', 'Street map', 'Extent', 'Boundaries']) {
+  for (const name of ['Satellite', 'Street map', 'Boundaries']) {
     await expect(chip(page, name)).toBeEnabled();
   }
+  await expect(await layer(page, 'Extent')).toBeEnabled();
   await expect(page.locator('.leaflet-tile-pane img')).toHaveCount(0);
   await expect(page.locator('.w-corner-no')).toHaveCount(0);
 });
@@ -2411,7 +2575,7 @@ test('taking an uploaded map off lets go of the pick that opened it', async ({ p
 
   await removeMap(page);
 
-  await expect(page.getByRole('heading', { level: 1, name: 'Cadastral maps' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Maps' })).toBeVisible();
   await expect(page.locator('.filterbar .tally')).toHaveText('1 village');
   // The village is gone from the shelf, so no chip may still name it.
   await expect(page.getByRole('button', { name: /^Remove filter Village/i })).toHaveCount(0);
@@ -2559,7 +2723,7 @@ test.describe('when the server refuses', () => {
       'katragunta-shapes.kml — its shapes carry no plot numbers — this export keeps them '
       + 'in a separate label file, so send both together');
     // Nothing landed, so nothing was opened.
-    await expect(page.getByRole('heading', { level: 1, name: 'Cadastral maps' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'Maps' })).toBeVisible();
   });
 
   test('a refused removal keeps the village, and says so under the Filter', async ({ page, world }) => {
@@ -2602,7 +2766,7 @@ test.describe('when the server refuses', () => {
     await removeMap(page);
     // Left while the server is still thinking it over.
     await page.getByRole('button', { name: 'All villages' }).click();
-    await expect(page.getByRole('heading', { level: 1, name: 'Cadastral maps' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'Maps' })).toBeVisible();
 
     await expect(page.getByRole('region', { name: 'Cadastral map filters' }))
       .toContainText('that village map is in use');

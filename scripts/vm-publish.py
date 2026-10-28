@@ -10,7 +10,8 @@ build is scripts/village-map-import.py --out .local/vm-build.
 
 Before anything is sent the build is checked as the browser will read it:
 catalog.json, index.json and every overview/geojson they name must exist and
-parse, and nothing but .json/.geojson under [a-z/] names may be in the folder
+parse (a village's optional `<village>/suitability.json` from
+scripts/suitability-build.py must parse too), and nothing but .json/.geojson under [a-z/] names may be in the folder
 (no receipts, no local paths). Then:
 
   1. geojson files are synced first, long-cached (they are only ever replaced
@@ -59,6 +60,12 @@ def check(build: Path) -> dict:
         named.add(v["path"])
         if not (build / v["path"]).is_file():
             raise SystemExit(f"index names {v['path']}, which is not in the build")
+        # The village's land suitability grades (scripts/suitability-build.py),
+        # beside its map: optional, and only ever at this one name.
+        grades = v["path"].removesuffix(".geojson") + "/suitability.json"
+        if (build / grades).is_file():
+            named.add(grades)
+            json.loads((build / grades).read_text(encoding="utf-8"))
     stray = sorted(set(files) - named)
     if stray:
         raise SystemExit(f"refusing to publish: {len(stray)} file(s) no manifest names, e.g. {stray[0]}")
@@ -90,7 +97,8 @@ def main() -> None:
     build = args.dir.resolve()
     summary = check(build)
     print(json.dumps(summary, indent=1))
-    dest = f"s3://{args.bucket}/"
+    # CloudFront forwards /vm/<key> unchanged (no origin_path), so keys live under vm/.
+    dest = f"s3://{args.bucket}/vm/"
     base = ["aws", "s3", "sync", str(build), dest, "--only-show-errors"]
     run(base + ["--exclude", "*", "--include", "*.geojson",
                 "--content-type", "application/json", "--cache-control", GEO_CACHE], args.execute)

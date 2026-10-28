@@ -408,7 +408,7 @@ export function Shell() {
       items: [
         { to: '/home', label: 'Home', icon: HomeOutlined, end: true },
         // A house beside a building: land and built property together. Not a
-        // map — the map is Cadastral maps' job and a view inside Properties.
+        // map — the map is Maps' job and a view inside Properties.
         { to: '/properties', label: 'Properties', icon: HomeWorkOutlined },
         // Who holds the land (WHO): families and the other groups (HUF, firm,
         // trust) that own it together. Portfolio, not Shared — the account
@@ -421,9 +421,12 @@ export function Shell() {
         ...(showHoldings
           ? [{ to: '/holdings', label: HOLDING_WORD.many, icon: JoinFullOutlined }]
           : []),
-        // Cadastral maps: village and plot geometry, distinct from the
-        // Properties Map view and each record's Location tab.
-        { to: '/maps', label: 'Cadastral maps', icon: LayersOutlined },
+        // Maps (Reddy, 25/10/2026): one map with every layer — the ground,
+        // the cadastral parcels, your properties, hydrogeology, climate — the
+        // same map as each property's Maps tab
+        // (docs/specs/2026-10-25-pattadar-maps.md). Distinct from the
+        // Properties page's Map view, which is a portfolio of your land.
+        { to: '/maps', label: 'Maps', icon: LayersOutlined },
         { to: '/papers', label: 'Documents', icon: DescriptionOutlined },
       ],
     },

@@ -1414,6 +1414,55 @@ export function useRetryWaterFlow(id: string | undefined, source: FlowMap) {
     .catch(() => qc.invalidateQueries({ queryKey: key }));
 }
 
+/** Area rainfall around a record, for its NASA POWER grid cell
+ *  (services/api/src/weather.py). Dates are ISO; the screen formats them. */
+export interface RainfallView {
+  status: 'ready' | 'unavailable' | 'failed';
+  reason: string;
+  source: string;
+  cellLabel: string;
+  asOf: string;
+  last7Mm: number | null;
+  last30Mm: number | null;
+  seasonFrom: string;
+  seasonMm: number | null;
+  normalMm: number | null;
+  seasonPct: number | null;
+  tMax7: number | null;
+  tMin7: number | null;
+  months: Array<{ month: string; mm: number; normalMm: number }>;
+}
+
+const Q_RAINFALL = `query RF($id:String!,$retry:Boolean!) { web { rainfall(recordId:$id,retry:$retry) {
+  status reason source cellLabel asOf last7Mm last30Mm seasonFrom seasonMm normalMm seasonPct
+  tMax7 tMin7 months { month mm normalMm }
+} } }`;
+
+async function fetchRainfall(id: string | undefined, retry = false): Promise<RainfallView | null> {
+  return (await gql<Wrapped<'rainfall', RainfallView | null>>(Q_RAINFALL, { id, retry })).web.rainfall;
+}
+
+/** POWER is 2–7 days behind and the server keeps an answer for six hours, so
+ *  one read per visit is plenty. `enabled` is false for a record with no place. */
+export function useRainfall(id: string | undefined, enabled: boolean) {
+  return useQuery({
+    enabled: !!id && enabled,
+    queryKey: [KEY, 'rainfall', id],
+    queryFn: () => fetchRainfall(id),
+    staleTime: 60 * 60_000,
+  });
+}
+
+/** Try again on a failed read. A plain refetch is served the remembered
+ *  failure for ten minutes (weather.FAILED_MINUTES); this asks POWER now. */
+export function useRetryRainfall(id: string | undefined) {
+  const qc = useQueryClient();
+  const key = [KEY, 'rainfall', id];
+  return () => fetchRainfall(id, true)
+    .then((v) => { qc.setQueryData(key, v); })
+    .catch(() => qc.invalidateQueries({ queryKey: key }));
+}
+
 export function usePhotos(id: string | undefined, featureId?: string) {
   return useQuery({
     enabled: !!id,

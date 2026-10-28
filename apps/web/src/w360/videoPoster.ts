@@ -9,17 +9,19 @@ import { useEffect, useState } from 'react';
 
 import { useMediaStream } from './mediaStream';
 
-export function useVideoPoster(fileRef: string, enabled: boolean) {
-  const [done, setDone] = useState(false);
-  const [url, setUrl] = useState('');
-  const stream = useMediaStream(fileRef, enabled && !done);
-  const [poster, setPoster] = useState('');
+export function useVideoPoster(fileRef: string, enabled: boolean, maxWidth = 320) {
+  // Each result names the file it was made for. The stage and Compare panes
+  // keep one instance across files, and must never show the previous file's
+  // frame; a capture also closes its stream, so a poster cannot be cleared
+  // when the stream goes away, only when the file does.
+  const [doneFor, setDoneFor] = useState('');
+  const [kept, setKept] = useState({ ref: '', url: '' });
+  const [shot, setShot] = useState({ ref: '', src: '' });
+  const stream = useMediaStream(fileRef, enabled && doneFor !== fileRef);
 
-  useEffect(() => { setDone(false); setUrl(''); }, [fileRef]);
-  useEffect(() => { if (stream.url) setUrl(stream.url); }, [stream.url]);
+  useEffect(() => { if (stream.url) setKept({ ref: fileRef, url: stream.url }); }, [fileRef, stream.url]);
 
   useEffect(() => {
-    setPoster('');
     if (!enabled || !stream.url) return;
     const video = document.createElement('video');
     let cancelled = false;
@@ -44,6 +46,7 @@ export function useVideoPoster(fileRef: string, enabled: boolean) {
     const release = () => {
       if (captureTimer !== undefined) window.clearTimeout(captureTimer);
       captureTimer = undefined;
+      window.clearTimeout(giveUp);
       video.pause();
       video.removeAttribute('src');
       video.load();
@@ -51,19 +54,26 @@ export function useVideoPoster(fileRef: string, enabled: boolean) {
     };
     const capture = () => {
       if (cancelled || settled || !video.videoWidth || !video.videoHeight) return;
+      // Dimensions arrive with the metadata, a drawable frame only later; a
+      // draw before then stored a black poster. loadeddata/canplay re-arm.
+      if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+        if (captureTimer !== undefined) window.clearTimeout(captureTimer);
+        captureTimer = undefined;
+        return;
+      }
       settled = true;
-      const width = Math.min(320, video.videoWidth);
+      const width = Math.min(maxWidth, video.videoWidth);
       const height = Math.max(1, Math.round(width * video.videoHeight / video.videoWidth));
       const canvas = document.createElement('canvas');
       canvas.width = width;
       canvas.height = height;
       const context = canvas.getContext('2d');
-      if (!context) { setDone(true); release(); return; }
+      if (!context) { setDoneFor(fileRef); release(); return; }
       try {
         context.drawImage(video, 0, 0, width, height);
-        setPoster(canvas.toDataURL('image/jpeg', 0.72));
+        setShot({ ref: fileRef, src: canvas.toDataURL('image/jpeg', 0.72) });
       } catch { /* unsupported codec/canvas policy: keep the video-icon fallback */ }
-      setDone(true);
+      setDoneFor(fileRef);
       release();
     };
     const captureDecodedFrame = () => {
@@ -79,11 +89,14 @@ export function useVideoPoster(fileRef: string, enabled: boolean) {
       }
     };
     const failed = () => {
-      if (settled) return;
+      if (cancelled || settled) return;
       settled = true;
-      setDone(true);
+      setDoneFor(fileRef);
       release();
     };
+    // A clip that never decodes a frame (and never errors) gives up rather
+    // than keep a hidden video and its stream session alive.
+    const giveUp = window.setTimeout(failed, 20_000);
     const seek = () => {
       const duration = Number.isFinite(video.duration) ? video.duration : 0;
       video.currentTime = duration > 0 ? Math.min(1, duration / 2) : 0;
@@ -103,7 +116,11 @@ export function useVideoPoster(fileRef: string, enabled: boolean) {
       cancelled = true;
       release();
     };
-  }, [enabled, stream.url]);
+  }, [enabled, fileRef, stream.url, maxWidth]);
 
-  return { poster, url, status: stream.status, message: stream.message, retry: stream.retry };
+  return {
+    poster: shot.ref === fileRef ? shot.src : '',
+    url: kept.ref === fileRef ? kept.url : '',
+    status: stream.status, message: stream.message, retry: stream.retry,
+  };
 }

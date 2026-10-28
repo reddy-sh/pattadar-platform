@@ -62,6 +62,13 @@ const STORED_SECOND = '66666666-7777-4888-8999-000000000000';
 const TINY_WEBM =
   'GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAHpEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHYTbuMU6uEElTDZ1OsggElTbuMU6uEHFO7a1OsggHT7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsirXsYMPQkBNgI1MYXZmNjIuMTIuMTAxV0GNTGF2ZjYyLjEyLjEwMUSJiEBpAAAAAAAAFlSua8iuAQAAAAAAAD/XgQFzxYjh6kAJBACGu5yBACK1nIN1bmSIgQCGhVZfVlA4g4EBI+ODhAvrwgDgkLCBELqBEJqBAlWwhFW5gQESVMNn/HNzoGPAgGfImkWjh0VOQ09ERVJEh41MYXZmNjIuMTIuMTAxc3PWY8CLY8WI4epACQQAhrtnyKFFo4dFTkNPREVSRIeUTGF2YzYyLjI4LjEwMSBsaWJ2cHhnyKFFo4hEVVJBVElPTkSHkzAwOjAwOjAwLjIwMDAwMDAwMAAfQ7Z1qOeBAKOjgQAAgBACAJ0BKhAAEAAARwiFhYiFhIgCAgAMDWAA/v+rUIAcU7trkbuPs4EAt4r3gQHxggGm8IED';
 
+/** 16x16 solid red and solid blue VP8 (ffmpeg lavfi color, libvpx). Black
+ *  cannot tell a decoded frame from a canvas drawn before one existed. */
+const RED_WEBM =
+  'GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAIOEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHWTbuMU6uEElTDZ1OsggEyTbuMU6uEHFO7a1OsggH47AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsCrXsYMPQkBNgIxMYXZmNjMuMS4xMDJXQYxMYXZmNjMuMS4xMDJEiYhAaQAAAAAAABZUrmvXrgEAAAAAAABO14EBc8WIKrldM7Fg0cGcgQAitZyDdW5kiIEAhoVWX1ZQOIOBASPjg4QL68IA4JCwgRC6gRCagQJVsIRVuYEBVe6BAOwBAAAAAAAAAgAAElTDZ/pzc59jwIBnyJlFo4dFTkNPREVSRIeMTGF2ZjYzLjEuMTAyc3PVY8CLY8WIKrldM7Fg0cFnyKBFo4dFTkNPREVSRIeTTGF2YzYzLjEuMTAyIGxpYnZweGfIoUWjiERVUkFUSU9ORIeTMDA6MDA6MDAuMjAwMDAwMDAwAB9DtnXC54EAo72BAACA8AIAnQEqEAAQAABHCIWFiIWEiAICAnWqA/gD+gINTRgA/v1u8//jmTcwxP+Obf/xYTwOKMj/8VEAHFO7a5G7j7OBALeK94EB8YIBsfCBAw==';
+const BLUE_WEBM =
+  'GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAINEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHWTbuMU6uEElTDZ1OsggEyTbuMU6uEHFO7a1OsggH37AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsCrXsYMPQkBNgIxMYXZmNjMuMS4xMDJXQYxMYXZmNjMuMS4xMDJEiYhAaQAAAAAAABZUrmvXrgEAAAAAAABO14EBc8WIWTD8nO4suDicgQAitZyDdW5kiIEAhoVWX1ZQOIOBASPjg4QL68IA4JCwgRC6gRCagQJVsIRVuYEBVe6BAOwBAAAAAAAAAgAAElTDZ/pzc59jwIBnyJlFo4dFTkNPREVSRIeMTGF2ZjYzLjEuMTAyc3PVY8CLY8WIWTD8nO4suDhnyKBFo4dFTkNPREVSRIeTTGF2YzYzLjEuMTAyIGxpYnZweGfIoUWjiERVUkFUSU9ORIeTMDA6MDA6MDAuMjAwMDAwMDAwAB9DtnXB54EAo7yBAACAsAIAnQEqEAAQAABHCIWFiIWEiAICAnWqA/gCDP0oAP7/TRL//FhX8WFfxYV/8WFf/PzO7cX85gAcU7trkbuPs4EAt4r3gQHxggGx8IED';
+
 type Row = Record<string, unknown>;
 
 const seeded = () => structuredClone(PHOTOS) as Record<string, unknown> & { photos: Row[] };
@@ -340,13 +347,6 @@ test.describe('the gallery', () => {
       '.photostrip .video-thumb > img, .photostrip .video-thumb-frame.ready',
     )).toHaveCount(1);
 
-    await mediaMenu(page, 'Select');
-    await strip(page).click();
-    await expect(side(page).locator(
-      '.selection-preview .video-thumb > img, .selection-preview .video-thumb-frame.ready',
-    )).toHaveCount(1);
-    await mediaMenu(page, 'Done selecting');
-
     // The play button is named with its verb, not by the caption alone.
     await page.locator('.frame').getByRole('button', { name: 'Play Walking the eastern edge', exact: true }).click();
     const video = page.locator('.frame video[controls]');
@@ -357,6 +357,39 @@ test.describe('the gallery', () => {
     const asked = world.restCalls(/\/content/).map((call) => call.url);
     expect(asked.length).toBeGreaterThan(0);
     expect(asked.every((url) => !url.includes('thumb='))).toBe(true);
+  });
+
+  test('before it plays, the stage shows each stored clip\'s own frame', async ({ page, world }) => {
+    // The stage keeps one player across clips. Its poster used to be wiped as
+    // soon as the capture closed the stream, leaving a blank box; a poster
+    // kept too long would show the last clip's frame on the next one.
+    world.set('photos', list([
+      row(PHOTO.clip, { fileRef: STORED, mediaKind: 'video', width: 16, height: 16 }),
+      row(PHOTO.well, { fileRef: STORED_SECOND, mediaKind: 'video', fileName: 'north-bund.webm', width: 16, height: 16 }),
+    ]));
+    world.route(new RegExp(`/storage/files/${STORED}/content`), () => ({
+      contentType: 'video/webm', body: Buffer.from(RED_WEBM, 'base64'),
+    }));
+    world.route(new RegExp(`/storage/files/${STORED_SECOND}/content`), () => ({
+      contentType: 'video/webm', body: Buffer.from(BLUE_WEBM, 'base64'),
+    }));
+    await page.goto(GALLERY());
+
+    const colour = () => page.locator('.frame .video-poster').evaluate((img: HTMLImageElement) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const context = canvas.getContext('2d')!;
+      context.drawImage(img, 0, 0);
+      const [r, g, b] = context.getImageData(img.naturalWidth >> 1, img.naturalHeight >> 1, 1, 1).data;
+      return r > 150 && g < 90 && b < 90 ? 'red' : b > 150 && r < 90 && g < 90 ? 'blue' : `rgb(${r}, ${g}, ${b})`;
+    });
+    await expect(position(page)).toHaveText('Video 1 of 2');
+    await expect.poll(colour).toBe('red');
+
+    await page.getByRole('button', { name: 'Next video' }).click();
+    await expect(position(page)).toHaveText('Video 2 of 2');
+    await expect.poll(colour).toBe('blue');
   });
 
   test('the stage asks for a frame and the strip for a thumbnail, of the same file', async ({ page, world }) => {

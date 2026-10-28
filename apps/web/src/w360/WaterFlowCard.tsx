@@ -3,11 +3,12 @@
  *  It describes how rainwater drains over the surface, worked out from free
  *  30 m elevation maps; it is not groundwater data. Every state of the card
  *  says so, and it never promises water. */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { navigateLink } from '@pattadar/core';
 
+import { useRetryWaterFlow, useWaterFlow, useWaterFlowOthers } from './api';
 import type { FlowArea, FlowConfidence, FlowMap, WaterFlowData, WaterFlowView } from './api';
-import type { FlowLine } from './MapCanvasLazy';
+import type { FlowLine, WaterFlowLayer } from './flowLayer';
 import { FLOW_INK as INK } from './flowInk';
 import { useToast } from './Toast';
 import { Card, Failed, KV, StatusChip, num } from './ui';
@@ -330,6 +331,130 @@ function FlowAnswer({
           ? <>{CONFIDENCE[s.confidence].word} · drains <span className="num">{acres(s.upslope_ha)} ac</span> · <span className="num">{s.agree}</span> of 3 agree</>
           : 'No bore point',
       }))} />
+    </>
+  );
+}
+
+/** The Hydrogeology layer for one property: which map, what to draw, the
+ *  chosen bore point, and the reading. One hook for both maps, so the layer
+ *  and its card behave the same on a property's Maps tab and on Maps
+ *  (docs/specs/2026-10-25-pattadar-maps.md). `on` asks the server — a first
+ *  reading takes about half a minute; `paused` keeps the answer but stops
+ *  saying it is loading (an edit tool is armed). */
+export function useHydrogeology(recordId: string | undefined, on: boolean, paused = false) {
+  const [source, setSource] = useState<FlowMap>('combined');
+  const [showMain, setShowMain] = useState(true);
+  const [showPinArea, setShowPinArea] = useState(true);
+  const [selected, setSelected] = useState<number | null>(1);
+  /** Lines draining less than this many acres are left off the map. */
+  const [minAcres, setMinAcres] = useState(MIN_AC);
+  const [byAgreement, setByAgreement] = useState(false);
+  const [compare, setCompare] = useState(false);
+  /** Only the boundary and the numbered bore points: no lines, no areas. */
+  const [pinsOnly, setPinsOnly] = useState(false);
+
+  const flow = useWaterFlow(recordId, source, on);
+  const retry = useRetryWaterFlow(recordId, source);
+  const data = flow.data?.status === 'ready' ? flow.data.data : null;
+  // Pieces memoised apart, so choosing a pin redraws three pins and one area
+  // and leaves the two thousand lines alone.
+  const lineSet = useMemo(
+    () => (data ? flowLines(data).filter((l) => l.ha * 2.4711 >= minAcres - 0.05) : null),
+    [data, minAcres]);
+  const otherMaps = FLOW_MAPS.map((m) => m.id).filter((m) => m !== source && m !== 'combined');
+  const others = useWaterFlowOthers(recordId, otherMaps, on && compare);
+  const othersData = others.map((q) => (q.data?.status === 'ready' ? q.data.data : null));
+  const othersKey = othersData.map((d) => (d ? d.map : '-')).join(',');
+  const otherLines = useMemo(
+    () => (compare ? othersData.flatMap((d) => (d ? flowLines(d).filter((l) => l.ha * 2.4711 >= minAcres - 0.05) : [])) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- othersKey stands for othersData
+    [compare, othersKey, minAcres]);
+  const mainArea = useMemo(
+    () => (data && showMain ? flowArea(data.main_stream?.catchment) : null), [data, showMain]);
+  const pins = useMemo(
+    () => data?.points.map(({ rank, lat, lon, confidence }) => ({ rank, lat, lon, confidence })) ?? [],
+    [data]);
+  const chosenArea = useMemo(
+    () => (data && showPinArea
+      ? flowArea(data.points.find((p) => p.rank === selected)?.catchment) : null),
+    [data, selected, showPinArea]);
+  /** What the layer is waiting for, said on the map and in the card, so an
+   *  empty or stale map is never mistaken for the answer. '' when settled. */
+  const comparing = compare && others.some((q) => q.isLoading || q.data?.status === 'computing');
+  const loadingText = !on || paused ? ''
+    : flow.isLoading || flow.data?.status === 'computing'
+      ? 'Preparing the hydrogeology map… It reads the slope of the land, about half a minute the first time.'
+      : flow.isPlaceholderData
+        ? `Loading the ${flowMapName(source)} lines…`
+        : comparing ? 'Loading the other maps\' lines…' : '';
+  const layer = useMemo((): WaterFlowLayer | null => (lineSet ? {
+    lines: pinsOnly ? [] : lineSet,
+    mainArea: pinsOnly ? null : mainArea,
+    pinArea: pinsOnly ? null : chosenArea,
+    pins,
+    selected, byAgreement, others: pinsOnly ? null : otherLines,
+    label: flowMapName(data?.map),
+  } : null), [lineSet, mainArea, chosenArea, pins, selected, byAgreement, otherLines, data?.map, pinsOnly]);
+
+  return {
+    layer, loadingText, pinsOnly, setSelected,
+    /** Everything WaterFlowCard takes. */
+    card: {
+      flow: flow.data, loading: flow.isLoading, error: flow.error,
+      stale: flow.isPlaceholderData || (flow.isFetching && flow.data?.status !== 'computing'),
+      source, onSource: setSource,
+      showMain, onShowMain: setShowMain,
+      showPinArea, onShowPinArea: setShowPinArea,
+      selected, onSelect: setSelected,
+      minAcres, onMinAcres: setMinAcres,
+      byAgreement, onByAgreement: setByAgreement,
+      compare, onCompare: setCompare,
+      pinsOnly, onPinsOnly: setPinsOnly,
+      loadingText,
+      onRetry: retry,
+    },
+  };
+}
+
+/** The Hydrogeology layer's key, on the map. On a phone it folds behind one
+ *  "Map key" button (as the property map's tools do), so it is reachable at
+ *  every width without covering the parcel. `boundary` names the gold ring
+ *  where the map draws the property's own boundary in it. */
+export function FlowKey({ flow, boundary = false }: { flow: WaterFlowLayer; boundary?: boolean }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" className="btn sm w-flow-keybtn" aria-expanded={open}
+              aria-controls="w-flow-key" onClick={() => setOpen((o) => !o)}>
+        Map key
+      </button>
+      <div id="w-flow-key" className={`w-flow-legend${open ? '' : ' folded'}`} role="group" aria-label="Map key">
+        {flow.lines.length > 0 && (
+          <span><i style={{ background: INK.line, height: 3 }} />Drainage lines, {flow.label}</span>
+        )}
+        {flow.lines.length > 0 && flow.byAgreement && (
+          <>
+            <span><i style={{ background: INK.line, height: 3 }} />All 3 maps put a line there</span>
+            <span><i style={{ background: INK.line, height: 3, opacity: 0.7 }} />2 of 3 maps</span>
+            <span>
+              <i style={{ height: 3, opacity: 0.5,
+                          background: `repeating-linear-gradient(90deg, ${INK.line} 0 4px, transparent 4px 9px)` }} />
+              Only this map
+            </span>
+          </>
+        )}
+        {boundary && <span><i className="ring" style={{ borderColor: INK.ring }} />Your boundary</span>}
+        {flow.mainArea && <span><i className="ring" style={{ borderColor: INK.main }} />Area draining to the main stream</span>}
+        {flow.pinArea && <span><i className="ring" style={{ borderColor: INK.pinArea }} />Area draining to the chosen bore point</span>}
+        {flow.others && <span><i style={{ background: INK.other, height: 1 }} />The other maps' lines</span>}
+        {flow.lines.length > 0 && (
+          <span><i style={{ background: INK.line, height: 1 }} />thin to thick: more land drains</span>
+        )}
+        <span>
+          <b style={{ background: INK.high }} /><b style={{ background: INK.medium }} /><b style={{ background: INK.low }} />
+          Bore points: high, medium, low confidence
+        </span>
+      </div>
     </>
   );
 }

@@ -43,7 +43,7 @@ from psycopg import errors as _pg_errors
 # imports it bare off src/. A relative-only import breaks the second.
 try:                                    # inside the `src` package, as main.py loads it
     from . import (associates, catalogue, combined_geometry, compliance, feature_schema,
-                   governance, notify, record_master as rm, terrain, ticketing)
+                   governance, notify, record_master as rm, terrain, ticketing, weather)
 except ImportError:                     # imported bare off src/, as the pure tests do
     import associates                   # type: ignore[no-redef]
     import record_master as rm          # type: ignore[no-redef]
@@ -55,6 +55,7 @@ except ImportError:                     # imported bare off src/, as the pure te
     import notify                       # type: ignore[no-redef]
     import terrain                      # type: ignore[no-redef]
     import ticketing                    # type: ignore[no-redef]
+    import weather                      # type: ignore[no-redef]
 
 # Bound by main.py at import time so this module never imports main (circular).
 _pool = None
@@ -796,6 +797,10 @@ _DDL = [
     # The Hydrogeology layer's cached readings, one per record and boundary
     # (docs/specs/2026-10-13-water-flow-layer.md).
     *terrain.DDL,
+
+    # The Rainfall card's cache: one row per NASA POWER grid cell and kind,
+    # with no owner and no record id (services/api/src/weather.py).
+    *weather.DDL,
 ]
 
 
@@ -1782,6 +1787,32 @@ class BoundaryView:
     sheet_detail: str
     sheet_id: str              # the paper to open; "" when none is filed
     marks: List[BoundaryMark]
+
+
+@strawberry.type
+class RainfallMonth:
+    month: str                 # YYYY-MM
+    mm: float
+    normal_mm: float
+
+
+@strawberry.type
+class RainfallView:
+    """Area rainfall for the record's NASA POWER grid cell (weather.py)."""
+    status: str                # ready | unavailable | failed
+    reason: str
+    source: str
+    cell_label: str = ""
+    as_of: str = ""            # ISO date of the latest day POWER has filled in
+    last7_mm: Optional[float] = None
+    last30_mm: Optional[float] = None
+    season_from: str = ""      # ISO date: 1 June of the current season
+    season_mm: Optional[float] = None
+    normal_mm: Optional[float] = None
+    season_pct: Optional[int] = None
+    t_max7: Optional[float] = None
+    t_min7: Optional[float] = None
+    months: List[RainfallMonth] = strawberry.field(default_factory=list)
 
 
 @strawberry.type
@@ -8640,6 +8671,26 @@ class WebQuery:
             cur = await conn.execute(f"SELECT boundary FROM {table} WHERE id=%s", (record_id,))
             row = await cur.fetchone() or {}
         return WaterFlowView(**await terrain.reading(_pool, record_id, row.get("boundary") or "", source, retry))
+
+    @strawberry.field
+    async def rainfall(self, info: strawberry.Info, record_id: str,
+                       retry: bool = False) -> Optional[RainfallView]:
+        """Area rainfall around the record, from its pin or else its boundary's
+        centre. None when the record is not the caller's. Only the record's
+        grid cell is sent to NASA POWER, never the point itself."""
+        uid = _uid(info)
+        async with _pool.connection() as conn:
+            kind = await _record_kind(conn, uid, record_id)
+            if not kind:
+                return None
+            table = "parcels" if kind == "parcel" else "properties"
+            cur = await conn.execute(
+                f"SELECT geo_point, boundary FROM {table} WHERE id=%s", (record_id,))
+            row = await cur.fetchone() or {}
+        lat, lon = _located(row.get("geo_point") or "", _ring(row.get("boundary") or ""))
+        v = await weather.reading(_pool, lat, lon, retry)
+        months = [RainfallMonth(**m) for m in v.pop("months", [])]
+        return RainfallView(**v, months=months)
 
     @strawberry.field
     async def boundary(self, info: strawberry.Info, record_id: str) -> Optional[BoundaryView]:

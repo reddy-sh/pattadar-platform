@@ -2268,7 +2268,9 @@
 /* One active filter, and the control that takes it off. The group name rides
    in small type above the value so two chips reading "Owned" and "Owned" — one a
    status, one a stake — are told apart without opening the popover. */
-.w360 .fchip {
+/* .w-layer-chip: a map layer that is on (MapLayerControl) wears the filter
+   chip's look, but is not a filter — it has its own class. */
+.w360 :is(.fchip, .w-layer-chip) {
   display: inline-flex; align-items: center; gap: 0.375rem;
   padding: 0.3125rem 0.375rem 0.3125rem 0.6875rem;
   border-radius: var(--radius-pill);
@@ -2278,12 +2280,12 @@
   font-size: 0.78125rem; font-weight: 400;
   max-width: 18rem;
 }
-.w360 .fchip .grp {
+.w360 :is(.fchip, .w-layer-chip) .grp {
   font-variant-numeric: tabular-nums; font-size: 0.625rem;
   letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.75;
   flex: none;
 }
-.w360 .fchip .val { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.w360 :is(.fchip, .w-layer-chip) .val { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* ChipPicker: the band's chips in front of a type-to-find field. */
 .w360 .chippick { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem; min-width: 0; }
 .w360 .chippick-field { position: relative; flex: 1 1 12rem; min-width: 10rem; }
@@ -2296,12 +2298,12 @@
 .w360 .chippick-list [role='option'] { padding: 0.5rem 0.625rem; border-radius: var(--radius-xs); cursor: pointer; }
 .w360 .chippick-list [role='option'][aria-selected='true'] { background: var(--w-accent-wash); color: var(--w-ink); }
 .w360 .chippick-list .note { padding: 0.375rem 0.625rem; }
-.w360 .fchip button {
+.w360 :is(.fchip, .w-layer-chip) button {
   border: 0; background: none; color: inherit; font: inherit;
   font-size: 0.875rem; line-height: 1; cursor: pointer;
   padding: 0 0.25rem; opacity: 0.8; flex: none;
 }
-.w360 .fchip button:hover { opacity: 1; }
+.w360 :is(.fchip, .w-layer-chip) button:hover { opacity: 1; }
 
 /* Not scoped to `.filterbar`: the selection pill ends with the same control,
    doing the same thing to a different kind of "what is on". Scoped, the pill's
@@ -4273,6 +4275,9 @@
   left: var(--space-md);
   bottom: 3.25rem;
   z-index: 500;
+}
+/* The same key on Maps, in the top-left stack (.vc-tl) under Layers. */
+.w360 .w-flow-legend {
   display: grid;
   gap: 0.3125rem;
   padding: 0.625rem 0.75rem;
@@ -4287,9 +4292,51 @@
 .w360 .w-flow-legend i.ring { height: 0.625rem; border: 2px solid; border-radius: 2px; }
 .w360 .w-flow-legend b { display: inline-block; width: 0.625rem; height: 0.625rem; border-radius: 50%; margin-right: -0.375rem; }
 .w360 .w-flow-legend b:last-of-type { margin-right: 0.25rem; }
+/* The Climate chip's key (ClimateKey.tsx): the same dark panel as the water-
+   flow key, bottom-left, but it holds the layer chips so it takes clicks. */
+.w360 .plot .w-climate-key {
+  position: absolute;
+  left: var(--space-md);
+  bottom: 3.25rem;
+  z-index: 500;
+}
+/* On the cadastral map it sits in the top-left stack (.vc-tl), under the
+   layer chips, like the Extent key. */
+.w360 .w-climate-key {
+  display: grid;
+  gap: 0.375rem;
+  width: min(22rem, calc(100% - 2 * var(--space-md)));
+  padding: 0.625rem 0.75rem;
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, black 72%, transparent);
+  color: white;
+  font-size: 0.75rem;
+}
+.w360 .w-climate-key .w-climate-pick { flex-wrap: wrap; }
+.w360 .w-climate-key .w-climate-measure { font-weight: 700; }
+.w360 .w-climate-key .w-climate-bar { display: block; height: 0.625rem; border-radius: 2px; }
+.w360 .w-climate-key .w-climate-ticks {
+  display: flex; justify-content: space-between; font-variant-numeric: tabular-nums;
+}
+.w360 .w-climate-key .w-climate-note { opacity: 0.85; }
+/* How current the picture is, the key's one sentence that matters most. */
+.w360 .w-climate-key .w-climate-when { font-size: 0.8125rem; }
+/* The property at district zoom, where its boundary is under a pixel: the
+   boundary's own gold, ringed dark so it reads on any colour of the layer. */
+.w360 .leaflet-interactive.w-climate-here,
+.w360 path.w-climate-here {
+  stroke: color-mix(in oklab, black 80%, transparent);
+  stroke-width: 3;
+  fill: var(--w-ground-ring);
+  fill-opacity: 1;
+}
+@media (max-width: 640px) {
+  .w360 .plot .w-climate-key { right: var(--space-md); width: auto; }
+  .w360 .vc-tl .w-climate-key { width: 100%; }
+}
 /* On a phone the key folds behind a "Map key" button in its place, and opens
    above it. Above 640px the button is hidden and the key always shows. */
-.w360 .plot .w-flow-keybtn { display: none; }
+.w360 .w-flow-keybtn { display: none; }
 @media (max-width: 640px) {
   .w360 .plot .w-flow-keybtn {
     display: inline-flex;
@@ -4301,7 +4348,8 @@
     backdrop-filter: blur(3px);
   }
   .w360 .plot .w-flow-legend { bottom: 5.75rem; right: var(--space-md); }
-  .w360 .plot .w-flow-legend.folded { display: none; }
+  .w360 .w-flow-legend.folded { display: none; }
+  .w360 .vc-tl .w-flow-keybtn { display: inline-flex; }
 }
 /* Hydrogeology is still loading. On the map: a panel in the middle, over a
    scrim while the first reading leaves the map empty (so "nothing yet" is never
@@ -4733,6 +4781,10 @@
   width: 0.625rem; height: 0.625rem; border-radius: 0.1875rem; flex: none;
 }
 .w360 .vc-measure { width: min(20rem, 100%); }
+/* Suitability's key: "Not assessed" is the bare mesh on the map, so its
+   swatch is an outline, not a colour. */
+.w360 .vc-suit { width: min(20rem, 100%); }
+.w360 .vc-legend i.none { border: 1px solid var(--w-line-strong); background: transparent; }
 .w360 .vc-measuring { cursor: crosshair; }
 
 /* Buttons that stand ON the imagery carry their own ground, as the map chips
@@ -5182,7 +5234,7 @@
    the Properties and holding maps (`.plot.live .maptools`) and Cadastral maps
    (`.vc-tl`). Chips on a photograph carry their own ground — bare soil at
    midday is near-white and a field in shade is near-black. */
-.w360 :is(.plot.live .maptools, .vc-tl) .chip {
+.w360 :is(.plot.live .maptools, .vc-tl, .w-climate-key) .chip {
   background: color-mix(in oklab, var(--w-bg) 88%, transparent);
   border-color: var(--w-line-strong);
   color: var(--w-ink);
@@ -5192,7 +5244,7 @@
    you see, not the record, and the tab's one fill is "Import KML / GeoJSON".
    The wash is laid over the chip's own near-opaque ground so it still reads
    on bright soil and dark shade alike. */
-.w360 :is(.plot.live .maptools, .vc-tl) .chip[aria-pressed='true'] {
+.w360 :is(.plot.live .maptools, .vc-tl, .w-climate-key) .chip[aria-pressed='true'] {
   background:
     linear-gradient(var(--w-accent-wash), var(--w-accent-wash)),
     color-mix(in oklab, var(--w-bg) 92%, transparent);
@@ -5206,11 +5258,91 @@
    pointer. Cadastral map is OUT OF REACH: it states nothing, so it recedes. Both
    at one opacity was the first attempt, and a dimmed orange chip over imagery
    read as a rendering fault rather than a locked control. */
-.w360 :is(.plot.live .maptools, .vc-tl) .chip:disabled { cursor: default; }
-.w360 :is(.plot.live .maptools, .vc-tl) .chip:disabled[aria-pressed='false'] { opacity: 0.5; }
-.w360 :is(.plot.live .maptools, .vc-tl) .chip:disabled[aria-pressed='true'] {
+.w360 :is(.plot.live .maptools, .vc-tl, .w-climate-key) .chip:disabled { cursor: default; }
+.w360 :is(.plot.live .maptools, .vc-tl, .w-climate-key) .chip:disabled[aria-pressed='false'] { opacity: 0.5; }
+.w360 :is(.plot.live .maptools, .vc-tl, .w-climate-key) .chip:disabled[aria-pressed='true'] {
   box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--w-accent) 35%, transparent);
 }
+
+/* ── Layers (MapLayerControl.tsx) ─────────────────────────────────────────
+   One panel for both maps, under the map-type chips: tick boxes for what is
+   on the map, radios for the one insight, and under each its one line — what
+   it shows, or why it is paused or cannot be had here. It carries its own
+   ground like every control standing on a photograph. */
+.w360 .w-layers { position: relative; display: grid; gap: var(--space-xs); justify-items: start; max-width: 100%; }
+.w360 .w-layers > .row { flex-wrap: wrap; }
+/* What is on is one line that scrolls sideways, never a stack: wrapped, three
+   default layers took two more rows off the top of a phone's map and pushed
+   the tools and the tile notice down over the ground being drawn on. */
+.w360 .w-layers > .w-layers-on {
+  flex-wrap: nowrap; max-width: 100%; overflow-x: auto; scrollbar-width: none;
+}
+.w360 .w-layers > .w-layers-on::-webkit-scrollbar { display: none; }
+.w360 .w-layers-on > * { flex: none; }
+.w360 .w-layers-panel {
+  position: absolute; top: calc(100% + var(--space-sm)); left: 0; z-index: 2;
+  display: grid; gap: var(--space-md); width: min(21rem, calc(100vw - 2 * var(--space-md)));
+  /* It stops short of the caption and the scale along the map's foot (a
+     property's map is 34rem), and scrolls inside itself past that. */
+  max-height: min(24rem, 60vh); overflow-y: auto; overscroll-behavior: contain;
+  padding: var(--space-sm) var(--space-md) var(--space-md);
+  border: 1px solid var(--w-line); border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--w-bg) 94%, transparent);
+  backdrop-filter: blur(4px);
+  box-shadow: 0 0.75rem 2rem -1rem rgb(0 0 0 / 0.5);
+  color: var(--w-ink); font-size: 0.8125rem;
+}
+.w360 .w-layers-panel fieldset { display: grid; gap: 0.5rem; margin: 0; padding: 0; border: 0; min-width: 0; }
+.w360 .w-layers-panel legend { padding: 0; margin-bottom: 0.25rem; }
+.w360 .vc-tl .w-layers-panel { max-height: min(34rem, 70vh); }
+/* What is on, with the panel shut, in the list pages' filter-chip look,
+   carrying its own ground because it stands on a photograph. A paused one is
+   outlined, not washed — chosen, but not on the map right now. */
+.w360 .w-layers .w-layer-chip {
+  background:
+    linear-gradient(var(--w-accent-wash), var(--w-accent-wash)),
+    color-mix(in oklab, var(--w-bg) 92%, transparent);
+  backdrop-filter: blur(3px);
+}
+.w360 .w-layers .w-layer-chip.paused {
+  background: color-mix(in oklab, var(--w-bg) 90%, transparent);
+  border: 1px dashed var(--w-line-strong);
+  color: var(--w-ink-2);
+}
+/* Open, the panel is being used: it stands over the hydrogeology progress
+   veil (501), which otherwise covers the reasons it is giving. */
+.w360 .plot.live .maptools:has(.w-layers-panel) { z-index: 502; }
+.w360 .w-layer { display: grid; gap: 0.0625rem; }
+.w360 .w-layer label { display: flex; align-items: center; gap: var(--space-sm); cursor: pointer; }
+.w360 .w-layer input { accent-color: var(--w-accent); width: 0.9375rem; height: 0.9375rem; margin: 0; flex: none; }
+.w360 .w-layer label:has(input:disabled) { cursor: default; color: var(--w-ink-2); }
+.w360 .w-layer .note { padding-left: calc(0.9375rem + var(--space-sm)); font-size: 0.75rem; line-height: 1.4; color: var(--w-ink-2); }
+/* Parcel numbers are part of the cadastral map, so they sit under it. */
+.w360 .w-layer.sub { padding-left: 1.25rem; }
+
+/* Your properties (propertiesLayer.ts): the boundary gold every map uses for
+   "yours", dashed so another of your properties is never the one the page is
+   about. --w-ground-ring is set on each map's own box. */
+.w360 .leaflet-pane > svg path.w-prop {
+  stroke: var(--w-ground-ring, var(--w-accent)); stroke-width: 2; stroke-dasharray: 6 4;
+  fill: var(--w-ground-ring, var(--w-accent)); fill-opacity: 0.08;
+}
+.w360 .leaflet-pane > svg path.w-prop-pin {
+  stroke: rgb(0 0 0 / 0.75); stroke-width: 2;
+  fill: var(--w-ground-ring, var(--w-accent)); fill-opacity: 1;
+}
+/* The one picked from the Maps list: solid, heavier, on top. */
+.w360 .leaflet-pane > svg path.w-prop.on {
+  stroke-width: 3.5; stroke-dasharray: none; fill-opacity: 0.2;
+}
+.w360 .leaflet-pane > svg path.w-prop-pin.on { stroke: rgb(0 0 0 / 0.9); stroke-width: 3; }
+/* Your properties beside the map: the Properties map's rows (.pf-result). */
+.w360 .vm-props { display: grid; margin: 0 calc(-1 * var(--space-sm)); }
+.w360 .vm-props > .pf-result:first-child { border-top: 0; }
+
+/* The parcel shades' keys (ParcelKeys.tsx) on a property's map: where the
+   Climate key sits. On Maps they stand in the top-left stack. */
+.w360 .plot .vc-legend { position: absolute; left: var(--space-md); bottom: 3.25rem; z-index: 500; }
 
 .w360 .plot.live .tools {
   display: grid; gap: 0.125rem; min-width: 12.5rem; padding: var(--space-sm);
@@ -5250,6 +5382,11 @@
   background: color-mix(in oklab, var(--w-bg) 90%, transparent);
   backdrop-filter: blur(3px);
 }
+/* Under Climate the boundary tools fold behind their button at every width
+   (RecordBoundary `toolsAway`): the map is a district and the key needs the
+   room the panel took. */
+.w360 .plot.live .tools.away { display: none; }
+.w360 .plot.live .tools-toggle.away { display: inline-flex; }
 @media (max-width: 640px) {
   /* A wrapped instruction and save bar can occupy half the 34rem map. Give
      drawing a taller canvas so fitted corners stay clear of both overlays. */
@@ -5366,7 +5503,7 @@
 /* Full screen: the stage is the whole window, so it drops the panel's border
    and corners. Its own furniture — chips, zoom, the pick panel, the caption —
    lives inside it and comes along. */
-.w360 .plot.live:fullscreen { border: 0; border-radius: 0; }
+.w360 :is(.plot.live, .vm-stage):fullscreen { border: 0; border-radius: 0; }
 .w360 .pf-result { border-top: 1px solid var(--w-line); padding: var(--space-sm); }
 .w360 .pf-result.on { background: var(--w-accent-wash); }
 .w360 .pf-result-pick { display: grid; gap: 0.25rem; width: 100%; min-height: 2.75rem; padding: 0.375rem 0; border: 0; text-align: left; background: none; color: var(--w-ink); font: inherit; cursor: pointer; }

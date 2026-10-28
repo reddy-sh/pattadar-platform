@@ -30,18 +30,29 @@ import {
 
 import {
   useBoundary, useAcceptMark, useAddMark, useDeleteMark, useSetPin, useSetBoundary,
-  useUpdateMark, useMarksFromBoundary, useMoveMark, useAddPaper, useWaterFlow, useWaterFlowOthers, useRetryWaterFlow,
+  useUpdateMark, useMarksFromBoundary, useMoveMark, useAddPaper, useProperties, EMPTY_FILTER,
 } from '../api';
-import type { FlowMap } from '../api';
-import { Card, Failed, KV, Menu, StatusChip, coords, num, pairs, useNarrow } from '../ui';
+import { Card, Failed, KV, Menu, StatusChip, coords, num, pairs, useFullscreen, useNarrow } from '../ui';
 import { BoundaryMeasurementsCard } from '../BoundaryMeasurementsCard';
-import { FLOW_MAPS, FlowProgress, WaterFlowCard, flowArea, flowLines, flowMapName } from '../WaterFlowCard';
+import { RainfallCard } from '../RainfallCard';
+import { ClimateKey } from '../ClimateKey';
+import type { ClimateId } from '../climateLayers';
+import type { ClimateState } from '../climateTiles';
+import { FlowProgress, WaterFlowCard, useHydrogeology } from '../WaterFlowCard';
+import { MapLayerControl } from '../MapLayerControl';
+import { ALL_LAYERS, chooseBase, chooseInsight, resolveLayers, toggleOverlay } from '../mapLayers';
+import type { LayerChoice, LayerPlace } from '../mapLayers';
+import { ExtentKey, SuitabilityKey } from '../ParcelKeys';
+import { bandOf } from '../parcelShade';
+import { gradeColours, loadSuitability } from '../suitability';
+import type { Suitability } from '../suitability';
+import type { PropertyMark } from '../propertiesLayer';
 import { ConfirmDialog } from './PropertyActions';
 import { MAX_UPLOAD_BYTES, mb } from '../filePhotos';
 import { getFmbState, runFmbUpload, subscribeFmb } from '../fmbUpload';
 import { MapCanvas } from '../MapCanvasLazy';
 import type { Basemap, MapHandle } from '../MapCanvasLazy';
-import { loadVillage } from '../villageIndex';
+import { findVillage, loadVillage } from '../villageIndex';
 import type { VillagePlot } from '../villageIndex';
 import { plotAt } from '../villageGeom';
 import { orderHref } from '../orderFlow';
@@ -58,9 +69,10 @@ const INTRO_KEY = 'w360-boundary-intro';
  *  redrawn on every render. */
 const NO_MARKS: [] = [];
 
-/** The view chips' labels, said once: the lock sentence under the map names
- *  them, and a second hand-typed list once kept a name the chip had dropped. */
-const CHIP = { cadastral: 'Cadastral map', measure: 'Measure', hydrogeology: 'Hydrogeology' };
+/** Cadastral map off: the FMB draft, a new record and a dropped pin each
+ *  start without the village's parcels under them. */
+const NO_CADASTRAL = (c: LayerChoice): LayerChoice =>
+  ({ ...c, overlays: c.overlays.filter((o) => o !== 'cadastral') });
 
 /** What to call this record in a sentence. A flat is not a parcel, and the
  *  place note under the map called every record one. These three lines are
@@ -346,7 +358,7 @@ export function RecordBoundary() {
       setImportPreview((version) => version + 1);
       setMode('draw');
       setPlot(null);
-      setVillageOn(false);
+      setLayers(NO_CADASTRAL);
       setPinnedSide(null);
       setPinnedCorner(null);
     } catch (e) {
@@ -400,7 +412,7 @@ export function RecordBoundary() {
       setImportPreview((v) => v + 1);
       setMode('draw');
       setPlot(null);
-      setVillageOn(false);
+      setLayers(NO_CADASTRAL);
       setPinnedSide(null);
       setPinnedCorner(null);
     } else {
@@ -409,32 +421,20 @@ export function RecordBoundary() {
     }
   }, [fmb.busy, fmb.reading, fmb.message]);
 
-  const [satellite, setSatellite] = useState(true);
   /** At ≤640px the head keeps only the one primary and its overflow menu:
    *  Order a survey and Upload FMB move into the menu, where the head's three
    *  buttons wrapped onto two rows above a map that then started lower. */
   const narrow = useNarrow(640);
-  // On by default. The lengths and the corner letters ARE the useful view of
-  // a boundary — a bare outline on imagery tells you where the land is but
-  // nothing about it — so the screen opens showing them rather than making
-  // that a thing you have to know to ask for.
-  const [measuring, setMeasuring] = useState(true);
-  const [villageOn, setVillageOn] = useState(false);
-  /** Hydrogeology: where rainwater runs, and suggested bore points. A view,
-   *  like Measure — it changes nothing on the record. */
-  const [flowOn, setFlowOn] = useState(false);
-  const [flowMap, setFlowMap] = useState<FlowMap>('combined');
-  const [flowMain, setFlowMain] = useState(true);
-  const [flowPinArea, setFlowPinArea] = useState(true);
-  const [flowPin, setFlowPin] = useState<number | null>(1);
-  /** Lines draining less than this many acres are left off the map. */
-  const [flowMinAc, setFlowMinAc] = useState(2.2);
-  const [flowAgree, setFlowAgree] = useState(false);
-  const [flowCompare, setFlowCompare] = useState(false);
-  /** Only the boundary and the numbered bore points: no lines, no areas. */
-  const [flowPinsOnly, setFlowPinsOnly] = useState(false);
-  // Bore points only is a close look at the parcel: frame it.
-  useEffect(() => { if (flowPinsOnly) mapRef.current?.fit(); }, [flowPinsOnly]);
+  /** What the owner asked the map to show (mapLayers.ts). Measurements are on
+   *  by default: the lengths and the corner letters ARE the useful view of a
+   *  boundary — a bare outline on imagery tells you where the land is but
+   *  nothing about it. An edit tool pauses layers on top of this choice and
+   *  never changes it. */
+  const [layers, setLayers] = useState<LayerChoice>(
+    { base: 'satellite', overlays: ['measurements'], insight: null });
+  /** Which of Climate's four pictures, chosen in its key. */
+  const [climatePick, setClimatePick] = useState<ClimateId>('rain');
+  const [climateState, setClimateState] = useState<ClimateState>(null);
   /** A plot picked out of the village map, held until it is adopted or
    *  dismissed. Nothing is written to the record by clicking. */
   const [plot, setPlot] = useState<
@@ -464,7 +464,17 @@ export function RecordBoundary() {
    *  the pseudo-class would have done. */
   const pointer = useRef(false);
   const [keyFocus, setKeyFocus] = useState<number | null>(null);
-  const plotEl = useRef<HTMLDivElement>(null);
+  /** The map alone, filling the screen (the same chip as Maps); framed on the
+   *  land again for the box it now has. */
+  const full = useFullscreen<HTMLDivElement>();
+  const plotEl = full.ref;
+  const framedFull = useRef(false);
+  useEffect(() => {
+    if (framedFull.current === full.on) return undefined;
+    framedFull.current = full.on;
+    const frame = requestAnimationFrame(() => mapRef.current?.fit());
+    return () => cancelAnimationFrame(frame);
+  }, [full.on]);
   /** Set when a side is pinned from the keyboard. The tip is drawn over the
    *  map, and the map comes before this table in the DOM — so Tab out of a row
    *  moves AWAY from the Copy button the pin was for, and only Shift+Tab back
@@ -511,7 +521,7 @@ export function RecordBoundary() {
     setPinErr('');
     setShownPlace(null);
     setPlot(null);
-    setVillageOn(false);
+    setLayers(NO_CADASTRAL);
     setPlotQuery('');
     setVmState(null);
     setPinnedSide(null);
@@ -525,48 +535,6 @@ export function RecordBoundary() {
   const ring = useMemo(() => pairs(data?.ring ?? []), [data?.ring]);
   const surveyed = ring.length >= 3;
 
-  const flow = useWaterFlow(rec.id, flowMap, flowOn && surveyed);
-  const retryFlow = useRetryWaterFlow(rec.id, flowMap);
-  const flowData = flow.data?.status === 'ready' ? flow.data.data : null;
-  // Pieces memoised apart, so choosing a pin redraws three pins and one area
-  // and leaves the two thousand lines alone.
-  const flowLineSet = useMemo(
-    () => (flowData ? flowLines(flowData).filter((l) => l.ha * 2.4711 >= flowMinAc - 0.05) : null),
-    [flowData, flowMinAc]);
-  const otherMaps = FLOW_MAPS.map((m) => m.id).filter((m) => m !== flowMap && m !== 'combined');
-  const others = useWaterFlowOthers(rec.id, otherMaps, flowOn && surveyed && flowCompare);
-  const othersData = others.map((q) => (q.data?.status === 'ready' ? q.data.data : null));
-  const othersKey = othersData.map((d) => (d ? d.map : '-')).join(',');
-  const flowOtherLines = useMemo(
-    () => (flowCompare ? othersData.flatMap((d) => (d ? flowLines(d).filter((l) => l.ha * 2.4711 >= flowMinAc - 0.05) : [])) : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- othersKey stands for othersData
-    [flowCompare, othersKey, flowMinAc]);
-  const flowMainArea = useMemo(
-    () => (flowData && flowMain ? flowArea(flowData.main_stream?.catchment) : null), [flowData, flowMain]);
-  const flowPins = useMemo(
-    () => flowData?.points.map(({ rank, lat, lon, confidence }) => ({ rank, lat, lon, confidence })) ?? [],
-    [flowData]);
-  const flowChosenArea = useMemo(
-    () => (flowData && flowPinArea
-      ? flowArea(flowData.points.find((p) => p.rank === flowPin)?.catchment) : null),
-    [flowData, flowPin, flowPinArea]);
-  /** What the layer is waiting for, said on the map and in the card, so an
-   *  empty or stale map is never mistaken for the answer. '' when settled. */
-  const flowComparing = flowCompare && others.some((q) => q.isLoading || q.data?.status === 'computing');
-  const flowLoading = !flowOn || !surveyed || mode !== 'idle' ? ''
-    : flow.isLoading || flow.data?.status === 'computing'
-      ? 'Preparing the hydrogeology map… It reads the slope of the land, about half a minute the first time.'
-      : flow.isPlaceholderData
-        ? `Loading the ${flowMapName(flowMap)} lines…`
-        : flowComparing ? 'Loading the other maps\' lines…' : '';
-  const waterFlow = useMemo(() => (flowLineSet ? {
-    lines: flowPinsOnly ? [] : flowLineSet,
-    mainArea: flowPinsOnly ? null : flowMainArea,
-    pinArea: flowPinsOnly ? null : flowChosenArea,
-    pins: flowPins,
-    selected: flowPin, byAgreement: flowAgree, others: flowPinsOnly ? null : flowOtherLines,
-    label: flowMapName(flowData?.map),
-  } : null), [flowLineSet, flowMainArea, flowChosenArea, flowPins, flowPin, flowAgree, flowOtherLines, flowData?.map, flowPinsOnly]);
 
   // Both of these are handed to the map, whose redraw effect keys on identity.
   // Rebuilt inline they would be new objects every render, and the map would
@@ -834,6 +802,82 @@ export function RecordBoundary() {
     beginDrawing();
   }, [params, isLoading, data]);
 
+  // ── The layers (mapLayers.ts; docs/specs/2026-10-25-pattadar-maps.md) ──
+  // Above the loading returns below, as every hook must be.
+  const editing = mode !== 'idle';
+  /** The land has a place to show climate around: a boundary or a pin. */
+  const climatePlace = surveyed || !!coords(data?.lat ?? 0, data?.lon ?? 0);
+  /** The owner's other properties, for Your properties. */
+  const records = useProperties(EMPTY_FILTER);
+  const otherMarks = useMemo((): PropertyMark[] => (records.data?.cards ?? []).flatMap((r) => {
+    if (r.id === rec.id) return [];
+    const ring = pairs(r.ring);
+    const at: [number, number] | null = r.lat || r.lon ? [r.lat, r.lon] : null;
+    return ring.length >= 3 || at ? [{ id: r.id, title: r.title, ring, at }] : [];
+  }), [records.data, rec.id]);
+  /** This property's village's land grades — asked for only once Suitability
+   *  is chosen, because most villages are not graded yet and the map should
+   *  not probe for a file nobody asked to see. undefined: not asked for this
+   *  place; null: asked, none built. */
+  const [grades, setGrades] = useState<{ place: string; suit: Suitability | null } | null>(null);
+  const gradesFor = `${village}|${placeWithin.join('|')}`;
+  const suit = grades?.place === gradesFor ? grades.suit : undefined;
+  useEffect(() => {
+    if (layers.insight !== 'suitability' || !village || suit !== undefined) return undefined;
+    let dropped = false;
+    void findVillage(village, placeWithin).then(loadSuitability)
+      .then((data) => { if (!dropped) setGrades({ place: gradesFor, suit: data }); });
+    return () => { dropped = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- gradesFor stands for village and placeWithin
+  }, [layers.insight, gradesFor, suit]);
+  const gradeInk = useMemo(() => gradeColours(suit ?? null), [suit]);
+  const noVillage = 'No village is recorded for this property.';
+  const noRing = 'Draw or import the boundary first.';
+  const layerPlace: LayerPlace = {
+    offers: ALL_LAYERS,
+    unavailable: {
+      ...(village ? {} : { cadastral: noVillage, numbers: noVillage, extent: noVillage, suitability: noVillage }),
+      ...(village && suit === null ? { suitability: `Not graded for ${village} yet.` } : {}),
+      ...(surveyed ? {} : { measurements: noRing, hydrogeology: noRing }),
+      ...(climatePlace ? {} : { climate: 'Set the pin or draw the boundary first.' }),
+      ...(otherMarks.length ? {} : { properties: 'No other property of yours has a pin or a boundary.' }),
+    },
+    // An armed tool takes the next click on the map: nothing else may.
+    tool: editing ? { doing: 'you edit the boundary', pauses: ALL_LAYERS } : null,
+  };
+  const resolved = resolveLayers(layers, layerPlace);
+  const hydro = useHydrogeology(rec.id, resolved.insight === 'hydrogeology');
+  // Bore points only is a close look at the parcel: frame it.
+  useEffect(() => { if (hydro.pinsOnly) mapRef.current?.fit(); }, [hydro.pinsOnly]);
+  const showMeasurements = resolved.shown.has('measurements');
+  /** The boundary tools fold away under Climate (see the panel). */
+  const toolsAway = resolved.insight === 'climate' && mode === 'idle' && !toolsOpen;
+  const villageOn = resolved.shown.has('cadastral');
+  // Measurements out of sight take their pinned side and corner with them.
+  useEffect(() => {
+    if (!showMeasurements) { pickSide(null); pickCorner(null); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showMeasurements]);
+  /** Extent or Suitability on the village's parcels; memoised, because a new
+   *  function redraws the whole mesh. */
+  const shade = useMemo(() => (resolved.insight === 'extent' ? (_lp: string, ac: number) => bandOf(ac).hex
+    : resolved.insight === 'suitability' ? (lp: string) => gradeInk.get(lp) ?? '' : null),
+  [resolved.insight, gradeInk]);
+  /** Every layer change goes through here: turning the cadastral map on
+   *  starts by looking for this property's own survey number — an owner
+   *  turning it on is asking one question, and they already know the
+   *  answer's name — and off forgets the parcel picked from it. */
+  const changeLayers = (next: LayerChoice) => {
+    const was = layers.overlays.includes('cadastral');
+    const now = next.overlays.includes('cadastral');
+    if (was !== now) {
+      setPlot(null);
+      setVmState(null);
+      setPlotQuery(now ? surveyNo : '');
+    }
+    setLayers(next);
+  };
+
   // The first read holds the screen's own shape: the real section title, the
   // 34rem map panel and the Boundary marks rail card, so nothing moves when
   // the boundary lands. The status sits on .split itself because w360.css
@@ -862,8 +906,6 @@ export function RecordBoundary() {
   const pinned = coords(data.lat, data.lon);
   const noun = nounFor(rec.kind, rec.classification);
 
-  const editing = mode !== 'idle';
-  const showMeasurements = measuring && surveyed && !editing;
   /** Into the order flow at its survey step (see the comment on the head's
    *  link, which the phone menu shares). */
   const surveyOrder = orderHref(rec.id, { service: 'survey', why: 'boundary' });
@@ -871,18 +913,18 @@ export function RecordBoundary() {
    *  text under the map, because a disabled control's title tooltip is
    *  something touch never shows. '' when nothing is locked, or when the edit
    *  bar is already saying what is happening. */
-  // The chips' own labels (CHIP), so the sentence names what is on screen.
-  const lockedChips = [village && CHIP.cadastral, surveyed && CHIP.measure, surveyed && CHIP.hydrogeology]
-    .filter((w): w is string => !!w);
+  // The layers' own labels, so the sentence names what went off the screen.
+  const lockedChips = editing
+    ? resolved.rows.filter((r) => r.chosen).map((r) => r.def.label) : [];
   const lockWhy = naming
     ? 'Name the new mark in Boundary marks, or cancel it, to use the other tools.'
     : saving && !busy
       ? 'Saving — the tools come back when it is done.'
       : editing && lockedChips.length
-        ? `${lockedChips.join(' and ')} ${lockedChips.length > 1 ? 'come' : 'comes'}`
-          + ' back when you finish or cancel.'
+        ? `Paused while you edit: ${lockedChips.join(', ')}.`
+          + ` ${lockedChips.length > 1 ? 'They come' : 'It comes'} back when you finish or cancel.`
         : '';
-  const basemap: Basemap = satellite ? 'satellite' : 'street';
+  const basemap: Basemap = resolved.base;
 
   const savePinAt = (lat: number, lon: number) => {
     if (setPin.isPending) return;
@@ -906,7 +948,7 @@ export function RecordBoundary() {
         // "Replace the boundary with this plot" (which asks first) over one.
         // Nothing about the boundary is written until that is pressed.
         if (next) {
-          setVillageOn(true);
+          setLayers((c) => (c.overlays.includes('cadastral') ? c : toggleOverlay(c, 'cadastral')));
           setVmState(null);
           // Not the plot's number: a search would re-pick the FIRST plot of
           // that number, and a village can repeat one.
@@ -1171,62 +1213,14 @@ export function RecordBoundary() {
               about. Up here the layers are chips and the tools are a panel
               that says out loud which of them write. */}
           <div className="maptools" onClick={(e) => e.stopPropagation()}>
-            {/* View chips, washed when pressed: they change what you see, not
-                the record, so none of them takes the amber fill. On a phone
-                they wrap, clear of the north rose (`.mapchips`). */}
-            <span className="row tight mapchips">
-              <button type="button" className="chip wash"
-                      aria-pressed={satellite}
-                      title={satellite ? 'Show the street map' : 'Show satellite imagery'}
-                      onClick={() => setSatellite((on) => !on)}>
-                Satellite
-              </button>
-              {village && (
-                <button type="button" className="chip wash" aria-pressed={villageOn}
-                        disabled={editing}
-                        title={editing ? 'Finish editing to choose a parcel' : `Every parcel in ${village}`}
-                        onClick={() => {
-                          const on = !villageOn;
-                          setVillageOn(on);
-                          setPlot(null);
-                          setVmState(null);
-                          // Start by looking for the record's own survey
-                          // number. An owner turning this on is asking one
-                          // question, and they already know the answer's name.
-                          setPlotQuery(on ? surveyNo : '');
-                        }}>
-                  {CHIP.cadastral}
-                </button>
-              )}
-              {/* The one control that shows and hides the measurements: the
-                  card no longer carries a × of its own. */}
-              {surveyed && (
-                <button type="button" className="chip wash" aria-pressed={measuring}
-                        disabled={editing}
-                        title={measuring
-                          ? 'Hide measurements' : 'Show boundary measurements'}
-                        onClick={() => setMeasuring((on) => {
-                          if (on) { pickSide(null); pickCorner(null); } else setFlowOn(false);
-                          return !on;
-                        })}>
-                  {CHIP.measure}
-                </button>
-              )}
-              {surveyed && (
-                <button type="button" className="chip wash" aria-pressed={flowOn}
-                        disabled={editing}
-                        title={flowOn
-                          ? 'Hide hydrogeology' : 'Show hydrogeology: where rainwater flows and suggested bore points'}
-                        onClick={() => {
-                          // Measure's corner letters and side labels sit on the
-                          // bore points; the two views take turns.
-                          if (!flowOn) { setMeasuring(false); pickSide(null); pickCorner(null); }
-                          setFlowOn(!flowOn);
-                        }}>
-                  {CHIP.hydrogeology}
-                </button>
-              )}
-            </span>
+            {/* The map type and Layers, the same control as Maps
+                (MapLayerControl): they change what you see, not the record,
+                so none of them takes the amber fill. On a phone they wrap,
+                clear of the north rose (`.mapchips`). */}
+            <MapLayerControl resolved={resolved} fullscreen={full}
+                             onBase={(b) => changeLayers(chooseBase(layers, b))}
+                             onOverlay={(id) => changeLayers(toggleOverlay(layers, id))}
+                             onInsight={(id) => changeLayers(chooseInsight(layers, id))} />
 
             {/* Named for what they do to the record, not for what they are.
                 Measure is deliberately NOT in here — it changes what you see
@@ -1235,15 +1229,18 @@ export function RecordBoundary() {
             {/* On a phone the panel folds behind this one button, which is
                 hidden above 640px (`.tools-toggle`): three rows of tools, the
                 chips and the north rose all took the top of a 390px map. */}
+            {/* Under Climate the panel steps aside at every width: the map is
+                a district, the tools are for corners, and the key needs the
+                room. The same button brings them back. */}
             {mode === 'idle' && (
-              <button type="button" className="btn sm tools-toggle"
+              <button type="button" className={`btn sm tools-toggle${toolsAway ? ' away' : ''}`}
                       aria-expanded={toolsOpen} aria-controls="w360-maptools"
                       onClick={() => setToolsOpen((open) => !open)}>
                 Changes this property's saved boundary
               </button>
             )}
             <div id="w360-maptools"
-                 className={`tools${mode === 'idle' ? '' : ' armed'}${mode === 'idle' && !toolsOpen ? ' folded' : ''}`}>
+                 className={`tools${mode === 'idle' ? '' : ' armed'}${mode === 'idle' && !toolsOpen ? ' folded' : ''}${toolsAway ? ' away' : ''}`}>
               {/* Armed, the panel shrinks to the tool that is armed. It stands
                   on the map, and the next thing to happen is a click on the
                   map — a full menu sitting over the corner you meant to place
@@ -1423,7 +1420,7 @@ export function RecordBoundary() {
             )}
             {tilesFailed && (
               <p className="nogeo low" role="status">
-                {satellite
+                {basemap === 'satellite'
                   ? 'Satellite imagery is unavailable here.'
                   : 'Street map tiles are unavailable.'}
                 {' '}<button type="button" className="btn sm" onClick={() => mapRef.current?.retryTiles()}>Retry map</button>
@@ -1437,7 +1434,9 @@ export function RecordBoundary() {
             pin={pin}
             /* The stones' 1·2·3 step aside for the bore points' 1·2·3:
                one numbering on the map at a time, as Measure takes turns. */
-            marks={flowOn && !editing ? NO_MARKS : marks}
+            /* Parcel-scale: away under Climate's district zoom too, where
+               every stone is one pixel with a number on it. */
+            marks={resolved.insight === 'hydrogeology' || resolved.insight === 'climate' ? NO_MARKS : marks}
             place={place}
             /* Both arguments: the place the map settled on, and its verdict on
                a pin that does not agree with it. Safe as an inline arrow —
@@ -1450,11 +1449,15 @@ export function RecordBoundary() {
             /* Everything after the village: the mandal and district a hit has to
                agree with before it is believed. */
             placeWithin={placeWithin}
-            showVillage={villageOn && !editing}
-            findPlot={villageOn && !editing ? plotQuery : null}
+            showVillage={villageOn}
+            numbers={resolved.shown.has('numbers')}
+            shade={shade}
+            properties={resolved.shown.has('properties') ? otherMarks : undefined}
+            onProperty={(id) => nav(`/properties/${id}/location`)}
+            findPlot={villageOn ? plotQuery : null}
             onVillageState={setVmState}
             activePlot={plot?.lp ?? null}
-            onVillagePlot={villageOn && !editing ? setPlot : undefined}
+            onVillagePlot={villageOn ? setPlot : undefined}
             sideLabels={showMeasurements ? measure?.labels : undefined}
             activeSide={showMeasurements ? activeSide : null}
             onSideClick={showMeasurements
@@ -1465,9 +1468,11 @@ export function RecordBoundary() {
               : undefined}
             activeCorner={showMeasurements ? pinnedCorner : null}
             tip={showMeasurements ? (cornerTip ?? sideTip) : null}
-            dimOutside={showMeasurements && !villageOn && !flowOn}
-            waterFlow={flowOn && !editing ? waterFlow : null}
-            onFlowPin={setFlowPin}
+            dimOutside={showMeasurements && !villageOn && resolved.insight !== 'hydrogeology'}
+            waterFlow={resolved.insight === 'hydrogeology' ? hydro.layer : null}
+            onFlowPin={hydro.setSelected}
+            climate={resolved.insight === 'climate' ? climatePick : null}
+            onClimateState={setClimateState}
             introduce={introduce}
             picking={!saving && (mode === 'pin' || mode === 'mark' || mode === 'move-mark')}
             drawing={mode === 'draw'}
@@ -1519,18 +1524,24 @@ export function RecordBoundary() {
           {/* Attribution is a licence condition and Leaflet already prints it
               in the corner; the caption stays the record's own sentence. */}
           <span className="cap">
-            {surveyed
+            {surveyed && basemap !== 'boundaries'
               ? `${data.caption} · ${basemap === 'satellite' ? 'Esri World Imagery' : 'OpenStreetMap'}`
               : data.caption}
           </span>
-          {flowLoading && (
-            <div className={`w-flow-loading${flowLoading.startsWith('Preparing') ? ' first' : ''}`}>
-              <FlowProgress key={flowLoading} className="panel"
-                            text={flowLoading.split('… ')[0].replace(/…?$/, '…')}
-                            slow={flowLoading.startsWith('Preparing')} />
+          {resolved.insight === 'climate' && (
+            <ClimateKey layer={climatePick} state={climateState} onLayer={setClimatePick} />
+          )}
+          {/* The parcel shades' keys, where Climate's sits (bottom left). */}
+          {resolved.insight === 'extent' && <ExtentKey />}
+          {resolved.insight === 'suitability' && suit && <SuitabilityKey suit={suit} />}
+          {hydro.loadingText && (
+            <div className={`w-flow-loading${hydro.loadingText.startsWith('Preparing') ? ' first' : ''}`}>
+              <FlowProgress key={hydro.loadingText} className="panel"
+                            text={hydro.loadingText.split('… ')[0].replace(/…?$/, '…')}
+                            slow={hydro.loadingText.startsWith('Preparing')} />
             </div>
           )}
-          {villageOn && !editing && (
+          {villageOn && (
             <div className="plotfind">
               <label className="eyebrow" htmlFor="w360-plotfind">Find a parcel number</label>
               <input
@@ -1611,22 +1622,7 @@ export function RecordBoundary() {
         </div>
 
         <aside className="stack">
-          {flowOn && surveyed && !editing && (
-            <WaterFlowCard
-              flow={flow.data} loading={flow.isLoading} error={flow.error}
-              stale={flow.isPlaceholderData || (flow.isFetching && flow.data?.status !== 'computing')}
-              source={flowMap} onSource={setFlowMap}
-              showMain={flowMain} onShowMain={setFlowMain}
-              showPinArea={flowPinArea} onShowPinArea={setFlowPinArea}
-              selected={flowPin} onSelect={setFlowPin}
-              minAcres={flowMinAc} onMinAcres={setFlowMinAc}
-              byAgreement={flowAgree} onByAgreement={setFlowAgree}
-              compare={flowCompare} onCompare={setFlowCompare}
-              pinsOnly={flowPinsOnly} onPinsOnly={setFlowPinsOnly}
-              loadingText={flowLoading}
-              onRetry={retryFlow}
-            />
-          )}
+          {resolved.insight === 'hydrogeology' && <WaterFlowCard {...hydro.card} />}
           {showMeasurements && measure && (
             <BoundaryMeasurementsCard
               sides={measure.sides}
@@ -1722,6 +1718,11 @@ export function RecordBoundary() {
             )}
           </Card>
           )}
+
+          {/* Area rainfall for the same place the Location card names. The
+              server works out the point itself (pin, else boundary centre)
+              and sends NASA only the grid square. */}
+          <RainfallCard recordId={rec.id} located={!!((surveyed && centre) || pinned)} />
 
           {/* No "Add a mark" here any more: the tool lives on the map with the
               other three that write, and one mode with two switches is how

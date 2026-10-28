@@ -24,8 +24,18 @@ import { acresText } from './villageGeom';
 import type { PlotFacts } from './villageGeom';
 import { measureVillageTape } from './villageMeasure';
 import { removeMap } from './mapTeardown';
+import { bandOf } from './parcelShade';
+import { CLIMATE_ZOOM } from './climateLayers';
+import type { ClimateId } from './climateLayers';
+import { addClimateLayer } from './climateTiles';
+import type { ClimateState } from './climateTiles';
+import { FLOW_INK } from './flowInk';
+import { addFlowRenderers, drawFlowLines, drawFlowPins } from './flowLayer';
+import type { FlowRenderers, WaterFlowLayer } from './flowLayer';
+import { drawProperties } from './propertiesLayer';
+import type { PropertyMark } from './propertiesLayer';
 
-export type VillageMode = 'satellite' | 'street' | 'extent' | 'boundaries';
+export type VillageMode = 'satellite' | 'street' | 'extent' | 'boundaries' | 'suitability';
 
 export interface VillageCanvasHandle {
   /** Frame the whole village again. */
@@ -37,6 +47,8 @@ export interface VillageCanvasHandle {
   /** Empty the active tape without leaving measure mode. */
   clearMeasure: () => void;
   retryTiles: () => void;
+  /** Frame a property: its boundary, or around its pin. */
+  show: (points: Array<[number, number]>) => void;
 }
 
 export interface MeasureState {
@@ -89,6 +101,30 @@ export interface VillageCanvasProps {
   onZoom?: (zoom: number) => void;
   onMeasure?: (state: MeasureState) => void;
   onTilesFailed?: (failed: boolean) => void;
+  /** A NASA GIBS climate layer over the basemap (climateLayers.ts). The map
+   *  zooms out to the district around what is on screen, because at village
+   *  zoom every climate layer is one flat colour, and goes back to the view
+   *  it left when the layer goes off. */
+  climate?: ClimateId | null;
+  onClimateState?: (state: ClimateState) => void;
+  /** Each graded parcel's colour, drawn in the Suitability mode
+   *  (suitability.ts). A parcel with none is "not assessed" and is left as
+   *  the bare mesh on the imagery. */
+  grades?: Map<string, string>;
+  /** The cadastral map (mapLayers.ts): a village's parcels, or on the
+   *  overview every village's outline, name and click area — the cadastral
+   *  map at district scale. Off, a village keeps its own dashed edge, which
+   *  marks where it is; the overview keeps nothing of it. */
+  showPlots?: boolean;
+  /** The owner's properties (Your properties), and what a click on one does. */
+  properties?: PropertyMark[];
+  /** The one picked from the Maps list, drawn solid. */
+  activeProperty?: string | null;
+  onProperty?: (id: string) => void;
+  /** Hydrogeology for the selected parcel when it is one of the owner's
+   *  properties (flowLayer.ts), and a click on a bore point. */
+  waterFlow?: WaterFlowLayer | null;
+  onFlowPin?: (rank: number) => void;
   ref?: Ref<VillageCanvasHandle>;
 }
 
@@ -107,22 +143,6 @@ const BLANK =
 // tokens when drawn; the ramp, the edges and the white mesh are measured
 // against the imagery rather than the page, so they stay literals — each named
 // with its Bloom provenance and carrying a Bloom value, never a stray triplet.
-
-/** Plot size, in one hue light-to-dark — the encoding for a magnitude. Steps
- *  are the validated blue ramp, ordered dim-to-bright because they are read
- *  against imagery rather than paper: on dark ground the darkest step is the
- *  one that recedes. Blue and not the accent, so a shaded plot is never
- *  mistaken for the selected one. Each clears AA against the imagery beneath;
- *  the pair is checked by scripts/contrast-tests.ts. */
-export const BANDS: Array<{ key: string; label: string; hex: string; min: number }> = [
-  { key: 'xs', label: 'Under 1 ac', hex: '#184f95', min: 0 },
-  { key: 's', label: '1 – 3 ac', hex: '#256abf', min: 1 },
-  { key: 'm', label: '3 – 10 ac', hex: '#5598e7', min: 3 },
-  { key: 'l', label: '10 ac and over', hex: '#b7d3f6', min: 10 },
-];
-
-export const bandOf = (acres: number) =>
-  BANDS[acres >= 10 ? 3 : acres >= 3 ? 2 : acres >= 1 ? 1 : 0];
 
 /** The selected plot, in the scheme's accent; the hovered one in its focus
  *  colour, a step lighter. The fallbacks are Bloom Dark's, for a page that has
@@ -215,6 +235,8 @@ const chipBox = (text: string): [number, number] => {
 export default function VillageCanvas({
   village, plots, outline, mode, numbers, selected, hovered, measuring,
   overview, onPickVillage, onSelect, onHover, onZoom, onMeasure, onTilesFailed, ref,
+  climate = null, onClimateState, grades, showPlots = true, properties, onProperty, activeProperty = null,
+  waterFlow = null, onFlowPin,
 }: VillageCanvasProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -244,12 +266,25 @@ export default function VillageCanvas({
   const watcher = useRef<ResizeObserver | null>(null);
   /** A teardown waiting for the next frame — see the init effect. */
   const kill = useRef<number | null>(null);
+  const climateTiles = useRef<L.TileLayer | null>(null);
+  /** The village, as one ringed dot, while Climate has the map at district
+   *  zoom — where its dashed edge is a few pixels and can be missed. */
+  const climateHere = useRef<L.CircleMarker | null>(null);
+  /** The view before Climate zoomed out, to go back to. */
+  const climateFrom = useRef<{ centre: L.LatLng; zoom: number } | null>(null);
+  const climateReport = useRef(onClimateState);
+  climateReport.current = onClimateState;
+  const propertyLayer = useRef<L.LayerGroup | null>(null);
+  const propertySvg = useRef<L.SVG | null>(null);
+  const flowLayer = useRef<L.LayerGroup | null>(null);
+  const flowPinLayer = useRef<L.LayerGroup | null>(null);
+  const flowR = useRef<FlowRenderers | null>(null);
 
   // Props the map's own handlers read. They are installed once, and a handler
   // that closed over the first render's props would report the first render's
   // selection for the life of the map.
-  const live = useRef({ measuring, onSelect, onHover, onMeasure, onTilesFailed, plots, overview, onPickVillage });
-  live.current = { measuring, onSelect, onHover, onMeasure, onTilesFailed, plots, overview, onPickVillage };
+  const live = useRef({ measuring, onSelect, onHover, onMeasure, onTilesFailed, plots, overview, onPickVillage, onProperty, onFlowPin });
+  live.current = { measuring, onSelect, onHover, onMeasure, onTilesFailed, plots, overview, onPickVillage, onProperty, onFlowPin };
   /** The scheme the canvas's own colours were last painted in. */
   const { choice: scheme } = useThemeChoice();
   const paintedScheme = useRef(scheme);
@@ -308,6 +343,15 @@ export default function VillageCanvas({
     edgeLayer.current = L.layerGroup().addTo(map);
     plotLayer.current = L.layerGroup().addTo(map);
     tapeLayer.current = L.layerGroup().addTo(map);
+    // Hydrogeology under the parcels' overlay pane, and the owner's properties
+    // in SVG over it — classed, so their gold is w360.css's, not a value.
+    flowR.current = addFlowRenderers(map);
+    flowLayer.current = L.layerGroup().addTo(map);
+    flowPinLayer.current = L.layerGroup().addTo(map);
+    propertySvg.current = L.svg().addTo(map);
+    propertyLayer.current = L.layerGroup().addTo(map);
+    // The "your boundary" gold the properties and the water-flow key share.
+    host.style.setProperty('--w-ground-ring', FLOW_INK.ring);
     L.control.scale({ imperial: false, metric: true, position: 'bottomleft' }).addTo(map);
 
     // The labels are a plain overlay, not a Leaflet pane: they are wanted on
@@ -352,6 +396,14 @@ export default function VillageCanvas({
       labelBox.current = null;
       activeTiles.current = null;
       failedTiles.current.clear();
+      climateTiles.current = null;
+      climateHere.current = null;
+      climateFrom.current = null;
+      propertyLayer.current = null;
+      propertySvg.current = null;
+      flowLayer.current = null;
+      flowPinLayer.current = null;
+      flowR.current = null;
       removeMap(mapRef.current);
       mapRef.current = null;
       shapes.current.clear();
@@ -389,8 +441,94 @@ export default function VillageCanvas({
     if (!host?.clientWidth || !host.clientHeight) return;
     fittedFor.current = marks?.length ? 'mandal' : village;
     fittedOverview.current = marks ?? null;
+    // Climate holds the district view. A frame asked for meanwhile — the
+    // village's first, landing late, or full screen — becomes the view
+    // Climate goes back to, instead of zooming in under it.
+    if (climateFrom.current) {
+      climateFrom.current = { centre: b.getCenter(), zoom: map.getBoundsZoom(b, false, L.point(52, 52)) };
+      return;
+    }
     map.fitBounds(b, { padding: [26, 26] });
   };
+
+  // ── Climate ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (climateTiles.current) { map.removeLayer(climateTiles.current); climateTiles.current = null; }
+    climateHere.current?.remove();
+    climateHere.current = null;
+    if (!climate) {
+      climateReport.current?.(null);
+      const from = climateFrom.current;
+      climateFrom.current = null;
+      if (from) map.setView(from.centre, from.zoom);
+      return;
+    }
+    if (!climateFrom.current) {
+      climateFrom.current = { centre: map.getCenter(), zoom: map.getZoom() };
+      if (map.getZoom() > CLIMATE_ZOOM) map.setView(map.getCenter(), CLIMATE_ZOOM);
+    }
+    climateTiles.current = addClimateLayer(map, climate, (state) => climateReport.current?.(state));
+    // A village (not the overview): its middle, in the boundary gold.
+    const ring = live.current.overview?.length ? [] : live.current.plots.flatMap((p) => p.ring);
+    if (ring.length) {
+      climateHere.current = L.circleMarker(L.latLngBounds(ring as L.LatLngTuple[]).getCenter(), {
+        radius: 7, className: 'w-climate-here', interactive: false,
+        renderer: propertySvg.current ?? undefined,
+      }).addTo(map);
+    }
+  }, [climate]);
+
+  // ── Cadastral map, Your properties, Hydrogeology ────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    const group = plotLayer.current;
+    const edges = edgeLayer.current;
+    if (!map || !group || !edges) return;
+    const edgesWanted = showPlots || !overview?.length;
+    for (const [layer, want] of [[group, showPlots], [edges, edgesWanted]] as const) {
+      if (want && !map.hasLayer(layer)) layer.addTo(map);
+      if (!want && map.hasLayer(layer)) map.removeLayer(layer);
+    }
+  }, [showPlots, overview]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const group = propertyLayer.current;
+    if (!map || !group) return undefined;
+    // Still while the tape is out: a click there is a corner, wherever it lands.
+    return drawProperties(map, group, properties ?? [], measuring
+      ? null : (id) => live.current.onProperty?.(id), propertySvg.current ?? undefined, activeProperty);
+  }, [properties, measuring, activeProperty]);
+
+  const flowLines = waterFlow?.lines;
+  const flowMain = waterFlow?.mainArea;
+  const flowOthers = waterFlow?.others;
+  const flowByAgreement = waterFlow?.byAgreement ?? false;
+  useEffect(() => {
+    const map = mapRef.current;
+    const group = flowLayer.current;
+    const r = flowR.current;
+    if (!map || !group || !r) return undefined;
+    group.clearLayers();
+    if (!flowLines) return undefined;
+    return drawFlowLines(map, group, r,
+      { lines: flowLines, mainArea: flowMain, others: flowOthers, byAgreement: flowByAgreement });
+  }, [flowLines, flowMain, flowOthers, flowByAgreement]);
+
+  const flowPins = waterFlow?.pins;
+  const flowPinArea = waterFlow?.pinArea;
+  const flowSelected = waterFlow?.selected ?? null;
+  useEffect(() => {
+    const group = flowPinLayer.current;
+    const svg = flowR.current?.svg;
+    if (!group || !svg) return;
+    group.clearLayers();
+    if (!flowPins) return;
+    drawFlowPins(group, svg, { pins: flowPins, pinArea: flowPinArea, selected: flowSelected },
+      (rank) => { if (!live.current.measuring) live.current.onFlowPin?.(rank); });
+  }, [flowPins, flowPinArea, flowSelected]);
 
   // ── Basemap ─────────────────────────────────────────────────────────
   //
@@ -416,8 +554,9 @@ export default function VillageCanvas({
 
   /** What a plot wears when it is neither selected nor hovered. */
   const plainStyle = (lp: string): L.PathOptions => {
-    const shaded = mode === 'extent';
-    const band = shaded ? bandOf(acresOf.current.get(lp) ?? 0).hex : '';
+    const band = mode === 'extent' ? bandOf(acresOf.current.get(lp) ?? 0).hex
+      : mode === 'suitability' ? grades?.get(lp) ?? '' : '';
+    const shaded = !!band;
     return {
       color: shaded ? band
         : mode === 'street' ? EDGE_ON_STREET
@@ -552,7 +691,7 @@ export default function VillageCanvas({
       fitNow();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plots, outline, mode, village, overview]);
+  }, [plots, outline, mode, village, overview, grades]);
 
   // ── Hover and selection, restyled in place ──────────────────────────
   //
@@ -617,7 +756,7 @@ export default function VillageCanvas({
     const box = labelBox.current;
     if (!map || !box) return;
     box.textContent = '';
-    if (!numbers) return;
+    if (!numbers || !showPlots) return;
 
     const view = map.getBounds();
     const size = map.getSize();
@@ -759,7 +898,7 @@ export default function VillageCanvas({
       map.off('zoomend', show);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [numbers, plots, selected, overview]);
+  }, [numbers, plots, selected, overview, showPlots]);
 
   // ── The tape ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -880,7 +1019,9 @@ export default function VillageCanvas({
   };
 
   useImperativeHandle(ref, () => ({
-    fit: () => { fitNow(); },
+    // Measured again first: after full screen the box is a new size, and a
+    // frame worked out against the old one parks the village in a corner.
+    fit: () => { mapRef.current?.invalidateSize({ pan: false }); fitNow(); },
     undoMeasure: () => { tape.current = tape.current.slice(0, -1); redrawTape(); },
     clearMeasure: () => { tape.current = []; redrawTape(); },
     retryTiles: () => {
@@ -890,10 +1031,25 @@ export default function VillageCanvas({
       live.current.onTilesFailed?.(false);
       layer.redraw();
     },
+    show: (points: Array<[number, number]>) => {
+      const map = mapRef.current;
+      if (!map || !points.length) return;
+      map.invalidateSize({ pan: false });
+      const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      if (points.length === 1) {
+        if (still) map.setView(points[0], 16, { animate: false });
+        else map.flyTo(points[0], 16, { duration: 0.6 });
+        return;
+      }
+      const framed = L.latLngBounds(points as L.LatLngTuple[]).pad(1.4);
+      if (still) map.fitBounds(framed, { maxZoom: 17.5, animate: false });
+      else map.flyToBounds(framed, { maxZoom: 17.5, duration: 0.6 });
+    },
     goTo: (lp: string) => {
       const map = mapRef.current;
       const hit = plots.find((p) => p.lp === lp);
       if (!map || !hit) return false;
+      map.invalidateSize({ pan: false });
       const b = L.latLngBounds(hit.ring as L.LatLngTuple[]);
       if (!b.isValid()) return false;
       const framed = b.pad(1.4);

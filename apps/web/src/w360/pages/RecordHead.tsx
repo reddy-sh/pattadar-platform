@@ -73,10 +73,12 @@ export const TABS: {
   { to: 'site-features', label: 'Site features', icon: 'fence', count: (r) => r.featureCount },
   { to: 'people', label: 'People', icon: 'person', count: (r) => r.peopleCount },
   // What the record knows about where it is: a pin someone stood on, and a
-  // boundary somebody drew. Both, one, or — as here, usually — neither.
+  // boundary somebody drew. Both, one, or — as here, usually — neither. Named
+  // Maps (Reddy, 25/10/2026): the same map and layers as the Maps page; the
+  // path stays `location`.
   {
     to: 'location',
-    label: 'Location',
+    label: 'Maps',
     icon: 'place',
     count: (r) => (r.lat || r.lon ? 1 : 0) + (r.ring.length >= 6 ? 1 : 0),
   },

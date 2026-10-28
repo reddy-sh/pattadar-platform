@@ -825,7 +825,7 @@ export function RecordDrawer({ card, onClose, onCreated, fromJob, sourcePaper }:
         setSavedId(newId);
         setErr(`The property was saved, but the boundary from ${mapShape.file} could not be (${
           e instanceof Error ? e.message : 'try again'
-        }). Add it from the property's Location tab.`);
+        }). Add it from the property's Maps tab.`);
         return;
       } finally {
         setFiling('');

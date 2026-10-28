@@ -15,6 +15,8 @@ interface StreamState {
   url?: string;
   message?: string;
   expiresAt?: number;
+  /** The file this state was minted for. */
+  ref?: string;
 }
 
 export function useMediaStream(fileRef: string, enabled: boolean) {
@@ -27,9 +29,10 @@ export function useMediaStream(fileRef: string, enabled: boolean) {
       return;
     }
     let cancelled = false;
-    // Initial mint needs a loading state. Background renewal deliberately keeps
-    // the existing ready URL/player mounted, so playback position is not lost.
-    setState((current) => current.url ? current : { status: 'loading' });
+    // Initial mint needs a loading state. Background renewal of the same file
+    // deliberately keeps the existing ready URL/player mounted, so playback
+    // position is not lost; another file's URL is never kept.
+    setState((current) => current.url && current.ref === fileRef ? current : { status: 'loading', ref: fileRef });
     (async () => {
       try {
         const response = await apiFetch(
@@ -44,13 +47,13 @@ export function useMediaStream(fileRef: string, enabled: boolean) {
           throw new Error('The stream service returned an invalid media address.');
         }
         const ttl = Math.max(30, Number(body.expiresIn) || 900);
-        if (!cancelled) setState({ status: 'ready', url: body.url, expiresAt: Date.now() + ttl * 1000 });
+        if (!cancelled) setState({ status: 'ready', url: body.url, expiresAt: Date.now() + ttl * 1000, ref: fileRef });
       } catch (error) {
         if (!cancelled) setState((current) => current.url ? {
           ...current, status: 'ready',
           message: error instanceof Error ? error.message : 'The stream session could not be renewed.',
         } : {
-          status: 'error',
+          status: 'error', ref: fileRef,
           message: error instanceof Error ? error.message : 'This recording could not be opened.',
         });
       }
@@ -69,5 +72,7 @@ export function useMediaStream(fileRef: string, enabled: boolean) {
   }, [enabled, state.expiresAt]);
 
   const retry = useCallback(() => setNonce((value) => value + 1), []);
-  return { ...state, retry };
+  // A reused player renders with its next file before the effect above runs;
+  // it must not get the previous file's URL for that render.
+  return { ...(state.ref === fileRef ? state : { status: 'idle' as const }), retry };
 }

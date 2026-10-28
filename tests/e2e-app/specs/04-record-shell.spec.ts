@@ -409,7 +409,7 @@ const HANGERS = [
   { label: 'Documents', path: 'documents', heading: 'Documents', level: 2, counted: true },
   { label: 'Site features', path: 'site-features', heading: 'Site features', level: 2, counted: true },
   { label: 'People', path: 'people', heading: 'People', level: 2, counted: true },
-  { label: 'Location', path: 'location', heading: 'Location & boundary', level: 2, counted: true },
+  { label: 'Maps', path: 'location', heading: 'Location & boundary', level: 2, counted: true },
   { label: 'Media', path: 'media', heading: 'Media', level: 2, counted: true },
   { label: 'Notes', path: 'notes', heading: 'Notes', level: 2, counted: true },
   { label: 'Services', path: 'services', heading: 'Service orders', level: 2, counted: true },
@@ -446,8 +446,8 @@ test.describe('W03 · the ten hangers', () => {
     await expect(tabs.getByRole('link', { name: 'Site features' })).toContainText('14');
     await expect(tabs.getByRole('link', { name: 'People' })).toContainText('3');
     await expect(tabs.getByRole('link', { name: 'Services' })).toContainText('2');
-    // Pin and boundary both on file: two of the two things Location counts.
-    await expect(tabs.getByRole('link', { name: 'Location' })).toContainText('2');
+    // Pin and boundary both on file: two of the two things Maps counts.
+    await expect(tabs.getByRole('link', { name: 'Maps' })).toContainText('2');
     await expect(tabs.getByRole('link', { name: 'Media' })).toContainText('18');
     // Money and Activity are not countable things, so they carry no number.
     await expect(tabs.getByRole('link', { name: 'Money' })).toHaveText('Money');
@@ -725,7 +725,7 @@ test.describe('W03 · the actions menu', () => {
     await expect(page).toHaveURL(new RegExp(`${at(ID.parcel, 'activity').replace(/\//g, '\\/')}$`));
     await expect(page.getByRole('heading', { level: 2, name: 'Activity', exact: true })).toBeVisible();
 
-    await tabStrip(page).getByRole('link', { name: /^Location/ }).click();
+    await tabStrip(page).getByRole('link', { name: /^Maps/ }).click();
     await expect(page).toHaveURL(new RegExp(`${at(ID.parcel, 'location').replace(/\//g, '\\/')}$`));
     await expect(page.getByRole('heading', { level: 2, name: 'Location & boundary', exact: true })).toBeVisible();
   });
@@ -1615,9 +1615,9 @@ test.describe('W03 · a record with nothing filed on it', () => {
     // Nothing photographed: the Media tab says 0 rather than holding nothing
     // silently (the gallery card on the index is gone; Media is a tab).
     await expect(tabStrip(page).getByRole('link', { name: 'Media' })).toHaveText('Media0');
-    // Never surveyed and never pinned: the Location tab says so rather than
+    // Never surveyed and never pinned: the Maps tab says so rather than
     // drawing 0.0000° N as if it were a place in the Gulf of Guinea.
-    await tabStrip(page).getByRole('link', { name: 'Location' }).click();
+    await tabStrip(page).getByRole('link', { name: 'Maps' }).click();
     await expect(page.getByText(/No boundary · Pin not set/)).toBeVisible();
     await expect(page.getByText('0.0000° N')).toHaveCount(0);
   });

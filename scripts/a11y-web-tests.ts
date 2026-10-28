@@ -228,7 +228,10 @@ const LITERAL_BUDGET: Record<string, number> = {
   // measured against the imagery rather than the page, and the fallbacks for a
   // page with no scheme yet.
   'apps/web/src/components/GeoMap.tsx': 15,
-  'apps/web/src/w360/VillageCanvas.tsx': 11,
+  'apps/web/src/w360/VillageCanvas.tsx': 7,
+  // The Extent ramp, moved out of VillageCanvas so both maps and the key share
+  // it (docs/specs/2026-10-25-pattadar-maps.md); same reasoning.
+  'apps/web/src/w360/parcelShade.ts': 4,
   'apps/web/src/w360/MapCanvas.tsx': 4,
   // SVG sketch strokes over imagery.
   'apps/web/src/components/FmbMapViewer.tsx': 3,

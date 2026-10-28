@@ -63,12 +63,15 @@ runtime apply.
 
 The script:
 
-1. Refuses a build with any file no manifest names, any name outside `[a-z/]`,
+1. Publishes under the bucket's `vm/` prefix: CloudFront forwards `/vm/<key>`
+   unchanged (the origin has no `origin_path`), so a key at the bucket root
+   answers 403.
+2. Refuses a build with any file no manifest names, any name outside `[a-z/]`,
    or duplicate keys. Receipts and local paths cannot be published.
-2. Uploads the GeoJSON first (`max-age=86400`), then the manifests
+3. Uploads the GeoJSON first (`max-age=86400`), then the manifests
    (`max-age=300`).
-3. Deletes stale keys.
-4. Invalidates `/vm/*`.
+4. Deletes stale keys under `vm/`.
+5. Invalidates `/vm/*`.
 
 ## Verify
 

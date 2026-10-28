@@ -442,7 +442,7 @@ verb + object actions. `/legacy/*` keeps its own older copy until retired.
 | Several properties that make one piece of ground | **Holding** (list: **Holdings**) — official records stay separate. Its members are **properties**, like everywhere else (D1, 06/10/2026). Inside one, use the singular ("This holding"). Never write "your holdings" to mean all of an owner's land. Web: one constant, `HOLDING_WORD` in `apps/web/src/w360/ui.tsx`. Holdings is a top-level page, so it has **no eyebrow** (V2; founder, 09/10/2026 — the former eyebrow "Several properties, one piece of ground" is retired); what a holding is lives behind its ⓘ | combined view, combined property, view, estate, portfolio, records (for its members), "held" (a holding is never held) |
 | WHO holds land vs WHICH land is one farm | A **family or group** holds land: **"holds"** and **"Held by"** belong to groups only; land held personally is **"In your own name"**. A **holding** is **"part of {name}"** and **"one piece of ground"**. Properties filters: **Holder** and **Holding**; selection actions: **Set holder** and **Combine into a holding**. Group tile: "{n} properties · {x} ac →". Group disclaimer: "Your own record of who shares this land. It does not change the khata." Mixed holders in Combine: "These properties have {n} holders. That is fine for one farm; who holds each one does not change." (holdings-vs-groups memo §4.6, approved 06/10/2026, with "properties" for "records") | a holding that "holds", a group "held as one", "holding" for a group's land |
 | Group types | Family · HUF (Hindu Undivided Family) · Company or LLP · Partnership · Trust or society. The **Portfolio / Wallet** type is removed (06/10/2026): keeping properties together is what a holding does | Portfolio, Wallet (as a group type) |
-| Village / cadastral maps | **Cadastral maps** | Village maps, Maps |
+| The map, everywhere | **Maps** — the rail page and each property's tab, one map with one set of layers (Reddy, 25/10/2026; `docs/specs/2026-10-25-pattadar-maps.md`). Map types **Satellite · Street map · Boundaries**; layers **Cadastral map · Parcel numbers · Your properties · Measurements**; one insight at a time, **Extent · Suitability · Hydrogeology · Climate**. A layer not showing says why ("Paused: …", "Not graded for … yet.") | Cadastral maps (as a page), Location (as a tab), Village maps, Numbers, Map layer |
 | One property's pin and boundary | **Location & boundary** — "Boundary saved", never "surveyed" | Where this land is |
 | Things physically on the land | **Site features** | Features, assets |
 | Owner's paid work | **Service order** (the desk's operational unit stays a **job**) | ticket, request, job (on owner screens) |
@@ -611,7 +611,7 @@ founder's amendments).
 | Owner's trail | **Activity** | — | Audit log, Activity log, History, trail, share log |
 | Things on the land | **Site features** | **Working · Watch it · Broken · Not checked** | On the land, Working well, Needs attention, Not working |
 | Media | **Media** | **photo · video · recording** | photograph, clip, audio |
-| Village survey sheets | **Cadastral maps** | each shape is a **parcel** | Village map, plot (for a survey shape), Plot size |
+| Village survey sheets | **cadastral map** (the Cadastral map layer on Maps) | each shape is a **parcel** | Village map, plot (for a survey shape), Plot size |
 | Survey number | **Survey number** (inline "Sy {n}") | — | Sy., survey no, a bare number |
 | Group members | **Members** | — | "person" inside Groups |
 | Heir flag | **heir**; kinds **Co-owner · Legal heir · Nominee**; column **Listed as** | — | beneficiary (except in a trust), co-heir, co-ownership, Held as, Legal Heir |
@@ -729,7 +729,7 @@ the same before they write markup.
 | 2 | Title row | `glyph`, `title`, `info`, `switcher`, `pill`, `actions` | Left: glyph, h1, ⓘ, switcher, status or extent pill. Right: the actions, centred on the h1 line. |
 | 3 | Summary | `summary` | One `.note` line (13px ink-3) 6px under the h1, on **every top-level page a rail label opens**, as on Properties (Reddy, 09/10/2026: "the same UX design for all the side menu items"). Figures, never guidance or a tagline: "{N} {things} · {totals}" from what the page already reads — Properties "1 property · 5.00 ac", Families & groups "1 family · 1 property · 5.00 ac", Wallet "₹0 available · ₹1,180 held for 1 order". The band's tally counts what the filter lets through; the summary carries the account's totals, so a tally is never a reason to leave the summary out, and a filtered-empty page keeps it. A zero figure is dropped (a money balance excepted). A placeholder line (`Sk`, 18rem) while the first read is pending; no line on a failed read or a first-run empty page. A page that reads nothing it could count (Help & support) is a named exception in the guard, never a silent omission. |
 | 3′ | Meta | `meta` | Detail pages: the facts row (kind · place · holder) in one treatment, 6px under the h1. |
-| 4 | Place line | `PlaceLine` | Only where there is a place hierarchy: always on Cadastral maps; on Documents inside a folder or while filtering. The first row of the band, 13px, the current place bold. |
+| 4 | Place line | `PlaceLine` | Only where there is a place hierarchy: always on Maps; on Documents inside a folder or while filtering. The first row of the band, 13px, the current place bold. |
 | 5 | Toolbar band | `FacetFilter` / `ToolbarBand` | Collection pages only. One row between hairlines, 24px under the head and 24px above the content. Left: + Filter and the active chips. Right, in order: tally, the page's own search (`BandSearch`), sort (`SortCycle`), view toggle (`ViewToggle`). It does not wrap at 1512. View toggles and search never sit in the head. A tab's band sits the same way under its `SectionHead` (§ Property tabs). |
 | 6 | Tabs | `tabs` | Detail pages (and Tools, a top-level page that keeps its tabs): the last row of the head, 24px below it, so the content starts 24px under the strip. |
 
@@ -768,7 +768,7 @@ everything under the title is `summary`, `meta` or `tabs`.
   "Add a document" and "Order a service" outlined, **"Add a property"**
   filled, then the ⋮ holding "Share a property", last. The greeting stays the
   h1; `docTitle="Home"` names the tab "Home · Pattadar" (V1).
-- **Cadastral maps**: "Add a cadastral map" is its one filled primary, at the
+- **Maps**: "Add a cadastral map" is its one filled primary, at the
   standard button height; Print is outlined.
 
 ### Every state has the head
@@ -965,7 +965,8 @@ again.
   sketch strokes (SVG over imagery — literals, but Bloom values), and
   **VillageCanvas** plot and edge colours (Leaflet paints onto a canvas over
   map imagery and cannot resolve a CSS var — literals, but Bloom values: the
-  blue magnitude ramp, the white mesh and the Bloom paper/ink edges, all
+  blue magnitude ramp, which lives in `w360/parcelShade.ts` since both maps
+  shade Extent with it, the white mesh and the Bloom paper/ink edges, all
   measured against the imagery rather than the page). Since 03/10/2026 the
   selection and hover are not literals: VillageCanvas and MapCanvas read the
   scheme's `--w-accent` and `--w-focus` off `<html>` when they draw

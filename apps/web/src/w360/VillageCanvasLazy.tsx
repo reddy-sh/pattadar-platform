@@ -8,7 +8,7 @@ import { SkMap } from './skeletons';
 const Impl = lazy(() => import('./VillageCanvas'));
 
 export type { VillageCanvasHandle, VillageCanvasProps, VillageMode, MeasureState } from './VillageCanvas';
-export { BANDS, bandOf } from './VillageCanvas';
+export { BANDS, bandOf } from './parcelShade';
 
 export function VillageCanvas(props: VillageCanvasProps & { ref?: Ref<VillageCanvasHandle> }) {
   return (

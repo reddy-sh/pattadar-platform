@@ -724,7 +724,7 @@ export function JointFmbDialog({ holding, onClose }: {
       {!enough && (
         <p className="note" role="alert" style={{ color: 'var(--w-danger)' }}>
           Tick at least two properties. A sheet for one property is added on that
-          property&apos;s own Location tab.
+          property&apos;s own Maps tab.
         </p>
       )}
       {err && (

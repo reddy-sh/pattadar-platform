@@ -77,7 +77,7 @@ const DRAWN: Array<{ item: string; url: RegExp; heading: RegExp; level?: number 
   // (design.md § Page head, "Shared with me").
   { item: 'Shared with me', url: /\/shared$/, heading: /^Shared with me$/ },
   { item: 'Waiting on you 1', url: /\/assigned$/, heading: /^Waiting on you$/ },
-  { item: 'Cadastral maps', url: /\/maps$/, heading: /^Cadastral maps$/ },
+  { item: 'Maps', url: /\/maps$/, heading: /^Maps$/ },
   { item: 'Documents', url: /\/papers$/, heading: /^Documents$/ },
   { item: 'Families & groups', url: /\/groups$/, heading: /^Families & groups$/ },
   { item: 'Services 6', url: /\/services$/, heading: /^Services$/ },
@@ -103,7 +103,7 @@ const DRAWN: Array<{ item: string; url: RegExp; heading: RegExp; level?: number 
 
 /** Rail entries for the sealed world, which is a platform admin but not a
  *  super admin: Your portfolio 5 (Home · Properties · Families & groups ·
- *  Cadastral maps · Documents — Holdings is left out until the account has a
+ *  Maps · Documents — Holdings is left out until the account has a
  *  holding, and the seed has none) · Shared 4 (ending with Invite & earn) ·
  *  Money 2 · Account 3 · Operations 1 (the desk) · Help & resources 3. */
 const RAIL_ENTRIES = 18;
@@ -140,14 +140,14 @@ test.describe('the rail: Families & groups, then Holdings once there is one', ()
 
   test('with no holding, the portfolio group has no Holdings entry', async ({ page }) => {
     await page.goto('/properties');
-    await expect(portfolio(page)).toHaveText(['Home', 'Properties', 'Families & groups', 'Cadastral maps', 'Documents']);
+    await expect(portfolio(page)).toHaveText(['Home', 'Properties', 'Families & groups', 'Maps', 'Documents']);
   });
 
   test('one holding brings Holdings in, under Families & groups', async ({ page, world }) => {
     world.set('combinedProperties', [ONE_HOLDING]);
     await page.goto('/properties');
     await expect(portfolio(page)).toHaveText([
-      'Home', 'Properties', 'Families & groups', 'Holdings', 'Cadastral maps', 'Documents',
+      'Home', 'Properties', 'Families & groups', 'Holdings', 'Maps', 'Documents',
     ]);
     await expect(rail(page).getByRole('link')).toHaveCount(RAIL_ENTRIES + 1);
     await expect(railLink(page, 'Holdings')).toHaveAttribute('href', '/holdings');

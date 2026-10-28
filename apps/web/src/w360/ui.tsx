@@ -335,7 +335,8 @@ export function PhotoImg(
   // never fetched into an application Blob. Video poster extraction creates
   // the stream session lazily on render and reuses its pinned URL for playback.
   const photo = useBlobFetch(stored && !media ? fileRef : undefined, thumb);
-  const video = useVideoPoster(fileRef, stored && kind === 'video');
+  // Captured at the caller's display size: a strip-sized frame is soft on the stage.
+  const video = useVideoPoster(fileRef, stored && kind === 'video', thumb);
   const playback = useMediaStream(fileRef, stored && media && play);
   const stream = play ? playback : (kind === 'video' ? video : playback);
 

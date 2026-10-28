@@ -46,8 +46,18 @@ import {
 // Extents live in three units; sorting and every acre total need them on
 // common ground.
 const SQYD: Record<string, number> = { ac: 4840, 'sq.yd': 1, 'sq.ft': 1 / 9 };
-export const inAcres = (r: Pick<RecordCard, 'extent' | 'extentUnit'>) =>
-  (r.extent * (SQYD[r.extentUnit] ?? 1)) / 4840;
+/** The spellings the API accepts for each (web360.py `_UNIT_ALIASES`), and
+ *  "sft", so a unit written loosely still adds up. */
+const UNIT: Record<string, string> = {
+  acre: 'ac', acres: 'ac', sqyd: 'sq.yd', 'sq yd': 'sq.yd', 'sq.yds': 'sq.yd', yd: 'sq.yd',
+  sqft: 'sq.ft', 'sq ft': 'sq.ft', ft: 'sq.ft', sft: 'sq.ft',
+};
+/** In acres. A unit it cannot convert counts as nothing, not as square yards:
+ *  "4 acres" read as 4 sq.yd made a 6-acre total read 0.30 ac. */
+export const inAcres = (r: Pick<RecordCard, 'extent' | 'extentUnit'>) => {
+  const unit = (r.extentUnit ?? '').trim().toLowerCase();
+  return (r.extent * (SQYD[UNIT[unit] ?? unit] ?? 0)) / 4840;
+};
 
 /** "3.20 ac + 180 sq.yd": each unit summed as entered, largest unit first.
  *  Not converted to acres — a footer under a column of entered figures should

@@ -347,7 +347,7 @@ test.describe('Boundaries', () => {
     const card = jointCard(page);
     await card.getByRole('button', { name: 'Place outlines' }).click();
     await expect(card.getByRole('alert')).toHaveText(
-      'This sheet does not carry map positions for its survey lines. Give each property its boundary on its own Location tab.');
+      'This sheet does not carry map positions for its survey lines. Give each property its boundary on its own Maps tab.');
     expect(world.restCalls(new RegExp(`storage/files/${SHEET_REF}/content`))).toHaveLength(1);
   });
 

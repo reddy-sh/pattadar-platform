@@ -256,7 +256,7 @@ const APP_SCREENS: Screen[] = [
   // Not a screen: four lines of <Navigate> keeping saved map links on the
   // same live map and filters as Properties (MapFind.tsx).
   { path: '/map', lands: '/properties?view=map', heading: /^Properties$/ },
-  { path: '/maps', heading: /^Cadastral maps$/ },
+  { path: '/maps', heading: /^Maps$/ },
   // Its h1 is the rail label; the open share is an h2 under it (design.md
   // § Page head, "Shared with me").
   { path: '/shared', heading: /^Shared with me$/ },

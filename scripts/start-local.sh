@@ -303,7 +303,7 @@ cleanup_local_stack() {
   stop_port_listeners 8080
   stop_port_listeners 8081
   stop_port_listeners 8082
-  stop_port_listeners "$UNIVERSITY_PORT"
+  stop_port_listeners "${UNIVERSITY_PORT:-5181}"
 }
 trap cleanup_local_stack EXIT INT TERM
 

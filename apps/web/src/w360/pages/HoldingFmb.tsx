@@ -521,7 +521,7 @@ function JointSheets({ sheets }: { sheets: HoldingJointSheet[] }) {
       if (geo) setOutlines(geo);
       else {
         setReadErr({ id: s.id, msg: 'This sheet does not carry map positions for its survey lines. '
-          + 'Give each property its boundary on its own Location tab.' });
+          + 'Give each property its boundary on its own Maps tab.' });
       }
     } catch {
       setReadErr({ id: s.id, msg: 'The sheet could not be opened. Try again.' });

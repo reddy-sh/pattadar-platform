@@ -1496,6 +1496,9 @@ export const SEED: Record<string, Answer> = {
   features: (vars) => (String(vars.id) === ID.parcel ? FEATURES : { ...FEATURES, total: 0, needsRepair: 0, features: [], categories: [], walkedOn: '', walkedBy: '' }),
   people: (vars) => (String(vars.id) === ID.parcel ? PEOPLE : { ...PEOPLE, count: 0, people: [], payments: [], monthlyOut: 0, seasonalIn: 0 }),
   boundary: (vars) => boundaryOf(String(vars.id ?? '')),
+  // Area rainfall (RainfallCard) asks on every property's map; null draws no
+  // card. A test about the card sets its own answer.
+  rainfall: null,
   photos: (vars) => {
     if (String(vars.id) !== ID.parcel) return { ...PHOTOS, total: 0, videoCount: 0, visitCount: 0, verifiedCount: 0, unprovenCount: 0, photos: [], latestVisit: '', latestVisitCount: 0 };
     const featureId = vars.featureId ? String(vars.featureId) : '';

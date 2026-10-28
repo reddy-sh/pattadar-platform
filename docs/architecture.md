@@ -27,6 +27,7 @@ flowchart LR
   S3[(S3 documents/attachments)]
   ANT[Anthropic]
   PAY[Payment provider webhook/API]
+  NASA[NASA POWER\npublic weather API, no key]
 
   WEB --> CORE
   MOB --> CORE
@@ -42,6 +43,7 @@ flowchart LR
   GW --> S3
   GW & API & AST --> PG
   API & AST --> ANT
+  API -->|grid cell only, no owner/record| NASA
   PAY -->|signed webhook| GW
 ```
 
@@ -66,6 +68,21 @@ host over HTTP inside AWS (a recorded exception; viewer TLS ends at CloudFront).
 The shared host is accepted for pre-launch only; its launch gate, cutover
 gates and the rollback to Fargate are in
 [the one-server runtime decision](specs/2026-10-26-one-server-runtime.md).
+
+The Rainfall card (`web.rainfall`, `services/api/src/weather.py`) is the API's
+one keyless outbound data call: it sends NASA POWER the ½° × ⅝° grid cell a
+record falls in, never the point, record or owner, and caches per cell in
+`weather_cell` (docs/specs/2026-10-23-rainfall-card.md).
+
+The Climate layer — on Maps and on a property's Maps tab, which share one set
+of layers (`apps/web/src/w360/mapLayers.ts`,
+docs/specs/2026-10-25-pattadar-maps.md) — loads NASA GIBS map tiles and colour
+maps straight from the browser (`apps/web/src/w360/climateLayers.ts`), like the
+Esri and OpenStreetMap basemaps: NASA sees the map area being viewed, never an
+owner or record. No Pattadar service is involved. The other layers add no new
+call: Hydrogeology on Maps reads the same `web.waterFlow` as a property's tab,
+for a parcel that is one of the signed-in owner's own properties, and Your
+properties draws the owner's existing property list.
 
 ## Authentication and owner identity
 

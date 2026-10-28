@@ -81,7 +81,7 @@ let cached: Promise<VillageIndexRead> | null = null;
 /** A path under /vm/ with each segment encoded. The importer writes [a-z/]
  *  only, so this changes nothing for a real file — it is here so a hand-edited
  *  manifest cannot walk the fetch somewhere else. */
-const vmUrl = (path: string) =>
+export const vmUrl = (path: string) =>
   `/vm/${path.split('/').filter((s) => s && s !== '..' && s !== '.').map(encodeURIComponent).join('/')}`;
 
 async function shipped(): Promise<VillageEntry[]> {

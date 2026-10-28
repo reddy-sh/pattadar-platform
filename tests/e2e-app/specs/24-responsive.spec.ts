@@ -99,7 +99,7 @@ const DESK = { width: 1280, height: 900 };
 const SECTIONS = [
   // Holdings is not here: it joins the rail only once the account has a
   // holding (Shell.tsx showHoldings), and the seed has none.
-  'Home', 'Properties', 'Families & groups', 'Cadastral maps', 'Documents',
+  'Home', 'Properties', 'Families & groups', 'Maps', 'Documents',
   'Shared with me', 'Waiting on you', 'Invitations', 'Invite & earn',
   'Services', 'Wallet',
   // Notifications is a topbar bell beside the assistant now, not a rail entry.
