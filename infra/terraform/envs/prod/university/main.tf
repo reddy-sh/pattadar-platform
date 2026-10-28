@@ -290,3 +290,12 @@ resource "aws_cognito_user_pool_client" "university" {
     refresh_token = "days"
   }
 }
+
+# Managed login v2 (auth.pattadar.com) needs a branding style per app client;
+# without one the hosted UI answers "Login pages unavailable" for this client.
+resource "aws_cognito_managed_login_branding" "university" {
+  user_pool_id = data.terraform_remote_state.persistent.outputs.cognito_user_pool_id
+  client_id    = aws_cognito_user_pool_client.university.id
+
+  use_cognito_provided_values = true
+}

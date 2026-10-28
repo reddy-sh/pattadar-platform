@@ -59,6 +59,7 @@ jobs:
             echo "VITE_COGNITO_CLIENT_ID=$cognito_client_id"
             echo "VITE_COGNITO_DOMAIN=$cognito_domain"
             echo "VITE_COGNITO_REDIRECT_URI=https://pattadar.com/auth/callback"
+            echo "VITE_SOCIAL_PROVIDERS=Google"
           } >> "$GITHUB_ENV"
       - run: bun install --frozen-lockfile
       - name: Load reviewed migration evidence
