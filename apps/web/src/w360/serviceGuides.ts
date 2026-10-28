@@ -12,7 +12,7 @@
  *  University's home page is not an answer to "what is a site visit?".
  */
 import guides from '../../../university/src/data/recordGuides.json';
-import { UNIVERSITY_URL } from '../lib/links';
+import { universityHref } from '../lib/links';
 import type { ServiceOffer } from './api';
 
 export type StateCode = 'AP' | 'TS';
@@ -34,7 +34,7 @@ const PASSBOOK_GUIDE: Record<StateCode, string> = { AP: 'pattadar-passbook', TS:
 /** The University's passbook guide (one passbook, many survey numbers) for
  *  this state; the state chooser when the paper does not say which. */
 export const passbookGuideHref = (code: StateCode | null): string =>
-  code ? `${UNIVERSITY_URL}/states/${STATE_SLUG[code]}/records/${PASSBOOK_GUIDE[code]}` : `${UNIVERSITY_URL}/states`;
+  universityHref(code ? `/states/${STATE_SLUG[code]}/records/${PASSBOOK_GUIDE[code]}` : '/states');
 
 export interface GuideLink { href: string; title: string; limit: string }
 
@@ -48,12 +48,12 @@ export interface GuideLink { href: string; title: string; limit: string }
 export function guidesFor(offer: Pick<ServiceOffer, 'guides'>, code: StateCode): GuideLink[] {
   return offer.guides.filter((t) => t.state === code).flatMap((t) => {
     if (t.topic) {
-      return [{ href: `${UNIVERSITY_URL}/states/${STATE_SLUG[code]}#${t.topic}`, title: t.title, limit: '' }];
+      return [{ href: universityHref(`/states/${STATE_SLUG[code]}#${t.topic}`), title: t.title, limit: '' }];
     }
     const g = guides.find((x) => x.stateCode === code && x.slug === t.slug);
     return g
       ? [{
-          href: `${UNIVERSITY_URL}/states/${STATE_SLUG[code]}/records/${g.slug}`,
+          href: universityHref(`/states/${STATE_SLUG[code]}/records/${g.slug}`),
           title: g.shortTitle,
           limit: t.ownPaper ? g.limit : '',
         }]

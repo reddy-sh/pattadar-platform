@@ -66,7 +66,7 @@ import { useInbox } from './inbox';
 import { AssistantPanel } from '../assistant/AssistantPanel';
 import { useAuth } from '../auth/AuthProvider';
 import { PENDING_INVITE, PENDING_REFERRAL, redeemReferral } from './growthData';
-import { UNIVERSITY_URL } from '../lib/links';
+import { universityHref } from '../lib/links';
 import { SCHEME_ICON } from '../components/schemeIcons';
 import { useThemeChoice } from '../components/useThemeChoice';
 import { setPageWidth, usePageWidth } from './pageWidth';
@@ -493,7 +493,7 @@ export function Shell() {
       foot: true,
       items: [
         { to: '/tools', label: 'Tools', icon: CalculateOutlined },
-        { to: UNIVERSITY_URL, label: 'Pattadar University', icon: SchoolOutlined, external: true },
+        { to: universityHref(), label: 'Pattadar University', icon: SchoolOutlined, external: true },
         { to: '/help', label: 'Help & support', icon: HelpOutlineOutlined },
       ],
     },

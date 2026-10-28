@@ -16,7 +16,7 @@ const { offers } = JSON.parse(readFileSync(new URL('../tests/e2e-app/fixtures/ca
 const missing = missingGuides(offers);
 // The ⓘ beside a passbook (Documents, the add drawer) links a fixed guide per state.
 for (const code of ['AP', 'TS'] as const) {
-  const slug = passbookGuideHref(code).split('/records/')[1];
+  const slug = new URL(passbookGuideHref(code)).pathname.split('/records/')[1];
   if (!guides.some((g) => g.stateCode === code && g.slug === slug)) missing.push(`passbook ⓘ → ${code}/${slug}`);
 }
 if (missing.length > 0) {

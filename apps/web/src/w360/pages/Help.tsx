@@ -13,7 +13,7 @@ import OpenInNewOutlined from '@mui/icons-material/OpenInNewOutlined';
 import SchoolOutlined from '@mui/icons-material/SchoolOutlined';
 import SmartToyOutlined from '@mui/icons-material/SmartToyOutlined';
 
-import { GRIEVANCE_EMAIL, SUPPORT_EMAIL, UNIVERSITY_URL } from '../../lib/links';
+import { GRIEVANCE_EMAIL, SUPPORT_EMAIL, universityHref } from '../../lib/links';
 import type { ShellContext } from '../Shell';
 import { Card, PageHead } from '../ui';
 
@@ -51,7 +51,7 @@ export function Help() {
             Learn the standards behind careful land work: owner privacy, evidence handling, field
             safety and local compliance.
           </p>
-          <a className="btn" href={UNIVERSITY_URL} target="_blank" rel="noopener noreferrer">
+          <a className="btn" href={universityHref()} target="_blank" rel="noopener noreferrer">
             <SchoolOutlined sx={{ fontSize: 16 }} aria-hidden /> Open Pattadar University
             <OpenInNewOutlined sx={{ fontSize: 14 }} aria-label="opens in a new tab" />
           </a>

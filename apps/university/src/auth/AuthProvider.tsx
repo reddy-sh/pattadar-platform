@@ -43,6 +43,19 @@ function buildUserManager(): UserManager {
 
 const userManager = isAuthPreview ? null : buildUserManager();
 
+/** The Pattadar app links here with `session=app` for a signed-in owner. The
+ *  hosted login already holds their session, so this redirect comes straight
+ *  back signed in; with no session it shows the usual sign-in page. The flag
+ *  is dropped first, so a refresh or shared link never redirects again. */
+function takeAppSessionFlag(): string | null {
+  const url = new URL(window.location.href);
+  if (url.searchParams.get('session') !== 'app') return null;
+  url.searchParams.delete('session');
+  const returnTo = `${url.pathname}${url.search}${url.hash}`;
+  window.history.replaceState(window.history.state, '', returnTo);
+  return returnTo;
+}
+
 function fromOidc(user: User): UniversityUser {
   const email = user.profile.email ?? '';
   return {
@@ -79,11 +92,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!userManager) return;
     let cancelled = false;
+    const fromApp = takeAppSessionFlag();
     userManager.getUser()
-      .then((session) => {
-        if (!cancelled) setUser(session && !session.expired ? fromOidc(session) : null);
+      .then(async (session) => {
+        const live = session && !session.expired;
+        if (!live && fromApp) {
+          await userManager.signinRedirect({ state: { returnTo: fromApp } });
+          return;
+        }
+        if (!cancelled) setUser(live ? fromOidc(session) : null);
+        if (!cancelled) setIsLoading(false);
       })
-      .finally(() => {
+      .catch(() => {
         if (!cancelled) setIsLoading(false);
       });
     const onLoaded = (session: User) => setUser(fromOidc(session));
