@@ -11,6 +11,8 @@ export interface UniversityUser {
   id: string;
   email: string;
   name: string;
+  /** The identity provider's photo (Google's), https only; '' when none. */
+  picture: string;
 }
 
 interface AuthContextValue {
@@ -25,7 +27,17 @@ const PREVIEW_USER: UniversityUser = {
   id: 'preview-learner',
   email: 'learner@pattadar.local',
   name: 'Preview learner',
+  picture: '',
 };
+
+/** A `picture` claim is provider-supplied text: only an https URL is drawn. */
+function safePicture(value: unknown): string {
+  try {
+    return typeof value === 'string' && new URL(value).protocol === 'https:' ? value : '';
+  } catch {
+    return '';
+  }
+}
 
 function buildUserManager(): UserManager {
   return new UserManager({
@@ -62,6 +74,7 @@ function fromOidc(user: User): UniversityUser {
     id: user.profile.sub,
     email,
     name: user.profile.name ?? email.split('@')[0] ?? 'Pattadar learner',
+    picture: safePicture(user.profile.picture),
   };
 }
 

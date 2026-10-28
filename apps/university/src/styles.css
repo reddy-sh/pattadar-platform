@@ -188,35 +188,69 @@ svg { display: block; font-size: 1.25rem; }
 
 .app-header__actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-xs); min-width: 0; }
 
-.theme-picker {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+
+
+
+
+/* The header's icon controls and account circle, drawn like the Pattadar
+   app's top bar: borderless round icons, the photo in a circle, and a small
+   popup menu under each (HeaderMenu.tsx). */
+.header-icon,
+.header-avatar {
+  display: inline-grid;
+  place-items: center;
   width: var(--control-height);
-  min-height: var(--control-height);
+  height: var(--control-height);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--color-ink-2);
+  cursor: pointer;
+}
+.header-icon[aria-expanded="true"] { background: var(--color-paper-3); color: var(--color-ink); }
+.header-avatar {
+  overflow: hidden;
+  border: var(--rule-hair) solid var(--color-rule);
+  background: var(--color-paper-2);
+  color: var(--color-ink);
+  font-size: var(--text-xs);
+  font-weight: 700;
+}
+.header-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.header-menu { position: relative; }
+.header-menu__list {
+  position: absolute;
+  inset-block-start: calc(100% + var(--space-xs));
+  inset-inline-end: 0;
+  z-index: 30;
+  display: grid;
+  min-width: 14rem;
+  padding: var(--space-xs);
   border: var(--rule-hair) solid var(--color-rule);
   border-radius: var(--radius-control);
   background: var(--color-paper);
-  color: var(--color-ink-2);
+  box-shadow: 0 0.5rem 1.5rem rgb(0 0 0 / 0.16);
 }
-
-.theme-picker > svg { margin-inline-start: 0; pointer-events: none; }
-
-.theme-picker select {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  min-height: 100%;
-  padding: 0;
+.header-menu__heading { display: grid; padding: var(--space-xs) var(--space-sm) var(--space-sm); border-block-end: var(--rule-hair) solid var(--color-rule); margin-block-end: var(--space-xs); }
+.header-menu__heading small { color: var(--color-ink-2); font-size: var(--text-xs); overflow-wrap: anywhere; }
+.header-menu__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-height: var(--control-height);
+  padding-inline: var(--space-sm);
   border: 0;
-  background: transparent;
-  color: transparent;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--color-ink);
+  font: inherit;
+  text-align: start;
   cursor: pointer;
-  opacity: 0;
 }
-
-.theme-picker select option { color: var(--color-ink); background: var(--color-paper); }
+.header-menu__item > span { flex: 1; }
+.header-menu__item--rule { margin-block-start: var(--space-xs); border-block-start: var(--rule-hair) solid var(--color-rule); border-start-start-radius: 0; border-start-end-radius: 0; }
+.header-menu__tick { color: var(--color-accent); }
 
 .preview-badge,
 .header-status {
@@ -230,20 +264,7 @@ svg { display: block; font-size: 1.25rem; }
   white-space: nowrap;
 }
 
-.account-button {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-  min-height: var(--control-height);
-  padding-inline: var(--space-sm);
-  border: var(--rule-hair) solid var(--color-rule);
-  border-radius: var(--radius-control);
-  background: var(--color-paper);
-  cursor: pointer;
-  white-space: nowrap;
-}
 
-.account-button span { display: none; }
 
 .section-nav {
   display: flex;
@@ -1204,7 +1225,6 @@ select:disabled,
 
 .icon-button--accent { border-color: var(--color-accent); background: var(--color-accent); color: var(--color-accent-ink); }
 
-.mobile-tutor-button { display: inline-grid; }
 
 dialog {
   color: var(--color-ink);
@@ -1313,8 +1333,6 @@ dialog::backdrop { background: var(--color-scrim); }
   .brand:hover,
   .section-nav a:hover,
   .opportunity-row__requirement a:hover { color: var(--color-accent-hover); }
-  .theme-picker:hover,
-  .account-button:hover,
   .discovery-segments button:hover,
   .tutor-dialog__prompts button:hover { border-color: var(--color-rule-strong); }
   .filter-select select:hover { border-color: var(--color-ink-3); }
@@ -1322,6 +1340,9 @@ dialog::backdrop { background: var(--color-scrim); }
   .tutor-dialog__composer input:hover { border-color: var(--color-ink-3); }
   .button:hover:not(.button--primary):not(.button--saved),
   .icon-button:hover { background: var(--color-paper-3); }
+  .header-icon:hover,
+  .header-menu__item:hover { background: var(--color-paper-3); color: var(--color-ink); }
+  .header-avatar:hover { border-color: var(--color-rule-strong); }
   .button--primary:hover { background: var(--color-accent-hover); }
   .button--saved:hover { border-color: var(--color-rule-strong); }
   .search-pill:hover { background: var(--color-paper-3); }
@@ -1422,10 +1443,6 @@ dialog::backdrop { background: var(--color-scrim); }
 @media (min-width: 60rem) {
   .preview-badge,
   .header-status { display: inline-flex; }
-  .account-button span { display: inline; }
-  .theme-picker { position: static; justify-content: flex-start; width: auto; }
-  .theme-picker > svg { margin-inline-start: var(--space-sm); }
-  .theme-picker select { position: static; width: auto; min-height: calc(var(--control-height) - 2px); padding-inline: var(--space-xs); color: var(--color-ink); opacity: 1; }
   .catalog-intro { grid-template-columns: minmax(0, 1.4fr) minmax(18rem, 0.6fr); align-items: end; }
   .catalog-intro__status { display: grid; justify-items: start; justify-content: stretch; }
   .discovery-filter { grid-template-columns: minmax(28rem, 1.4fr) repeat(2, minmax(12rem, 0.6fr)); align-items: end; }
