@@ -99,9 +99,11 @@ export PATH="$HOME/.bun/bin:$PATH"
 
 # Cognito (same pool as pattadar.com — validation only, no secrets involved)
 COGNITO_USER_POOL_ID="ap-south-1_XfgAF21Z3"
-# web SPA + native iOS app clients on the same pool (gateway matches exactly
-# against this allowlist).
-COGNITO_CLIENT_ID="10okivmth1rv58ed8f2k7eq4mm,44gv48ihjlgub7h0lnvjbdmj89"
+# local-dev web client + native iOS app client on the same pool (gateway
+# matches exactly against this allowlist). The prod SPA client allows only
+# https://pattadar.com/auth/callback; localhost callbacks (:5173/:5180, both
+# localhost and 127.0.0.1) live on pattadar-prod-local-dev since 27/10/2026.
+COGNITO_CLIENT_ID="4pc4u8lgucke75sedp6mepdegj,44gv48ihjlgub7h0lnvjbdmj89"
 WEB_COGNITO_CLIENT_ID="${COGNITO_CLIENT_ID%%,*}"
 WEB_COGNITO_DOMAIN="auth.pattadar.com"
 WEB_SOCIAL_PROVIDERS="Google"
