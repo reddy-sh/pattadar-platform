@@ -144,6 +144,18 @@ variable "admin_subject_ids" {
   default     = []
 }
 
+variable "platform_admin_uids" {
+  description = "API uids (subject_ principals in AWS) bootstrapped as admins (PLATFORM_ADMIN_UIDS): the desk and the Administration rail group."
+  type        = list(string)
+  default     = []
+}
+
+variable "super_admin_uids" {
+  description = "API uids (subject_ principals in AWS) bootstrapped as super-admins (SUPER_ADMIN_UIDS): catalogue, compliance, Intelligence, geography."
+  type        = list(string)
+  default     = []
+}
+
 variable "payments_mode" {
   description = "Razorpay off/test/live mode. Off preserves the explicit simulated wallet."
   type        = string
@@ -168,4 +180,10 @@ variable "payment_secret_arns" {
     condition     = alltrue([for key in keys(var.payment_secret_arns) : contains(["RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET", "RAZORPAY_LINKED_ACCOUNTS_JSON"], key)])
     error_message = "Only the four documented Razorpay secret names are supported."
   }
+}
+
+variable "api_task_memory" {
+  description = "The api task's memory limit (MiB). 1500 holds a Hydrogeology reading (~0.95 GiB peak) beside the api; with gateway and assistant at 1024 it fits the t4g.medium's 3579 MiB."
+  type        = number
+  default     = 1500
 }

@@ -2,14 +2,22 @@
 # updater moves the digest.
 FROM python:3.13-slim@sha256:81c118faaca296a46b46a7dd7f3bf7575a956d8a4af22623b3de2ff504a3e89b AS base
 
+# Only libexpat.so.1 comes from here (see the runtime stage). A named stage so
+# Dependabot moves this digest too; keep it on the same Debian release as base.
+FROM python:3.13-trixie@sha256:90b30ab329c01caa6b7d221bb0e2ab034109044ed38d933d3c2711f4386c1004 AS expat
+
 # Builds the venv; only /opt/venv crosses into the runtime image.
 FROM base AS builder
 ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 # No pip inside the venv: the base image's pip installs into it from outside.
 RUN python -m venv --without-pip /opt/venv
-COPY requirements.txt /tmp/
-RUN pip --python /opt/venv/bin/python install -r /tmp/requirements.txt \
- && pip --python /opt/venv/bin/python check
+COPY requirements.txt requirements-terrain.txt /tmp/
+# requirements-terrain.txt: the Hydrogeology reading (src/terrain.py), which
+# runs in production since 28/10/2026 from elevation tiles in S3.
+RUN pip --python /opt/venv/bin/python install -r /tmp/requirements.txt -r /tmp/requirements-terrain.txt \
+ && pip --python /opt/venv/bin/python check \
+ && find /opt/venv/lib -type d \( -name tests -o -name test \) -prune -exec rm -rf {} +
+# ^ the wheels' own test suites (~170 MB, mostly scipy, pandas and numpy); nothing imports them at runtime.
 # botocore ships ~27 MB of models for ~440 AWS services. Keep only the clients
 # this code creates: kms (src/aadhaar.py), s3 and cognito-idp
 # (scripts/erase_account.py, scripts/clear_aadhaar.py, run in this image by
@@ -42,6 +50,11 @@ PY
 
 FROM base AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PATH=/opt/venv/bin:$PATH
+# libexpat: GDAL inside the rasterio wheel links the system libexpat.so.1,
+# which python:slim does not ship. Taken from the full image of the same
+# Debian release (trixie) rather than apt, so the build needs no Debian mirror.
+COPY --from=expat /usr/lib/*-linux-gnu/libexpat.so.1* /usr/local/lib/
+RUN ldconfig
 # Runs as a non-root user: a bug in anything it parses should not land as uid 0.
 # The base image's pip goes too: no pip in the venv or on PATH (stdlib
 # ensurepip remains in the base layer, and removing pip saves no bytes there).

@@ -1,6 +1,7 @@
-# The Hydrogeology (water flow) layer — src/terrain.py. Optional and local
-# only: the Docker image does not install these, and without them the layer
-# answers "not installed on this server" instead of the API failing to boot.
+# The Hydrogeology (water flow) layer — src/terrain.py. The Docker image
+# installs these since 28/10/2026 (production reads tiles from S3); a local
+# venv needs them by hand, and without them the layer answers "not installed
+# on this server" instead of the API failing to boot.
 #   .local/api-venv/bin/pip install -r services/api/requirements-terrain.txt
 # These versions reproduce the fixtures in docs/specs/2026-10-13-water-flow-layer.md.
 numpy==2.5.4

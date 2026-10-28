@@ -2,7 +2,12 @@
 
 Status: web layer built locally, 13/10/2026; the rest is design. § Where it
 sits in the app describes what is built. A working prototype and its validation live in
-`docs/specs/water-flow/`. Local only; nothing here is applied to production.
+`docs/specs/water-flow/`. Built for production 28/10/2026 (Reddy accepted the
+per-parcel reading inside the api as the interim shape; live once the tiles,
+the runtime apply and the api release have shipped): the image installs
+`requirements-terrain.txt`, the tiles live under `dem/` in the village-maps
+bucket (`scripts/dem-publish.py`, Andhra Pradesh only) and each reading runs in
+a low-priority child process (~65 s, ~0.95 GiB; prod api task 1500 MiB).
 
 Built locally 13/10/2026 (web only, labelled **Hydrogeology** at Reddy's
 request): `services/api/src/terrain.py` runs the prototype per record on

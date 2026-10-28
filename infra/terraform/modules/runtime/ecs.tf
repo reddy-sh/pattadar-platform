@@ -181,6 +181,32 @@ data "aws_iam_policy_document" "api_task" {
   }
 }
 
+resource "aws_iam_role_policy" "api_terrain_dem" {
+  count = local.vm_bucket_arn != null ? 1 : 0
+  name  = "api-terrain-dem"
+  role  = aws_iam_role.api_task.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "ElevationTilesRead"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = "${local.vm_bucket_arn}/dem/*"
+      },
+      {
+        # Lets a missing tile answer 404 (no map for this area) rather than
+        # 403. S3 checks it on the bucket, so no prefix condition can apply;
+        # the bucket holds only public map and elevation data.
+        Sid      = "ElevationTilesMissingIs404"
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = local.vm_bucket_arn
+      },
+    ]
+  })
+}
+
 resource "aws_iam_role_policy" "api_task" {
   name   = "api-task"
   role   = aws_iam_role.api_task.id
@@ -303,7 +329,7 @@ resource "aws_ecs_task_definition" "api" {
   requires_compatibilities = ["EC2"]
   network_mode             = "bridge"
   cpu                      = tostring(var.task_cpu)
-  memory                   = tostring(var.task_memory)
+  memory                   = tostring(coalesce(var.api_task_memory, var.task_memory))
   execution_role_arn       = aws_iam_role.execution.arn
   task_role_arn            = aws_iam_role.api_task.arn
 
@@ -346,6 +372,11 @@ resource "aws_ecs_task_definition" "api" {
         { name = "PG_USER", value = "pattadar_app" },
         { name = "PG_DATABASE", value = "hub" },
         { name = "UVICORN_TIMEOUT_KEEP_ALIVE", value = "65" },
+        { name = "PLATFORM_ADMIN_UIDS", value = join(",", var.platform_admin_uids) },
+        { name = "SUPER_ADMIN_UIDS", value = join(",", var.super_admin_uids) },
+        # Hydrogeology: elevation tiles under dem/ in the village-maps bucket,
+        # fetched on first use into the task's disk cache (src/terrain.py).
+        { name = "TERRAIN_DEM_BUCKET", value = local.vm_bucket_name == null ? "" : local.vm_bucket_name },
       ]
 
       # CRON_SECRET is ALWAYS set (invariant): /cron/inactivity-check rejects
@@ -493,6 +524,8 @@ resource "aws_ecs_task_definition" "assistant" {
         { name = "PUBLIC_RECORDS_EMBEDDINGS_ENABLED", value = "0" },
         { name = "ASSISTANT_ATTACHMENTS_BUCKET", value = local.persistent.documents_bucket_name },
         { name = "ASSISTANT_ATTACHMENTS_KMS_KEY_ARN", value = local.persistent.kms_key_arn },
+        # The same bootstrap admin list the api reads (services/assistant/src/main.py).
+        { name = "PLATFORM_ADMIN_UIDS", value = join(",", var.platform_admin_uids) },
       ]
 
       secrets = [

@@ -5,12 +5,16 @@ validated prototype (docs/specs/water-flow/prototype/water_flow.py) moved into
 the API, one parcel at a time, with the arithmetic untouched: the fixtures in
 docs/specs/2026-10-13-water-flow-layer.md § Tests check that it still gives the
 same pins. The spec's batch job (services/terrain, static line chunks on S3) is
-the production shape; this computes on request from the elevation tiles on the
-API host and caches the answer per boundary.
+the production shape; this computes on request from the elevation tiles and
+caches the answer per boundary. On a laptop the tiles are a folder
+(TERRAIN_DEM_DIR); in AWS they are an S3 prefix (TERRAIN_DEM_BUCKET, keys
+dem/{source}/{file}) fetched on first use into a disk cache, and each reading
+runs in one low-priority child process so the API keeps answering.
 
-shortcut: computes from local tiles on the API host (~50 s, ~2.6 MB per parcel);
-replace with the services/terrain batch job and S3 line chunks before any
-deployment beyond a laptop.
+shortcut: computes per parcel inside the API task (minutes at its CPU share,
+cached per boundary); Reddy accepted this for production on 28/10/2026.
+Replace with the services/terrain batch job and S3 line chunks when parcels
+outgrow one reading at a time.
 
 The heavy libraries (numpy, scipy, rasterio, shapely, pysheds) are imported
 inside `compute`, so an API without requirements-terrain.txt still starts and
@@ -23,8 +27,11 @@ import hashlib
 import json
 import logging
 import math
+import multiprocessing
 import os
 import re
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 
 # ---------------------------------------------------------------- constants (all from the validation)
 WINDOW_DEG = 0.1          # hydrology window: parcel centre ±0.1° (about ±11 km), so upslope areas near the parcel are exact
@@ -46,6 +53,13 @@ DATA_VERSION = "v1"
 
 # Where the 1° tiles live (laid out by docs/specs/water-flow/prototype/download_dem.py).
 DEM_DIR_ENV = "TERRAIN_DEM_DIR"
+# In AWS: the bucket holding the same layout under dem/; TERRAIN_DEM_DIR is then
+# only the disk cache the tiles are fetched into.
+DEM_BUCKET_ENV = "TERRAIN_DEM_BUCKET"
+DEM_PREFIX = "dem"
+# Readings run in a child process (False in the database tests, whose stand-in
+# `compute` cannot cross a process boundary).
+SUBPROCESS = True
 
 # A parcel bigger than this is not a parcel this window can answer for: its
 # edge would sit near the window's, where upslope areas are cut short.
@@ -59,11 +73,84 @@ class TerrainUnavailable(Exception):
     """The answer cannot be computed here, for a reason the owner can be told."""
 
 
+class TilesMissing(TerrainUnavailable):
+    """The bucket has no tile for this area yet. Stored as a failure, not as
+    'unavailable', so publishing the tiles later is picked up by Try again or
+    once the row goes stale."""
+
+
 def dem_dir() -> str | None:
     """The elevation folder, or None when this host has none. The default is
-    where docs/specs/water-flow/README.md says the founder's copy lives."""
+    where docs/specs/water-flow/README.md says the founder's copy lives. With a
+    bucket configured it is the cache the tiles are fetched into."""
+    if os.environ.get(DEM_BUCKET_ENV, "").strip():
+        # shortcut: unbounded cache in the container layer (≤ the published box, ~3.7 GB for
+        # Andhra Pradesh); cap it or use a host volume before publishing beyond one state.
+        return os.path.expanduser(os.environ.get(DEM_DIR_ENV, "").strip() or "~/.cache/pattadar-dem")
     d = os.path.expanduser(os.environ.get(DEM_DIR_ENV, "").strip() or "~/india-ref-data-crawlings/elevation")
     return d if os.path.isdir(os.path.join(d, "srtm")) else None
+
+
+_s3 = None   # one S3 client per process (the reading child's)
+
+
+def _fetch_tile(path: str) -> bool:
+    """Bring one tile from the bucket into the cache; False when the bucket has
+    no such tile. A no-op without a bucket (the laptop folder is complete)."""
+    bucket = os.environ.get(DEM_BUCKET_ENV, "").strip()
+    if not bucket or os.path.exists(path):
+        return os.path.exists(path)
+    global _s3
+    from botocore.exceptions import ClientError
+    if _s3 is None:
+        import boto3
+        _s3 = boto3.client("s3", region_name=os.environ.get("AWS_REGION") or None)
+    src, name = path.split(os.sep)[-2:]
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    part = f"{path}.part-{os.getpid()}"
+    try:
+        _s3.download_file(bucket, f"{DEM_PREFIX}/{src}/{name}", part)
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey"):
+            return False
+        raise
+    os.replace(part, path)   # whole tiles only: a crash mid-download leaves a .part, never a short tile
+    return True
+
+
+def _lower_priority() -> None:
+    """The child's start: below the API's CPU priority, and one thread per
+    library so a reading does not thrash the task's CPU share."""
+    os.nice(10)
+    for v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "NUMBA_NUM_THREADS", "GDAL_NUM_THREADS"):
+        os.environ[v] = "1"
+
+
+_executor: ProcessPoolExecutor | None = None
+
+
+def _offload(ring, root):
+    """`compute` in the low-priority child (spawned, never forked: the API
+    process holds a connection pool and an event loop)."""
+    global _executor
+    if not SUBPROCESS:
+        return asyncio.to_thread(compute, ring, root)
+    if _executor is None:
+        # A fresh child per reading: its ~0.95 GiB goes back as soon as it is done.
+        _executor = ProcessPoolExecutor(max_workers=1, mp_context=multiprocessing.get_context("spawn"),
+                                        initializer=_lower_priority, max_tasks_per_child=1)
+    return asyncio.wait_for(asyncio.get_running_loop().run_in_executor(_executor, compute, ring, root),
+                            READING_TIMEOUT_S)
+
+
+def _kill_child() -> None:
+    """A reading that outlived READING_TIMEOUT_S: stop its child and start clean."""
+    global _executor
+    ex, _executor = _executor, None
+    if ex is not None:
+        for proc in list((getattr(ex, "_processes", None) or {}).values()):
+            proc.kill()
+        ex.shutdown(wait=False, cancel_futures=True)
 
 
 # ---------------------------------------------------------------- the cached, background reading
@@ -85,8 +172,11 @@ DDL = [
     )""",
 ]
 STALE_MINUTES = 10
-_slot: asyncio.Semaphore | None = None   # one reading at a time: each takes every core for ~25 s
+# A reading takes ~65 s in AWS; one that is still going after this is stuck.
+READING_TIMEOUT_S = 8 * 60
+_slot: asyncio.Semaphore | None = None   # one reading at a time: ~25 s on a laptop, ~65 s and ~0.95 GiB at the AWS api's share
 _tasks: set = set()                      # keeps running tasks referenced until they finish
+_inflight: set = set()                   # keys queued or running here, so a stale re-claim never starts a second copy
 
 
 def _view(state: str, reason: str = "", data: dict | None = None) -> dict:
@@ -143,10 +233,12 @@ async def reading(pool, record_id: str, boundary: str, source: str, retry: bool 
             "      OR (%s AND terrain_parcel_result.state = 'failed'))"
             " RETURNING 1", (*key, STALE_MINUTES, retrying))
         claimed = await cur.fetchone()
-    if claimed:
+    if claimed and key not in _inflight:
+        _inflight.add(key)
         t = asyncio.get_running_loop().create_task(_run(pool, key, ring, root))
         _tasks.add(t)
         t.add_done_callback(_tasks.discard)
+        t.add_done_callback(lambda _t: _inflight.discard(key))
     return _view("running")
 
 
@@ -157,10 +249,17 @@ async def _run(pool, key, ring, root) -> None:
     result, state, reason = None, "done", ""
     async with _slot:
         try:
-            result = await asyncio.to_thread(compute, ring, root)
+            result = await _offload(ring, root)
+        except TilesMissing as e:
+            state, reason = "failed", str(e)
         except TerrainUnavailable as e:
             state, reason = "unavailable", str(e)
-        except Exception:
+        except Exception as e:
+            global _executor
+            if isinstance(e, asyncio.TimeoutError):
+                _kill_child()
+            elif isinstance(e, BrokenProcessPool):   # the child died (out of memory): start a fresh one next time
+                _executor = None
             logging.getLogger("pattadar").exception("water-flow reading failed for %s", key[0])
             state, reason = "failed", "The hydrogeology reading failed. Try again in a few minutes."
     async with pool.connection() as conn:
@@ -219,8 +318,8 @@ def _read_window(root, src, w, s, e, n):
 
     tiles = [(la, lo) for la in range(math.floor(s), math.floor(n) + 1) for lo in range(math.floor(w), math.floor(e) + 1)]
     for la, lo in tiles:
-        if not os.path.exists(tile_path(root, src, la, lo).removeprefix("/vsigzip/")):
-            raise TerrainUnavailable("There is no elevation map for this area yet.")
+        if not _fetch_tile(tile_path(root, src, la, lo).removeprefix("/vsigzip/")):
+            raise TilesMissing("There is no elevation map for this area yet.")
     ds = [rasterio.open(tile_path(root, src, la, lo)) for la, lo in tiles]
     arr, tr = merge(ds) if len(ds) > 1 else (ds[0].read(), ds[0].transform)
     nod = ds[0].nodata

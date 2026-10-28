@@ -160,6 +160,9 @@ commits `d294499`..`a39d85f` (slim images `onesrv-d294499`).
   during the crash loop and 0 once healthy.
 - Tasks HEALTHY on EC2 with `no-new-privileges`; `imageDigest` reported;
   registered memory 3579 MiB (507 MiB left); `runtime_platform` accepted.
+  Since 28/10/2026 the api task is 1500 MiB for the Hydrogeology reading, so
+  1500 + 1024 + 1024 leaves 31 MiB: any further memory needs t4g.large or a
+  smaller gateway/assistant limit (they use under 100 MiB each).
 - Smoke through CloudFront: gateway 401, `invitePreview` 200 through
   gateway → api → RDS (so 172.17.0.1:8081 works), cron 403 from the handler,
   `/graphql` and `/internal/*` 404 at the edge, cron GET 405 at the edge.

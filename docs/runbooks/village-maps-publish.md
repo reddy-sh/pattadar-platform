@@ -82,6 +82,31 @@ The script:
 - A parcel filed in a village with a shared name (e.g. MYLAVARAM, mandal
   Addanki) shows Addanki's plots.
 
+## Elevation tiles (Hydrogeology)
+
+The Hydrogeology reading (`services/api/src/terrain.py`) works out water flow
+for one parcel from four elevation maps. In AWS the api reads them from this
+same bucket, under `dem/{source}/{file}` (`TERRAIN_DEM_BUCKET`), fetches each
+tile it needs on first use and keeps it on its disk; `/vm/*` never serves that
+prefix. Publish once per data version (approval required):
+
+    BUCKET=$(terraform -chdir=infra/terraform/envs/prod/persistent output -raw village_maps_bucket_name)
+    python3 scripts/dem-publish.py --bucket "$BUCKET"            # dry run: tiles and GB per source
+    python3 scripts/dem-publish.py --bucket "$BUCKET" --execute
+
+Order: publish the tiles, then apply the runtime root, then release the api
+(an apply alone does not roll the running service). The default box is
+Andhra Pradesh (12–20°N, 76–84°E, about 3.7 GB). A parcel outside the
+published box answers "There is no elevation map for this area yet." as a
+failure, so Try again works once its tiles are published. A reading takes
+about 65 s at the api's CPU share, peaks near 0.95 GiB in a child process that
+exits after each reading (hence `api_task_memory = 1500`), and gives up after
+8 minutes.
+
+shortcut: the tile cache sits in the api container's writable layer, at most
+the published box (~3.7 GB of the host's 30 GB), refetched after each deploy;
+move it to a host volume or cap it before widening the box beyond a state.
+
 ## Roll back
 
 The bucket is versioned and keeps noncurrent versions for 90 days. To undo a

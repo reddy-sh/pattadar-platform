@@ -84,6 +84,13 @@ call: Hydrogeology on Maps reads the same `web.waterFlow` as a property's tab,
 for a parcel that is one of the signed-in owner's own properties, and Your
 properties draws the owner's existing property list.
 
+`web.waterFlow` itself runs inside the api: the first reading of a boundary
+fetches the elevation tiles it needs from the village-maps bucket's private
+`dem/` prefix (public open data; task-role read on `dem/*` only, plus
+ListBucket so a missing tile is a 404) into the task's disk, then computes in
+one low-priority child process and caches the answer in
+`terrain_parcel_result` (docs/specs/2026-10-13-water-flow-layer.md).
+
 ## Authentication and owner identity
 
 ```mermaid

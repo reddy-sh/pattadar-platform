@@ -2,6 +2,7 @@
 # (tests/ is copied by the `test` target alone, never the runtime image).
 *
 !requirements.txt
+!requirements-terrain.txt
 !requirements-dev.txt
 !data/
 !scripts/

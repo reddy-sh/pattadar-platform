@@ -55,6 +55,9 @@ module "runtime" {
 
   identity_legacy_bindings = var.identity_legacy_bindings
   admin_subject_ids        = var.admin_subject_ids
+  platform_admin_uids      = var.platform_admin_uids
+  super_admin_uids         = var.super_admin_uids
+  api_task_memory          = var.api_task_memory
   payments_mode            = var.payments_mode
   razorpay_live_confirmed  = var.razorpay_live_confirmed
   payment_secret_arns      = var.payment_secret_arns

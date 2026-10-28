@@ -63,6 +63,7 @@ async def database(monkeypatch, compute=fake_result):
                                kwargs={"autocommit": True, "row_factory": dict_row})
     old_pool, old_uid = w._pool, w._uid_of
     monkeypatch.setattr(t, "compute", compute)
+    monkeypatch.setattr(t, "SUBPROCESS", False)   # the stand-in cannot cross a process boundary
     monkeypatch.setattr(t, "dem_dir", lambda: "/elevation")
     monkeypatch.setattr(t, "_slot", None)
     try:
@@ -74,7 +75,7 @@ async def database(monkeypatch, compute=fake_result):
                 await conn.execute(stmt)
             await conn.execute("INSERT INTO passbooks VALUES ('pb-a','owner-a'),('pb-b','owner-b')")
             await conn.execute("INSERT INTO parcels VALUES ('rec-one','pb-a',%s),('rec-bare','pb-a','')", (RING,))
-            await conn.execute("INSERT INTO properties VALUES ('rec-flat','owner-a',%s)", (RING,))
+            await conn.execute("INSERT INTO properties VALUES ('rec-flat','owner-a',%s),('rec-two','owner-a',%s)", (RING, RING))
         yield pool
     finally:
         w.bind(old_pool, old_uid)
@@ -105,6 +106,45 @@ def test_parse_boundary_reads_both_formats_and_refuses_what_it_cannot_answer():
                      ("15.66,79.32;nan,79.33;15.67,79.33", "outside")]:
         with pytest.raises(ValueError, match=why):
             t.parse_boundary(bad)
+
+
+class FakeS3:
+    """boto3's S3 client, as far as _fetch_tile uses it."""
+    def __init__(self, tiles):
+        self.tiles, self.asked = tiles, []
+
+    def download_file(self, bucket, key, dest):
+        from botocore.exceptions import ClientError
+        self.asked.append((bucket, key))
+        if key not in self.tiles:
+            raise ClientError({"Error": {"Code": "404"}}, "HeadObject")
+        Path(dest).write_bytes(self.tiles[key])
+
+
+def test_in_aws_the_tiles_come_from_the_bucket_once_and_a_missing_one_says_so(monkeypatch, tmp_path):
+    import boto3
+    s3 = FakeS3({"dem/srtm/N15E079.hgt.gz": b"tile"})
+    monkeypatch.setattr(boto3, "client", lambda name, **k: s3)
+    monkeypatch.setenv(t.DEM_BUCKET_ENV, "pattadar-prod-vm-x")
+    monkeypatch.setenv(t.DEM_DIR_ENV, str(tmp_path))
+    root = t.dem_dir()
+    assert root == str(tmp_path)   # the cache, whether or not it holds anything yet
+    path = t.tile_path(root, "srtm", 15, 79).removeprefix("/vsigzip/")
+    assert t._fetch_tile(path) and Path(path).read_bytes() == b"tile"
+    assert t._fetch_tile(path)     # cached: the bucket is not asked again
+    assert s3.asked == [("pattadar-prod-vm-x", "dem/srtm/N15E079.hgt.gz")]
+    assert list(Path(path).parent.glob("*.part-*")) == []
+    gone = t.tile_path(root, "copernicus", 15, 79)
+    assert t._fetch_tile(gone) is False and not Path(gone).exists()
+
+
+def test_without_a_bucket_only_the_local_folder_counts(monkeypatch, tmp_path):
+    monkeypatch.delenv(t.DEM_BUCKET_ENV, raising=False)
+    monkeypatch.setenv(t.DEM_DIR_ENV, str(tmp_path))
+    assert t.dem_dir() is None                     # no srtm/ folder: "not installed"
+    (tmp_path / "srtm").mkdir()
+    assert t.dem_dir() == str(tmp_path)
+    assert t._fetch_tile(str(tmp_path / "srtm" / "N15E079.hgt.gz")) is False
 
 
 def test_a_reading_runs_once_in_the_background_and_is_then_served_from_cache(monkeypatch):
@@ -174,6 +214,9 @@ def test_failures_and_missing_inputs_say_why(monkeypatch):
     def no_tiles(ring, root):
         raise t.TerrainUnavailable("There is no elevation map for this area yet.")
 
+    def not_published_yet(ring, root):
+        raise t.TilesMissing("There is no elevation map for this area yet.")
+
     async def run():
         async with database(monkeypatch, broken) as pool:
             q = w.WebQuery()
@@ -204,6 +247,17 @@ def test_failures_and_missing_inputs_say_why(monkeypatch):
             await settle()
             gone = await q.water_flow("owner-a", "rec-flat")
             assert (gone.status, gone.reason) == ("unavailable", "There is no elevation map for this area yet.")
+
+            # A tile the bucket does not have yet is a failure Try again can clear once it is published.
+            monkeypatch.setattr(t, "compute", not_published_yet)
+            await q.water_flow("owner-a", "rec-two")
+            await settle()
+            early = await q.water_flow("owner-a", "rec-two")
+            assert (early.status, early.reason) == ("failed", "There is no elevation map for this area yet.")
+            monkeypatch.setattr(t, "compute", fake_result)
+            assert (await q.water_flow("owner-a", "rec-two", retry=True)).status == "computing"
+            await settle()
+            assert (await q.water_flow("owner-a", "rec-two")).status == "ready"
 
             monkeypatch.setattr(t, "dem_dir", lambda: None)
             nodata = await q.water_flow("owner-a", "rec-one")

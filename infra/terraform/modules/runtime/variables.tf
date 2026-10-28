@@ -75,6 +75,12 @@ variable "task_memory" {
   default     = 1024
 }
 
+variable "api_task_memory" {
+  description = "The api task's hard memory limit (MiB) when it must differ from task_memory: the Hydrogeology reading peaks at ~0.95 GiB in its child process. null = task_memory."
+  type        = number
+  default     = null
+}
+
 variable "desired_count" {
   description = "Desired task count per service."
   type        = number
@@ -242,6 +248,18 @@ variable "identity_legacy_bindings" {
 
 variable "admin_subject_ids" {
   description = "Immutable subject_ principal IDs allowed to administer models."
+  type        = list(string)
+  default     = []
+}
+
+variable "platform_admin_uids" {
+  description = "API uids (subject_ principals in AWS) bootstrapped as admins (PLATFORM_ADMIN_UIDS): the desk and the Administration rail group."
+  type        = list(string)
+  default     = []
+}
+
+variable "super_admin_uids" {
+  description = "API uids (subject_ principals in AWS) bootstrapped as super-admins (SUPER_ADMIN_UIDS): catalogue, compliance, Intelligence, geography."
   type        = list(string)
   default     = []
 }
